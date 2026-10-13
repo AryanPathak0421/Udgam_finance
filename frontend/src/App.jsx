@@ -1,0 +1,64 @@
+import { Routes, Route, Navigate } from 'react-router-dom';
+import { useAuth } from './context/AuthContext.jsx';
+import Login from './pages/Login.jsx';
+import Dashboard from './pages/Dashboard.jsx';
+import ModulePlaceholder from './pages/ModulePlaceholder.jsx';
+import CompanyProfile from './pages/adminMaster/CompanyProfile.jsx';
+import BranchMaster from './pages/adminMaster/BranchMaster.jsx';
+import FinancialYear from './pages/adminMaster/FinancialYear.jsx';
+import RankMaster from './pages/adminMaster/RankMaster.jsx';
+import UserMaster from './pages/adminMaster/UserMaster.jsx';
+import MenuPermission from './pages/adminMaster/MenuPermission.jsx';
+import CodeSequence from './pages/adminMaster/CodeSequence.jsx';
+import BankAccountMaster from './pages/adminMaster/BankAccountMaster.jsx';
+import Layout from './components/Layout.jsx';
+import { routableItems, canOpenPath } from './config/nav.js';
+
+// Pages that exist; every other nav path renders the placeholder.
+const PAGES = {
+  '/admin-master/company-profile': CompanyProfile,
+  '/admin-master/branches': BranchMaster,
+  '/admin-master/financial-years': FinancialYear,
+  '/admin-master/ranks': RankMaster,
+  '/admin-master/users': UserMaster,
+  '/admin-master/menu-permissions': MenuPermission,
+  '/admin-master/code-sequences': CodeSequence,
+  '/admin-master/bank-accounts': BankAccountMaster,
+};
+
+function RequireAuth({ children }) {
+  const { user, loading } = useAuth();
+  if (loading) return <div className="center-screen">Loading…</div>;
+  return user ? children : <Navigate to="/login" replace />;
+}
+
+function PublicOnly({ children }) {
+  const { user, loading } = useAuth();
+  if (loading) return <div className="center-screen">Loading…</div>;
+  return user ? <Navigate to="/" replace /> : children;
+}
+
+// Route-level guard mirrors sidebar visibility (the backend still enforces RBAC).
+function RequirePath({ path, children }) {
+  const { user } = useAuth();
+  return canOpenPath(user, path) ? children : <Navigate to="/" replace />;
+}
+
+const routes = routableItems().filter((i) => i.path !== '/');
+
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/login" element={<PublicOnly><Login /></PublicOnly>} />
+      <Route element={<RequireAuth><Layout /></RequireAuth>}>
+        <Route index element={<Dashboard />} />
+        <Route path="/admin-master" element={<Navigate to="/admin-master/company-profile" replace />} />
+        {routes.map((r) => {
+          const Page = PAGES[r.path] || ModulePlaceholder;
+          return <Route key={r.path} path={r.path} element={<RequirePath path={r.path}><Page /></RequirePath>} />;
+        })}
+      </Route>
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  );
+}

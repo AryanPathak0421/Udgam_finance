@@ -1,0 +1,88 @@
+import { Router } from 'express';
+import { requireAuth, requireRole } from '../middleware/auth.js';
+import { asyncHandler as h } from '../utils/http.js';
+import { getCompany, saveCompany } from '../controllers/companyController.js';
+import {
+  listBranches,
+  branchOptions,
+  getBranch,
+  createBranch,
+  updateBranch,
+  setBranchStatus,
+  deleteBranch,
+} from '../controllers/branchController.js';
+import {
+  listFinancialYears,
+  getActiveFinancialYear,
+  previewFinancialYear,
+  createFinancialYear,
+  updateFinancialYear,
+  activateFinancialYear,
+  deleteFinancialYear,
+} from '../controllers/financialYearController.js';
+import { listRanks, rankOptions, createRank, updateRank, setRankStatus, deleteRank } from '../controllers/rankController.js';
+import { listUsers, createUser, updateUser, setUserStatus, resetUserPassword } from '../controllers/userController.js';
+import { getCatalogue, getUserPermissions, saveUserPermissions } from '../controllers/menuPermissionController.js';
+import { listSequences, updateSequence } from '../controllers/codeSequenceController.js';
+import {
+  listBankAccounts,
+  createBankAccount,
+  updateBankAccount,
+  setBankAccountStatus,
+  deleteBankAccount,
+} from '../controllers/bankAccountController.js';
+import { getStates, getCities } from '../controllers/metaController.js';
+
+const router = Router();
+// Admin Master is configuration data: only super_admin/admin may view or change it.
+const adminOnly = [requireAuth, requireRole('super_admin', 'admin')];
+
+router.get('/meta/states', ...adminOnly, getStates);
+router.get('/meta/cities', ...adminOnly, getCities);
+
+router.get('/company', ...adminOnly, h(getCompany));
+router.put('/company', ...adminOnly, h(saveCompany));
+
+router.get('/branches', ...adminOnly, h(listBranches));
+router.get('/branches/options', ...adminOnly, h(branchOptions));
+router.post('/branches', ...adminOnly, h(createBranch));
+router.get('/branches/:id', ...adminOnly, h(getBranch));
+router.put('/branches/:id', ...adminOnly, h(updateBranch));
+router.patch('/branches/:id/status', ...adminOnly, h(setBranchStatus));
+router.delete('/branches/:id', ...adminOnly, h(deleteBranch));
+
+router.get('/financial-years', ...adminOnly, h(listFinancialYears));
+router.get('/financial-years/active', ...adminOnly, h(getActiveFinancialYear));
+router.get('/financial-years/preview', ...adminOnly, h(previewFinancialYear));
+router.post('/financial-years', ...adminOnly, h(createFinancialYear));
+router.put('/financial-years/:id', ...adminOnly, h(updateFinancialYear));
+router.patch('/financial-years/:id/activate', ...adminOnly, h(activateFinancialYear));
+router.delete('/financial-years/:id', ...adminOnly, h(deleteFinancialYear));
+
+router.get('/ranks', ...adminOnly, h(listRanks));
+router.get('/ranks/options', ...adminOnly, h(rankOptions));
+router.post('/ranks', ...adminOnly, h(createRank));
+router.put('/ranks/:id', ...adminOnly, h(updateRank));
+router.patch('/ranks/:id/status', ...adminOnly, h(setRankStatus));
+router.delete('/ranks/:id', ...adminOnly, h(deleteRank));
+
+router.get('/users', ...adminOnly, h(listUsers));
+router.post('/users', ...adminOnly, h(createUser));
+router.put('/users/:id', ...adminOnly, h(updateUser));
+router.patch('/users/:id/status', ...adminOnly, h(setUserStatus));
+router.patch('/users/:id/password', ...adminOnly, h(resetUserPassword));
+
+router.get('/menu-permissions/catalogue', ...adminOnly, getCatalogue);
+router.get('/menu-permissions/users/:id', ...adminOnly, h(getUserPermissions));
+router.put('/menu-permissions/users/:id', ...adminOnly, h(saveUserPermissions));
+
+router.get('/code-sequences', ...adminOnly, h(listSequences));
+router.put('/code-sequences/:type', ...adminOnly, h(updateSequence));
+
+router.get('/bank-accounts', ...adminOnly, h(listBankAccounts));
+router.post('/bank-accounts', ...adminOnly, h(createBankAccount));
+router.put('/bank-accounts/:id', ...adminOnly, h(updateBankAccount));
+router.patch('/bank-accounts/:id/status', ...adminOnly, h(setBankAccountStatus));
+router.delete('/bank-accounts/:id', ...adminOnly, h(deleteBankAccount));
+
+export default router;
