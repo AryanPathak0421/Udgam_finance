@@ -1,6 +1,7 @@
-// Dev: empty (Vite proxies /api). Production on a separate domain: set VITE_API_URL
-// to the API origin at build time, e.g. https://api.example.com
-const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+// Default: empty, so calls go to /api on the same origin (Vite proxy in dev, the
+// vercel.json rewrite in production) and the auth cookie stays first-party.
+// Only set VITE_API_BASE_URL to call an API on another domain directly.
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 
 async function request(path, { method = 'GET', body } = {}) {
   const res = await fetch(`${API_BASE}/api${path}`, {
