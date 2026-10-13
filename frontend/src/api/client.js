@@ -1,5 +1,9 @@
+// Dev: empty (Vite proxies /api). Production on a separate domain: set VITE_API_URL
+// to the API origin at build time, e.g. https://api.example.com
+const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+
 async function request(path, { method = 'GET', body } = {}) {
-  const res = await fetch(`/api${path}`, {
+  const res = await fetch(`${API_BASE}/api${path}`, {
     method,
     credentials: 'include',
     headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,

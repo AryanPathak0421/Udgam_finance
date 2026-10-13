@@ -4,10 +4,18 @@ import { User } from '../models/User.js';
 const MAX_ATTEMPTS = 5;
 const LOCK_MINUTES = 15;
 
+// Frontend and API on different sites (e.g. vercel.app + onrender.com) need
+// COOKIE_SAMESITE=none, which browsers only accept together with Secure.
+const sameSite = () => {
+  const v = (process.env.COOKIE_SAMESITE || 'lax').toLowerCase();
+  return ['lax', 'strict', 'none'].includes(v) ? v : 'lax';
+};
+const isSecure = () => process.env.NODE_ENV === 'production' || sameSite() === 'none';
+
 const cookieOptions = () => ({
   httpOnly: true,
-  sameSite: 'lax',
-  secure: process.env.NODE_ENV === 'production',
+  sameSite: sameSite(),
+  secure: isSecure(),
   maxAge: 24 * 60 * 60 * 1000,
 });
 
@@ -60,7 +68,7 @@ export async function login(req, res) {
 }
 
 export function logout(_req, res) {
-  res.clearCookie('token', { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production' });
+  res.clearCookie('token', { httpOnly: true, sameSite: sameSite(), secure: isSecure() });
   res.json({ message: 'Logged out' });
 }
 

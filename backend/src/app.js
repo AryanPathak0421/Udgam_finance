@@ -7,8 +7,26 @@ import adminMasterRoutes from './routes/adminMasterRoutes.js';
 
 const app = express();
 
+// Behind a proxy/load balancer (Render, Railway, Nginx…) so req.ip and secure cookies work.
+if (process.env.TRUST_PROXY) app.set('trust proxy', Number(process.env.TRUST_PROXY) || 1);
+
+// CLIENT_ORIGIN accepts one or more comma-separated origins (no trailing slash).
+const allowedOrigins = (process.env.CLIENT_ORIGIN || '')
+  .split(',')
+  .map((o) => o.trim().replace(/\/$/, ''))
+  .filter(Boolean);
+
 app.use(helmet());
-app.use(cors({ origin: process.env.CLIENT_ORIGIN, credentials: true }));
+app.use(
+  cors({
+    credentials: true,
+    origin(origin, cb) {
+      // No Origin header = same-origin or non-browser client (curl, health checks).
+      if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+      return cb(null, false);
+    },
+  })
+);
 // 1mb: the company stamp is sent as a small base64 image (capped at ~300 KB by validation).
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
