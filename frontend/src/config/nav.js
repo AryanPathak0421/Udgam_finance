@@ -29,6 +29,7 @@ export const NAV_SECTIONS = [
           { label: 'Commission Master', path: '/admin-master/commissions', icon: 'percent' },
           { label: 'Voucher Master', path: '/admin-master/vouchers', icon: 'ticket' },
           { label: 'Loan Calculator', path: '/admin-master/loan-calculator', icon: 'calculator' },
+          { label: 'Loan Scheme', path: '/admin-master/loan-schemes', icon: 'layers' },
         ],
       },
     ],
@@ -126,5 +127,6 @@ export function navForUser(user) {
       .map((i) => (i.children ? { ...i, children: i.children.filter((c) => canOpenPath(user, c.path)) } : i)),
   })).filter((s) => s.items.length > 0);
 }
+
 
 

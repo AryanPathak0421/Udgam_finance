@@ -1,4 +1,4 @@
-// Loan schedule engine. Pure functions, integer paise, no I/O — the Loans module will
+﻿// Loan schedule engine. Pure functions, integer paise, no I/O — the Loans module will
 // reuse this so the calculator screen and real loans always agree.
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -26,6 +26,9 @@ export const MODES = {
 };
 
 export const CALCULATION_TYPES = ['flat', 'reducing'];
+// equal: same installment every period (EMI). equal_principal: same principal every period,
+// interest on the outstanding balance, so installments decline. Only meaningful for reducing.
+export const EMI_TYPES = ['equal', 'equal_principal'];
 export const MAX_INSTALLMENTS = 1500;
 export const MAX_YEARS = 30;
 export const MIN_PER_INSTALLMENT = 100; // paise: at least ₹1 of principal per installment
@@ -35,11 +38,12 @@ export const MIN_PER_INSTALLMENT = 100; // paise: at least ₹1 of principal per
  * @param {number} p.principalPaise   loan amount, integer paise
  * @param {number} p.annualRateBp     annual interest rate in basis points (12.5% = 1250)
  * @param {'flat'|'reducing'} p.calculationType
+ * @param {'equal'|'equal_principal'} [p.emiType='equal']  installment pattern (reducing only)
  * @param {keyof MODES} p.mode        repayment frequency
  * @param {number} p.term             number of installments (days for daily, weeks for weekly …)
  * @param {Date} p.startDate          disbursement date (first due date is one period later)
  */
-export function calculateLoan({ principalPaise: P, annualRateBp: rBp, calculationType, mode, term: n, startDate }) {
+export function calculateLoan({ principalPaise: P, annualRateBp: rBp, calculationType, mode, term: n, startDate, emiType = 'equal' }) {
   const m = MODES[mode];
   const rows = [];
 
@@ -66,19 +70,23 @@ export function calculateLoan({ principalPaise: P, annualRateBp: rBp, calculatio
       rows.push({ no: k, principal: installment - interestPart, interest: interestPart, installment });
     }
   } else {
-    // Reducing balance: equal installments, interest charged on the outstanding balance.
+    // Reducing balance: interest is charged on the outstanding balance each period.
     const i = rBp / 10000 / m.perYear;
+    const equalPrincipal = emiType === 'equal_principal';
     const emi = i === 0 ? Math.round(P / n) : Math.round((P * i) / (1 - (1 + i) ** -n));
+    const prinBase = Math.floor(P / n);
     let balance = P;
     for (let k = 1; k <= n; k += 1) {
       const last = k === n;
       const interestPart = Math.round(balance * i);
-      const principal = last ? balance : Math.min(balance, Math.max(emi - interestPart, 0));
+      let principal;
+      if (last) principal = balance; // clears the balance exactly
+      else if (equalPrincipal) principal = Math.min(balance, prinBase);
+      else principal = Math.min(balance, Math.max(emi - interestPart, 0));
       balance -= principal;
       rows.push({ no: k, principal, interest: interestPart, installment: principal + interestPart, balance });
     }
   }
-
   // Running balance and due dates.
   let outstanding = P;
   const schedule = rows.map((r) => {
@@ -98,3 +106,4 @@ export function calculateLoan({ principalPaise: P, annualRateBp: rBp, calculatio
     schedule,
   };
 }
+

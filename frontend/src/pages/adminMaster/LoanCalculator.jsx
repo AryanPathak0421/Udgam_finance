@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '../../api/client.js';
 import FormField from '../../components/ui/FormField.jsx';
 import { ErrorState, PageHeader, Spinner } from '../../components/ui/Feedback.jsx';
@@ -7,6 +7,7 @@ import { formatDate, formatINR, todayIso } from '../../utils/format.js';
 
 const MONEY_RE = /^\d{1,12}(\.\d{1,2})?$/;
 const UNIT_PLURAL = { day: 'days', week: 'weeks', fortnight: 'fortnights', month: 'months', quarter: 'quarters', 'half-year': 'half-years', year: 'years' };
+const SECURITY_LABEL = { none: 'None', group_guarantee: 'Group guarantee', guarantor: 'Personal guarantor', fixed_deposit: 'Fixed deposit lien', gold: 'Gold', property: 'Property', vehicle: 'Vehicle' };
 
 function toCsv(result) {
   const head = ['No', 'Due date', 'Principal', 'Interest', 'Installment', 'Balance'];
@@ -17,9 +18,12 @@ function toCsv(result) {
 export default function LoanCalculator() {
   const toast = useToast();
   const [options, setOptions] = useState(null);
+  const [schemes, setSchemes] = useState([]);
   const [loadError, setLoadError] = useState('');
   const [form, setForm] = useState({
+    schemeId: '',
     calculationType: 'flat',
+    emiType: 'equal',
     mode: 'monthly',
     amount: '',
     rate: '',
@@ -31,16 +35,43 @@ export default function LoanCalculator() {
   const [result, setResult] = useState(null);
 
   useEffect(() => {
-    api.loanCalculator.options().then(setOptions).catch((err) => setLoadError(err.message));
+    Promise.all([api.loanCalculator.options(), api.loanSchemes.options()])
+      .then(([o, s]) => {
+        setOptions(o);
+        setSchemes(s.items);
+      })
+      .catch((err) => setLoadError(err.message));
   }, []);
 
-  const mode = options?.modes.find((m) => m.value === form.mode);
+  const scheme = schemes.find((s) => s.id === form.schemeId) || null;
+  const allowedModes = useMemo(
+    () => (options ? options.modes.filter((m) => !scheme || scheme.modes.includes(m.value)) : []),
+    [options, scheme]
+  );
+  const mode = allowedModes.find((m) => m.value === form.mode) || allowedModes[0];
   const unit = mode ? UNIT_PLURAL[mode.unit] : 'installments';
+  const calcType = scheme ? scheme.calculationType : form.calculationType;
+  const emiType = calcType === 'flat' ? 'equal' : scheme ? scheme.emiType : form.emiType;
 
   const set = (key) => (e) => {
     setForm((f) => ({ ...f, [key]: e.target.value }));
     setErrors((er) => ({ ...er, [key]: undefined }));
   };
+
+  // Choosing a scheme applies its rules: calculation, EMI type, and only its loan modes.
+  function chooseScheme(e) {
+    const id = e.target.value;
+    const s = schemes.find((x) => x.id === id);
+    setForm((f) => ({
+      ...f,
+      schemeId: id,
+      calculationType: s ? s.calculationType : f.calculationType,
+      emiType: s ? s.emiType : f.emiType,
+      mode: s && !s.modes.includes(f.mode) ? s.modes[0] : f.mode,
+    }));
+    setErrors({});
+    setResult(null);
+  }
 
   async function onSubmit(e) {
     e.preventDefault();
@@ -58,7 +89,17 @@ export default function LoanCalculator() {
 
     setCalculating(true);
     try {
-      setResult(await api.loanCalculator.calculate({ ...form, amount, rate, term: Number(term) }));
+      setResult(
+        await api.loanCalculator.calculate({
+          ...form,
+          calculationType: calcType,
+          emiType,
+          mode: mode.value,
+          amount,
+          rate,
+          term: Number(term),
+        })
+      );
     } catch (err) {
       setErrors(err.errors || {});
       toast.error(err.message);
@@ -81,6 +122,7 @@ export default function LoanCalculator() {
   if (!options) return <Spinner label="Loading calculator…" />;
 
   const s = result?.summary;
+  const declining = result?.input.emiType === 'equal_principal';
   const totals = result && {
     principal: result.schedule.reduce((a, r) => a + r.principal, 0),
     interest: result.schedule.reduce((a, r) => a + r.interest, 0),
@@ -91,21 +133,47 @@ export default function LoanCalculator() {
     <>
       <PageHeader
         title="Loan Calculator"
-        description="Work out the installment, total interest and repayment schedule for a loan, by calculation type and loan mode."
+        description="Work out the installment, total interest and repayment schedule, optionally under a loan scheme's rules."
       />
 
       <form className="panel" onSubmit={onSubmit} noValidate>
         <div className="form-grid calc-grid">
-          <FormField id="calculationType" label="Calculation type" required error={errors.calculationType}>
-            <select id="calculationType" value={form.calculationType} onChange={set('calculationType')}>
+          <FormField
+            id="schemeId"
+            label="Loan scheme (optional)"
+            error={errors.schemeId}
+            className="span-3"
+            hint={
+              scheme
+                ? `${scheme.name}: ₹${scheme.amountMin} – ₹${scheme.amountMax} · ${scheme.termMin}–${scheme.termMax} ${scheme.termUnit} · ROI ${scheme.roiMin}–${scheme.roiMax}% · age ${scheme.ageMin}–${scheme.ageMax}`
+                : 'Pick a scheme to apply its calculation type, loan modes and limits.'
+            }
+          >
+            <select id="schemeId" value={form.schemeId} onChange={chooseScheme}>
+              <option value="">No scheme — free calculation</option>
+              {schemes.map((x) => (
+                <option key={x.id} value={x.id}>{x.code} — {x.name}</option>
+              ))}
+            </select>
+          </FormField>
+
+          <FormField id="calculationType" label="Calculation type" required error={errors.calculationType} hint={scheme ? 'Set by the scheme' : undefined}>
+            <select id="calculationType" value={calcType} onChange={set('calculationType')} disabled={Boolean(scheme)}>
               {options.calculationTypes.map((t) => (
                 <option key={t.value} value={t.value}>{t.label}</option>
               ))}
             </select>
           </FormField>
+          <FormField id="emiType" label="EMI type" error={errors.emiType} hint={calcType === 'flat' ? 'Flat loans have equal installments' : scheme ? 'Set by the scheme' : undefined}>
+            <select id="emiType" value={emiType} onChange={set('emiType')} disabled={calcType === 'flat' || Boolean(scheme)}>
+              {options.emiTypes.map((t) => (
+                <option key={t.value} value={t.value}>{t.label}</option>
+              ))}
+            </select>
+          </FormField>
           <FormField id="mode" label="Loan mode" required error={errors.mode}>
-            <select id="mode" value={form.mode} onChange={set('mode')}>
-              {options.modes.map((m) => (
+            <select id="mode" value={mode?.value || ''} onChange={set('mode')}>
+              {allowedModes.map((m) => (
                 <option key={m.value} value={m.value}>{m.label}</option>
               ))}
             </select>
@@ -152,7 +220,7 @@ export default function LoanCalculator() {
           <section className="stat-grid" style={{ marginTop: 16 }}>
             <div className="stat-card">
               <div>
-                <div className="stat-label">{result.input.modeLabel} installment</div>
+                <div className="stat-label">{declining ? 'First installment' : `${result.input.modeLabel} installment`}</div>
                 <div className="stat-value">{formatINR(s.installmentAmount)}</div>
                 {s.lastInstallmentAmount !== s.installmentAmount && (
                   <div className="muted small">Last: {formatINR(s.lastInstallmentAmount)}</div>
@@ -179,13 +247,29 @@ export default function LoanCalculator() {
             </div>
           </section>
 
+          {result.charges && (
+            <div className="panel" style={{ marginTop: 16 }}>
+              <h3 style={{ margin: '0 0 10px' }}>
+                Scheme charges — {result.input.scheme.code} · {result.input.scheme.name}
+              </h3>
+              <div className="charge-row">
+                <div><span className="muted small">Processing fee</span><strong>{formatINR(result.charges.processingFee)}</strong></div>
+                <div><span className="muted small">Cost</span><strong>{formatINR(result.charges.cost)}</strong></div>
+                <div>
+                  <span className="muted small">Security ({SECURITY_LABEL[result.charges.securityType]})</span>
+                  <strong>{formatINR(result.charges.securityAmount)}</strong>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="panel" style={{ marginTop: 16 }}>
             <div className="calc-head">
               <div>
                 <h3 style={{ margin: 0 }}>Repayment schedule</h3>
                 <div className="muted small">
-                  {result.input.calculationType === 'flat' ? 'Flat' : 'Reducing balance'} · {formatINR(result.input.amount)} @ {result.input.rate}% p.a. ·{' '}
-                  {formatDate(s.firstDueDate)} to {formatDate(s.lastDueDate)}
+                  {result.input.calculationType === 'flat' ? 'Flat' : declining ? 'Reducing balance, equal principal' : 'Reducing balance, EMI'} ·{' '}
+                  {formatINR(result.input.amount)} @ {result.input.rate}% p.a. · {formatDate(s.firstDueDate)} to {formatDate(s.lastDueDate)}
                 </div>
               </div>
               <button className="btn" onClick={download}>Download CSV</button>

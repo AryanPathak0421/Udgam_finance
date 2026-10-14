@@ -349,3 +349,28 @@ a.btn { text-decoration: none; }
 .data-table tfoot td { padding: 12px; border-top: 2px solid var(--border); background: #f9fafb; }
 @media (max-width: 991px) { .calc-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 720px) { .calc-grid { grid-template-columns: 1fr; } .data-table tfoot { display: block; } .data-table tfoot tr { display: flex; flex-wrap: wrap; justify-content: space-between; } }
+
+/* ---------- Loan scheme form ---------- */
+.modal.xl { max-width: 980px; }
+.form-grid.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.form-grid.cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.form-grid .span-3 { grid-column: span 3; }
+.form-section { margin: 18px 0 2px; padding-bottom: 6px; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); border-bottom: 1px solid var(--border); }
+.form-section:first-child { margin-top: 4px; }
+.inline-pair { display: grid; grid-template-columns: 96px 1fr; gap: 8px; }
+.chip-row { display: flex; flex-wrap: wrap; gap: 8px; padding: 2px 0; }
+.chip-row.has-error { outline: 1px solid var(--danger); outline-offset: 4px; border-radius: 8px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; margin: 0; border: 1px solid #d5dae2; border-radius: 999px; background: #fff; font-size: 14px; font-weight: 500; cursor: pointer; }
+.chip.on { background: #e5f2f1; border-color: var(--primary); color: var(--primary-dark); font-weight: 600; }
+.chip input { width: 15px; height: 15px; padding: 0; accent-color: var(--primary); }
+.charge-row { display: flex; flex-wrap: wrap; gap: 28px; }
+.charge-row div { display: flex; flex-direction: column; gap: 2px; }
+.charge-row strong { font-size: 18px; }
+@media (max-width: 991px) {
+  .form-grid.cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .form-grid .span-3 { grid-column: span 2; }
+}
+@media (max-width: 720px) {
+  .form-grid.cols-3, .form-grid.cols-4 { grid-template-columns: 1fr; }
+  .form-grid .span-3 { grid-column: auto; }
+}

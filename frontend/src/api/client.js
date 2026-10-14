@@ -80,6 +80,14 @@ export const api = {
     setStatus: (id, isActive) => request(`${AM}/bank-accounts/${id}/status`, { method: 'PATCH', body: { isActive } }),
     remove: (id) => request(`${AM}/bank-accounts/${id}`, { method: 'DELETE' }),
   },
+  loanSchemes: {
+    list: (params) => request(`${AM}/loan-schemes${qs(params)}`),
+    options: () => request(`${AM}/loan-schemes/options`),
+    create: (data) => request(`${AM}/loan-schemes`, { method: 'POST', body: data }),
+    update: (id, data) => request(`${AM}/loan-schemes/${id}`, { method: 'PUT', body: data }),
+    setStatus: (id, isActive) => request(`${AM}/loan-schemes/${id}/status`, { method: 'PATCH', body: { isActive } }),
+    remove: (id) => request(`${AM}/loan-schemes/${id}`, { method: 'DELETE' }),
+  },
   loanCalculator: {
     options: () => request(`${AM}/loan-calculator/options`),
     calculate: (data) => request(`${AM}/loan-calculator`, { method: 'POST', body: data }),

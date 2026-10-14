@@ -40,6 +40,7 @@ import {
 } from '../controllers/commissionController.js';
 import { listVouchers, createVoucher, updateVoucher, setVoucherStatus, deleteVoucher } from '../controllers/voucherController.js';
 import { getLoanCalculatorOptions, runLoanCalculator } from '../controllers/loanCalculatorController.js';
+import { listSchemes, schemeOptions, createScheme, updateScheme, setSchemeStatus, deleteScheme } from '../controllers/loanSchemeController.js';
 import { getStates, getCities } from '../controllers/metaController.js';
 
 const router = Router();
@@ -109,9 +110,18 @@ router.patch('/vouchers/:id/status', ...adminOnly, h(setVoucherStatus));
 router.delete('/vouchers/:id', ...adminOnly, h(deleteVoucher));
 
 router.get('/loan-calculator/options', ...adminOnly, getLoanCalculatorOptions);
-router.post('/loan-calculator', ...adminOnly, runLoanCalculator);
+router.post('/loan-calculator', ...adminOnly, h(runLoanCalculator));
+
+router.get('/loan-schemes', ...adminOnly, h(listSchemes));
+router.get('/loan-schemes/options', ...adminOnly, h(schemeOptions));
+router.post('/loan-schemes', ...adminOnly, h(createScheme));
+router.put('/loan-schemes/:id', ...adminOnly, h(updateScheme));
+router.patch('/loan-schemes/:id/status', ...adminOnly, h(setSchemeStatus));
+router.delete('/loan-schemes/:id', ...adminOnly, h(deleteScheme));
 
 export default router;
+
+
 
 
 
