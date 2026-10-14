@@ -13,6 +13,8 @@ import UserMaster from './pages/adminMaster/UserMaster.jsx';
 import MenuPermission from './pages/adminMaster/MenuPermission.jsx';
 import CodeSequence from './pages/adminMaster/CodeSequence.jsx';
 import BankAccountMaster from './pages/adminMaster/BankAccountMaster.jsx';
+import CommissionMaster from './pages/adminMaster/CommissionMaster.jsx';
+import VoucherMaster from './pages/adminMaster/VoucherMaster.jsx';
 import Layout from './components/Layout.jsx';
 import { routableItems, canOpenPath } from './config/nav.js';
 
@@ -26,6 +28,8 @@ const PAGES = {
   '/admin-master/menu-permissions': MenuPermission,
   '/admin-master/code-sequences': CodeSequence,
   '/admin-master/bank-accounts': BankAccountMaster,
+  '/admin-master/commissions': CommissionMaster,
+  '/admin-master/vouchers': VoucherMaster,
 };
 
 function RequireAuth({ children }) {
@@ -66,4 +70,5 @@ export default function App() {
     </Routes>
   );
 }
+
 

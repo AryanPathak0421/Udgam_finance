@@ -1,4 +1,4 @@
-// Sidebar structure. `roles` omitted = visible to every signed-in role.
+﻿// Sidebar structure. `roles` omitted = visible to every signed-in role.
 // An item with `children` is an expandable group (its own path is not routable).
 // Role visibility mirrors the RBAC matrix in docs/UDGAM_ANALYSIS.md (section 8).
 const ALL_ADMIN = ['super_admin', 'admin'];
@@ -26,6 +26,8 @@ export const NAV_SECTIONS = [
           { label: 'Menu Permission', path: '/admin-master/menu-permissions', icon: 'key' },
           { label: 'Code Sequence', path: '/admin-master/code-sequences', icon: 'hash' },
           { label: 'Bank Account Master', path: '/admin-master/bank-accounts', icon: 'bank' },
+          { label: 'Commission Master', path: '/admin-master/commissions', icon: 'percent' },
+          { label: 'Voucher Master', path: '/admin-master/vouchers', icon: 'ticket' },
         ],
       },
     ],
@@ -123,3 +125,4 @@ export function navForUser(user) {
       .map((i) => (i.children ? { ...i, children: i.children.filter((c) => canOpenPath(user, c.path)) } : i)),
   })).filter((s) => s.items.length > 0);
 }
+

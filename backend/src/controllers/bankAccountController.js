@@ -2,20 +2,13 @@
 import { BankAccount } from '../models/BankAccount.js';
 import { Branch } from '../models/Branch.js';
 import { asString, createValidator, escapeRegex, parseDateOnly, parsePaging, HttpError } from '../utils/http.js';
+import { toMinor } from '../utils/money.js';
 import { audit } from '../utils/audit.js';
 
 const ACCOUNT_RE = /^\d{9,18}$/;
 const IFSC_RE = /^[A-Z]{4}0[A-Z0-9]{6}$/;
 const MAX_PAISE = 100_000_000_000 * 100; // 1,000 crore rupees
-
-// '50000.5' | 50000.46 -> integer paise. Rejects negatives, junk and more than 2 decimals
-// (no silent rounding of money). Done on the decimal string, so no float error.
-function toPaise(value) {
-  const str = typeof value === 'number' ? String(value) : typeof value === 'string' ? value.trim() : '';
-  const m = /^(\d{1,12})(?:\.(\d{1,2}))?$/.exec(str);
-  if (!m) return null;
-  return Number(m[1]) * 100 + Number((m[2] || '').padEnd(2, '0'));
-}
+const toPaise = toMinor;
 
 const present = (a) => ({
   id: a._id,

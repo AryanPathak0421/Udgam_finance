@@ -31,6 +31,14 @@ import {
   setBankAccountStatus,
   deleteBankAccount,
 } from '../controllers/bankAccountController.js';
+import {
+  listCommissions,
+  createCommission,
+  updateCommission,
+  setCommissionStatus,
+  deleteCommission,
+} from '../controllers/commissionController.js';
+import { listVouchers, createVoucher, updateVoucher, setVoucherStatus, deleteVoucher } from '../controllers/voucherController.js';
 import { getStates, getCities } from '../controllers/metaController.js';
 
 const router = Router();
@@ -87,5 +95,18 @@ router.put('/bank-accounts/:id', ...adminOnly, h(updateBankAccount));
 router.patch('/bank-accounts/:id/status', ...adminOnly, h(setBankAccountStatus));
 router.delete('/bank-accounts/:id', ...adminOnly, h(deleteBankAccount));
 
+router.get('/commissions', ...adminOnly, h(listCommissions));
+router.post('/commissions', ...adminOnly, h(createCommission));
+router.put('/commissions/:id', ...adminOnly, h(updateCommission));
+router.patch('/commissions/:id/status', ...adminOnly, h(setCommissionStatus));
+router.delete('/commissions/:id', ...adminOnly, h(deleteCommission));
+
+router.get('/vouchers', ...adminOnly, h(listVouchers));
+router.post('/vouchers', ...adminOnly, h(createVoucher));
+router.put('/vouchers/:id', ...adminOnly, h(updateVoucher));
+router.patch('/vouchers/:id/status', ...adminOnly, h(setVoucherStatus));
+router.delete('/vouchers/:id', ...adminOnly, h(deleteVoucher));
+
 export default router;
+
 

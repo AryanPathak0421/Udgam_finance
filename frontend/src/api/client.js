@@ -80,6 +80,20 @@ export const api = {
     setStatus: (id, isActive) => request(`${AM}/bank-accounts/${id}/status`, { method: 'PATCH', body: { isActive } }),
     remove: (id) => request(`${AM}/bank-accounts/${id}`, { method: 'DELETE' }),
   },
+  commissions: {
+    list: (params) => request(`${AM}/commissions${qs(params)}`),
+    create: (data) => request(`${AM}/commissions`, { method: 'POST', body: data }),
+    update: (id, data) => request(`${AM}/commissions/${id}`, { method: 'PUT', body: data }),
+    setStatus: (id, isActive) => request(`${AM}/commissions/${id}/status`, { method: 'PATCH', body: { isActive } }),
+    remove: (id) => request(`${AM}/commissions/${id}`, { method: 'DELETE' }),
+  },
+  vouchers: {
+    list: (params) => request(`${AM}/vouchers${qs(params)}`),
+    create: (data) => request(`${AM}/vouchers`, { method: 'POST', body: data }),
+    update: (id, data) => request(`${AM}/vouchers/${id}`, { method: 'PUT', body: data }),
+    setStatus: (id, isActive) => request(`${AM}/vouchers/${id}/status`, { method: 'PATCH', body: { isActive } }),
+    remove: (id) => request(`${AM}/vouchers/${id}`, { method: 'DELETE' }),
+  },
   branches: {
     options: () => request(`${AM}/branches/options`),
     list: (params) => request(`${AM}/branches${qs(params)}`),
