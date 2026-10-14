@@ -27,12 +27,14 @@ export const MENU_CATALOGUE = [
   { key: '/collections', label: 'Collections', group: 'Recovery' },
   { key: '/overdue', label: 'Overdue', group: 'Recovery' },
   { key: '/transactions', label: 'Transactions', group: 'Finance' },
+  { key: '/group-leader-commission', label: 'Group Leader Commission', group: 'Finance' },
   { key: '/reports', label: 'Reports', group: 'Finance' },
   { key: '/audit-logs', label: 'Audit Logs', group: 'System' },
   { key: '/settings', label: 'Settings', group: 'System', adminOnly: true },
 ];
 
 export const MENU_KEYS = new Set(MENU_CATALOGUE.map((m) => m.key));
+
 
 
 

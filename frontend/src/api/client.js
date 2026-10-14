@@ -46,6 +46,22 @@ export const api = {
     get: () => request(`${AM}/company`),
     save: (data) => request(`${AM}/company`, { method: 'PUT', body: data }),
   },
+  groups: {
+    list: (params) => request(`/groups${qs(params)}`),
+    branchOptions: () => request('/groups/branch-options'),
+    create: (data) => request('/groups', { method: 'POST', body: data }),
+    update: (id, data) => request(`/groups/${id}`, { method: 'PUT', body: data }),
+    setStatus: (id, isActive) => request(`/groups/${id}/status`, { method: 'PATCH', body: { isActive } }),
+    remove: (id) => request(`/groups/${id}`, { method: 'DELETE' }),
+    disbursements: (id) => request(`/groups/${id}/disbursements`),
+    saveDisbursement: (id, month, loans) => request(`/groups/${id}/disbursements`, { method: 'PUT', body: { month, loans } }),
+  },
+  groupCommission: {
+    report: (params) => request(`/group-leader-commission${qs(params)}`),
+    generate: () => request('/group-leader-commission/generate', { method: 'POST' }),
+    sendOtp: (id) => request(`/group-leader-commission/${id}/send-otp`, { method: 'POST' }),
+    verifyOtp: (id, otp) => request(`/group-leader-commission/${id}/verify-otp`, { method: 'POST', body: { otp } }),
+  },
   ranks: {
     list: (params) => request(`${AM}/ranks${qs(params)}`),
     options: () => request(`${AM}/ranks/options`),

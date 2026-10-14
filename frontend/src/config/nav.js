@@ -70,6 +70,7 @@ export const NAV_SECTIONS = [
     title: 'Finance',
     items: [
       { label: 'Transactions', path: '/transactions', icon: 'ledger', roles: [...MGMT, 'accountant', 'viewer'] },
+      { label: 'Group Leader Commission', path: '/group-leader-commission', icon: 'cash', roles: [...MGMT, 'accountant', 'viewer'] },
       { label: 'Reports', path: '/reports', icon: 'chart' },
     ],
   },
