@@ -7,7 +7,13 @@ const bankAccountSchema = new mongoose.Schema(
     bankName: { type: String, required: true, trim: true },
     ifsc: { type: String, uppercase: true, trim: true },
     address: { type: String, required: true, trim: true },
-    openingAmount: { type: Number, required: true, min: 0 },
+    // Money is stored as integer paise (never floats). The API exposes rupees.
+    openingAmountPaise: {
+      type: Number,
+      required: true,
+      min: 0,
+      validate: { validator: Number.isSafeInteger, message: 'Opening amount must be a whole number of paise' },
+    },
     openDate: { type: Date, required: true },
     branches: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Branch' }],
     isActive: { type: Boolean, default: true },

@@ -1,4 +1,4 @@
-import mongoose from 'mongoose';
+﻿import mongoose from 'mongoose';
 import { BankAccount } from '../models/BankAccount.js';
 import { Branch } from '../models/Branch.js';
 import { asString, createValidator, escapeRegex, parseDateOnly, parsePaging, HttpError } from '../utils/http.js';
@@ -6,7 +6,16 @@ import { audit } from '../utils/audit.js';
 
 const ACCOUNT_RE = /^\d{9,18}$/;
 const IFSC_RE = /^[A-Z]{4}0[A-Z0-9]{6}$/;
-const MAX_AMOUNT = 100_000_000_000;
+const MAX_PAISE = 100_000_000_000 * 100; // 1,000 crore rupees
+
+// '50000.5' | 50000.46 -> integer paise. Rejects negatives, junk and more than 2 decimals
+// (no silent rounding of money). Done on the decimal string, so no float error.
+function toPaise(value) {
+  const str = typeof value === 'number' ? String(value) : typeof value === 'string' ? value.trim() : '';
+  const m = /^(\d{1,12})(?:\.(\d{1,2}))?$/.exec(str);
+  if (!m) return null;
+  return Number(m[1]) * 100 + Number((m[2] || '').padEnd(2, '0'));
+}
 
 const present = (a) => ({
   id: a._id,
@@ -15,7 +24,7 @@ const present = (a) => ({
   bankName: a.bankName,
   ifsc: a.ifsc || '',
   address: a.address,
-  openingAmount: a.openingAmount,
+  openingAmount: a.openingAmountPaise / 100, // rupees; stored as integer paise
   openDate: a.openDate.toISOString().slice(0, 10),
   branches: (a.branches || []).map((b) => (b._id ? { id: b._id, code: b.code, name: b.name } : { id: b })),
   isActive: a.isActive,
@@ -33,7 +42,6 @@ async function validateAccount(b) {
     bankName: asString(b.bankName),
     ifsc: asString(b.ifsc).toUpperCase(),
     address: asString(b.address),
-    openingAmount: Number(b.openingAmount),
     openDate: parseDateOnly(b.openDate),
   };
   if (out.accountHolderName.length < 2 || out.accountHolderName.length > 100) v.add('accountHolderName', 'Account holder name must be 2–100 characters');
@@ -41,11 +49,9 @@ async function validateAccount(b) {
   if (out.bankName.length < 2 || out.bankName.length > 100) v.add('bankName', 'Bank name must be 2–100 characters');
   if (out.ifsc && !IFSC_RE.test(out.ifsc)) v.add('ifsc', 'Enter a valid IFSC (e.g. SBIN0001234)');
   if (out.address.length < 5 || out.address.length > 300) v.add('address', 'Address must be 5–300 characters');
-  if (b.openingAmount === '' || b.openingAmount === null || !Number.isFinite(out.openingAmount) || out.openingAmount < 0 || out.openingAmount > MAX_AMOUNT) {
-    v.add('openingAmount', 'Enter a valid amount (0 or more)');
-  } else {
-    out.openingAmount = Math.round(out.openingAmount * 100) / 100;
-  }
+  const paise = toPaise(b.openingAmount);
+  if (paise === null || paise > MAX_PAISE) v.add('openingAmount', 'Enter a valid amount (0 or more, up to 2 decimal places)');
+  else out.openingAmountPaise = paise;
   if (!out.openDate) v.add('openDate', 'Enter a valid open date');
 
   const raw = Array.isArray(b.branches) ? b.branches.map(String) : [];
@@ -137,3 +143,4 @@ export async function deleteBankAccount(req, res) {
   await audit(req, { action: 'bankAccount.delete', entity: 'BankAccount', entityId: acc._id, before });
   res.json({ message: 'Bank account deleted' });
 }
+

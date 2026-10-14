@@ -16,4 +16,12 @@ const codeSequenceSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Two sequences must never share a prefix (they could issue identical codes) or a name.
+// Enforced by the database so concurrent requests cannot slip past the app-level check.
+codeSequenceSchema.index({ prefix: 1 }, { unique: true });
+codeSequenceSchema.index(
+  { label: 1 },
+  { unique: true, collation: { locale: 'en', strength: 2 }, partialFilterExpression: { label: { $type: 'string' } } }
+);
+
 export const CodeSequence = mongoose.model('CodeSequence', codeSequenceSchema);

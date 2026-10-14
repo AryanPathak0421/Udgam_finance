@@ -11,16 +11,21 @@ export const formatCode = ({ prefix, padding }, n) => `${prefix}${String(n).padS
 // Makes sure the built-in sequences exist and are flagged as system sequences.
 export async function ensureDefaults() {
   await Promise.all(
-    Object.entries(SYSTEM_SEQUENCES).map(([type, d]) =>
-      CodeSequence.updateOne(
-        { type },
-        {
-          $setOnInsert: { type, prefix: d.prefix, padding: d.padding, nextNumber: d.nextNumber, issued: 0 },
-          $set: { label: d.label, isSystem: true },
-        },
-        { upsert: true }
-      )
-    )
+    Object.entries(SYSTEM_SEQUENCES).map(async ([type, d]) => {
+      try {
+        await CodeSequence.updateOne(
+          { type },
+          {
+            $setOnInsert: { type, prefix: d.prefix, padding: d.padding, nextNumber: d.nextNumber, issued: 0 },
+            $set: { label: d.label, isSystem: true },
+          },
+          { upsert: true }
+        );
+      } catch (err) {
+        // Two requests racing to create the same default: the other one won, that's fine.
+        if (err.code !== 11000) throw err;
+      }
+    })
   );
 }
 

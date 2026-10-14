@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+﻿import { useCallback, useEffect, useState } from 'react';
 import { api } from '../../api/client.js';
 import FormField from '../../components/ui/FormField.jsx';
 import Modal from '../../components/ui/Modal.jsx';
@@ -28,13 +28,12 @@ function BankForm({ initial, isEdit, branches, onClose, onSaved }) {
   async function submit(e) {
     e.preventDefault();
     const found = {};
-    const amount = Number(form.openingAmount);
     if (form.accountHolderName.trim().length < 2) found.accountHolderName = 'Account holder name is required';
     if (!/^\d{9,18}$/.test(form.accountNumber.trim())) found.accountNumber = 'Account number must be 9–18 digits';
     if (form.bankName.trim().length < 2) found.bankName = 'Bank name is required';
     if (form.ifsc && !IFSC_RE.test(form.ifsc.trim().toUpperCase())) found.ifsc = 'Enter a valid IFSC (e.g. SBIN0001234)';
     if (form.address.trim().length < 5) found.address = 'Address is required (min 5 characters)';
-    if (form.openingAmount === '' || !Number.isFinite(amount) || amount < 0) found.openingAmount = 'Enter an amount (0 or more)';
+    if (!/^\d{1,12}(\.\d{1,2})?$/.test(String(form.openingAmount).trim())) found.openingAmount = 'Enter an amount (0 or more, up to 2 decimals)';
     if (!form.openDate) found.openDate = 'Open date is required';
     if (!form.branches.length) found.branches = 'Select at least one branch';
     setErrors(found);
@@ -42,7 +41,8 @@ function BankForm({ initial, isEdit, branches, onClose, onSaved }) {
 
     setSaving(true);
     try {
-      const payload = { ...form, openingAmount: amount, ifsc: form.ifsc.trim().toUpperCase() };
+      // Sent as a string so the server converts to paise without float error.
+      const payload = { ...form, openingAmount: String(form.openingAmount).trim(), ifsc: form.ifsc.trim().toUpperCase() };
       if (isEdit) await api.bankAccounts.update(initial.id, payload);
       else await api.bankAccounts.create(payload);
       toast.success(isEdit ? 'Bank account updated' : 'Bank account added');
@@ -290,3 +290,4 @@ export default function BankAccountMaster() {
     </>
   );
 }
+

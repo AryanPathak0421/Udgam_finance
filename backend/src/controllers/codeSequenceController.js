@@ -39,6 +39,14 @@ function readFields(b, { withLabel }) {
   return out;
 }
 
+// Maps a duplicate-key error from the unique indexes to a field-level 409.
+function duplicateError(err) {
+  const key = Object.keys(err.keyPattern || {})[0];
+  if (key === 'label') return new HttpError(409, 'A sequence with this name already exists', { label: 'This name is already in use' });
+  if (key === 'type') return new HttpError(409, 'A sequence with this key already exists. Please try again.');
+  return new HttpError(409, 'This prefix is already used by another sequence', { prefix: 'Choose a different prefix' });
+}
+
 const slugify = (s) =>
   s
     .toLowerCase()
@@ -71,7 +79,13 @@ export async function createSequence(req, res) {
   let type = base;
   for (let n = 2; await CodeSequence.exists({ type }); n += 1) type = `${base}_${n}`;
 
-  const seq = await CodeSequence.create({ ...data, type, isSystem: false, issued: 0, updatedBy: req.user._id });
+  let seq;
+  try {
+    seq = await CodeSequence.create({ ...data, type, isSystem: false, issued: 0, updatedBy: req.user._id });
+  } catch (err) {
+    if (err.code === 11000) throw duplicateError(err);
+    throw err;
+  }
   await audit(req, { action: 'codeSequence.create', entity: 'CodeSequence', entityId: type, after: seq });
   res.status(201).json({ item: present(seq) });
 }
@@ -99,7 +113,12 @@ export async function updateSequence(req, res) {
 
   const before = current.toObject();
   Object.assign(current, { ...data, updatedBy: req.user._id });
-  await current.save();
+  try {
+    await current.save();
+  } catch (err) {
+    if (err.code === 11000) throw duplicateError(err);
+    throw err;
+  }
   await audit(req, { action: 'codeSequence.update', entity: 'CodeSequence', entityId: current.type, before, after: current });
   res.json({ item: present(current) });
 }
