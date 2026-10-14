@@ -1,16 +1,19 @@
 import mongoose from 'mongoose';
+import { ALL_TYPES } from '../config/commissionTypes.js';
 
-export const COMMISSION_FOR = ['employee', 'group_leader'];
+export const COMMISSION_FOR = ALL_TYPES;
 export const COMMISSION_TYPES = ['percentage', 'fixed'];
 
-// One commission slab. Employee commission is target-wise (a slab per target range);
-// group leader commission is per financial year.
+// One commission slab: what it is paid for, in which financial year, to which rank,
+// over which target range, and how much.
 const commissionSchema = new mongoose.Schema(
   {
     commissionFor: { type: String, enum: COMMISSION_FOR, required: true },
     financialYear: { type: mongoose.Schema.Types.ObjectId, ref: 'FinancialYear', required: true },
-    rank: { type: mongoose.Schema.Types.ObjectId, ref: 'Rank' }, // employee only; empty = all ranks
-    // Target range (paise, inclusive). Both empty = applies at any target.
+    rank: { type: mongoose.Schema.Types.ObjectId, ref: 'Rank' }, // empty = all ranks
+    // Target range, inclusive; both empty = applies at any target. The unit depends on the
+    // commission type (config/commissionTypes.js): paise for amount types, a plain count
+    // for count types. (Field names kept from the first version.)
     targetFromPaise: { type: Number, min: 0 },
     targetToPaise: { type: Number, min: 0 },
     commissionType: { type: String, enum: COMMISSION_TYPES, required: true },
