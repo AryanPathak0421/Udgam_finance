@@ -400,3 +400,7 @@ a.btn { text-decoration: none; }
 .gl-preview-inputs input { margin-top: 4px; padding: 8px 10px; font-size: 14px; }
 .data-table.compact td, .data-table.compact th { padding: 7px 10px; }
 .gl-rule { padding-top: 4px; }
+
+/* ---------- Commission form ---------- */
+.form-grid .span-3 { grid-column: span 3; }
+.modal.xl .chip-row { gap: 8px; }
