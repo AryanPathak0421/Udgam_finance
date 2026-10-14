@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../../api/client.js';
 import FormField from '../../components/ui/FormField.jsx';
 import Modal from '../../components/ui/Modal.jsx';
@@ -23,15 +23,19 @@ function makeHelpers(typeList, legacy) {
     isCount,
     label: (key) => meta(key)?.label || key,
     target: (c) =>
-      c.targetFrom === null
+      c.commissionFor === 'group_leader'
+        ? 'Per loan disbursed'
+        : c.targetFrom === null
         ? 'Any target'
         : isCount(c.commissionFor)
           ? `${c.targetFrom} – ${c.targetTo} ${COUNT_WORD[c.commissionFor] || ''}`.trim()
           : `${formatINR(c.targetFrom)} – ${formatINR(c.targetTo)}`,
     value: (c) =>
-      c.commissionType === 'percentage'
-        ? `${c.commissionValue}%`
-        : `${formatINR(c.commissionValue)}${isCount(c.commissionFor) ? ' each' : ''}`,
+      c.commissionFor === 'group_leader' && c.durationMonths
+        ? `${formatINR(c.commissionValue)} / loan / month × ${c.durationMonths} months${c.startDelayMonths === 0 ? '' : ' (from next month)'}`
+        : c.commissionType === 'percentage'
+          ? `${c.commissionValue}%`
+          : `${formatINR(c.commissionValue)}${isCount(c.commissionFor) ? ' each' : ''}`,
   };
 }
 
@@ -50,6 +54,88 @@ function TypeOptions({ types, legacyKey, includeLegacy }) {
   );
 }
 
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const monthLabel = (ym) => `${MONTH_NAMES[Number(ym.slice(5, 7)) - 1]} ${ym.slice(0, 4)}`;
+
+// "What would the group leader earn?" — runs the real calculation on the server.
+function GroupLeaderPreview({ amount, durationMonths, startDelayMonths }) {
+  const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [loans, setLoans] = useState('1');
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    const a = String(amount).trim();
+    const m = Number(durationMonths);
+    const n = Number(loans);
+    if (!MONEY_RE.test(a) || Number(a) <= 0 || !Number.isInteger(m) || m < 1 || m > 36 || !/^\d+$/.test(String(loans)) || !month) {
+      setResult(null);
+      setError('');
+      return undefined;
+    }
+    let live = true;
+    const t = setTimeout(() => {
+      api.commissions
+        .previewGroupLeader({ amount: a, durationMonths: m, startDelayMonths, disbursements: [{ month, loans: n }] })
+        .then((r) => live && (setResult(r), setError('')))
+        .catch((err) => live && (setResult(null), setError(err.message)));
+    }, 300);
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
+  }, [amount, durationMonths, startDelayMonths, month, loans]);
+
+  return (
+    <div className="gl-preview">
+      <div className="gl-preview-head">
+        <strong>Preview</strong>
+        <span className="muted small">Loans disbursed in one month, in one group</span>
+      </div>
+      <div className="gl-preview-inputs">
+        <label>
+          Disbursement month
+          <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
+        </label>
+        <label>
+          Loans disbursed
+          <input inputMode="numeric" value={loans} onChange={(e) => setLoans(e.target.value)} />
+        </label>
+      </div>
+      {error && <div className="field-error">{error}</div>}
+      {!result && !error && <div className="muted small">Enter the amount and duration to see the monthly commission.</div>}
+      {result && (
+        <>
+          <div className="table-wrap">
+            <table className="data-table compact">
+              <thead>
+                <tr><th>Month</th><th className="num">Loans</th><th className="num">Commission</th></tr>
+              </thead>
+              <tbody>
+                <tr className="muted">
+                  <td>{month ? monthLabel(month) : ''} (disbursement)</td>
+                  <td className="num">{loans}</td>
+                  <td className="num">{startDelayMonths === 1 ? formatINR(0) : '—'}</td>
+                </tr>
+                {result.months.map((m) => (
+                  <tr key={m.month}>
+                    <td>{monthLabel(m.month)}</td>
+                    <td className="num">{m.eligibleLoans}</td>
+                    <td className="num">{formatINR(m.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr><td colSpan={2}><strong>Total</strong></td><td className="num"><strong>{formatINR(result.total)}</strong></td></tr>
+              </tfoot>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function CommissionForm({ item, types, legacy, years, ranks, helpers, onClose, onSaved }) {
   const toast = useToast();
   const isEdit = Boolean(item);
@@ -63,10 +149,14 @@ function CommissionForm({ item, types, legacy, years, ranks, helpers, onClose, o
     targetTo: item?.targetTo === null || item?.targetTo === undefined ? '' : String(item.targetTo),
     commissionType: item?.commissionType || 'percentage',
     commissionValue: item ? String(item.commissionValue) : '',
+    // Group leader rule
+    durationMonths: item?.durationMonths ? String(item.durationMonths) : '4',
+    startDelayMonths: item?.startDelayMonths === 0 ? 0 : 1,
   });
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
   const count = helpers.isCount(form.commissionFor);
+  const isGL = form.commissionFor === 'group_leader';
   const word = COUNT_WORD[form.commissionFor] || 'units';
 
   const set = (key) => (e) => {
@@ -75,7 +165,11 @@ function CommissionForm({ item, types, legacy, years, ranks, helpers, onClose, o
   };
   const onTypeChange = (e) => {
     const next = e.target.value;
-    setForm((f) => ({ ...f, commissionFor: next, commissionType: helpers.isCount(next) ? 'fixed' : f.commissionType }));
+    setForm((f) => ({
+      ...f,
+      commissionFor: next,
+      commissionType: helpers.isCount(next) || next === 'group_leader' ? 'fixed' : f.commissionType,
+    }));
     setErrors((er) => ({ ...er, commissionFor: undefined }));
   };
 
@@ -87,10 +181,15 @@ function CommissionForm({ item, types, legacy, years, ranks, helpers, onClose, o
     const valid = (x) => (count ? COUNT_RE.test(x) : MONEY_RE.test(x));
     if (!form.commissionFor) found.commissionFor = 'Select what this commission is for';
     if (!form.financialYear) found.financialYear = 'Select a financial year';
-    if (Boolean(from) !== Boolean(to)) found[from ? 'targetTo' : 'targetFrom'] = 'Enter both, or leave both empty';
-    if (from && !valid(from)) found.targetFrom = count ? 'Whole number' : 'Invalid amount (up to 2 decimals)';
-    if (to && !valid(to)) found.targetTo = count ? 'Whole number' : 'Invalid amount (up to 2 decimals)';
-    if (!found.targetFrom && !found.targetTo && from && to && Number(to) < Number(from)) found.targetTo = 'Must not be less than the start';
+    if (!isGL) {
+      if (Boolean(from) !== Boolean(to)) found[from ? 'targetTo' : 'targetFrom'] = 'Enter both, or leave both empty';
+      if (from && !valid(from)) found.targetFrom = count ? 'Whole number' : 'Invalid amount (up to 2 decimals)';
+      if (to && !valid(to)) found.targetTo = count ? 'Whole number' : 'Invalid amount (up to 2 decimals)';
+      if (!found.targetFrom && !found.targetTo && from && to && Number(to) < Number(from)) found.targetTo = 'Must not be less than the start';
+    } else {
+      const m = Number(form.durationMonths);
+      if (!Number.isInteger(m) || m < 1 || m > 36) found.durationMonths = 'Whole months, 1 to 36';
+    }
     const value = form.commissionValue.trim();
     if (!MONEY_RE.test(value) || Number(value) <= 0) found.commissionValue = 'Enter a value greater than 0 (up to 2 decimals)';
     else if (form.commissionType === 'percentage' && Number(value) > 100) found.commissionValue = 'Percentage cannot exceed 100';
@@ -99,7 +198,17 @@ function CommissionForm({ item, types, legacy, years, ranks, helpers, onClose, o
 
     setSaving(true);
     try {
-      const payload = { ...form, targetFrom: from, targetTo: to, commissionValue: value };
+      const payload = isGL
+        ? {
+            commissionFor: 'group_leader',
+            financialYear: form.financialYear,
+            rank: form.rank,
+            commissionType: 'fixed',
+            commissionValue: value,
+            durationMonths: Number(form.durationMonths),
+            startDelayMonths: form.startDelayMonths,
+          }
+        : { ...form, targetFrom: from, targetTo: to, commissionValue: value };
       if (isEdit) await api.commissions.update(item.id, payload);
       else await api.commissions.create(payload);
       toast.success(isEdit ? 'Commission updated' : 'Commission added');
@@ -159,32 +268,77 @@ function CommissionForm({ item, types, legacy, years, ranks, helpers, onClose, o
           </select>
         </FormField>
 
-        <FormField
-          id="targetFrom"
-          label={count ? `Target from (no. of ${word})` : 'Target from (₹)'}
-          error={errors.targetFrom}
-          hint="Leave both target fields empty to apply at any target"
-        >
-          <input id="targetFrom" inputMode={count ? 'numeric' : 'decimal'} value={form.targetFrom} onChange={set('targetFrom')} placeholder={count ? 'e.g. 1' : 'e.g. 0'} />
-        </FormField>
-        <FormField id="targetTo" label={count ? `Target to (no. of ${word})` : 'Target to (₹)'} error={errors.targetTo}>
-          <input id="targetTo" inputMode={count ? 'numeric' : 'decimal'} value={form.targetTo} onChange={set('targetTo')} placeholder={count ? 'e.g. 10' : 'e.g. 100000'} />
-        </FormField>
+        {isGL ? (
+          <>
+            <FormField
+              id="commissionValue"
+              label="Commission per loan, per month (₹)"
+              required
+              error={errors.commissionValue}
+              hint="Paid to the group leader for every loan disbursed in the group"
+            >
+              <input id="commissionValue" inputMode="decimal" value={form.commissionValue} onChange={set('commissionValue')} placeholder="e.g. 25" />
+            </FormField>
+            <FormField
+              id="durationMonths"
+              label="Commission duration (months)"
+              required
+              error={errors.durationMonths}
+              hint="How many months each loan earns commission"
+            >
+              <input id="durationMonths" inputMode="numeric" value={form.durationMonths} onChange={set('durationMonths')} />
+            </FormField>
+            <div className="span-2">
+              <label className="check-row">
+                <input
+                  type="checkbox"
+                  checked={form.startDelayMonths === 1}
+                  onChange={(e) => setForm((f) => ({ ...f, startDelayMonths: e.target.checked ? 1 : 0 }))}
+                />
+                <span>
+                  <strong>No commission in the disbursement month</strong>
+                  <small className="muted">Commission starts from the month after the loan is disbursed</small>
+                </span>
+              </label>
+            </div>
+            <div className="span-2">
+              <GroupLeaderPreview
+                amount={form.commissionValue}
+                durationMonths={form.durationMonths}
+                startDelayMonths={form.startDelayMonths}
+              />
+            </div>
+          </>
+        ) : (
+          <>
+            <FormField
+              id="targetFrom"
+              label={count ? `Target from (no. of ${word})` : 'Target from (₹)'}
+              error={errors.targetFrom}
+              hint="Leave both target fields empty to apply at any target"
+            >
+              <input id="targetFrom" inputMode={count ? 'numeric' : 'decimal'} value={form.targetFrom} onChange={set('targetFrom')} placeholder={count ? 'e.g. 1' : 'e.g. 0'} />
+            </FormField>
+            <FormField id="targetTo" label={count ? `Target to (no. of ${word})` : 'Target to (₹)'} error={errors.targetTo}>
+              <input id="targetTo" inputMode={count ? 'numeric' : 'decimal'} value={form.targetTo} onChange={set('targetTo')} placeholder={count ? 'e.g. 10' : 'e.g. 100000'} />
+            </FormField>
 
-        <FormField id="commissionType" label="Commission type" required error={errors.commissionType} hint={count ? `A fixed amount for each ${word.replace(/s$/, '')}` : undefined}>
-          <select id="commissionType" value={form.commissionType} onChange={set('commissionType')} disabled={count}>
-            <option value="percentage">Percentage (%)</option>
-            <option value="fixed">Fixed amount (₹)</option>
-          </select>
-        </FormField>
-        <FormField
-          id="commissionValue"
-          label={form.commissionType === 'percentage' ? 'Commission (%)' : 'Commission amount (₹)'}
-          required
-          error={errors.commissionValue}
-        >
-          <input id="commissionValue" inputMode="decimal" value={form.commissionValue} onChange={set('commissionValue')} />
-        </FormField>
+            <FormField id="commissionType" label="Commission type" required error={errors.commissionType} hint={count ? `A fixed amount for each ${word.replace(/s$/, '')}` : undefined}>
+              <select id="commissionType" value={form.commissionType} onChange={set('commissionType')} disabled={count}>
+                <option value="percentage">Percentage (%)</option>
+                <option value="fixed">Fixed amount (₹)</option>
+              </select>
+            </FormField>
+            <FormField
+              id="commissionValue"
+              label={form.commissionType === 'percentage' ? 'Commission (%)' : 'Commission amount (₹)'}
+              required
+              error={errors.commissionValue}
+            >
+              <input id="commissionValue" inputMode="decimal" value={form.commissionValue} onChange={set('commissionValue')} />
+            </FormField>
+          </>
+        )}
       </form>
     </Modal>
   );
@@ -198,6 +352,8 @@ const newRow = (prev, count) => {
     targetTo: '',
     commissionType: count ? 'fixed' : prev?.commissionType || 'percentage',
     commissionValue: '',
+    durationMonths: '4',
+    startDelayMonths: 1,
     isActive: true,
   };
 };
@@ -217,6 +373,7 @@ function ScopeEditor({ initial, types, legacy, years, ranks, helpers, onClose, o
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState({});
   const count = helpers.isCount(scope.commissionFor);
+  const isGL = scope.commissionFor === 'group_leader';
   const word = COUNT_WORD[scope.commissionFor] || 'units';
   const numRe = count ? COUNT_RE : MONEY_RE;
 
@@ -241,6 +398,8 @@ function ScopeEditor({ initial, types, legacy, years, ranks, helpers, onClose, o
             targetTo: c.targetTo === null ? '' : String(c.targetTo),
             commissionType: c.commissionType,
             commissionValue: String(c.commissionValue),
+            durationMonths: c.durationMonths ? String(c.durationMonths) : '4',
+            startDelayMonths: c.startDelayMonths === 0 ? 0 : 1,
             isActive: c.isActive,
           }));
         setRows(mine);
@@ -260,6 +419,17 @@ function ScopeEditor({ initial, types, legacy, years, ranks, helpers, onClose, o
 
   function localCheck() {
     const found = {};
+    if (isGL) {
+      if (rows.length > 1) found.slabs = 'A group leader has one commission rule per financial year and rank';
+      rows.forEach((r, i) => {
+        const k = (f) => `slabs.${i}.${f}`;
+        const val = r.commissionValue.trim();
+        if (!MONEY_RE.test(val) || Number(val) <= 0) found[k('commissionValue')] = 'Enter the amount per loan';
+        const m = Number(r.durationMonths);
+        if (!Number.isInteger(m) || m < 1 || m > 36) found[k('durationMonths')] = 'Whole months, 1 to 36';
+      });
+      return found;
+    }
     rows.forEach((r, i) => {
       const k = (f) => `slabs.${i}.${f}`;
       const from = r.targetFrom.trim();
@@ -293,14 +463,25 @@ function ScopeEditor({ initial, types, legacy, years, ranks, helpers, onClose, o
     try {
       await api.commissions.saveScope({
         ...scope,
-        slabs: rows.map((r) => ({
-          id: r.id || undefined,
-          targetFrom: r.targetFrom.trim(),
-          targetTo: r.targetTo.trim(),
-          commissionType: r.commissionType,
-          commissionValue: r.commissionValue.trim(),
-          isActive: r.isActive,
-        })),
+        slabs: rows.map((r) =>
+          isGL
+            ? {
+                id: r.id || undefined,
+                commissionType: 'fixed',
+                commissionValue: r.commissionValue.trim(),
+                durationMonths: Number(r.durationMonths),
+                startDelayMonths: r.startDelayMonths,
+                isActive: r.isActive,
+              }
+            : {
+                id: r.id || undefined,
+                targetFrom: r.targetFrom.trim(),
+                targetTo: r.targetTo.trim(),
+                commissionType: r.commissionType,
+                commissionValue: r.commissionValue.trim(),
+                isActive: r.isActive,
+              }
+        ),
       });
       toast.success('Commission slabs saved');
       onSaved();
@@ -352,12 +533,47 @@ function ScopeEditor({ initial, types, legacy, years, ranks, helpers, onClose, o
 
       {errors.slabs && <div className="alert" role="alert" style={{ marginTop: 12 }}>{errors.slabs}</div>}
       <p className="muted small" style={{ margin: '12px 0 6px' }}>
-        All rows are saved together, so boundaries can be shifted freely. Rows you remove are deleted when you save.
-        {count ? ` Targets are number of ${word}; commission is a fixed amount for each.` : ' Leave both targets empty for a rule that applies at any target.'}
+        {isGL
+          ? 'A group leader earns a fixed amount for every loan disbursed in the group, every month for the duration below.'
+          : `All rows are saved together, so boundaries can be shifted freely. Rows you remove are deleted when you save.${
+              count ? ` Targets are number of ${word}; commission is a fixed amount for each.` : ' Leave both targets empty for a rule that applies at any target.'
+            }`}
       </p>
 
       {loading ? (
         <Spinner label="Loading slabs…" />
+      ) : isGL ? (
+        <div className="gl-rule">
+          {rows.length === 0 ? (
+            <button className="btn" onClick={() => setRows([newRow(null, false)])}>+ Add rule</button>
+          ) : (
+            rows.map((r, i) => (
+              <div key={r.id || 'new'} className="form-grid">
+                <FormField id="glAmount" label="Commission per loan, per month (₹)" required error={err(i, 'commissionValue')}>
+                  <input id="glAmount" inputMode="decimal" value={r.commissionValue} onChange={(e) => setRow(i, 'commissionValue', e.target.value)} placeholder="e.g. 25" />
+                </FormField>
+                <FormField id="glMonths" label="Commission duration (months)" required error={err(i, 'durationMonths')}>
+                  <input id="glMonths" inputMode="numeric" value={r.durationMonths} onChange={(e) => setRow(i, 'durationMonths', e.target.value)} />
+                </FormField>
+                <div className="span-2">
+                  <label className="check-row">
+                    <input type="checkbox" checked={r.startDelayMonths === 1} onChange={(e) => setRow(i, 'startDelayMonths', e.target.checked ? 1 : 0)} />
+                    <span>
+                      <strong>No commission in the disbursement month</strong>
+                      <small className="muted">Commission starts from the month after the loan is disbursed</small>
+                    </span>
+                  </label>
+                </div>
+                <div className="span-2">
+                  <GroupLeaderPreview amount={r.commissionValue} durationMonths={r.durationMonths} startDelayMonths={r.startDelayMonths} />
+                </div>
+                <div className="span-2">
+                  <button className="btn sm danger-outline" onClick={() => setRows([])}>Remove rule</button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
       ) : (
         <div className="table-wrap">
           <table className="data-table slab-table">
@@ -407,7 +623,7 @@ function ScopeEditor({ initial, types, legacy, years, ranks, helpers, onClose, o
         </div>
       )}
 
-      {!loading && (
+      {!loading && !isGL && (
         <button className="btn" style={{ marginTop: 12 }} onClick={() => setRows((rs) => [...rs, newRow(rs[rs.length - 1], count)])}>
           + Add slab
         </button>
@@ -620,3 +836,5 @@ export default function CommissionMaster() {
     </>
   );
 }
+
+

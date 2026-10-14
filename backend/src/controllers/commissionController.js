@@ -1,4 +1,4 @@
-import mongoose from 'mongoose';
+﻿import mongoose from 'mongoose';
 import { Commission, COMMISSION_FOR, COMMISSION_TYPES } from '../models/Commission.js';
 import { FinancialYear } from '../models/FinancialYear.js';
 import { Rank } from '../models/Rank.js';
@@ -6,6 +6,7 @@ import { COMMISSION_TYPE_LIST, LEGACY_COMMISSION_TYPE, SELECTABLE_TYPES, typeMet
 import { createValidator, parsePaging, HttpError } from '../utils/http.js';
 import { toMinor } from '../utils/money.js';
 import { audit } from '../utils/audit.js';
+import { generateGroupLeaderCommission, parseMonth } from '../services/groupLeaderCommission.js';
 
 const MAX_PAISE = 100_000_000_000 * 100; // 1,000 crore rupees
 const MAX_COUNT = 1_000_000;
@@ -35,6 +36,9 @@ const present = (c) => ({
   commissionType: c.commissionType,
   // percentage is returned as a percent (2.5), fixed as rupees.
   commissionValue: c.commissionValue / 100,
+  // Group leader rule only (null for other types).
+  durationMonths: c.durationMonths ?? null,
+  startDelayMonths: c.startDelayMonths ?? null,
   isActive: c.isActive,
   createdAt: c.createdAt,
   updatedAt: c.updatedAt,
@@ -51,6 +55,25 @@ const isBlank = (x) => x === undefined || x === null || String(x).trim() === '';
 function readSlabFields(raw, commissionFor, v, k = (f) => f) {
   const out = {};
   const count = unitOf(commissionFor) === 'count';
+
+  if (commissionFor === 'group_leader') {
+    // A per-loan monthly rule: a fixed amount for every loan disbursed in the group, paid for
+    // `durationMonths` months, starting next month. There is no target range.
+    out.commissionType = 'fixed';
+    const amount = toMinor(raw.commissionValue);
+    if (amount === null || amount < 1 || amount > MAX_PAISE) {
+      v.add(k('commissionValue'), 'Enter the amount per loan per month (more than 0, up to 2 decimals)');
+    } else out.commissionValue = amount;
+
+    const months = Number(raw.durationMonths);
+    if (!Number.isInteger(months) || months < 1 || months > 36) v.add(k('durationMonths'), 'Enter whole months from 1 to 36');
+    else out.durationMonths = months;
+
+    const delay = isBlank(raw.startDelayMonths) ? 1 : Number(raw.startDelayMonths);
+    if (![0, 1].includes(delay)) v.add(k('startDelayMonths'), 'Choose the disbursement month or the next month');
+    else out.startDelayMonths = delay;
+    return out;
+  }
 
   const hasFrom = !isBlank(raw.targetFrom);
   const hasTo = !isBlank(raw.targetTo);
@@ -183,6 +206,8 @@ export async function updateCommission(req, res) {
   doc.targetToPaise = data.targetToPaise;
   doc.commissionType = data.commissionType;
   doc.commissionValue = data.commissionValue;
+  doc.durationMonths = data.durationMonths;
+  doc.startDelayMonths = data.startDelayMonths;
   doc.updatedBy = req.user._id;
   await doc.save();
   await doc.populate(POPULATE);
@@ -273,11 +298,17 @@ export async function saveCommissionScope(req, res) {
       set.targetFromPaise = p.targetFromPaise;
       set.targetToPaise = p.targetToPaise;
     }
+    const unset = {};
+    if (!hasRange) Object.assign(unset, { targetFromPaise: '', targetToPaise: '' });
+    if (p.durationMonths !== undefined) {
+      set.durationMonths = p.durationMonths;
+      set.startDelayMonths = p.startDelayMonths;
+    } else Object.assign(unset, { durationMonths: '', startDelayMonths: '' });
     if (p.id) {
       ops.push({
         updateOne: {
           filter: { _id: p.id },
-          update: { $set: set, ...(hasRange ? {} : { $unset: { targetFromPaise: '', targetToPaise: '' } }) },
+          update: { $set: set, ...(Object.keys(unset).length ? { $unset: unset } : {}) },
         },
       });
     } else {
@@ -290,6 +321,7 @@ export async function saveCommissionScope(req, res) {
             ...(hasRange ? { targetFromPaise: p.targetFromPaise, targetToPaise: p.targetToPaise } : {}),
             commissionType: p.commissionType,
             commissionValue: p.commissionValue,
+            ...(p.durationMonths !== undefined ? { durationMonths: p.durationMonths, startDelayMonths: p.startDelayMonths } : {}),
             isActive: p.isActive,
             createdBy: req.user._id,
             updatedBy: req.user._id,
@@ -314,4 +346,49 @@ export async function saveCommissionScope(req, res) {
     after: { count: fresh.length },
   });
   res.json({ items: fresh.map(present) });
+}
+
+
+/**
+ * Shows what a group leader would earn under a rule, for loans disbursed in given months.
+ * Uses the same engine the monthly report will use, so the preview is the real calculation.
+ *
+ * body: { amount, durationMonths, startDelayMonths?, disbursements: [{ month: 'YYYY-MM', loans }] }
+ */
+export function previewGroupLeaderCommission(req, res) {
+  const b = req.body || {};
+  const v = createValidator();
+
+  const amountPaise = toMinor(b.amount);
+  if (amountPaise === null || amountPaise < 1 || amountPaise > MAX_PAISE) v.add('amount', 'Enter the amount per loan per month (more than 0, up to 2 decimals)');
+
+  const durationMonths = Number(b.durationMonths);
+  if (!Number.isInteger(durationMonths) || durationMonths < 1 || durationMonths > 36) v.add('durationMonths', 'Enter whole months from 1 to 36');
+
+  const delay = isBlank(b.startDelayMonths) ? 1 : Number(b.startDelayMonths);
+  if (![0, 1].includes(delay)) v.add('startDelayMonths', 'Choose the disbursement month or the next month');
+
+  const list = Array.isArray(b.disbursements) ? b.disbursements : null;
+  if (!list || list.length === 0) v.add('disbursements', 'Add at least one disbursement month');
+  else if (list.length > 36) v.add('disbursements', 'Up to 36 disbursement months');
+  else {
+    list.forEach((d, i) => {
+      if (parseMonth(d?.month) === null) v.add(`disbursements.${i}.month`, 'Use a valid month');
+      if (!Number.isInteger(d?.loans) || d.loans < 0 || d.loans > 100000) v.add(`disbursements.${i}.loans`, 'Enter a whole number of loans');
+    });
+  }
+  v.throwIfAny();
+
+  const r = generateGroupLeaderCommission({ disbursements: list, amountPaise, durationMonths, startDelayMonths: delay });
+  res.json({
+    rule: { amount: amountPaise / 100, durationMonths, startDelayMonths: delay },
+    totalLoans: r.totalLoans,
+    total: r.totalPaise / 100,
+    months: r.months.map((m) => ({
+      month: m.month,
+      eligibleLoans: m.eligibleLoans,
+      perLoan: m.perLoanPaise / 100,
+      amount: m.amountPaise / 100,
+    })),
+  });
 }

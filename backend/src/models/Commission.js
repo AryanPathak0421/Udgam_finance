@@ -1,4 +1,4 @@
-import mongoose from 'mongoose';
+﻿import mongoose from 'mongoose';
 import { ALL_TYPES } from '../config/commissionTypes.js';
 
 export const COMMISSION_FOR = ALL_TYPES;
@@ -19,6 +19,10 @@ const commissionSchema = new mongoose.Schema(
     commissionType: { type: String, enum: COMMISSION_TYPES, required: true },
     // percentage -> basis points (2.5% = 250); fixed -> paise.
     commissionValue: { type: Number, required: true, min: 1 },
+    // Group leader commission only: paid per disbursed loan per month, for durationMonths,
+    // starting startDelayMonths after the disbursement month (1 = next month).
+    durationMonths: { type: Number, min: 1, max: 36 },
+    startDelayMonths: { type: Number, enum: [0, 1] },
     isActive: { type: Boolean, default: true },
     isDeleted: { type: Boolean, default: false },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
@@ -30,3 +34,4 @@ const commissionSchema = new mongoose.Schema(
 commissionSchema.index({ financialYear: 1, commissionFor: 1, isDeleted: 1 });
 
 export const Commission = mongoose.model('Commission', commissionSchema);
+

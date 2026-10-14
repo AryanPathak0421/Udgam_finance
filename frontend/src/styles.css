@@ -388,3 +388,15 @@ a.btn { text-decoration: none; }
 .slab-table input.bad { border-color: var(--danger); }
 .slab-table td { vertical-align: top; }
 .slab-table .field-error { margin-top: 2px; }
+
+/* ---------- Group leader commission ---------- */
+.check-row { display: flex; align-items: flex-start; gap: 10px; margin: 6px 0; font-weight: 400; cursor: pointer; }
+.check-row input { width: 18px; height: 18px; margin-top: 2px; padding: 0; accent-color: var(--primary); flex-shrink: 0; }
+.check-row span { display: flex; flex-direction: column; gap: 2px; }
+.gl-preview { border: 1px solid var(--border); border-radius: 10px; background: #f9fafb; padding: 12px 14px; }
+.gl-preview-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.gl-preview-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 10px; }
+.gl-preview-inputs label { margin: 0; font-size: 13px; }
+.gl-preview-inputs input { margin-top: 4px; padding: 8px 10px; font-size: 14px; }
+.data-table.compact td, .data-table.compact th { padding: 7px 10px; }
+.gl-rule { padding-top: 4px; }
