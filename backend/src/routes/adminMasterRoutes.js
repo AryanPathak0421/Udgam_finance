@@ -1,4 +1,4 @@
-import { Router } from 'express';
+﻿import { Router } from 'express';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler as h } from '../utils/http.js';
 import { getCompany, saveCompany } from '../controllers/companyController.js';
@@ -22,8 +22,8 @@ import {
 } from '../controllers/financialYearController.js';
 import { listRanks, rankOptions, createRank, updateRank, setRankStatus, deleteRank } from '../controllers/rankController.js';
 import { listUsers, createUser, updateUser, setUserStatus, resetUserPassword } from '../controllers/userController.js';
-import { getCatalogue, getUserPermissions, saveUserPermissions } from '../controllers/menuPermissionController.js';
-import { listSequences, updateSequence } from '../controllers/codeSequenceController.js';
+import { getCatalogue, getRankPermissions, saveRankPermissions } from '../controllers/menuPermissionController.js';
+import { listSequences, createSequence, updateSequence, deleteSequence } from '../controllers/codeSequenceController.js';
 import {
   listBankAccounts,
   createBankAccount,
@@ -73,11 +73,13 @@ router.patch('/users/:id/status', ...adminOnly, h(setUserStatus));
 router.patch('/users/:id/password', ...adminOnly, h(resetUserPassword));
 
 router.get('/menu-permissions/catalogue', ...adminOnly, getCatalogue);
-router.get('/menu-permissions/users/:id', ...adminOnly, h(getUserPermissions));
-router.put('/menu-permissions/users/:id', ...adminOnly, h(saveUserPermissions));
+router.get('/menu-permissions/ranks/:id', ...adminOnly, h(getRankPermissions));
+router.put('/menu-permissions/ranks/:id', ...adminOnly, h(saveRankPermissions));
 
 router.get('/code-sequences', ...adminOnly, h(listSequences));
+router.post('/code-sequences', ...adminOnly, h(createSequence));
 router.put('/code-sequences/:type', ...adminOnly, h(updateSequence));
+router.delete('/code-sequences/:type', ...adminOnly, h(deleteSequence));
 
 router.get('/bank-accounts', ...adminOnly, h(listBankAccounts));
 router.post('/bank-accounts', ...adminOnly, h(createBankAccount));
@@ -86,3 +88,4 @@ router.patch('/bank-accounts/:id/status', ...adminOnly, h(setBankAccountStatus))
 router.delete('/bank-accounts/:id', ...adminOnly, h(deleteBankAccount));
 
 export default router;
+

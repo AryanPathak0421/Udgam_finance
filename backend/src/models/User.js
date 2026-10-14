@@ -12,17 +12,6 @@ export const ROLES = [
   'viewer',
 ];
 
-const menuPermissionSchema = new mongoose.Schema(
-  {
-    menu: { type: String, required: true },
-    view: { type: Boolean, default: false },
-    add: { type: Boolean, default: false },
-    edit: { type: Boolean, default: false },
-    delete: { type: Boolean, default: false },
-  },
-  { _id: false }
-);
-
 const userSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
@@ -30,14 +19,17 @@ const userSchema = new mongoose.Schema(
     mobile: { type: String, trim: true },
     password: { type: String, required: true, minlength: 6, select: false },
     role: { type: String, enum: ROLES, default: 'viewer' },
+    // Menu permissions are defined per rank (see Rank.menuPermissions).
     rank: { type: mongoose.Schema.Types.ObjectId, ref: 'Rank' },
     branches: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Branch' }],
-    // undefined = use role defaults; an array (even empty) = explicit menu whitelist.
-    menuPermissions: { type: [menuPermissionSchema], default: undefined },
     isActive: { type: Boolean, default: true },
     failedAttempts: { type: Number, default: 0 },
     lockUntil: { type: Date },
     lastLoginAt: { type: Date },
+    // Tokens issued before this moment are rejected (set on every password change).
+    passwordChangedAt: { type: Date },
+    resetTokenHash: { type: String, select: false },
+    resetTokenExpires: { type: Date, select: false },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   },

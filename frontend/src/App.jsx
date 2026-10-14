@@ -1,6 +1,8 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+﻿import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext.jsx';
 import Login from './pages/Login.jsx';
+import ForgotPassword from './pages/ForgotPassword.jsx';
+import ResetPassword from './pages/ResetPassword.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import ModulePlaceholder from './pages/ModulePlaceholder.jsx';
 import CompanyProfile from './pages/adminMaster/CompanyProfile.jsx';
@@ -50,6 +52,8 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<PublicOnly><Login /></PublicOnly>} />
+      <Route path="/forgot-password" element={<PublicOnly><ForgotPassword /></PublicOnly>} />
+      <Route path="/reset-password" element={<ResetPassword />} />
       <Route element={<RequireAuth><Layout /></RequireAuth>}>
         <Route index element={<Dashboard />} />
         <Route path="/admin-master" element={<Navigate to="/admin-master/company-profile" replace />} />
@@ -62,3 +66,4 @@ export default function App() {
     </Routes>
   );
 }
+

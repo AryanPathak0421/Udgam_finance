@@ -1,4 +1,4 @@
-import { Company } from '../models/Company.js';
+﻿import { Company } from '../models/Company.js';
 import { INDIA_LOCATIONS } from '../data/indiaLocations.js';
 import { asString, createValidator, parseDateOnly } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
@@ -9,8 +9,8 @@ const TAN_RE = /^[A-Z]{4}\d{5}[A-Z]$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MOBILE_RE = /^[6-9]\d{9}$/;
 const PIN_RE = /^\d{6}$/;
-const STAMP_RE = /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/;
-const MAX_STAMP_CHARS = 400_000; // ~300 KB image
+const IMAGE_RE = /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/;
+const MAX_IMAGE_CHARS = 400_000; // ~300 KB image
 
 const present = (c) => ({
   id: c._id,
@@ -26,9 +26,25 @@ const present = (c) => ({
   email: c.email,
   mobile: c.mobile,
   stampImage: c.stampImage || null,
+  signatureImage: c.signatureImage || null,
   updatedAt: c.updatedAt,
 });
 
+
+// undefined = leave unchanged, null = remove, string = new image (PNG/JPEG data URL, ≤ ~300 KB).
+function readImage(value, field, label, v) {
+  if (value === undefined) return undefined;
+  if (value === null || value === '') return null;
+  if (typeof value !== 'string' || !IMAGE_RE.test(value)) {
+    v.add(field, `${label} must be a PNG or JPEG image`);
+    return undefined;
+  }
+  if (value.length > MAX_IMAGE_CHARS) {
+    v.add(field, `${label} image must be 300 KB or smaller`);
+    return undefined;
+  }
+  return value;
+}
 export async function getCompany(_req, res) {
   const company = await Company.findOne({ singleton: 'company' });
   res.json({ company: company ? present(company) : null });
@@ -63,13 +79,8 @@ export async function saveCompany(req, res) {
   if (!EMAIL_RE.test(email)) v.add('email', 'Enter a valid email address');
   if (!MOBILE_RE.test(mobile)) v.add('mobile', 'Enter a valid 10-digit mobile number');
 
-  let stampImage;
-  if (b.stampImage === null || b.stampImage === '') stampImage = null;
-  else if (b.stampImage !== undefined) {
-    if (typeof b.stampImage !== 'string' || !STAMP_RE.test(b.stampImage)) v.add('stampImage', 'Stamp must be a PNG or JPEG image');
-    else if (b.stampImage.length > MAX_STAMP_CHARS) v.add('stampImage', 'Stamp image must be 300 KB or smaller');
-    else stampImage = b.stampImage;
-  }
+  const stampImage = readImage(b.stampImage, 'stampImage', 'Stamp', v);
+  const signatureImage = readImage(b.signatureImage, 'signatureImage', 'Signature', v);
   v.throwIfAny();
 
   const existing = await Company.findOne({ singleton: 'company' });
@@ -78,6 +89,7 @@ export async function saveCompany(req, res) {
   const doc = existing || new Company();
   Object.assign(doc, { name, cin, pan, tan, incorporationDate, address, state, city, pincode, email, mobile });
   if (stampImage !== undefined) doc.stampImage = stampImage === null ? undefined : stampImage;
+  if (signatureImage !== undefined) doc.signatureImage = signatureImage === null ? undefined : signatureImage;
   doc.updatedBy = req.user._id;
   await doc.save();
 
@@ -91,3 +103,4 @@ export async function saveCompany(req, res) {
 
   res.status(existing ? 200 : 201).json({ company: present(doc) });
 }
+

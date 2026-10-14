@@ -34,7 +34,7 @@ function UserForm({ initial, isEdit, ranks, branches, canAssignSuper, onClose, o
     e.preventDefault();
     const found = {};
     if (form.name.trim().length < 2) found.name = 'Name is required';
-    if (!isEdit && !EMAIL_RE.test(form.email.trim())) found.email = 'Enter a valid email address';
+    if (!EMAIL_RE.test(form.email.trim())) found.email = 'Enter a valid email address';
     if (form.mobile && !MOBILE_RE.test(form.mobile.trim())) found.mobile = 'Enter a valid 10-digit mobile number';
     if (!isEdit) {
       if (!PASSWORD_RE.test(form.password)) found.password = `Password must be ${PASSWORD_HINT}`;
@@ -81,8 +81,14 @@ function UserForm({ initial, isEdit, ranks, branches, canAssignSuper, onClose, o
         <FormField id="name" label="Full name" required error={errors.name}>
           <input id="name" value={form.name} onChange={set('name')} maxLength={100} autoFocus />
         </FormField>
-        <FormField id="email" label="Email (login ID)" required error={errors.email} hint={isEdit ? 'Login ID cannot be changed' : undefined}>
-          <input id="email" type="email" value={form.email} onChange={set('email')} disabled={isEdit} autoComplete="off" />
+        <FormField
+          id="email"
+          label="Email (login ID)"
+          required
+          error={errors.email}
+          hint={isEdit ? 'Only an admin can change the login ID. The user must sign in with the new ID.' : undefined}
+        >
+          <input id="email" type="email" value={form.email} onChange={set('email')} autoComplete="off" />
         </FormField>
         <FormField id="mobile" label="Mobile" error={errors.mobile}>
           <input id="mobile" inputMode="numeric" value={form.mobile} onChange={set('mobile')} maxLength={10} />
@@ -233,7 +239,7 @@ export default function UserMaster() {
     <>
       <PageHeader
         title="User Master"
-        description="Create users against a rank, assign branches, then set their menu access in Menu Permission."
+        description="Create users against a rank and assign branches. Menu access follows the user's rank (see Menu Permission)."
         actions={<button className="btn primary" onClick={() => setDialog({ type: 'form' })}>+ Create User</button>}
       />
 
@@ -289,12 +295,16 @@ export default function UserMaster() {
                       <td data-label="Rank">{u.rank?.name || '—'}</td>
                       <td data-label="Role">{ROLE_LABELS[u.role] || u.role}</td>
                       <td data-label="Branches">{u.branches.map((b) => b.code).join(', ') || '—'}</td>
-                      <td data-label="Menus">{['super_admin', 'admin'].includes(u.role) ? 'Full' : u.hasCustomMenus ? 'Custom' : 'Role default'}</td>
+                      <td data-label="Menus">{['super_admin', 'admin'].includes(u.role) ? 'Full' : u.hasCustomMenus ? 'By rank' : 'Role default'}</td>
                       <td data-label="Status"><StatusBadge active={u.isActive} /></td>
                       <td data-label="Actions" className="actions-col">
                         <div className="row-actions">
                           <button className="btn sm" onClick={() => setDialog({ type: 'form', user: u })}>Edit</button>
-                          <Link className="btn sm" to={`/admin-master/menu-permissions?user=${u.id}`}>Menus</Link>
+                          {u.rankId && (
+                            <Link className="btn sm" to={`/admin-master/menu-permissions?rank=${u.rankId}`} title="Menu permissions are set per rank">
+                              Rank menus
+                            </Link>
+                          )}
                           <button className="btn sm" onClick={() => setDialog({ type: 'password', user: u })}>Reset password</button>
                           {u.id !== me.id && (
                             <button className="btn sm" onClick={() => setDialog({ type: 'status', user: u })}>{u.isActive ? 'Deactivate' : 'Activate'}</button>

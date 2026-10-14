@@ -1,4 +1,4 @@
-import { Rank } from '../models/Rank.js';
+﻿import { Rank } from '../models/Rank.js';
 import { User } from '../models/User.js';
 import { asString, createValidator, escapeRegex, parsePaging, HttpError } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
@@ -12,6 +12,7 @@ const present = (r, userCount) => ({
   level: r.level,
   description: r.description || '',
   isActive: r.isActive,
+  hasCustomMenus: Array.isArray(r.menuPermissions),
   ...(userCount !== undefined ? { userCount } : {}),
   createdAt: r.createdAt,
   updatedAt: r.updatedAt,
@@ -129,3 +130,4 @@ export async function deleteRank(req, res) {
   await audit(req, { action: 'rank.delete', entity: 'Rank', entityId: rank._id, before });
   res.json({ message: 'Rank deleted' });
 }
+

@@ -16,6 +16,7 @@ const companySchema = new mongoose.Schema(
     email: { type: String, required: true, lowercase: true, trim: true },
     mobile: { type: String, required: true, trim: true },
     stampImage: { type: String }, // data URL (png/jpeg), size-limited by the controller
+    signatureImage: { type: String }, // authorised signatory signature, same rules as the stamp
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   },
   { timestamps: true }

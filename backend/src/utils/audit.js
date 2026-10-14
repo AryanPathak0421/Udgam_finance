@@ -6,6 +6,9 @@ const strip = (doc) => {
   delete o.__v;
   // Do not copy large binary-ish values into the trail.
   if (o.stampImage) o.stampImage = '[image]';
+  if (o.signatureImage) o.signatureImage = '[image]';
+  delete o.password;
+  delete o.resetTokenHash;
   return o;
 };
 

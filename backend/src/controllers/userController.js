@@ -1,4 +1,4 @@
-import mongoose from 'mongoose';
+﻿import mongoose from 'mongoose';
 import { User, ROLES } from '../models/User.js';
 import { Rank } from '../models/Rank.js';
 import { Branch } from '../models/Branch.js';
@@ -20,12 +20,13 @@ const present = (u) => ({
   branches: (u.branches || []).map((b) => (b._id ? { id: b._id, code: b.code, name: b.name } : { id: b })),
   isActive: u.isActive,
   lastLoginAt: u.lastLoginAt || null,
-  hasCustomMenus: Array.isArray(u.menuPermissions),
+  // Menu permissions come from the rank; true when the rank has an explicit whitelist.
+  hasCustomMenus: Array.isArray(u.rank?.menuPermissions),
   createdAt: u.createdAt,
 });
 
 const populate = [
-  { path: 'rank', select: 'code name' },
+  { path: 'rank', select: 'code name menuPermissions' },
   { path: 'branches', select: 'code name' },
 ];
 
@@ -122,10 +123,13 @@ export async function updateUser(req, res) {
   const b = req.body || {};
   const v = createValidator();
   const name = asString(b.name);
+  // The login ID (email) can only be changed by an admin; this route is admin-only.
+  const email = b.email === undefined ? user.email : asString(b.email).toLowerCase();
   const mobile = asString(b.mobile);
   const role = asString(b.role);
 
   if (name.length < 2 || name.length > 100) v.add('name', 'Name must be 2–100 characters');
+  if (!EMAIL_RE.test(email)) v.add('email', 'Enter a valid email address');
   if (mobile && !MOBILE_RE.test(mobile)) v.add('mobile', 'Enter a valid 10-digit mobile number');
   if (!ROLES.includes(role)) v.add('role', 'Select a role');
   else if (role !== user.role) {
@@ -135,14 +139,24 @@ export async function updateUser(req, res) {
   const { rank, branches } = await resolveRefs(b, v);
   v.throwIfAny();
 
+  if (email !== user.email && (await User.exists({ email, _id: { $ne: user._id } }))) {
+    throw new HttpError(409, 'Email already exists', { email: 'This email is already registered' });
+  }
+
   const before = { ...user.toObject(), password: undefined };
+  const emailChanged = email !== user.email;
   Object.assign(user, {
-    name, mobile: mobile || undefined, role,
+    name, email, mobile: mobile || undefined, role,
     rank: rank._id, branches: branches.map((x) => x._id), updatedBy: req.user._id,
   });
-  await user.save();
+  try {
+    await user.save();
+  } catch (err) {
+    if (err.code === 11000) throw new HttpError(409, 'Email already exists', { email: 'This email is already registered' });
+    throw err;
+  }
   await user.populate(populate);
-  await audit(req, { action: 'user.update', entity: 'User', entityId: user._id, before, after: { ...user.toObject(), password: undefined } });
+  await audit(req, { action: emailChanged ? 'user.updateLoginId' : 'user.update', entity: 'User', entityId: user._id, before, after: { ...user.toObject(), password: undefined } });
   res.json({ user: present(user) });
 }
 
@@ -171,6 +185,7 @@ export async function resetUserPassword(req, res) {
   assertCanManage(req.user, user);
 
   user.password = password;
+  user.passwordChangedAt = new Date(); // signs the user out everywhere
   user.failedAttempts = 0;
   user.lockUntil = undefined;
   user.updatedBy = req.user._id;
@@ -178,3 +193,4 @@ export async function resetUserPassword(req, res) {
   await audit(req, { action: 'user.resetPassword', entity: 'User', entityId: user._id });
   res.json({ message: 'Password reset' });
 }
+

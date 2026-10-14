@@ -4,7 +4,6 @@ import { api } from '../../api/client.js';
 import ConfirmDialog from '../../components/ui/ConfirmDialog.jsx';
 import { ErrorState, PageHeader, Spinner } from '../../components/ui/Feedback.jsx';
 import { useToast } from '../../components/ui/Toast.jsx';
-import { ROLE_LABELS } from '../../config/nav.js';
 
 const ACTIONS = [
   ['view', 'View'],
@@ -17,23 +16,23 @@ const blank = () => ({ view: false, add: false, edit: false, delete: false });
 export default function MenuPermission() {
   const toast = useToast();
   const [params, setParams] = useSearchParams();
-  const userId = params.get('user') || '';
+  const rankId = params.get('rank') || '';
 
-  const [users, setUsers] = useState([]);
+  const [ranks, setRanks] = useState([]);
   const [menus, setMenus] = useState([]);
-  const [target, setTarget] = useState(null); // {user, fullAccess, permissions}
+  const [target, setTarget] = useState(null); // {rank, permissions}
   const [grid, setGrid] = useState({});
   const [dirty, setDirty] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [loadingUser, setLoadingUser] = useState(false);
+  const [loadingRank, setLoadingRank] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
 
   useEffect(() => {
-    Promise.all([api.users.list({ limit: 100, status: 'active' }), api.menuPermissions.catalogue()])
-      .then(([u, c]) => {
-        setUsers(u.items);
+    Promise.all([api.ranks.list({ limit: 100 }), api.menuPermissions.catalogue()])
+      .then(([r, c]) => {
+        setRanks(r.items);
         setMenus(c.menus);
       })
       .catch((err) => setError(err.message))
@@ -41,14 +40,14 @@ export default function MenuPermission() {
   }, []);
 
   useEffect(() => {
-    if (!userId) {
+    if (!rankId) {
       setTarget(null);
       return undefined;
     }
     let live = true;
-    setLoadingUser(true);
+    setLoadingRank(true);
     api.menuPermissions
-      .get(userId)
+      .get(rankId)
       .then((d) => {
         if (!live) return;
         setTarget(d);
@@ -58,11 +57,11 @@ export default function MenuPermission() {
         setDirty(false);
       })
       .catch((err) => live && (toast.error(err.message), setTarget(null)))
-      .finally(() => live && setLoadingUser(false));
+      .finally(() => live && setLoadingRank(false));
     return () => {
       live = false;
     };
-  }, [userId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [rankId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const groups = useMemo(() => {
     const map = new Map();
@@ -71,15 +70,18 @@ export default function MenuPermission() {
   }, [menus]);
 
   const rowFor = (key) => grid[key] || blank();
-  const lockedFor = (m) => m.adminOnly; // admin-only menus can't be granted to non-admin users
+  // Admin-only menus can't be granted through a rank.
+  const lockedFor = (m) => m.adminOnly;
+
+  function applyCell(row, action, value) {
+    const next = { ...row, [action]: value };
+    if (action !== 'view' && value) next.view = true;
+    if (action === 'view' && !value) Object.assign(next, blank());
+    return next;
+  }
 
   function setCell(key, action, value) {
-    setGrid((g) => {
-      const row = { ...(g[key] || blank()), [action]: value };
-      if (action !== 'view' && value) row.view = true;
-      if (action === 'view' && !value) Object.assign(row, blank());
-      return { ...g, [key]: row };
-    });
+    setGrid((g) => ({ ...g, [key]: applyCell(g[key] || blank(), action, value) }));
     setDirty(true);
   }
 
@@ -87,10 +89,7 @@ export default function MenuPermission() {
     setGrid((g) => {
       const next = { ...g };
       menus.filter((m) => !lockedFor(m)).forEach((m) => {
-        const row = { ...(next[m.key] || blank()), [action]: value };
-        if (action !== 'view' && value) row.view = true;
-        if (action === 'view' && !value) Object.assign(row, blank());
-        next[m.key] = row;
+        next[m.key] = applyCell(next[m.key] || blank(), action, value);
       });
       return next;
     });
@@ -100,7 +99,7 @@ export default function MenuPermission() {
   async function save(permissions) {
     setSaving(true);
     try {
-      const res = await api.menuPermissions.save(userId, permissions);
+      const res = await api.menuPermissions.save(rankId, permissions);
       toast.success(permissions === null ? 'Reset to role defaults' : 'Menu permissions saved');
       setTarget((t) => ({ ...t, permissions: res.permissions }));
       if (permissions === null) setGrid({});
@@ -125,88 +124,89 @@ export default function MenuPermission() {
   if (loading) return <Spinner label="Loading…" />;
   if (error) return <ErrorState message={error} />;
 
-  const editable = target && !target.fullAccess;
+  const hasCustom = target && Array.isArray(target.permissions);
 
   return (
     <>
-      <PageHeader title="Menu Permission" description="Choose which menus each user can see, and what they can do in them." />
+      <PageHeader
+        title="Menu Permission"
+        description="Menu access is set per rank. Every user holding a rank gets that rank's menus."
+      />
 
       <div className="panel">
         <div className="field" style={{ maxWidth: 420 }}>
-          <label htmlFor="permUser">User</label>
+          <label htmlFor="permRank">Rank</label>
           <select
-            id="permUser"
-            value={userId}
-            onChange={(e) => (e.target.value ? setParams({ user: e.target.value }) : setParams({}))}
+            id="permRank"
+            value={rankId}
+            onChange={(e) => (e.target.value ? setParams({ rank: e.target.value }) : setParams({}))}
           >
-            <option value="">Select a user</option>
-            {users.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.name} — {ROLE_LABELS[u.role]}{u.rank ? ` (${u.rank.name})` : ''}
+            <option value="">Select a rank</option>
+            {ranks.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name} (Level {r.level}){r.isActive ? '' : ' — inactive'}
               </option>
             ))}
           </select>
         </div>
+        {ranks.length === 0 && <div className="field-hint">No ranks yet. Create ranks in Rank Master first.</div>}
       </div>
 
-      {!userId && <div className="notice" style={{ marginTop: 16 }}>Select a user to view or change their menu permissions.</div>}
-      {loadingUser && <Spinner label="Loading permissions…" />}
+      {!rankId && ranks.length > 0 && (
+        <div className="notice" style={{ marginTop: 16 }}>
+          Select a rank to view or change its menu permissions.
+        </div>
+      )}
+      {loadingRank && <Spinner label="Loading permissions…" />}
 
-      {target && !loadingUser && (
+      {target && !loadingRank && (
         <div className="panel" style={{ marginTop: 16 }}>
-          {target.fullAccess ? (
-            <div className="notice ok">
-              {target.user.name} is {ROLE_LABELS[target.user.role]} and always has full access to every menu. Permissions cannot be restricted for this role.
-            </div>
-          ) : (
-            <>
-              <div className={`notice ${Array.isArray(target.permissions) ? '' : 'ok'}`}>
-                {Array.isArray(target.permissions)
-                  ? `${target.user.name} has custom menu permissions. Only the ticked menus are shown to this user.`
-                  : `${target.user.name} currently uses the ${ROLE_LABELS[target.user.role]} role defaults. Tick menus below to give custom permissions.`}
-              </div>
+          <div className={`notice ${hasCustom ? '' : 'ok'}`}>
+            {hasCustom
+              ? `${target.rank.userCount} user${target.rank.userCount === 1 ? '' : 's'} with the rank "${target.rank.name}" see only the ticked menus.`
+              : `"${target.rank.name}" has no custom permissions, so its ${target.rank.userCount} user${target.rank.userCount === 1 ? '' : 's'} use their role defaults. Tick menus below to set rank permissions.`}{' '}
+            Admin and Super Admin users always have full access.
+          </div>
 
-              <div className="table-wrap">
-                <table className="data-table perm-table">
-                  <thead>
-                    <tr>
-                      <th>Menu</th>
-                      {ACTIONS.map(([k, label]) => (
-                        <th key={k} className="perm-col">
-                          {label}
-                          <div className="perm-bulk">
-                            <button type="button" className="link-btn" onClick={() => setColumn(k, true)}>All</button>
-                            <button type="button" className="link-btn" onClick={() => setColumn(k, false)}>None</button>
-                          </div>
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {groups.map(([group, items]) => (
-                      <PermGroup key={group} group={group} items={items} rowFor={rowFor} lockedFor={lockedFor} onChange={setCell} />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+          <div className="table-wrap">
+            <table className="data-table perm-table">
+              <thead>
+                <tr>
+                  <th>Menu</th>
+                  {ACTIONS.map(([k, label]) => (
+                    <th key={k} className="perm-col">
+                      {label}
+                      <div className="perm-bulk">
+                        <button type="button" className="link-btn" onClick={() => setColumn(k, true)}>All</button>
+                        <button type="button" className="link-btn" onClick={() => setColumn(k, false)}>None</button>
+                      </div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {groups.map(([group, items]) => (
+                  <PermGroup key={group} group={group} items={items} rowFor={rowFor} lockedFor={lockedFor} onChange={setCell} />
+                ))}
+              </tbody>
+            </table>
+          </div>
 
-              <div className="form-actions">
-                <button className="btn" onClick={() => setResetOpen(true)} disabled={saving || !Array.isArray(target.permissions)}>
-                  Reset to role defaults
-                </button>
-                <button className="btn primary" onClick={onSave} disabled={saving || !dirty}>
-                  {saving ? 'Saving…' : 'Save permissions'}
-                </button>
-              </div>
-            </>
-          )}
+          <div className="form-actions">
+            <button className="btn" onClick={() => setResetOpen(true)} disabled={saving || !hasCustom}>
+              Reset to role defaults
+            </button>
+            <button className="btn primary" onClick={onSave} disabled={saving || !dirty}>
+              {saving ? 'Saving…' : 'Save permissions'}
+            </button>
+          </div>
         </div>
       )}
 
       <ConfirmDialog
         open={resetOpen}
         title="Reset to role defaults?"
-        message="Custom menu permissions for this user will be removed and their role defaults will apply."
+        message="Custom menu permissions for this rank will be removed. Its users will get their role defaults."
         confirmLabel="Reset"
         loading={saving}
         onConfirm={() => save(null)}

@@ -1,4 +1,4 @@
-// Default: empty, so calls go to /api on the same origin (Vite proxy in dev, the
+﻿// Default: empty, so calls go to /api on the same origin (Vite proxy in dev, the
 // vercel.json rewrite in production) and the auth cookie stays first-party.
 // Only set VITE_API_BASE_URL to call an API on another domain directly.
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
@@ -35,6 +35,8 @@ export const api = {
   login: (email, password) => request('/auth/login', { method: 'POST', body: { email, password } }),
   logout: () => request('/auth/logout', { method: 'POST' }),
   me: () => request('/auth/me'),
+  forgotPassword: (email) => request('/auth/forgot-password', { method: 'POST', body: { email } }),
+  resetPassword: (token, password) => request('/auth/reset-password', { method: 'POST', body: { token, password } }),
 
   meta: {
     states: () => request(`${AM}/meta/states`),
@@ -61,12 +63,15 @@ export const api = {
   },
   menuPermissions: {
     catalogue: () => request(`${AM}/menu-permissions/catalogue`),
-    get: (userId) => request(`${AM}/menu-permissions/users/${userId}`),
-    save: (userId, permissions) => request(`${AM}/menu-permissions/users/${userId}`, { method: 'PUT', body: { permissions } }),
+    // Permissions are defined per rank; every user holding the rank inherits them.
+    get: (rankId) => request(`${AM}/menu-permissions/ranks/${rankId}`),
+    save: (rankId, permissions) => request(`${AM}/menu-permissions/ranks/${rankId}`, { method: 'PUT', body: { permissions } }),
   },
   codeSequences: {
     list: () => request(`${AM}/code-sequences`),
+    create: (data) => request(`${AM}/code-sequences`, { method: 'POST', body: data }),
     update: (type, data) => request(`${AM}/code-sequences/${type}`, { method: 'PUT', body: data }),
+    remove: (type) => request(`${AM}/code-sequences/${type}`, { method: 'DELETE' }),
   },
   bankAccounts: {
     list: (params) => request(`${AM}/bank-accounts${qs(params)}`),
@@ -92,3 +97,4 @@ export const api = {
     remove: (id) => request(`${AM}/financial-years/${id}`, { method: 'DELETE' }),
   },
 };
+

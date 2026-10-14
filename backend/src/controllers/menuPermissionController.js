@@ -1,10 +1,10 @@
 import mongoose from 'mongoose';
+import { Rank } from '../models/Rank.js';
 import { User } from '../models/User.js';
 import { MENU_CATALOGUE, MENU_KEYS } from '../config/menus.js';
 import { HttpError } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
 
-const ADMIN_ROLES = ['super_admin', 'admin'];
 const ACTIONS = ['view', 'add', 'edit', 'delete'];
 
 const presentPerms = (arr) =>
@@ -14,31 +14,27 @@ export function getCatalogue(_req, res) {
   res.json({ menus: MENU_CATALOGUE });
 }
 
-async function loadTarget(id, actor) {
-  if (!mongoose.isValidObjectId(id)) throw new HttpError(404, 'User not found');
-  const user = await User.findById(id).populate('rank', 'name');
-  if (!user) throw new HttpError(404, 'User not found');
-  if (user.role === 'super_admin' && actor.role !== 'super_admin') {
-    throw new HttpError(403, 'Only a super admin can manage super admin permissions');
-  }
-  return user;
+async function loadRank(id) {
+  if (!mongoose.isValidObjectId(id)) throw new HttpError(404, 'Rank not found');
+  const rank = await Rank.findOne({ _id: id, isDeleted: false });
+  if (!rank) throw new HttpError(404, 'Rank not found');
+  return rank;
 }
 
-export async function getUserPermissions(req, res) {
-  const user = await loadTarget(req.params.id, req.user);
+// Menu permissions belong to a rank: everyone holding the rank gets the same menus.
+// Admin / Super Admin users keep full access whatever their rank says.
+export async function getRankPermissions(req, res) {
+  const rank = await loadRank(req.params.id);
+  const userCount = await User.countDocuments({ rank: rank._id });
   res.json({
-    user: { id: user._id, name: user.name, email: user.email, role: user.role, rank: user.rank?.name || '' },
-    fullAccess: ADMIN_ROLES.includes(user.role),
-    permissions: presentPerms(user.menuPermissions),
+    rank: { id: rank._id, code: rank.code, name: rank.name, level: rank.level, userCount },
+    permissions: presentPerms(rank.menuPermissions),
   });
 }
 
 // body.permissions: array of {menu, view, add, edit, delete}, or null to reset to role defaults.
-export async function saveUserPermissions(req, res) {
-  const user = await loadTarget(req.params.id, req.user);
-  if (ADMIN_ROLES.includes(user.role)) {
-    throw new HttpError(409, 'Admin and Super Admin users always have full access to all menus');
-  }
+export async function saveRankPermissions(req, res) {
+  const rank = await loadRank(req.params.id);
 
   const input = req.body?.permissions;
   let next;
@@ -64,16 +60,16 @@ export async function saveUserPermissions(req, res) {
     }
   }
 
-  const before = presentPerms(user.menuPermissions);
-  user.menuPermissions = next;
-  user.updatedBy = req.user._id;
-  await user.save();
+  const before = presentPerms(rank.menuPermissions);
+  rank.menuPermissions = next;
+  rank.updatedBy = req.user._id;
+  await rank.save();
   await audit(req, {
     action: 'menuPermission.update',
-    entity: 'User',
-    entityId: user._id,
+    entity: 'Rank',
+    entityId: rank._id,
     before: { menuPermissions: before },
-    after: { menuPermissions: presentPerms(user.menuPermissions) },
+    after: { menuPermissions: presentPerms(rank.menuPermissions) },
   });
-  res.json({ permissions: presentPerms(user.menuPermissions) });
+  res.json({ permissions: presentPerms(rank.menuPermissions) });
 }

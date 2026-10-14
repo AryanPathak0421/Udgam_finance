@@ -91,3 +91,12 @@
   .auth-logo-mobile { display: block; }
   .auth-card { padding: 28px 22px 22px; }
 }
+
+.auth-row { display: flex; justify-content: flex-end; margin-top: 10px; }
+.auth-row.center { justify-content: center; margin-top: 18px; }
+.auth-link { color: var(--primary); font-size: 13.5px; font-weight: 600; text-decoration: none; }
+.auth-link:hover { text-decoration: underline; }
+a.auth-submit.as-link { display: block; text-align: center; text-decoration: none; box-sizing: border-box; }
+.auth-icon-circle { width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; background: #e5f2f1; color: var(--primary); margin-bottom: 14px; }
+.auth-icon-circle.ok { background: #dcf4e3; color: #166534; }
+.auth-card .auth-sub + .auth-sub { margin-top: -10px; }

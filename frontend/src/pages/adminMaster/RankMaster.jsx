@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../../api/client.js';
 import FormField from '../../components/ui/FormField.jsx';
 import Modal from '../../components/ui/Modal.jsx';
@@ -186,6 +187,7 @@ export default function RankMaster() {
                       <td data-label="Actions" className="actions-col">
                         <div className="row-actions">
                           <button className="btn sm" onClick={() => setDialog({ type: 'form', rank: r })}>Edit</button>
+                          <Link className="btn sm" to={`/admin-master/menu-permissions?rank=${r.id}`}>Menus</Link>
                           <button className="btn sm" onClick={() => setDialog({ type: 'status', rank: r })}>{r.isActive ? 'Deactivate' : 'Activate'}</button>
                           <button className="btn sm danger-outline" onClick={() => setDialog({ type: 'delete', rank: r })}>Delete</button>
                         </div>

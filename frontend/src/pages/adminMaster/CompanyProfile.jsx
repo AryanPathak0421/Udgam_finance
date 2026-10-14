@@ -9,7 +9,7 @@ import { formatDate, todayIso } from '../../utils/format.js';
 
 const EMPTY = {
   name: '', cin: '', pan: '', tan: '', incorporationDate: '', address: '',
-  state: '', city: '', pincode: '', email: '', mobile: '', stampImage: null,
+  state: '', city: '', pincode: '', email: '', mobile: '', stampImage: null, signatureImage: null,
 };
 
 const CIN_RE = /^[LU]\d{5}[A-Z]{2}\d{4}[A-Z]{3}\d{6}$/;
@@ -36,7 +36,8 @@ function validate(f) {
 
 export default function CompanyProfile() {
   const toast = useToast();
-  const fileRef = useRef(null);
+  const stampRef = useRef(null);
+  const signRef = useRef(null);
   const [company, setCompany] = useState(null);
   const [form, setForm] = useState(EMPTY);
   const [errors, setErrors] = useState({});
@@ -72,25 +73,26 @@ export default function CompanyProfile() {
     setErrors((er) => ({ ...er, [key]: undefined }));
   };
 
-  function onStampChange(e) {
+  // Reads a PNG/JPEG (≤ 300 KB) into the given form field as a data URL.
+  const onImageChange = (field, label) => (e) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
     if (!['image/png', 'image/jpeg'].includes(file.type)) {
-      setErrors((er) => ({ ...er, stampImage: 'Stamp must be a PNG or JPEG image' }));
+      setErrors((er) => ({ ...er, [field]: `${label} must be a PNG or JPEG image` }));
       return;
     }
     if (file.size > MAX_STAMP_BYTES) {
-      setErrors((er) => ({ ...er, stampImage: 'Stamp image must be 300 KB or smaller' }));
+      setErrors((er) => ({ ...er, [field]: `${label} image must be 300 KB or smaller` }));
       return;
     }
     const reader = new FileReader();
     reader.onload = () => {
-      setForm((f) => ({ ...f, stampImage: reader.result }));
-      setErrors((er) => ({ ...er, stampImage: undefined }));
+      setForm((f) => ({ ...f, [field]: reader.result }));
+      setErrors((er) => ({ ...er, [field]: undefined }));
     };
     reader.readAsDataURL(file);
-  }
+  };
 
   function onSubmit(e) {
     e.preventDefault();
@@ -168,13 +170,23 @@ export default function CompanyProfile() {
               ['Address', [company.address, company.city, company.state, company.pincode].filter(Boolean).join(', ')],
             ]}
           />
-          <div className="stamp-view">
-            <div className="detail-label">Company stamp</div>
-            {company.stampImage ? (
-              <img src={company.stampImage} alt="Company stamp" className="stamp-img" />
-            ) : (
-              <span className="muted">No stamp uploaded</span>
-            )}
+          <div className="stamp-view sign-row">
+            <div>
+              <div className="detail-label">Authorised signature</div>
+              {company.signatureImage ? (
+                <img src={company.signatureImage} alt="Authorised signature" className="stamp-img" />
+              ) : (
+                <span className="muted">No signature uploaded</span>
+              )}
+            </div>
+            <div>
+              <div className="detail-label">Company stamp</div>
+              {company.stampImage ? (
+                <img src={company.stampImage} alt="Company stamp" className="stamp-img" />
+              ) : (
+                <span className="muted">No stamp uploaded</span>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -232,27 +244,50 @@ export default function CompanyProfile() {
             </FormField>
           </div>
 
-          <h3 className="section-title">Company stamp</h3>
-          <FormField id="stamp" label="Stamp image" error={errors.stampImage} hint="PNG or JPEG, up to 300 KB">
-            <div className="stamp-upload">
-              {form.stampImage ? (
-                <img src={form.stampImage} alt="Company stamp preview" className="stamp-img" />
-              ) : (
-                <div className="stamp-empty">No stamp</div>
-              )}
-              <div className="stamp-actions">
-                <input id="stamp" ref={fileRef} type="file" accept="image/png,image/jpeg" onChange={onStampChange} hidden />
-                <button type="button" className="btn" onClick={() => fileRef.current?.click()}>
-                  {form.stampImage ? 'Replace' : 'Upload'}
-                </button>
-                {form.stampImage && (
-                  <button type="button" className="btn" onClick={() => setForm((f) => ({ ...f, stampImage: null }))}>
-                    Remove
-                  </button>
+          <h3 className="section-title">Sign &amp; stamp</h3>
+          <div className="form-grid">
+            <FormField id="signature" label="Authorised signature" error={errors.signatureImage} hint="PNG or JPEG, up to 300 KB">
+              <div className="stamp-upload">
+                {form.signatureImage ? (
+                  <img src={form.signatureImage} alt="Signature preview" className="stamp-img" />
+                ) : (
+                  <div className="stamp-empty">No signature</div>
                 )}
+                <div className="stamp-actions">
+                  <input id="signature" ref={signRef} type="file" accept="image/png,image/jpeg" onChange={onImageChange('signatureImage', 'Signature')} hidden />
+                  <button type="button" className="btn" onClick={() => signRef.current?.click()}>
+                    {form.signatureImage ? 'Replace' : 'Upload'}
+                  </button>
+                  {form.signatureImage && (
+                    <button type="button" className="btn" onClick={() => setForm((f) => ({ ...f, signatureImage: null }))}>
+                      Remove
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
-          </FormField>
+            </FormField>
+
+            <FormField id="stamp" label="Company stamp" error={errors.stampImage} hint="PNG or JPEG, up to 300 KB">
+              <div className="stamp-upload">
+                {form.stampImage ? (
+                  <img src={form.stampImage} alt="Company stamp preview" className="stamp-img" />
+                ) : (
+                  <div className="stamp-empty">No stamp</div>
+                )}
+                <div className="stamp-actions">
+                  <input id="stamp" ref={stampRef} type="file" accept="image/png,image/jpeg" onChange={onImageChange('stampImage', 'Stamp')} hidden />
+                  <button type="button" className="btn" onClick={() => stampRef.current?.click()}>
+                    {form.stampImage ? 'Replace' : 'Upload'}
+                  </button>
+                  {form.stampImage && (
+                    <button type="button" className="btn" onClick={() => setForm((f) => ({ ...f, stampImage: null }))}>
+                      Remove
+                    </button>
+                  )}
+                </div>
+              </div>
+            </FormField>
+          </div>
 
           <div className="form-actions">
             {company && (
