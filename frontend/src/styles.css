@@ -382,3 +382,9 @@ a.btn { text-decoration: none; }
 .seg-item.on { background: var(--primary); color: #fff; }
 .seg-item input { position: absolute; opacity: 0; width: 0; height: 0; padding: 0; }
 .seg-item:focus-within { outline: 2px solid var(--primary); outline-offset: -2px; }
+
+/* ---------- Commission slab editor ---------- */
+.slab-table input, .slab-table select { padding: 8px 10px; font-size: 14px; min-width: 110px; }
+.slab-table input.bad { border-color: var(--danger); }
+.slab-table td { vertical-align: top; }
+.slab-table .field-error { margin-top: 2px; }

@@ -37,6 +37,7 @@ import {
   updateCommission,
   setCommissionStatus,
   deleteCommission,
+  saveCommissionScope,
 } from '../controllers/commissionController.js';
 import { listVouchers, createVoucher, updateVoucher, setVoucherStatus, deleteVoucher } from '../controllers/voucherController.js';
 import { getLoanCalculatorOptions, runLoanCalculator } from '../controllers/loanCalculatorController.js';
@@ -101,6 +102,7 @@ router.delete('/bank-accounts/:id', ...adminOnly, h(deleteBankAccount));
 
 router.get('/commissions', ...adminOnly, h(listCommissions));
 router.post('/commissions', ...adminOnly, h(createCommission));
+router.put('/commissions/scope', ...adminOnly, h(saveCommissionScope));
 router.put('/commissions/:id', ...adminOnly, h(updateCommission));
 router.patch('/commissions/:id/status', ...adminOnly, h(setCommissionStatus));
 router.delete('/commissions/:id', ...adminOnly, h(deleteCommission));
@@ -135,6 +137,7 @@ router.patch('/ledgers/:id/status', ...adminOnly, h(setLedgerStatus));
 router.delete('/ledgers/:id', ...adminOnly, h(deleteLedger));
 
 export default router;
+
 
 
 

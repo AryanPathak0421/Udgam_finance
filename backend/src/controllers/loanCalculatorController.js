@@ -7,6 +7,7 @@ import {
   MAX_INSTALLMENTS,
   MAX_YEARS,
   MIN_PER_INSTALLMENT,
+  ROUNDING_RUPEES,
 } from '../services/loanCalculator.js';
 import { LoanScheme } from '../models/LoanScheme.js';
 import { createValidator, parseDateOnly } from '../utils/http.js';
@@ -39,6 +40,7 @@ export function getLoanCalculatorOptions(_req, res) {
       { value: 'equal', label: 'Equal installments (EMI)' },
       { value: 'equal_principal', label: 'Equal principal (declining installments)' },
     ],
+    roundingOptions: ROUNDING_RUPEES.map((v) => ({ value: v, label: v === 0 ? 'No rounding (exact)' : `Nearest ₹${v}` })),
     modes: Object.entries(MODES).map(([value, m]) => ({ value, label: m.label, unit: m.unit, perYear: m.perYear })),
     limits: { maxInstallments: MAX_INSTALLMENTS, maxYears: MAX_YEARS },
   });
@@ -65,6 +67,10 @@ export async function runLoanCalculator(req, res) {
   let emiType = scheme ? scheme.emiType : String(b.emiType || 'equal');
   if (!EMI_TYPES.includes(emiType)) v.add('emiType', 'Select an EMI type');
   if (calculationType === 'flat') emiType = 'equal';
+
+  // Installments are rounded to whole rupees by default; a scheme can choose its own step.
+  const rounding = scheme ? scheme.installmentRounding ?? 1 : Number(b.rounding === undefined || b.rounding === '' ? 1 : b.rounding);
+  if (!ROUNDING_RUPEES.includes(rounding)) v.add('rounding', 'Choose no rounding, ₹1, ₹5 or ₹10');
 
   const mode = String(b.mode || '');
   const m = MODES[mode];
@@ -110,7 +116,7 @@ export async function runLoanCalculator(req, res) {
   }
   v.throwIfAny();
 
-  const r = calculateLoan({ principalPaise, annualRateBp, calculationType, emiType, mode, term, startDate });
+  const r = calculateLoan({ principalPaise, annualRateBp, calculationType, emiType, mode, term, startDate, roundingPaise: rounding * 100 });
 
   const charges = scheme
     ? {
@@ -118,6 +124,12 @@ export async function runLoanCalculator(req, res) {
         cost: rupees(chargeAmount(scheme.cost, principalPaise)),
         securityAmount: rupees(chargeAmount({ type: 'percentage', value: scheme.securityBp }, principalPaise)),
         securityType: scheme.securityType,
+        gracePeriodDays: scheme.gracePeriodDays ?? 0,
+        fine: {
+          type: scheme.fine?.type || 'fixed',
+          value: (scheme.fine?.value || 0) / 100, // percent for percentage, rupees for fixed
+          counting: scheme.fine?.counting || 'per_day',
+        },
       }
     : null;
 
@@ -128,6 +140,7 @@ export async function runLoanCalculator(req, res) {
       mode,
       modeLabel: m.label,
       termUnit: m.unit,
+      rounding,
       amount: rupees(principalPaise),
       rate: annualRateBp / 100,
       term,
@@ -154,5 +167,6 @@ export async function runLoanCalculator(req, res) {
     })),
   });
 }
+
 
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+﻿import { useCallback, useEffect, useState } from 'react';
 import { api } from '../../api/client.js';
 import FormField from '../../components/ui/FormField.jsx';
 import Modal from '../../components/ui/Modal.jsx';
@@ -146,6 +146,233 @@ function CommissionForm({ item, years, ranks, onClose, onSaved }) {
   );
 }
 
+const newRow = (prev) => ({
+  id: null,
+  targetFrom: prev && prev.targetTo !== '' && MONEY_RE.test(prev.targetTo) ? String(Math.round((Number(prev.targetTo) + 1) * 100) / 100) : '',
+  targetTo: '',
+  commissionType: prev?.commissionType || 'percentage',
+  commissionValue: '',
+  isActive: true,
+});
+
+// Edits every slab of one scope together, so boundaries can be shifted in one save.
+function ScopeEditor({ initial, years, ranks, onClose, onSaved }) {
+  const toast = useToast();
+  const activeYear = years.find((y) => y.isActive);
+  const [scope, setScope] = useState({
+    commissionFor: initial?.commissionFor || 'employee',
+    financialYear: initial?.financialYearId || activeYear?.id || '',
+    rank: initial?.rankId || '',
+  });
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [errors, setErrors] = useState({});
+  const isEmployee = scope.commissionFor === 'employee';
+
+  // Load the slabs of the chosen scope.
+  useEffect(() => {
+    if (!scope.financialYear) {
+      setRows([]);
+      return undefined;
+    }
+    let live = true;
+    setLoading(true);
+    api.commissions
+      .list({ commissionFor: scope.commissionFor, financialYear: scope.financialYear, limit: 100 })
+      .then((d) => {
+        if (!live) return;
+        const wantRank = isEmployee ? scope.rank : '';
+        const mine = d.items
+          .filter((c) => (c.rankId || '') === wantRank)
+          .sort((a, b) => (a.targetFrom ?? 0) - (b.targetFrom ?? 0))
+          .map((c) => ({
+            id: c.id,
+            targetFrom: c.targetFrom === null ? '' : String(c.targetFrom),
+            targetTo: c.targetTo === null ? '' : String(c.targetTo),
+            commissionType: c.commissionType,
+            commissionValue: String(c.commissionValue),
+            isActive: c.isActive,
+          }));
+        setRows(mine);
+        setErrors({});
+      })
+      .catch((err) => live && toast.error(err.message))
+      .finally(() => live && setLoading(false));
+    return () => {
+      live = false;
+    };
+  }, [scope.commissionFor, scope.financialYear, scope.rank]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const setRow = (i, key, value) => {
+    setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, [key]: value } : r)));
+    setErrors((er) => ({ ...er, [`slabs.${i}.${key}`]: undefined, [`slabs.${i}.targetFrom`]: er[`slabs.${i}.targetFrom`] && key === 'targetTo' ? undefined : er[`slabs.${i}.targetFrom`] }));
+  };
+
+  function localCheck() {
+    const found = {};
+    rows.forEach((r, i) => {
+      const k = (f) => `slabs.${i}.${f}`;
+      const from = r.targetFrom.trim();
+      const to = r.targetTo.trim();
+      if (isEmployee && !from) found[k('targetFrom')] = 'Required';
+      if (isEmployee && !to) found[k('targetTo')] = 'Required';
+      if (!isEmployee && Boolean(from) !== Boolean(to)) found[k(from ? 'targetTo' : 'targetFrom')] = 'Both or none';
+      if (from && !MONEY_RE.test(from)) found[k('targetFrom')] = 'Invalid amount';
+      if (to && !MONEY_RE.test(to)) found[k('targetTo')] = 'Invalid amount';
+      if (!found[k('targetFrom')] && !found[k('targetTo')] && from && to && Number(to) < Number(from)) found[k('targetTo')] = 'Less than start';
+      const val = r.commissionValue.trim();
+      if (!MONEY_RE.test(val) || Number(val) <= 0) found[k('commissionValue')] = 'Required';
+      else if (r.commissionType === 'percentage' && Number(val) > 100) found[k('commissionValue')] = 'Max 100';
+    });
+    // Overlap among the rows being saved
+    for (let i = 0; i < rows.length; i += 1) {
+      for (let j = i + 1; j < rows.length; j += 1) {
+        const a = [Number(rows[i].targetFrom || 0), rows[i].targetTo === '' ? Infinity : Number(rows[i].targetTo)];
+        const b = [Number(rows[j].targetFrom || 0), rows[j].targetTo === '' ? Infinity : Number(rows[j].targetTo)];
+        if (a[0] <= b[1] && b[0] <= a[1]) {
+          found[`slabs.${j}.targetFrom`] = `Overlaps row ${i + 1}`;
+          found[`slabs.${i}.targetTo`] = `Overlaps row ${j + 1}`;
+        }
+      }
+    }
+    if (!isEmployee && rows.length > 1) found.slabs = 'A group leader has one commission rule per year';
+    return found;
+  }
+
+  async function save() {
+    const found = localCheck();
+    setErrors(found);
+    if (Object.keys(found).length) return;
+    setSaving(true);
+    try {
+      await api.commissions.saveScope({
+        ...scope,
+        rank: isEmployee ? scope.rank : '',
+        slabs: rows.map((r) => ({
+          id: r.id || undefined,
+          targetFrom: r.targetFrom.trim(),
+          targetTo: r.targetTo.trim(),
+          commissionType: r.commissionType,
+          commissionValue: r.commissionValue.trim(),
+          isActive: r.isActive,
+        })),
+      });
+      toast.success('Commission slabs saved');
+      onSaved();
+    } catch (err) {
+      setErrors(err.errors || {});
+      toast.error(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const err = (i, f) => errors[`slabs.${i}.${f}`];
+
+  return (
+    <Modal
+      open
+      title="Edit commission slabs"
+      onClose={onClose}
+      busy={saving}
+      size="xl"
+      footer={
+        <>
+          <button className="btn" onClick={onClose} disabled={saving}>Cancel</button>
+          <button className="btn primary" onClick={save} disabled={saving || loading || !scope.financialYear}>
+            {saving ? 'Saving…' : 'Save all slabs'}
+          </button>
+        </>
+      }
+    >
+      <div className="form-grid cols-3">
+        <FormField id="scopeFor" label="Commission for">
+          <select id="scopeFor" value={scope.commissionFor} onChange={(e) => setScope((s) => ({ ...s, commissionFor: e.target.value }))}>
+            <option value="employee">Employee — target-wise</option>
+            <option value="group_leader">Group leader</option>
+          </select>
+        </FormField>
+        <FormField id="scopeYear" label="Financial year">
+          <select id="scopeYear" value={scope.financialYear} onChange={(e) => setScope((s) => ({ ...s, financialYear: e.target.value }))}>
+            <option value="">Select financial year</option>
+            {years.map((y) => <option key={y.id} value={y.id}>{y.name}{y.isActive ? ' (active)' : ''}</option>)}
+          </select>
+        </FormField>
+        {isEmployee && (
+          <FormField id="scopeRank" label="Rank">
+            <select id="scopeRank" value={scope.rank} onChange={(e) => setScope((s) => ({ ...s, rank: e.target.value }))}>
+              <option value="">All ranks</option>
+              {ranks.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+            </select>
+          </FormField>
+        )}
+      </div>
+
+      {errors.slabs && <div className="alert" role="alert" style={{ marginTop: 12 }}>{errors.slabs}</div>}
+      <p className="muted small" style={{ margin: '12px 0 6px' }}>
+        All rows are saved together, so you can shift boundaries freely. Rows you remove are deleted when you save.
+      </p>
+
+      {loading ? (
+        <Spinner label="Loading slabs…" />
+      ) : (
+        <div className="table-wrap">
+          <table className="data-table slab-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Target from (₹)</th>
+                <th>Target to (₹)</th>
+                <th>Type</th>
+                <th>Value</th>
+                <th aria-label="Remove" />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 && (
+                <tr><td colSpan={6} className="muted" style={{ textAlign: 'center' }}>No slabs yet for this selection. Add the first one.</td></tr>
+              )}
+              {rows.map((r, i) => (
+                <tr key={r.id || `new-${i}`}>
+                  <td data-label="#">{i + 1}</td>
+                  <td data-label="Target from (₹)">
+                    <input aria-label={`Row ${i + 1} target from`} className={err(i, 'targetFrom') ? 'bad' : ''} inputMode="decimal" value={r.targetFrom} onChange={(e) => setRow(i, 'targetFrom', e.target.value)} placeholder={isEmployee ? '' : 'Any'} />
+                    {err(i, 'targetFrom') && <div className="field-error">{err(i, 'targetFrom')}</div>}
+                  </td>
+                  <td data-label="Target to (₹)">
+                    <input aria-label={`Row ${i + 1} target to`} className={err(i, 'targetTo') ? 'bad' : ''} inputMode="decimal" value={r.targetTo} onChange={(e) => setRow(i, 'targetTo', e.target.value)} placeholder={isEmployee ? '' : 'Any'} />
+                    {err(i, 'targetTo') && <div className="field-error">{err(i, 'targetTo')}</div>}
+                  </td>
+                  <td data-label="Type">
+                    <select aria-label={`Row ${i + 1} type`} value={r.commissionType} onChange={(e) => setRow(i, 'commissionType', e.target.value)}>
+                      <option value="percentage">%</option>
+                      <option value="fixed">₹ fixed</option>
+                    </select>
+                  </td>
+                  <td data-label="Value">
+                    <input aria-label={`Row ${i + 1} value`} className={err(i, 'commissionValue') ? 'bad' : ''} inputMode="decimal" value={r.commissionValue} onChange={(e) => setRow(i, 'commissionValue', e.target.value)} />
+                    {err(i, 'commissionValue') && <div className="field-error">{err(i, 'commissionValue')}</div>}
+                  </td>
+                  <td className="actions-col">
+                    <button className="btn sm danger-outline" onClick={() => setRows((rs) => rs.filter((_, idx) => idx !== i))} aria-label={`Remove row ${i + 1}`}>Remove</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {!loading && (isEmployee || rows.length === 0) && (
+        <button className="btn" style={{ marginTop: 12 }} onClick={() => setRows((rs) => [...rs, newRow(rs[rs.length - 1])])}>
+          + Add slab
+        </button>
+      )}
+    </Modal>
+  );
+}
+
 export default function CommissionMaster() {
   const toast = useToast();
   const [data, setData] = useState({ items: [], total: 0, totalPages: 1 });
@@ -207,7 +434,12 @@ export default function CommissionMaster() {
       <PageHeader
         title="Commission Master"
         description="Employee commission by target slab, and group leader commission, set per financial year."
-        actions={<button className="btn primary" onClick={() => setDialog({ type: 'form' })}>+ Add Commission</button>}
+        actions={
+          <>
+            <button className="btn" onClick={() => setDialog({ type: 'scope' })}>Edit all slabs</button>
+            <button className="btn primary" onClick={() => setDialog({ type: 'form' })}>+ Add Commission</button>
+          </>
+        }
       />
 
       <div className="panel">
@@ -266,6 +498,7 @@ export default function CommissionMaster() {
                       <td data-label="Actions" className="actions-col">
                         <div className="row-actions">
                           <button className="btn sm" onClick={() => setDialog({ type: 'form', item: c })}>Edit</button>
+                          <button className="btn sm" onClick={() => setDialog({ type: 'scope', item: c })} title="Edit every slab of this type, year and rank together">Edit slabs</button>
                           <button className="btn sm" onClick={() => setDialog({ type: 'status', item: c })}>{c.isActive ? 'Deactivate' : 'Activate'}</button>
                           <button className="btn sm danger-outline" onClick={() => setDialog({ type: 'delete', item: c })}>Delete</button>
                         </div>
@@ -279,6 +512,16 @@ export default function CommissionMaster() {
           </>
         )}
       </div>
+
+      {dialog?.type === 'scope' && (
+        <ScopeEditor
+          initial={dialog.item || null}
+          years={years}
+          ranks={ranks}
+          onClose={closeDialog}
+          onSaved={() => { closeDialog(); load(); }}
+        />
+      )}
 
       {dialog?.type === 'form' && (
         <CommissionForm
@@ -313,3 +556,4 @@ export default function CommissionMaster() {
     </>
   );
 }
+

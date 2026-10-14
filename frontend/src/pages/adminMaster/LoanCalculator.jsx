@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import { api } from '../../api/client.js';
 import FormField from '../../components/ui/FormField.jsx';
 import { ErrorState, PageHeader, Spinner } from '../../components/ui/Feedback.jsx';
@@ -7,6 +7,7 @@ import { formatDate, formatINR, todayIso } from '../../utils/format.js';
 
 const MONEY_RE = /^\d{1,12}(\.\d{1,2})?$/;
 const UNIT_PLURAL = { day: 'days', week: 'weeks', fortnight: 'fortnights', month: 'months', quarter: 'quarters', 'half-year': 'half-years', year: 'years' };
+const FINE_COUNT_LABEL = { per_day: 'per day', per_month: 'per month', one_time: 'one time' };
 const SECURITY_LABEL = { none: 'None', group_guarantee: 'Group guarantee', guarantor: 'Personal guarantor', fixed_deposit: 'Fixed deposit lien', gold: 'Gold', property: 'Property', vehicle: 'Vehicle' };
 
 function toCsv(result) {
@@ -24,6 +25,7 @@ export default function LoanCalculator() {
     schemeId: '',
     calculationType: 'flat',
     emiType: 'equal',
+    rounding: '1',
     mode: 'monthly',
     amount: '',
     rate: '',
@@ -52,6 +54,7 @@ export default function LoanCalculator() {
   const unit = mode ? UNIT_PLURAL[mode.unit] : 'installments';
   const calcType = scheme ? scheme.calculationType : form.calculationType;
   const emiType = calcType === 'flat' ? 'equal' : scheme ? scheme.emiType : form.emiType;
+  const rounding = scheme ? String(scheme.installmentRounding ?? 1) : form.rounding;
 
   const set = (key) => (e) => {
     setForm((f) => ({ ...f, [key]: e.target.value }));
@@ -94,6 +97,7 @@ export default function LoanCalculator() {
           ...form,
           calculationType: calcType,
           emiType,
+          rounding: Number(rounding),
           mode: mode.value,
           amount,
           rate,
@@ -168,6 +172,18 @@ export default function LoanCalculator() {
             <select id="emiType" value={emiType} onChange={set('emiType')} disabled={calcType === 'flat' || Boolean(scheme)}>
               {options.emiTypes.map((t) => (
                 <option key={t.value} value={t.value}>{t.label}</option>
+              ))}
+            </select>
+          </FormField>
+          <FormField
+            id="rounding"
+            label="Round installment to"
+            error={errors.rounding}
+            hint={scheme ? 'Set by the scheme' : 'Collect round amounts; interest adjusts to match'}
+          >
+            <select id="rounding" value={rounding} onChange={set('rounding')} disabled={Boolean(scheme)}>
+              {[...options.roundingOptions].sort((a, b) => (a.value === 0) - (b.value === 0) || a.value - b.value).map((r) => (
+                <option key={r.value} value={String(r.value)}>{r.label}</option>
               ))}
             </select>
           </FormField>
@@ -259,6 +275,18 @@ export default function LoanCalculator() {
                   <span className="muted small">Security ({SECURITY_LABEL[result.charges.securityType]})</span>
                   <strong>{formatINR(result.charges.securityAmount)}</strong>
                 </div>
+                <div>
+                  <span className="muted small">Grace period</span>
+                  <strong>{result.charges.gracePeriodDays} day(s)</strong>
+                </div>
+                <div>
+                  <span className="muted small">Late fine</span>
+                  <strong>
+                    {result.charges.fine.value
+                      ? `${result.charges.fine.type === 'percentage' ? `${result.charges.fine.value}%` : formatINR(result.charges.fine.value)} ${FINE_COUNT_LABEL[result.charges.fine.counting]}`
+                      : 'None'}
+                  </strong>
+                </div>
               </div>
             </div>
           )}
@@ -316,3 +344,4 @@ export default function LoanCalculator() {
     </>
   );
 }
+

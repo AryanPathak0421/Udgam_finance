@@ -191,3 +191,145 @@ export async function deleteCommission(req, res) {
   await audit(req, { action: 'commission.delete', entity: 'Commission', entityId: doc._id, before });
   res.json({ message: 'Commission deleted' });
 }
+
+/**
+ * Replaces ALL slabs of one scope (type + financial year + rank) in a single save.
+ * Editing slabs one by one forces an awkward order (a slab cannot grow into its neighbour
+ * until the neighbour has moved); here the whole set is validated together instead.
+ *
+ * body: { commissionFor, financialYear, rank?, slabs: [{ id?, targetFrom, targetTo,
+ *         commissionType, commissionValue, isActive? }] }
+ * Rows with an id are updated, rows without one are created, existing rows that are
+ * not sent are deleted.
+ */
+export async function saveCommissionScope(req, res) {
+  const b = req.body || {};
+  const v = createValidator();
+
+  const commissionFor = String(b.commissionFor || '');
+  if (!COMMISSION_FOR.includes(commissionFor)) v.add('commissionFor', 'Select who the commission is for');
+
+  const fyId = String(b.financialYear || '');
+  const fy = mongoose.isValidObjectId(fyId) ? await FinancialYear.findById(fyId) : null;
+  if (!fy) v.add('financialYear', 'Select a valid financial year');
+
+  let rank = null;
+  if (commissionFor === 'employee' && b.rank) {
+    const rankId = String(b.rank);
+    rank = mongoose.isValidObjectId(rankId) ? await Rank.findOne({ _id: rankId, isDeleted: false }) : null;
+    if (!rank) v.add('rank', 'Selected rank does not exist');
+  }
+
+  const rows = Array.isArray(b.slabs) ? b.slabs : null;
+  if (!rows) v.add('slabs', 'Provide the list of slabs');
+  else if (rows.length > 50) v.add('slabs', 'A scope can have up to 50 slabs');
+  else if (commissionFor === 'group_leader' && rows.length > 1) v.add('slabs', 'A group leader has one commission rule per financial year');
+  v.throwIfAny();
+
+  const scopeFilter = {
+    isDeleted: false,
+    commissionFor,
+    financialYear: fy._id,
+    rank: rank ? rank._id : { $exists: false },
+  };
+  const existing = await Commission.find(scopeFilter);
+  const existingIds = new Set(existing.map((e) => String(e._id)));
+
+  const parsed = [];
+  rows.forEach((row, i) => {
+    const key = (f) => `slabs.${i}.${f}`;
+    const r = row || {};
+    const out = { id: r.id ? String(r.id) : null };
+    if (out.id && !existingIds.has(out.id)) v.add(key('id'), 'This slab no longer belongs to the selected scope. Reload and try again.');
+
+    const hasFrom = r.targetFrom !== undefined && r.targetFrom !== null && String(r.targetFrom).trim() !== '';
+    const hasTo = r.targetTo !== undefined && r.targetTo !== null && String(r.targetTo).trim() !== '';
+    if (commissionFor === 'employee' && !(hasFrom && hasTo)) {
+      if (!hasFrom) v.add(key('targetFrom'), 'Enter the target start amount');
+      if (!hasTo) v.add(key('targetTo'), 'Enter the target end amount');
+    } else if (hasFrom !== hasTo) {
+      v.add(key(hasFrom ? 'targetTo' : 'targetFrom'), 'Enter both target amounts, or leave both empty');
+    }
+    if (hasFrom && hasTo) {
+      const from = toMinor(r.targetFrom);
+      const to = toMinor(r.targetTo);
+      if (from === null || from > MAX_PAISE) v.add(key('targetFrom'), 'Enter a valid amount (up to 2 decimals)');
+      if (to === null || to > MAX_PAISE) v.add(key('targetTo'), 'Enter a valid amount (up to 2 decimals)');
+      if (from !== null && to !== null) {
+        if (to < from) v.add(key('targetTo'), 'Target end must not be less than target start');
+        out.from = from;
+        out.to = to;
+      }
+    }
+
+    out.commissionType = String(r.commissionType || '');
+    if (!COMMISSION_TYPES.includes(out.commissionType)) v.add(key('commissionType'), 'Select percentage or fixed amount');
+    const value = toMinor(r.commissionValue);
+    if (value === null || value < 1) v.add(key('commissionValue'), 'Enter a value greater than 0 (up to 2 decimals)');
+    else if (out.commissionType === 'percentage' && value > MAX_BP) v.add(key('commissionValue'), 'Percentage cannot exceed 100');
+    else if (value > MAX_PAISE) v.add(key('commissionValue'), 'Amount is too large');
+    else out.value = value;
+
+    out.isActive = typeof r.isActive === 'boolean' ? r.isActive : true;
+    parsed.push(out);
+  });
+  v.throwIfAny();
+
+  // The final set must not overlap (a row without a range covers every target).
+  const span = (p) => [p.from ?? 0, p.to ?? Number.MAX_SAFE_INTEGER];
+  for (let i = 0; i < parsed.length; i += 1) {
+    for (let j = i + 1; j < parsed.length; j += 1) {
+      const [aLo, aHi] = span(parsed[i]);
+      const [bLo, bHi] = span(parsed[j]);
+      if (aLo <= bHi && bLo <= aHi) {
+        v.add(`slabs.${j}.targetFrom`, `Overlaps slab ${i + 1}`);
+        v.add(`slabs.${i}.targetTo`, `Overlaps slab ${j + 1}`);
+      }
+    }
+  }
+  v.throwIfAny(); // 422 with per-row messages, e.g. slabs.2.targetFrom
+
+  const keep = new Set(parsed.filter((p) => p.id).map((p) => p.id));
+  const ops = [];
+  for (const p of parsed) {
+    const set = { commissionType: p.commissionType, commissionValue: p.value, isActive: p.isActive, updatedBy: req.user._id };
+    const unset = {};
+    if (p.from !== undefined) { set.targetFromPaise = p.from; set.targetToPaise = p.to; } else { unset.targetFromPaise = ''; unset.targetToPaise = ''; }
+    if (p.id) {
+      ops.push({ updateOne: { filter: { _id: p.id }, update: { $set: set, ...(Object.keys(unset).length ? { $unset: unset } : {}) } } });
+    } else {
+      ops.push({
+        insertOne: {
+          document: {
+            commissionFor,
+            financialYear: fy._id,
+            ...(rank ? { rank: rank._id } : {}),
+            targetFromPaise: p.from,
+            targetToPaise: p.to,
+            commissionType: p.commissionType,
+            commissionValue: p.value,
+            isActive: p.isActive,
+            createdBy: req.user._id,
+            updatedBy: req.user._id,
+          },
+        },
+      });
+    }
+  }
+  for (const e of existing) {
+    if (!keep.has(String(e._id))) {
+      ops.push({ updateOne: { filter: { _id: e._id }, update: { $set: { isDeleted: true, isActive: false, updatedBy: req.user._id } } } });
+    }
+  }
+  if (ops.length) await Commission.bulkWrite(ops, { ordered: true });
+
+  const fresh = await Commission.find(scopeFilter).populate(POPULATE).sort({ targetFromPaise: 1, _id: 1 });
+  await audit(req, {
+    action: 'commission.saveScope',
+    entity: 'Commission',
+    entityId: `${commissionFor}:${fy.financialYearId}:${rank ? rank._id : 'all'}`,
+    before: { count: existing.length },
+    after: { count: fresh.length },
+  });
+  res.json({ items: fresh.map(present) });
+}

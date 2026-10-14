@@ -1,4 +1,4 @@
-import { LoanScheme, LOAN_TYPES, TERM_UNITS, SECURITY_TYPES, CHARGE_TYPES } from '../models/LoanScheme.js';
+﻿import { LoanScheme, LOAN_TYPES, TERM_UNITS, SECURITY_TYPES, CHARGE_TYPES, FINE_COUNTING, ROUNDING_OPTIONS } from '../models/LoanScheme.js';
 import { MODES, CALCULATION_TYPES, EMI_TYPES } from '../services/loanCalculator.js';
 import { asString, createValidator, escapeRegex, parsePaging, HttpError } from '../utils/http.js';
 import { toMinor } from '../utils/money.js';
@@ -34,6 +34,13 @@ export const presentScheme = (s) => ({
   securityPercent: pct(s.securityBp),
   processingFee: { type: s.processingFee.type, value: s.processingFee.type === 'percentage' ? pct(s.processingFee.value) : rs(s.processingFee.value) },
   cost: { type: s.cost.type, value: s.cost.type === 'percentage' ? pct(s.cost.value) : rs(s.cost.value) },
+  installmentRounding: s.installmentRounding ?? 1,
+  gracePeriodDays: s.gracePeriodDays ?? 0,
+  fine: {
+    type: s.fine?.type || 'fixed',
+    value: (s.fine?.type || 'fixed') === 'percentage' ? pct(s.fine?.value || 0) : rs(s.fine?.value || 0),
+    counting: s.fine?.counting || 'per_day',
+  },
   isActive: s.isActive,
   createdAt: s.createdAt,
   updatedAt: s.updatedAt,
@@ -123,6 +130,21 @@ function readScheme(b) {
   out.processingFee = readCharge(b.processingFee, 'processingFee', 'processing fee', v);
   out.cost = readCharge(b.cost, 'cost', 'cost', v);
 
+  // Installment rounding
+  const rounding = Number(b.installmentRounding === undefined || b.installmentRounding === '' ? 1 : b.installmentRounding);
+  if (!ROUNDING_OPTIONS.includes(rounding)) v.add('installmentRounding', 'Choose none, ₹1, ₹5 or ₹10');
+  out.installmentRounding = rounding;
+
+  // Late payment: grace period and fine
+  const grace = Number(b.gracePeriodDays === undefined || b.gracePeriodDays === '' ? 0 : b.gracePeriodDays);
+  if (!Number.isInteger(grace) || grace < 0 || grace > 365) v.add('gracePeriodDays', 'Enter whole days from 0 to 365');
+  out.gracePeriodDays = grace;
+
+  const fine = readCharge(b.fine, 'fine', 'fine', v);
+  const counting = String(b.fine?.counting || 'per_day');
+  if (!FINE_COUNTING.includes(counting)) v.add('fineCounting', 'Select how the fine is counted');
+  out.fine = fine ? { ...fine, counting } : null;
+
   v.throwIfAny();
   return out;
 }
@@ -211,3 +233,4 @@ export async function deleteScheme(req, res) {
   await audit(req, { action: 'loanScheme.delete', entity: 'LoanScheme', entityId: doc._id, before });
   res.json({ message: 'Loan scheme deleted' });
 }
+

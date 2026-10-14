@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+﻿import { useCallback, useEffect, useState } from 'react';
 import { api } from '../../api/client.js';
 import FormField from '../../components/ui/FormField.jsx';
 import Modal from '../../components/ui/Modal.jsx';
@@ -17,7 +17,7 @@ export const LOAN_TYPES = [
   ['group', 'Group loan'],
   ['personal', 'Personal loan'],
   ['product', 'Product loan'],
-  ['prime', 'Prime loan'],
+  ['msme', 'MSME loan'],
   ['business', 'Business loan'],
 ];
 export const MODE_OPTIONS = [
@@ -38,6 +38,17 @@ const SECURITY_TYPES = [
   ['property', 'Property'],
   ['vehicle', 'Vehicle'],
 ];
+export const FINE_COUNTING = [
+  ['per_day', 'Per day (every day overdue)'],
+  ['per_month', 'Per month (every 30 days overdue)'],
+  ['one_time', 'One time (once, when grace ends)'],
+];
+export const ROUNDING = [
+  ['1', 'Nearest ₹1 (whole rupee)'],
+  ['5', 'Nearest ₹5'],
+  ['10', 'Nearest ₹10'],
+  ['0', 'No rounding (exact)'],
+];
 const TERM_UNITS = [
   ['days', 'Days'],
   ['weeks', 'Weeks'],
@@ -56,6 +67,9 @@ const EMPTY = {
   securityType: 'none', securityPercent: '0',
   processingFee: { type: 'percentage', value: '0' },
   cost: { type: 'percentage', value: '0' },
+  installmentRounding: '1',
+  gracePeriodDays: '0',
+  fine: { type: 'fixed', value: '0', counting: 'per_day' },
 };
 
 const toForm = (s) => ({
@@ -68,6 +82,9 @@ const toForm = (s) => ({
   securityType: s.securityType, securityPercent: String(s.securityPercent),
   processingFee: { type: s.processingFee.type, value: String(s.processingFee.value) },
   cost: { type: s.cost.type, value: String(s.cost.value) },
+  installmentRounding: String(s.installmentRounding ?? 1),
+  gracePeriodDays: String(s.gracePeriodDays ?? 0),
+  fine: { type: s.fine?.type || 'fixed', value: String(s.fine?.value ?? 0), counting: s.fine?.counting || 'per_day' },
 });
 
 function validate(f, isEdit) {
@@ -96,7 +113,8 @@ function validate(f, isEdit) {
   if (!f.modes.length) e.modes = 'Select at least one loan mode';
   if (!money(f.securityPercent) || Number(f.securityPercent) > 100) e.securityPercent = '0 to 100';
   else if (f.securityType === 'none' && Number(f.securityPercent) > 0) e.securityPercent = 'Choose a security type, or set 0';
-  for (const k of ['processingFee', 'cost']) {
+  if (!int(f.gracePeriodDays) || Number(f.gracePeriodDays) > 365) e.gracePeriodDays = 'Whole days, 0 to 365';
+  for (const k of ['processingFee', 'cost', 'fine']) {
     const c = f[k];
     if (!money(c.value) || (c.type === 'percentage' && Number(c.value) > 100)) e[k] = c.type === 'percentage' ? '0 to 100' : 'Enter an amount';
   }
@@ -131,7 +149,12 @@ function SchemeForm({ item, onClose, onSaved }) {
     if (Object.keys(found).length) return;
     setSaving(true);
     try {
-      const payload = { ...form, code: form.code.trim().toUpperCase(), emiType: flat ? 'equal' : form.emiType };
+      const payload = {
+        ...form,
+        code: form.code.trim().toUpperCase(),
+        emiType: flat ? 'equal' : form.emiType,
+        installmentRounding: Number(form.installmentRounding),
+      };
       if (isEdit) await api.loanSchemes.update(item.id, payload);
       else await api.loanSchemes.create(payload);
       toast.success(isEdit ? 'Loan scheme updated' : 'Loan scheme added');
@@ -260,6 +283,31 @@ function SchemeForm({ item, onClose, onSaved }) {
           </FormField>
           {ChargeField({ id: 'processingFee', title: 'Processing fee' })}
           {ChargeField({ id: 'cost', title: 'Cost (insurance / other)' })}
+        </div>
+
+        <h4 className="form-section">Late payment & rounding</h4>
+        <div className="form-grid cols-4">
+          <FormField id="gracePeriodDays" label="Grace period (days)" error={errors.gracePeriodDays} hint="No fine until this many days after the due date">
+            <input id="gracePeriodDays" inputMode="numeric" value={form.gracePeriodDays} onChange={set('gracePeriodDays')} />
+          </FormField>
+          {ChargeField({ id: 'fine', title: 'Fine (on overdue installment)', hint: '% of the overdue installment, or a fixed ₹' })}
+          <FormField id="fineCounting" label="Fine counting" error={errors.fineCounting} hint="How often the fine is added after the grace period">
+            <select
+              id="fineCounting"
+              value={form.fine.counting}
+              onChange={(e) => {
+                const counting = e.target.value;
+                setForm((f) => ({ ...f, fine: { ...f.fine, counting } }));
+              }}
+            >
+              {FINE_COUNTING.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+            </select>
+          </FormField>
+          <FormField id="installmentRounding" label="Round installment to" error={errors.installmentRounding} hint="Whole-rupee installments are easier to collect">
+            <select id="installmentRounding" value={form.installmentRounding} onChange={set('installmentRounding')}>
+              {ROUNDING.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+            </select>
+          </FormField>
         </div>
       </form>
     </Modal>
@@ -423,6 +471,9 @@ export default function LoanScheme() {
               ['Security amount', `${dialog.item.securityPercent}% of loan`],
               ['Processing fee', charge(dialog.item.processingFee)],
               ['Cost', charge(dialog.item.cost)],
+              ['Installment rounding', dialog.item.installmentRounding ? `Nearest ₹${dialog.item.installmentRounding}` : 'None (exact)'],
+              ['Grace period', `${dialog.item.gracePeriodDays} day(s)`],
+              ['Fine', dialog.item.fine.value ? `${charge(dialog.item.fine)} · ${label(FINE_COUNTING, dialog.item.fine.counting)}` : 'No fine'],
               ['Status', dialog.item.isActive ? 'Active' : 'Inactive'],
             ]}
           />
@@ -452,3 +503,5 @@ export default function LoanScheme() {
     </>
   );
 }
+
+

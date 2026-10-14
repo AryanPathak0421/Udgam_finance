@@ -109,6 +109,8 @@ export const api = {
   commissions: {
     list: (params) => request(`${AM}/commissions${qs(params)}`),
     create: (data) => request(`${AM}/commissions`, { method: 'POST', body: data }),
+    // Replaces every slab of one scope (type + financial year + rank) in a single save.
+    saveScope: (data) => request(`${AM}/commissions/scope`, { method: 'PUT', body: data }),
     update: (id, data) => request(`${AM}/commissions/${id}`, { method: 'PUT', body: data }),
     setStatus: (id, isActive) => request(`${AM}/commissions/${id}/status`, { method: 'PATCH', body: { isActive } }),
     remove: (id) => request(`${AM}/commissions/${id}`, { method: 'DELETE' }),
