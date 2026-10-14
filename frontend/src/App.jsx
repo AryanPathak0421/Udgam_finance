@@ -17,6 +17,8 @@ import CommissionMaster from './pages/adminMaster/CommissionMaster.jsx';
 import VoucherMaster from './pages/adminMaster/VoucherMaster.jsx';
 import LoanCalculator from './pages/adminMaster/LoanCalculator.jsx';
 import LoanScheme from './pages/adminMaster/LoanScheme.jsx';
+import AccountGroupMaster from './pages/adminMaster/AccountGroupMaster.jsx';
+import LedgerMaster from './pages/adminMaster/LedgerMaster.jsx';
 import Layout from './components/Layout.jsx';
 import { routableItems, canOpenPath } from './config/nav.js';
 
@@ -34,6 +36,8 @@ const PAGES = {
   '/admin-master/vouchers': VoucherMaster,
   '/admin-master/loan-calculator': LoanCalculator,
   '/admin-master/loan-schemes': LoanScheme,
+  '/admin-master/account-groups': AccountGroupMaster,
+  '/admin-master/ledgers': LedgerMaster,
 };
 
 function RequireAuth({ children }) {
@@ -74,6 +78,7 @@ export default function App() {
     </Routes>
   );
 }
+
 
 
 

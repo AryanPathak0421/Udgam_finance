@@ -14,6 +14,8 @@ export const MENU_CATALOGUE = [
   { key: '/admin-master/vouchers', label: 'Voucher Master', group: 'Admin Master', adminOnly: true },
   { key: '/admin-master/loan-calculator', label: 'Loan Calculator', group: 'Admin Master', adminOnly: true },
   { key: '/admin-master/loan-schemes', label: 'Loan Scheme', group: 'Admin Master', adminOnly: true },
+  { key: '/admin-master/account-groups', label: 'Account Group Master', group: 'Admin Master', adminOnly: true },
+  { key: '/admin-master/ledgers', label: 'Ledger Master', group: 'Admin Master', adminOnly: true },
   { key: '/employees', label: 'Employees', group: 'Organisation' },
   { key: '/groups', label: 'Centers & Groups', group: 'Organisation' },
   { key: '/customers', label: 'Customers', group: 'Customers' },
@@ -31,6 +33,7 @@ export const MENU_CATALOGUE = [
 ];
 
 export const MENU_KEYS = new Set(MENU_CATALOGUE.map((m) => m.key));
+
 
 
 

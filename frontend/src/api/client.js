@@ -80,7 +80,21 @@ export const api = {
     setStatus: (id, isActive) => request(`${AM}/bank-accounts/${id}/status`, { method: 'PATCH', body: { isActive } }),
     remove: (id) => request(`${AM}/bank-accounts/${id}`, { method: 'DELETE' }),
   },
-  loanSchemes: {
+  accountGroups: {
+    list: (params) => request(`${AM}/account-groups${qs(params)}`),
+    options: () => request(`${AM}/account-groups/options`),
+    create: (data) => request(`${AM}/account-groups`, { method: 'POST', body: data }),
+    update: (id, data) => request(`${AM}/account-groups/${id}`, { method: 'PUT', body: data }),
+    setStatus: (id, isActive) => request(`${AM}/account-groups/${id}/status`, { method: 'PATCH', body: { isActive } }),
+    remove: (id) => request(`${AM}/account-groups/${id}`, { method: 'DELETE' }),
+  },
+  ledgers: {
+    list: (params) => request(`${AM}/ledgers${qs(params)}`),
+    create: (data) => request(`${AM}/ledgers`, { method: 'POST', body: data }),
+    update: (id, data) => request(`${AM}/ledgers/${id}`, { method: 'PUT', body: data }),
+    setStatus: (id, isActive) => request(`${AM}/ledgers/${id}/status`, { method: 'PATCH', body: { isActive } }),
+    remove: (id) => request(`${AM}/ledgers/${id}`, { method: 'DELETE' }),
+  },  loanSchemes: {
     list: (params) => request(`${AM}/loan-schemes${qs(params)}`),
     options: () => request(`${AM}/loan-schemes/options`),
     create: (data) => request(`${AM}/loan-schemes`, { method: 'POST', body: data }),
@@ -123,4 +137,5 @@ export const api = {
     remove: (id) => request(`${AM}/financial-years/${id}`, { method: 'DELETE' }),
   },
 };
+
 

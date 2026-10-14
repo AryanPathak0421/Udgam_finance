@@ -41,6 +41,8 @@ import {
 import { listVouchers, createVoucher, updateVoucher, setVoucherStatus, deleteVoucher } from '../controllers/voucherController.js';
 import { getLoanCalculatorOptions, runLoanCalculator } from '../controllers/loanCalculatorController.js';
 import { listSchemes, schemeOptions, createScheme, updateScheme, setSchemeStatus, deleteScheme } from '../controllers/loanSchemeController.js';
+import { listGroups, groupOptions, createGroup, updateGroup, setGroupStatus, deleteGroup } from '../controllers/accountGroupController.js';
+import { listLedgers, createLedger, updateLedger, setLedgerStatus, deleteLedger } from '../controllers/ledgerController.js';
 import { getStates, getCities } from '../controllers/metaController.js';
 
 const router = Router();
@@ -119,7 +121,21 @@ router.put('/loan-schemes/:id', ...adminOnly, h(updateScheme));
 router.patch('/loan-schemes/:id/status', ...adminOnly, h(setSchemeStatus));
 router.delete('/loan-schemes/:id', ...adminOnly, h(deleteScheme));
 
+router.get('/account-groups', ...adminOnly, h(listGroups));
+router.get('/account-groups/options', ...adminOnly, h(groupOptions));
+router.post('/account-groups', ...adminOnly, h(createGroup));
+router.put('/account-groups/:id', ...adminOnly, h(updateGroup));
+router.patch('/account-groups/:id/status', ...adminOnly, h(setGroupStatus));
+router.delete('/account-groups/:id', ...adminOnly, h(deleteGroup));
+
+router.get('/ledgers', ...adminOnly, h(listLedgers));
+router.post('/ledgers', ...adminOnly, h(createLedger));
+router.put('/ledgers/:id', ...adminOnly, h(updateLedger));
+router.patch('/ledgers/:id/status', ...adminOnly, h(setLedgerStatus));
+router.delete('/ledgers/:id', ...adminOnly, h(deleteLedger));
+
 export default router;
+
 
 
 

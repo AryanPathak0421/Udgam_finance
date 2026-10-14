@@ -30,6 +30,8 @@ export const NAV_SECTIONS = [
           { label: 'Voucher Master', path: '/admin-master/vouchers', icon: 'ticket' },
           { label: 'Loan Calculator', path: '/admin-master/loan-calculator', icon: 'calculator' },
           { label: 'Loan Scheme', path: '/admin-master/loan-schemes', icon: 'layers' },
+          { label: 'Account Group Master', path: '/admin-master/account-groups', icon: 'folder' },
+          { label: 'Ledger Master', path: '/admin-master/ledgers', icon: 'book' },
         ],
       },
     ],
@@ -127,6 +129,7 @@ export function navForUser(user) {
       .map((i) => (i.children ? { ...i, children: i.children.filter((c) => canOpenPath(user, c.path)) } : i)),
   })).filter((s) => s.items.length > 0);
 }
+
 
 
 

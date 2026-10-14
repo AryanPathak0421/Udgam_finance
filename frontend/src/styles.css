@@ -374,3 +374,11 @@ a.btn { text-decoration: none; }
   .form-grid.cols-3, .form-grid.cols-4 { grid-template-columns: 1fr; }
   .form-grid .span-3 { grid-column: auto; }
 }
+
+/* ---------- Segmented radio (Dr / Cr) ---------- */
+.seg { display: inline-flex; border: 1px solid #d5dae2; border-radius: 8px; overflow: hidden; background: #fff; }
+.seg-item { display: inline-flex; align-items: center; gap: 6px; margin: 0; padding: 10px 16px; font-size: 14px; font-weight: 600; cursor: pointer; color: var(--muted); }
+.seg-item + .seg-item { border-left: 1px solid #d5dae2; }
+.seg-item.on { background: var(--primary); color: #fff; }
+.seg-item input { position: absolute; opacity: 0; width: 0; height: 0; padding: 0; }
+.seg-item:focus-within { outline: 2px solid var(--primary); outline-offset: -2px; }
