@@ -39,6 +39,7 @@ import {
   deleteCommission,
 } from '../controllers/commissionController.js';
 import { listVouchers, createVoucher, updateVoucher, setVoucherStatus, deleteVoucher } from '../controllers/voucherController.js';
+import { getLoanCalculatorOptions, runLoanCalculator } from '../controllers/loanCalculatorController.js';
 import { getStates, getCities } from '../controllers/metaController.js';
 
 const router = Router();
@@ -107,6 +108,10 @@ router.put('/vouchers/:id', ...adminOnly, h(updateVoucher));
 router.patch('/vouchers/:id/status', ...adminOnly, h(setVoucherStatus));
 router.delete('/vouchers/:id', ...adminOnly, h(deleteVoucher));
 
+router.get('/loan-calculator/options', ...adminOnly, getLoanCalculatorOptions);
+router.post('/loan-calculator', ...adminOnly, runLoanCalculator);
+
 export default router;
+
 
 

@@ -80,6 +80,10 @@ export const api = {
     setStatus: (id, isActive) => request(`${AM}/bank-accounts/${id}/status`, { method: 'PATCH', body: { isActive } }),
     remove: (id) => request(`${AM}/bank-accounts/${id}`, { method: 'DELETE' }),
   },
+  loanCalculator: {
+    options: () => request(`${AM}/loan-calculator/options`),
+    calculate: (data) => request(`${AM}/loan-calculator`, { method: 'POST', body: data }),
+  },
   commissions: {
     list: (params) => request(`${AM}/commissions${qs(params)}`),
     create: (data) => request(`${AM}/commissions`, { method: 'POST', body: data }),

@@ -341,3 +341,11 @@ a.btn { text-decoration: none; }
   .perm-table td.perm-col { text-align: center; }
   .perm-table td::before { content: none; }
 }
+
+/* ---------- Loan calculator ---------- */
+.calc-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.calc-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.data-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.data-table tfoot td { padding: 12px; border-top: 2px solid var(--border); background: #f9fafb; }
+@media (max-width: 991px) { .calc-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 720px) { .calc-grid { grid-template-columns: 1fr; } .data-table tfoot { display: block; } .data-table tfoot tr { display: flex; flex-wrap: wrap; justify-content: space-between; } }
