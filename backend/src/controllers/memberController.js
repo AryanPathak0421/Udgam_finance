@@ -560,6 +560,33 @@ async function readPerson(req, kind, m, existing) {
   };
 }
 
+// An approved document is final: only an admin may replace it (or change the identity it belongs to).
+function guardApproved(m, kind, old, incoming, user) {
+  if (isAdmin(user)) return;
+  const prefix = `${kind}.`;
+  const approved = (m.kycDocs || []).filter((x) => x.key.startsWith(prefix) && x.status === 'approved').map((x) => x.key);
+  if (!approved.length || !old) return;
+  const photoChanged = PARTY_FIELDS.some((f) => approved.includes(prefix + f) && (old[f] || '') !== (incoming[f] || ''));
+  const identityChanged = old.name !== incoming.name || old.aadhaar !== incoming.aadhaar;
+  if (photoChanged || identityChanged) {
+    throw new HttpError(403, 'These documents are already approved. Only an admin can replace them.', {
+      photo: 'Approved documents can only be changed by an admin',
+    });
+  }
+}
+
+// When one person is edited: unchanged, already-reviewed photos keep their review; new or replaced
+// photos go back to the approval queue. A change of name / Aadhaar sends everything back.
+function syncPartyKyc(m, prefix, old, person) {
+  const identityChanged = !old || old.name !== person.name || old.aadhaar !== person.aadhaar;
+  if (identityChanged) return resetKyc(m, prefix, person);
+  const changed = new Set(PARTY_FIELDS.filter((f) => (old[f] || '') !== (person[f] || '')).map((f) => prefix + f));
+  m.kycDocs = (m.kycDocs || []).filter((x) => !(x.key.startsWith(prefix) && changed.has(x.key)));
+  const kept = (m.kycKeys || []).filter((k) => !k.startsWith(prefix));
+  m.kycKeys = [...kept, ...PARTY_FIELDS.filter((f) => person[f]).map((f) => prefix + f)];
+  return undefined;
+}
+
 // A new or replaced document goes back to the approval queue.
 function resetKyc(m, prefix, person) {
   m.kycDocs = (m.kycDocs || []).filter((x) => !x.key.startsWith(prefix));
@@ -573,7 +600,9 @@ export function savePerson(kind) {
   return async (req, res) => {
     // "Nominee is the guarantor": the nominee details are copied from the guarantor.
     const same = kind === 'nominee' && req.body?.sameAsGuarantor === true;
-    const m = await loadMemberFor(req, { photos: same });
+    // Photos are loaded so approved documents can be told apart from changed ones.
+    const m = await loadMemberFor(req, { photos: true });
+    const old = m[kind]?.name ? m[kind].toObject() : null;
     let person;
     if (same) {
       const g = m.guarantor;
@@ -597,11 +626,13 @@ export function savePerson(kind) {
       };
     } else {
       person = await readPerson(req, kind, m, m[kind]);
+      guardApproved(m, kind, old, person, req.user);
     }
     const before = Boolean(m[kind]?.name);
     m[kind] = person;
     // The guarantor's documents are reviewed once; a copied nominee needs no second review.
-    resetKyc(m, `${kind}.`, same ? null : person);
+    if (same) resetKyc(m, `${kind}.`, null);
+    else syncPartyKyc(m, `${kind}.`, old, person);
     m.updatedBy = req.user._id;
     await m.save();
     await audit(req, {
@@ -713,7 +744,9 @@ const kycSummary = (m, keys = m.kycKeys || []) => {
   };
   // A nominee copied from the guarantor is covered by the guarantor's review.
   if (m.nominee?.sameAsGuarantor) parties.nominee = { status: 'same', total: 0, approved: 0, rejected: 0, pending: 0 };
+  const changes = (m.guarantorHistory || []).map((h) => h.replacedAt).filter(Boolean);
   return {
+    guarantorChangedAt: changes.length ? new Date(Math.max(...changes.map((d) => new Date(d).getTime()))) : null,
     parties,
     id: m._id,
     code: m.code,
@@ -750,7 +783,7 @@ export async function listKyc(req, res) {
 
   // Status is derived from the documents, so it is applied after loading (member sets are branch-sized).
   const all = await Member.find(filter)
-    .select('name code formId mobile branch createdAt kycKeys kycDocs nominee.sameAsGuarantor')
+    .select('name code formId mobile branch createdAt kycKeys kycDocs nominee.sameAsGuarantor guarantorHistory.replacedAt')
     .populate(POPULATE)
     .sort({ createdAt: -1 });
   let rows = all.map((m) => kycSummary(m));
@@ -812,8 +845,13 @@ export async function reuploadKyc(req, res) {
   const m = await loadMemberFor(req);
   const key = asString(req.body?.key);
   if (!KYC_KEYS.has(key)) throw new HttpError(422, 'Unknown document');
+  if (!(m.kycKeys || []).includes(key)) throw new HttpError(409, 'This document has not been uploaded');
   const rec = (m.kycDocs || []).find((x) => x.key === key);
-  if (!rec || rec.status !== 'rejected') throw new HttpError(409, 'Only a rejected document can be re-uploaded');
+  // A rejected (or not yet reviewed) document can be replaced by the staff; once it is approved
+  // only an admin may replace it.
+  if (rec?.status === 'approved' && !isAdmin(req.user)) {
+    throw new HttpError(403, 'This document is already approved. Only an admin can upload it again.');
+  }
   const v = createValidator();
   const image = readImage(req.body?.image, 'image', 'Document', v, { required: true });
   v.throwIfAny();
@@ -824,7 +862,7 @@ export async function reuploadKyc(req, res) {
   m.kycDocs.push({ key, status: 'pending', resubmittedAt: resubmitted });
   m.updatedBy = req.user._id;
   await m.save();
-  await audit(req, { action: 'kyc.reupload', entity: 'Member', entityId: m._id, after: { code: m.code, document: key } });
+  await audit(req, { action: 'kyc.reupload', entity: 'Member', entityId: m._id, after: { code: m.code, document: key, previous: rec?.status || 'pending' } });
   res.json({ message: 'Document uploaded again and sent for approval' });
 }
 

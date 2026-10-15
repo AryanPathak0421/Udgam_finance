@@ -12,6 +12,7 @@ import { compressImage } from '../utils/image.js';
 const LIMIT = 25;
 const APPROVERS = ['super_admin', 'admin', 'branch_manager'];
 const UPLOADERS = ['super_admin', 'admin', 'branch_manager', 'loan_officer', 'field_officer'];
+const ADMINS = ['super_admin', 'admin'];
 const TONE = { pending: 'grey', approved: 'green', rejected: 'danger' };
 const LABEL = { pending: 'Pending', approved: 'Approved', rejected: 'Rejected' };
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-IN') : '—');
@@ -32,7 +33,7 @@ function PartyBadge({ p }) {
   );
 }
 
-function ReviewDialog({ memberId, canApprove, canUpload, onClose, onChanged }) {
+function ReviewDialog({ memberId, canApprove, canUpload, isAdmin, onClose, onChanged }) {
   const toast = useToast();
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
@@ -103,6 +104,7 @@ function ReviewDialog({ memberId, canApprove, canUpload, onClose, onChanged }) {
         <>
           <p className="muted small" style={{ marginTop: 0 }}>
             Form ID {m.formId} · {m.branch?.name || '—'} · Submitted {fmtDate(m.submittedAt)} · <Badge status={m.status} />
+            {m.guarantorChangedAt && <> · Guarantor changed {fmtDate(m.guarantorChangedAt)}</>}
           </p>
           {data.documents.length === 0 ? (
             <EmptyState title="No documents uploaded" />
@@ -140,11 +142,12 @@ function ReviewDialog({ memberId, canApprove, canUpload, onClose, onChanged }) {
                         <button className="btn sm danger-outline" disabled={busy} onClick={() => { setRejecting(d.key); setReason(''); }}>Reject</button>
                       )}
                       {canApprove && d.status === 'approved' && <span className="muted small">Approved</span>}
-                      {canUpload && d.status === 'rejected' && (
-                        <button className="btn sm primary" disabled={busy} onClick={() => { reuploadKey.current = d.key; fileRef.current?.click(); }}>
-                          Re-upload
+                      {canUpload && (d.status === 'rejected' || d.status === 'pending' || (d.status === 'approved' && isAdmin)) && (
+                        <button className={`btn sm${d.status === 'rejected' ? ' primary' : ''}`} disabled={busy} onClick={() => { reuploadKey.current = d.key; fileRef.current?.click(); }}>
+                          {d.status === 'rejected' ? 'Re-upload' : 'Replace photo'}
                         </button>
                       )}
+                      {d.status === 'approved' && !isAdmin && <span className="muted small">Approved (only an admin can replace)</span>}
                     </div>
                   )}
                 </div>
@@ -166,6 +169,7 @@ export default function KycApproval() {
   const { user } = useAuth();
   const canApprove = APPROVERS.includes(user?.role);
   const canUpload = UPLOADERS.includes(user?.role);
+  const isAdmin = ADMINS.includes(user?.role);
 
   const [data, setData] = useState({ items: [], counts: { pending: 0, rejected: 0, approved: 0 }, total: 0, totalPages: 1 });
   const [branches, setBranches] = useState([]);
@@ -258,7 +262,10 @@ export default function KycApproval() {
                       <td data-label="Name">{r.name}</td>
                       <td data-label="Branch">{r.branch?.name || '—'}</td>
                       <td data-label="Borrower"><PartyBadge p={r.parties.member} /></td>
-                      <td data-label="Guarantor"><PartyBadge p={r.parties.guarantor} /></td>
+                      <td data-label="Guarantor">
+                        <PartyBadge p={r.parties.guarantor} />
+                        {r.guarantorChangedAt && <div className="muted small">Guarantor changed {fmtDate(r.guarantorChangedAt)}</div>}
+                      </td>
                       <td data-label="Nominee"><PartyBadge p={r.parties.nominee} /></td>
                       <td data-label="Documents" className="num">
                         {r.approved}/{r.total}{r.rejected ? <span className="muted"> · {r.rejected} rejected</span> : null}
@@ -278,7 +285,7 @@ export default function KycApproval() {
           </>
         )}
       </div>
-      {openId && <ReviewDialog memberId={openId} canApprove={canApprove} canUpload={canUpload} onClose={() => setOpenId(null)} onChanged={load} />}
+      {openId && <ReviewDialog memberId={openId} canApprove={canApprove} canUpload={canUpload} isAdmin={isAdmin} onClose={() => setOpenId(null)} onChanged={load} />}
     </>
   );
 }
