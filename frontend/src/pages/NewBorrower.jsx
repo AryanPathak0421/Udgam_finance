@@ -18,7 +18,7 @@ const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : '');
 const EMPTY = {
   branch: '', name: '', dob: '', gender: '', mobile: '', email: '', husbandName: '', occupation: '', education: '',
   address: '', pincode: '', state: '', district: '', aadhaar: '', pan: '', bankName: '', ifsc: '', accountNumber: '',
-  memberPhoto: '', aadhaarPhoto: '', panPhoto: '', signaturePhoto: '',
+  memberPhoto: '', aadhaarPhoto: '', panPhoto: '', signaturePhoto: '', employeeCode: '',
 };
 
 // A value (mobile / PAN) that must be confirmed with an OTP before the form can be saved.
@@ -104,6 +104,46 @@ export function OtpVerify({ id, label, value, valid, purpose, mobile, verified, 
   );
 }
 
+// Employee whose staff ID goes on the record. On the web software it is chosen here;
+// the mobile app fills it in automatically from the signed-in employee.
+export function EmployeeSelect({ id = 'employeeCode', branch, value, onChange, error }) {
+  const [state, setState] = useState({ items: [], me: '', loading: false });
+
+  useEffect(() => {
+    if (!branch) {
+      setState({ items: [], me: '', loading: false });
+      return undefined;
+    }
+    let live = true;
+    setState((s) => ({ ...s, loading: true }));
+    api.members
+      .employees(branch)
+      .then((r) => {
+        if (!live) return;
+        setState({ items: r.items, me: r.me, loading: false });
+        // Default to the signed-in employee when they are in this list.
+        if (!value && r.items.some((x) => x.code === r.me)) onChange(r.me);
+        else if (value && !r.items.some((x) => x.code === value)) onChange('');
+      })
+      .catch(() => live && setState({ items: [], me: '', loading: false }));
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [branch]);
+
+  return (
+    <FormField id={id} label="Employee ID" required error={error} hint={!branch ? 'Select the branch first' : undefined}>
+      <select id={id} value={value} onChange={(e) => onChange(e.target.value)} disabled={!branch || state.loading}>
+        <option value="">{state.loading ? 'Loading…' : 'Select employee'}</option>
+        {state.items.map((x) => (
+          <option key={x.code} value={x.code}>{x.code} — {x.name}{x.code === state.me ? ' (you)' : ''}</option>
+        ))}
+      </select>
+    </FormField>
+  );
+}
+
 export function PhotoField({ id, label, value, error, onChange, required }) {
   const ref = useRef(null);
   const [err, setErr] = useState('');
@@ -134,7 +174,6 @@ export function PhotoField({ id, label, value, error, onChange, required }) {
 
 function BorrowerForm({ branches, options, onCancel, onSaved }) {
   const toast = useToast();
-  const { user } = useAuth();
   const [form, setForm] = useState({ ...EMPTY, branch: branches.length === 1 ? branches[0].id : '' });
   const [errors, setErrors] = useState({});
   const [districts, setDistricts] = useState([]);
@@ -179,6 +218,7 @@ function BorrowerForm({ branches, options, onCancel, onSaved }) {
     const found = {};
     const need = (k, msg) => !String(form[k]).trim() && (found[k] = msg);
     need('branch', 'Select a branch');
+    need('employeeCode', 'Select the employee');
     need('name', 'Member name is required');
     need('dob', 'Date of birth is required');
     need('gender', 'Select gender');
@@ -240,9 +280,12 @@ function BorrowerForm({ branches, options, onCancel, onSaved }) {
           <FormField id="formid" label="Form ID" hint="Generated automatically on save">
             <input id="formid" value="Auto" disabled />
           </FormField>
-          <FormField id="emp" label="Employee ID" hint="Your staff ID, filled in automatically">
-            <input id="emp" value={user?.employeeCode || '—'} disabled />
-          </FormField>
+          <EmployeeSelect
+            branch={form.branch}
+            value={form.employeeCode}
+            error={errors.employeeCode}
+            onChange={(code) => { setForm((f) => ({ ...f, employeeCode: code })); setErrors((er) => ({ ...er, employeeCode: undefined })); }}
+          />
           <FormField id="name" label="Member name" required error={errors.name}>
             <input id="name" value={form.name} onChange={set('name')} maxLength={80} />
           </FormField>

@@ -1,20 +1,18 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client.js';
-import { useAuth } from '../context/AuthContext.jsx';
 import FormField from '../components/ui/FormField.jsx';
 import { EmptyState, PageHeader, Spinner } from '../components/ui/Feedback.jsx';
 import { useToast } from '../components/ui/Toast.jsx';
 import useDebounce from '../hooks/useDebounce.js';
-import { OtpVerify, PhotoField } from './NewBorrower.jsx';
+import { EmployeeSelect, OtpVerify, PhotoField } from './NewBorrower.jsx';
 import { downloadMemberPdf } from '../utils/memberPdf.js';
 
-const EMPTY = { name: '', mobile: '', aadhaar: '', pan: '', photo: '', signature: '', aadhaarPhoto: '', panPhoto: '' };
+const EMPTY = { employeeCode: '', name: '', mobile: '', aadhaar: '', pan: '', photo: '', signature: '', aadhaarPhoto: '', panPhoto: '' };
 
 // Guarantor and nominee share the same fields; `kind` picks which one of the member is edited.
 function PartyPage({ kind }) {
   const label = kind === 'guarantor' ? 'Guarantor' : 'Nominee';
   const toast = useToast();
-  const { user } = useAuth();
   const [search, setSearch] = useState('');
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
@@ -45,7 +43,7 @@ function PartyPage({ kind }) {
       const r = await api.members.get(id);
       setMember(r.member);
       const p = r.member[kind];
-      setForm(p ? { name: p.name, mobile: p.mobile, aadhaar: '', pan: '', photo: p.photo || '', signature: p.signature || '', aadhaarPhoto: p.aadhaarPhoto || '', panPhoto: p.panPhoto || '' } : EMPTY);
+      setForm(p ? { employeeCode: p.employeeCode || '', name: p.name, mobile: p.mobile, aadhaar: '', pan: '', photo: p.photo || '', signature: p.signature || '', aadhaarPhoto: p.aadhaarPhoto || '', panPhoto: p.panPhoto || '' } : EMPTY);
       setErrors({});
       setChallenge('');
       setSaved(false);
@@ -74,6 +72,7 @@ function PartyPage({ kind }) {
   async function submit(e) {
     e.preventDefault();
     const found = {};
+    if (!form.employeeCode) found.employeeCode = 'Select the employee';
     if (form.name.trim().length < 2) found.name = `${label} name is required`;
     if (!mobileValid) found.mobile = 'Enter a valid 10-digit mobile number';
     if (!/^\d{12}$/.test(form.aadhaar)) found.aadhaar = existing && !form.aadhaar ? 'Re-enter the 12-digit Aadhaar number to save' : 'Enter the 12-digit Aadhaar number';
@@ -156,9 +155,12 @@ function PartyPage({ kind }) {
         <div className="panel" style={{ padding: 18, marginBottom: 14 }}>
           <h3 className="section-title">{label} details</h3>
           <div className="form-grid">
-            <FormField id="emp" label="Employee ID" hint="Your staff ID, filled in automatically">
-              <input id="emp" value={user?.employeeCode || '—'} disabled />
-            </FormField>
+            <EmployeeSelect
+              branch={member.branchId}
+              value={form.employeeCode}
+              error={errors.employeeCode}
+              onChange={(code) => { setForm((f) => ({ ...f, employeeCode: code })); setErrors((er) => ({ ...er, employeeCode: undefined })); }}
+            />
             <FormField id="name" label={`${label} name`} required error={errors.name}>
               <input id="name" value={form.name} onChange={set('name')} maxLength={80} />
             </FormField>

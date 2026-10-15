@@ -58,6 +58,7 @@ export const api = {
   },
   members: {
     options: () => request('/members/options'),
+    employees: (branch) => request(`/members/employees${qs({ branch })}`),
     districts: (state) => request(`/members/districts${qs({ state })}`),
     list: (params) => request(`/members${qs(params)}`),
     get: (id) => request(`/members/${id}`),

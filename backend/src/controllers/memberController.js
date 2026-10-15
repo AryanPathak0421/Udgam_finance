@@ -124,6 +124,20 @@ const presentPerson = (p, full) =>
 
 const POPULATE = { path: 'branch', select: 'code name' };
 
+// Which staff ID goes on a record.
+// - Web software: the employee is chosen on the form and sent as `employeeCode`.
+// - Mobile app / API without a code: the signed-in employee's own ID is fetched automatically.
+async function resolveEmployee(req, v, branchId) {
+  const given = asString(req.body?.employeeCode).toUpperCase();
+  if (!given) return staffId(req.user);
+  const emp = await User.findOne({ employeeCode: given, isActive: true }).select('employeeCode role branches');
+  const inBranch = emp && (['super_admin', 'admin'].includes(emp.role) || (emp.branches || []).some((x) => String(x) === String(branchId)));
+  if (!emp) v.add('employeeCode', 'Select a valid employee');
+  else if (!inBranch) v.add('employeeCode', 'This employee does not belong to the selected branch');
+  v.throwIfAny();
+  return emp.employeeCode;
+}
+
 // The signed-in user's staff ID (assigned on first use for accounts created before staff IDs existed).
 async function staffId(user) {
   if (user.employeeCode) return user.employeeCode;
@@ -332,6 +346,7 @@ export async function createMember(req, res) {
     if (!panCh) v.add('pan', 'Verify the PAN with an OTP');
   }
   v.throwIfAny();
+  const employeeCode = await resolveEmployee(req, v, d.branch);
 
   if (await Member.exists({ aadhaar: d.aadhaar, isDeleted: false })) {
     throw new HttpError(409, 'A member with this Aadhaar number already exists', { aadhaar: 'This Aadhaar number is already registered' });
@@ -353,7 +368,7 @@ export async function createMember(req, res) {
       joiningDate: new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`),
       mobileVerifiedAt: mobileCh.verifiedAt,
       panVerifiedAt: panCh?.verifiedAt,
-      employeeCode: await staffId(req.user),
+      employeeCode,
       createdBy: req.user._id,
       updatedBy: req.user._id,
     });
@@ -438,12 +453,13 @@ export function savePerson(kind) {
       await OtpChallenge.updateOne({ _id: ch._id }, { $set: { consumedAt: new Date() } });
     }
 
+    const employeeCode = await resolveEmployee(req, v, m.branch);
     const before = Boolean(m[kind]?.name);
     m[kind] = {
       ...d,
       pan: d.pan || undefined,
       mobileVerifiedAt: verifiedAt,
-      employeeCode: await staffId(req.user),
+      employeeCode,
       savedAt: new Date(),
       savedBy: req.user._id,
     };
@@ -457,4 +473,24 @@ export function savePerson(kind) {
     });
     res.json({ message: `${label} saved`, employeeCode: m[kind].employeeCode });
   };
+}
+
+// Employees (with staff IDs) that can be chosen on the forms for a branch.
+export async function employeeOptions(req, res) {
+  const branch = mongoose.isValidObjectId(req.query.branch) ? req.query.branch : null;
+  if (!branch) return res.json({ items: [], me: await staffId(req.user) });
+  if (!isAdmin(req.user) && !(req.user.branches || []).some((x) => String(x) === String(branch))) {
+    throw new HttpError(403, 'You can only use branches assigned to you');
+  }
+  const users = await User.find({
+    isActive: true,
+    employeeCode: { $exists: true },
+    $or: [{ branches: branch }, { role: { $in: ['super_admin', 'admin'] } }],
+  })
+    .select('name employeeCode role')
+    .sort({ employeeCode: 1 });
+  res.json({
+    items: users.map((u) => ({ code: u.employeeCode, name: u.name, role: u.role })),
+    me: await staffId(req.user),
+  });
 }
