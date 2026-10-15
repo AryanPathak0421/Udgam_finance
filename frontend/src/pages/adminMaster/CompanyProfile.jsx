@@ -47,6 +47,48 @@ export default function CompanyProfile() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const { states, cities } = useLocations(form.state);
+  const pendingCity = useRef('');
+  const [pinNote, setPinNote] = useState('');
+
+  const norm = (s) => String(s || '').toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]/g, '');
+  const pickCity = (list, name) => list.find((c) => norm(c) === norm(name)) || list.find((c) => norm(c).startsWith(norm(name)) || norm(name).startsWith(norm(c))) || '';
+
+  // Pincode: fill in the state and the city.
+  useEffect(() => {
+    if (mode !== 'edit' || !/^[1-9]\d{5}$/.test(form.pincode)) {
+      setPinNote('');
+      return undefined;
+    }
+    let live = true;
+    api.members
+      .pincode(form.pincode)
+      .then((r) => {
+        if (!live) return;
+        if (r.status === 'ok' && r.stateKnown) {
+          setPinNote(`✓ ${r.postalDistrict}, ${r.state}`);
+          setForm((f) => {
+            if (f.state === r.state) return { ...f, city: pickCity(cities, r.postalDistrict) || f.city };
+            pendingCity.current = r.postalDistrict;
+            return { ...f, state: r.state, city: '' };
+          });
+        } else setPinNote(r.status === 'invalid' ? 'This pincode does not exist' : '');
+      })
+      .catch(() => live && setPinNote(''));
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.pincode, mode]);
+
+  // The city that goes with a pincode is applied once the cities of the new state are loaded.
+  useEffect(() => {
+    if (pendingCity.current && cities.length) {
+      const c = pickCity(cities, pendingCity.current);
+      pendingCity.current = '';
+      if (c) setForm((f) => ({ ...f, city: c }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cities]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -239,7 +281,7 @@ export default function CompanyProfile() {
                 ))}
               </select>
             </FormField>
-            <FormField id="pincode" label="Pincode" error={errors.pincode}>
+            <FormField id="pincode" label="Pincode" error={errors.pincode} hint={pinNote || 'State and city are filled in from the pincode'}>
               <input id="pincode" inputMode="numeric" value={form.pincode} onChange={set('pincode')} maxLength={6} />
             </FormField>
           </div>

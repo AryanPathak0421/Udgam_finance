@@ -78,6 +78,7 @@ const present = (m, user, { detail = false } = {}) => {
     occupation: m.occupation,
     state: m.state,
     district: m.district,
+    area: m.area || '',
     aadhaar: full && detail ? m.aadhaar : maskAadhaar(m.aadhaar),
     pan: m.pan ? (full && detail ? m.pan : maskPan(m.pan)) : '',
     employeeCode: m.employeeCode || '',
@@ -278,6 +279,16 @@ function readImage(value, field, label, v, { required }) {
   return value;
 }
 
+const normName = (s) => String(s || '').toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]/g, '');
+
+// A district is fine when it is in our list for the state, or when it is the district the pincode itself belongs to.
+function checkDistrict(d, pin, v) {
+  const inList = (INDIA_LOCATIONS[d.state] || []).includes(d.district);
+  if (inList) return;
+  const fromPin = pin.status === 'ok' && normName(pin.postalDistrict) === normName(d.district);
+  if (!fromPin) v.add('district', 'Select a district from the list for this state');
+}
+
 /** Validates the personal / contact / address / KYC / bank fields of a member (shared by create and update). */
 function readMemberFields(b, v) {
   const d = {};
@@ -310,8 +321,10 @@ function readMemberFields(b, v) {
   if (!PINCODE_RE.test(d.pincode)) v.add('pincode', 'Enter a valid 6-digit pincode');
   d.state = asString(b.state);
   d.district = asString(b.district);
+  d.area = asString(b.area).slice(0, 80);
+  // The district must be in our list for the state, or (checked after the pincode lookup) the one the pincode belongs to.
   if (!INDIA_LOCATIONS[d.state]) v.add('state', 'Select a valid state');
-  else if (!INDIA_LOCATIONS[d.state].includes(d.district)) v.add('district', 'Select a district from the list for this state');
+  else if (!d.district || d.district.length > 60) v.add('district', 'Select the district');
 
   d.aadhaar = asString(b.aadhaar).replace(/\s/g, '');
   if (!AADHAAR_RE.test(d.aadhaar) || !verhoeff(d.aadhaar)) v.add('aadhaar', 'Enter a valid 12-digit Aadhaar number');
@@ -366,6 +379,7 @@ export async function createMember(req, res) {
   const pin = await lookupPincode(d.pincode);
   if (pin.status === 'invalid') v.add('pincode', 'This pincode does not exist');
   else if (pin.status === 'ok' && pin.stateKnown && pin.state !== d.state) v.add('state', `Pincode ${d.pincode} belongs to ${pin.state}`);
+  checkDistrict(d, pin, v);
   const bank = await lookupIfsc(d.ifsc);
   if (bank.status === 'invalid') v.add('ifsc', 'This IFSC code does not exist');
   v.throwIfAny();
@@ -579,10 +593,13 @@ function guardApproved(m, kind, old, incoming, user) {
   if (isAdmin(user)) return;
   const prefix = `${kind}.`;
   const approved = (m.kycDocs || []).filter((x) => x.key.startsWith(prefix) && x.status === 'approved').map((x) => x.key);
-  if (!approved.length || !old) return;
+  if (!old) return;
+  if (!approved.length && !(old.panVerifiedAt && (old.pan || '') !== (incoming.pan || ''))) return;
   const photoChanged = PARTY_FIELDS.some((f) => approved.includes(prefix + f) && (old[f] || '') !== (incoming[f] || ''));
   const identityChanged = old.name !== incoming.name || old.aadhaar !== incoming.aadhaar;
-  if (photoChanged || identityChanged) {
+  // A PAN whose document is approved (or that was verified) is final too.
+  const panLocked = (approved.includes(`${prefix}panPhoto`) || old.panVerifiedAt) && (old.pan || '') !== (incoming.pan || '');
+  if (photoChanged || identityChanged || panLocked) {
     throw new HttpError(403, 'These documents are already approved. Only an admin can replace them.', {
       photo: 'Approved documents can only be changed by an admin',
     });
@@ -914,6 +931,7 @@ const TIMELINE_LABELS = {
   'member.guarantorChanged': 'Guarantor changed',
   'member.nomineeAdded': 'Nominee added',
   'member.nomineeUpdated': 'Nominee updated',
+  'member.update': 'Details edited by admin',
   'member.block': 'Member blocked',
   'member.unblock': 'Member unblocked',
   'kyc.approve': 'Document approved',
@@ -937,7 +955,11 @@ export async function synopsis(req, res) {
     .filter((l) => TIMELINE_LABELS[l.action])
     .map((l) => {
       const a = l.after || {};
-      const detail = [a.document ? `Document: ${a.document}` : '', a.reason ? `Reason: ${a.reason}` : ''].filter(Boolean).join(' · ');
+      const detail = [
+        a.document ? `Document: ${a.document}` : '',
+        a.reason ? `Reason: ${a.reason}` : '',
+        Array.isArray(a.changed) && a.changed.length ? `Changed: ${a.changed.join(', ')}` : '',
+      ].filter(Boolean).join(' · ');
       return { at: l.createdAt, label: TIMELINE_LABELS[l.action], by: l.actorEmail || '', detail };
     });
 
@@ -949,6 +971,14 @@ export async function synopsis(req, res) {
       .map((b) => ({ action: b.action, reason: b.reason, at: b.at, byCode: b.byCode || '' }))
       .reverse(),
     timeline,
+    // Every edit an admin made to the member's details, with what changed.
+    editHistory: logs
+      .filter((l) => l.action === 'member.update')
+      .map((l) => ({
+        at: l.createdAt,
+        by: l.actorEmail || '',
+        changes: Array.isArray(l.after?.changes) ? l.after.changes : (l.after?.changed || []).map((f) => ({ field: f, from: '', to: '' })),
+      })),
   });
 }
 
@@ -1030,10 +1060,11 @@ export async function updateMember(req, res) {
 
   // Pincode / IFSC / PAN are checked again only when they were changed.
   let pincodeVerified = m.pincodeVerified;
-  if (d.pincode !== m.pincode || d.state !== m.state) {
+  if (d.pincode !== m.pincode || d.state !== m.state || d.district !== m.district) {
     const pin = await lookupPincode(d.pincode);
     if (pin.status === 'invalid') v.add('pincode', 'This pincode does not exist');
     else if (pin.status === 'ok' && pin.stateKnown && pin.state !== d.state) v.add('state', `Pincode ${d.pincode} belongs to ${pin.state}`);
+    checkDistrict(d, pin, v);
     pincodeVerified = pin.status === 'ok';
   }
   let ifscVerified = m.ifscVerified;
@@ -1066,11 +1097,26 @@ export async function updateMember(req, res) {
   }
 
   // What is changing (for the history and for KYC).
-  const fields = ['name', 'husbandName', 'dob', 'gender', 'occupation', 'education', 'mobile', 'email', 'address', 'pincode', 'state', 'district', 'aadhaar', 'pan', 'bankName', 'ifsc', 'accountNumber'];
+  const fields = ['name', 'husbandName', 'dob', 'gender', 'occupation', 'education', 'mobile', 'email', 'address', 'pincode', 'state', 'district', 'area', 'aadhaar', 'pan', 'bankName', 'ifsc', 'accountNumber'];
   const same = (a, c) => String(a instanceof Date ? a.toISOString().slice(0, 10) : a || '') === String(c instanceof Date ? c.toISOString().slice(0, 10) : c || '');
   const changedFields = fields.filter((f) => !same(m[f], d[f]));
   const changedPhotos = MEMBER_PHOTOS.map(([k]) => k).filter((k) => (m[k] || '') !== (photos[k] || ''));
   const identityChanged = changedFields.includes('name') || changedFields.includes('aadhaar');
+
+  // A readable record of what was changed (identity numbers are masked, photos only say "replaced").
+  const LABEL = { name: 'Name', husbandName: 'Husband name', dob: 'Date of birth', gender: 'Gender', occupation: 'Occupation', education: 'Education', mobile: 'Mobile', email: 'Email', address: 'Address', pincode: 'Pincode', state: 'State', district: 'District', area: 'Area', aadhaar: 'Aadhaar', pan: 'PAN', bankName: 'Bank name', ifsc: 'IFSC', accountNumber: 'Account number' };
+  const show = (f, x) => {
+    const val = x instanceof Date ? x.toISOString().slice(0, 10) : String(x ?? '');
+    if (f === 'aadhaar') return val ? maskAadhaar(val) : '';
+    if (f === 'pan') return val ? maskPan(val) : '';
+    if (f === 'mobile') return val ? maskMobile(val) : '';
+    if (f === 'accountNumber') return val ? `XXXXX${val.slice(-4)}` : '';
+    return val;
+  };
+  const changes = [
+    ...changedFields.map((f) => ({ field: LABEL[f] || f, from: show(f, m[f]), to: show(f, d[f]) })),
+    ...changedPhotos.map((k) => ({ field: MEMBER_PHOTOS.find((p) => p[0] === k)[1], from: '', to: 'replaced' })),
+  ];
 
   const before = { name: m.name, mobile: maskMobile(m.mobile), aadhaar: maskAadhaar(m.aadhaar), pan: maskPan(m.pan) };
   for (const f of fields) m[f] = d[f] === '' ? undefined : d[f];
@@ -1098,6 +1144,7 @@ export async function updateMember(req, res) {
     after: {
       code: m.code,
       changed: [...changedFields, ...changedPhotos],
+      changes,
       name: m.name,
       mobile: maskMobile(m.mobile),
       aadhaar: maskAadhaar(m.aadhaar),

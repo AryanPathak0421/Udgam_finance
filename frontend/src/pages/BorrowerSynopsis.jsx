@@ -126,7 +126,7 @@ export default function BorrowerSynopsis() {
     );
   }
 
-  const { member: m, kyc, blockHistory, timeline } = data;
+  const { member: m, kyc, blockHistory, timeline, editHistory = [] } = data;
 
   async function startEdit() {
     try {
@@ -190,7 +190,7 @@ export default function BorrowerSynopsis() {
         <DetailList
           items={[
             ['Mobile', `${m.mobile}${m.mobileVerified ? ' ✓ verified' : ''}`], ['Email', m.email],
-            ['Address', m.address], ['District / State', `${m.district}, ${m.state}`], ['Pincode', m.pincode],
+            ['Address', m.address], ['Area / post office', m.area], ['District / State', `${m.district}, ${m.state}`], ['Pincode', m.pincode],
           ]}
         />
       </Section>
@@ -249,6 +249,33 @@ export default function BorrowerSynopsis() {
 
       <Section title="Nominee">
         {m.nominee ? <Person p={m.nominee} /> : <span className="muted">No nominee added yet</span>}
+      </Section>
+
+      <Section title={`Edit record (${editHistory.length})`}>
+        {editHistory.length === 0 ? (
+          <span className="muted">The details have not been edited since registration</span>
+        ) : (
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead><tr><th>Date & time</th><th>Edited by</th><th>What changed</th></tr></thead>
+              <tbody>
+                {editHistory.map((h, i) => (
+                  <tr key={`${h.at}-${i}`}>
+                    <td data-label="Date">{fmtTime(h.at)}</td>
+                    <td data-label="Edited by">{h.by || '—'}</td>
+                    <td data-label="Changed">
+                      {h.changes.map((c) => (
+                        <div key={c.field}>
+                          <strong>{c.field}</strong>{c.to === 'replaced' && !c.from ? ': replaced' : `: ${c.from || '—'} → ${c.to || '—'}`}
+                        </div>
+                      ))}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Section>
 
       <Section title="Block history">

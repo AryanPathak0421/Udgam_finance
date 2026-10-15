@@ -96,6 +96,7 @@ const memberSchema = new mongoose.Schema(
     pincode: { type: String, required: true },
     state: { type: String, required: true },
     district: { type: String, required: true },
+    area: { type: String, trim: true }, // post office / locality, filled in from the pincode
     aadhaar: { type: String, required: true },
     pan: { type: String, uppercase: true, trim: true },
     panVerifiedAt: { type: Date },

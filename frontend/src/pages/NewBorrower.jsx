@@ -32,7 +32,7 @@ const minDob = () => {
 
 const EMPTY = {
   branch: '', name: '', dob: '', gender: '', mobile: '', email: '', husbandName: '', occupation: '', education: '',
-  address: '', pincode: '', state: '', district: '', aadhaar: '', pan: '', bankName: '', ifsc: '', accountNumber: '',
+  address: '', pincode: '', state: '', district: '', area: '', aadhaar: '', pan: '', bankName: '', ifsc: '', accountNumber: '',
   memberPhoto: '', aadhaarPhoto: '', panPhoto: '', signaturePhoto: '', employeeCode: '',
 };
 
@@ -209,6 +209,7 @@ export function BorrowerForm({ branches, options, onCancel, onSaved, member = nu
           pincode: member.pincode,
           state: member.state,
           district: member.district,
+          area: member.area || '',
           aadhaar: member.aadhaar,
           pan: member.pan || '',
           bankName: member.bankName,
@@ -262,7 +263,10 @@ export function BorrowerForm({ branches, options, onCancel, onSaved, member = nu
         setDistricts(r.cities);
         const want = pendingDistrict.current;
         pendingDistrict.current = '';
-        setForm((f) => ({ ...f, district: want && r.cities.includes(want) ? want : r.cities.includes(f.district) ? f.district : '' }));
+        // A district the pincode reports that is not in our list is offered as an extra choice.
+        const list = want && !r.cities.includes(want) ? [...r.cities, want] : r.cities;
+        setDistricts(list);
+        setForm((f) => ({ ...f, district: want || (list.includes(f.district) ? f.district : '') }));
       })
       .catch(() => setDistricts([]));
   }, [form.state]);
@@ -280,12 +284,16 @@ export function BorrowerForm({ branches, options, onCancel, onSaved, member = nu
       .then((r) => {
         if (!live) return;
         setPinInfo(r);
+        // An admin editing a saved member keeps the saved location until the pincode itself is changed.
+        if (isEdit && form.pincode === member.pincode) return;
         if (r.status === 'ok' && r.stateKnown) {
+          const found = r.district || r.postalDistrict || '';
           setForm((f) => {
-            if (f.state === r.state) return { ...f, district: r.district || f.district };
-            pendingDistrict.current = r.district || '';
-            return { ...f, state: r.state };
+            if (f.state === r.state) return { ...f, district: found || f.district, area: r.areas?.includes(f.area) ? f.area : r.areas?.[0] || f.area };
+            pendingDistrict.current = found;
+            return { ...f, state: r.state, area: r.areas?.[0] || '' };
           });
+          if (found) setDistricts((ds) => (ds.includes(found) ? ds : [...ds, found]));
           setErrors((er) => ({ ...er, state: undefined, district: undefined, pincode: undefined }));
         }
       })
@@ -469,6 +477,16 @@ export function BorrowerForm({ branches, options, onCancel, onSaved, member = nu
               <option value="">{form.state ? 'Select district' : 'Select state first'}</option>
               {districts.map((d) => <option key={d} value={d}>{d}</option>)}
             </select>
+          </FormField>
+          <FormField id="area" label="Area / post office" hint="Filled in from the pincode">
+            {pinInfo?.areas?.length ? (
+              <select id="area" value={form.area} onChange={set('area')}>
+                {!pinInfo.areas.includes(form.area) && form.area && <option value={form.area}>{form.area}</option>}
+                {pinInfo.areas.map((a) => <option key={a} value={a}>{a}</option>)}
+              </select>
+            ) : (
+              <input id="area" value={form.area} onChange={set('area')} maxLength={80} />
+            )}
           </FormField>
           <FormField id="pincode" label="Pincode" required error={errors.pincode}
             hint={
