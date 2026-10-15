@@ -23,6 +23,8 @@ import NewBorrower from './pages/NewBorrower.jsx';
 import { GuarantorDetail, NomineeDetail } from './pages/MemberParty.jsx';
 import KycApproval from './pages/KycApproval.jsx';
 import GuarantorChange from './pages/GuarantorChange.jsx';
+import BorrowerSynopsis from './pages/BorrowerSynopsis.jsx';
+import BorrowerBlock from './pages/BorrowerBlock.jsx';
 import Groups from './pages/Groups.jsx';
 import GroupLeaderCommission from './pages/GroupLeaderCommission.jsx';
 import Layout from './components/Layout.jsx';
@@ -34,6 +36,8 @@ const PAGES = {
   '/members/guarantor-detail': GuarantorDetail,
   '/members/kyc-approval': KycApproval,
   '/members/guarantor-change': GuarantorChange,
+  '/members/borrower-synopsis': BorrowerSynopsis,
+  '/members/block-unblock': BorrowerBlock,
   '/members/nominee-detail': NomineeDetail,
   '/groups': Groups,
   '/group-leader-commission': GroupLeaderCommission,

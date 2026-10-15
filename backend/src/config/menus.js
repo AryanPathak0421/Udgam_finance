@@ -19,6 +19,8 @@ export const MENU_CATALOGUE = [
   { key: '/members/new-borrower', label: 'New Borrower', group: 'Member Details' },
   { key: '/members/kyc-approval', label: 'KYC Approval', group: 'Member Details' },
   { key: '/members/guarantor-change', label: 'Guarantor Change', group: 'Member Details' },
+  { key: '/members/borrower-synopsis', label: 'Borrower Synopsis', group: 'Member Details' },
+  { key: '/members/block-unblock', label: 'Borrower Block & Unblock', group: 'Member Details' },
   { key: '/members/guarantor-detail', label: 'Guarantor Detail', group: 'Member Details' },
   { key: '/members/nominee-detail', label: 'Nominee Detail', group: 'Member Details' },
   { key: '/employees', label: 'Employees', group: 'Organisation' },

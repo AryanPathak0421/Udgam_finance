@@ -56,6 +56,18 @@ const kycDocSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// One block / unblock decision.
+const blockSchema = new mongoose.Schema(
+  {
+    action: { type: String, enum: ['block', 'unblock'], required: true },
+    reason: { type: String, required: true },
+    at: { type: Date, required: true },
+    by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    byCode: String,
+  },
+  { _id: false }
+);
+
 // A borrower (member). Photos are stored as small PNG/JPEG data URLs.
 const memberSchema = new mongoose.Schema(
   {
@@ -94,6 +106,9 @@ const memberSchema = new mongoose.Schema(
     kycKeys: { type: [String], default: [] },
     kycDocs: { type: [kycDocSchema], default: [] },
     nominee: { type: personSchema },
+    // A blocked borrower is kept on record but must not be given new loans or services.
+    isBlocked: { type: Boolean, default: false },
+    blockHistory: { type: [blockSchema], default: [] },
     isActive: { type: Boolean, default: true },
     isDeleted: { type: Boolean, default: false },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },

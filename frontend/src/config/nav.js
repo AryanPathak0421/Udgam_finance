@@ -50,6 +50,8 @@ export const NAV_SECTIONS = [
           { label: 'Nominee Detail', path: '/members/nominee-detail', icon: 'users' },
           { label: 'KYC Approval', path: '/members/kyc-approval', icon: 'kyc' },
           { label: 'Guarantor Change', path: '/members/guarantor-change', icon: 'users' },
+          { label: 'Borrower Synopsis', path: '/members/borrower-synopsis', icon: 'file' },
+          { label: 'Borrower Block & Unblock', path: '/members/block-unblock', icon: 'shield' },
         ],
       },
     ],

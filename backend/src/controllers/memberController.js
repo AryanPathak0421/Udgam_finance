@@ -10,6 +10,7 @@ import { branchFilter, isAdmin, maskMobile } from './groupController.js';
 import { asString, createValidator, escapeRegex, parseDateOnly, parsePaging, HttpError } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
 import { User } from '../models/User.js';
+import { AuditLog } from '../models/AuditLog.js';
 
 export const GENDERS = ['male', 'female', 'other'];
 export const OCCUPATIONS = ['Farmer', 'Agricultural labour', 'Dairy / animal husbandry', 'Small shop / trader', 'Tailoring / handicraft', 'Daily wage labour', 'Salaried', 'Self employed', 'Homemaker', 'Other'];
@@ -81,6 +82,8 @@ const present = (m, user, { detail = false } = {}) => {
     hasGuarantor: Boolean(m.guarantor?.name),
     hasNominee: Boolean(m.nominee?.name),
     isActive: m.isActive,
+    isBlocked: Boolean(m.isBlocked),
+    blockReason: m.isBlocked ? (m.blockHistory || []).filter((b) => b.action === 'block').slice(-1)[0]?.reason || '' : '',
     createdAt: m.createdAt,
   };
   if (detail) {
@@ -403,6 +406,8 @@ export async function listMembers(req, res) {
   const { page, limit, skip } = parsePaging(req.query, { defaultLimit: 25 });
   const filter = { isDeleted: false, ...branchFilter(req.user) };
   if (mongoose.isValidObjectId(req.query.branch)) filter.branch = req.query.branch;
+  if (req.query.blocked === 'true') filter.isBlocked = true;
+  if (req.query.blocked === 'false') filter.isBlocked = { $ne: true };
   const q = asString(req.query.q);
   if (q) {
     const rx = new RegExp(escapeRegex(q), 'i');
@@ -699,6 +704,73 @@ export async function reuploadKyc(req, res) {
   await m.save();
   await audit(req, { action: 'kyc.reupload', entity: 'Member', entityId: m._id, after: { code: m.code, document: key } });
   res.json({ message: 'Document uploaded again and sent for approval' });
+}
+
+// ---- block / unblock ---------------------------------------------------------------------------------
+/** Blocks or unblocks a borrower. A reason is required and every change is kept in the member's history. */
+export async function setBlocked(req, res) {
+  const m = await loadMemberFor(req);
+  const action = asString(req.body?.action);
+  const reason = asString(req.body?.reason);
+  if (!['block', 'unblock'].includes(action)) throw new HttpError(422, 'Choose block or unblock');
+  if (reason.length < 3 || reason.length > 200) {
+    throw new HttpError(422, 'Please correct the highlighted fields', { reason: 'Enter the reason (3–200 characters)' });
+  }
+  if (action === 'block' && m.isBlocked) throw new HttpError(409, 'This member is already blocked');
+  if (action === 'unblock' && !m.isBlocked) throw new HttpError(409, 'This member is not blocked');
+
+  m.isBlocked = action === 'block';
+  m.blockHistory.push({ action, reason, at: new Date(), by: req.user._id, byCode: await staffId(req.user) });
+  m.updatedBy = req.user._id;
+  await m.save();
+  await audit(req, { action: `member.${action}`, entity: 'Member', entityId: m._id, after: { code: m.code, reason } });
+  res.json({ message: action === 'block' ? 'Member blocked' : 'Member unblocked', isBlocked: m.isBlocked });
+}
+
+// ---- borrower synopsis (A to Z) --------------------------------------------------------------------------
+const TIMELINE_LABELS = {
+  'member.create': 'Borrower registered',
+  'member.guarantorAdded': 'Guarantor added',
+  'member.guarantorUpdated': 'Guarantor updated',
+  'member.guarantorChanged': 'Guarantor changed',
+  'member.nomineeAdded': 'Nominee added',
+  'member.nomineeUpdated': 'Nominee updated',
+  'member.block': 'Member blocked',
+  'member.unblock': 'Member unblocked',
+  'kyc.approve': 'Document approved',
+  'kyc.reject': 'Document rejected',
+  'kyc.reupload': 'Document uploaded again',
+};
+
+/** Everything about one member in one response: profile, documents, KYC, guarantor, nominee, history, activity. */
+export async function synopsis(req, res) {
+  const m = await Member.findOne({ _id: mongoose.isValidObjectId(req.params.id) ? req.params.id : null, isDeleted: false, ...branchFilter(req.user) })
+    .select(`${KYC_PROJECTION} ${PARTY_PHOTOS} ${HISTORY_PHOTOS}`)
+    .populate(POPULATE);
+  if (!m) throw new HttpError(404, 'Member not found');
+
+  const keys = KYC_DOCS.filter((d) => pathOf(m, d.key)).map((d) => d.key);
+  const docs = docStates(m, keys);
+  const kyc = kycSummary(m, keys);
+
+  const logs = await AuditLog.find({ entity: 'Member', entityId: String(m._id) }).sort({ createdAt: -1 }).limit(100);
+  const timeline = logs
+    .filter((l) => TIMELINE_LABELS[l.action])
+    .map((l) => {
+      const a = l.after || {};
+      const detail = [a.document ? `Document: ${a.document}` : '', a.reason ? `Reason: ${a.reason}` : ''].filter(Boolean).join(' · ');
+      return { at: l.createdAt, label: TIMELINE_LABELS[l.action], by: l.actorEmail || '', detail };
+    });
+
+  const base = present(m, req.user, { detail: true });
+  res.json({
+    member: base,
+    kyc: { status: kyc.status, total: kyc.total, approved: kyc.approved, rejected: kyc.rejected, pending: kyc.pending, documents: docs },
+    blockHistory: (m.blockHistory || [])
+      .map((b) => ({ action: b.action, reason: b.reason, at: b.at, byCode: b.byCode || '' }))
+      .reverse(),
+    timeline,
+  });
 }
 
 // Employees (with staff IDs) that can be chosen on the forms for a branch.
