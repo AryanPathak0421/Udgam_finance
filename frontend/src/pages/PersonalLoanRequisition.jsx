@@ -132,6 +132,7 @@ function RequisitionForm({ kind }) {
   const [stock, setStock] = useState([]); // product loan: products in stock
   const [prod, setProd] = useState({ id: '', qty: '1' });
   const [verif, setVerif] = useState(null); // business / MSME: PAN + Aadhaar OTP status
+  const [extras, setExtras] = useState({}); // group loan: additional product per member { memberId: { id, qty } }
   const [chosen, setChosen] = useState([]); // group loan: ids of the members who get the loan
   const [biz, setBiz] = useState({ loanType: '', businessName: '', gstNumber: '', udgamNumber: '', civilScore: '', shopPhoto: '', bankStatement: '', bankStatementName: '' });
   const [picked, setPicked] = useState(null);
@@ -145,8 +146,8 @@ function RequisitionForm({ kind }) {
   const seq = useRef(0);
 
   useEffect(() => {
-    if (isProduct) api.loanRequisitions.stockProducts().then((r) => setStock(r.items)).catch(() => setStock([]));
-  }, [isProduct]);
+    if (isProduct || isGroup) api.loanRequisitions.stockProducts().then((r) => setStock(r.items)).catch(() => setStock([]));
+  }, [isProduct, isGroup]);
 
   useEffect(() => {
     api.groups.branchOptions().then((r) => {
@@ -197,6 +198,7 @@ function RequisitionForm({ kind }) {
     try {
       const d = isGroup ? await api.loanRequisitions.group(item.id) : await api.loanRequisitions.borrower(item.id);
       setDetail(d);
+      setExtras({});
       if (isGroup) setChosen(d.group.members.filter((x) => !x.isBlocked).map((x) => x.id));
       // A scheme in which the borrower still has an unfinished loan is not offered.
       else if (d.borrower.runningSchemeIds?.includes(form.schemeId)) clearScheme();
@@ -236,6 +238,22 @@ function RequisitionForm({ kind }) {
     };
   }, [isBusiness, biz.gstNumber, picked]);
 
+  // Group loan: a product on top of the loan, up to 25% of the loan amount, for the ticked members.
+  const EXTRA_PERCENT = 25;
+  const amountForLimit = Number(form.amount) || 0;
+  const extraMax = Math.floor(amountForLimit * EXTRA_PERCENT) / 100;
+  const extraRows = isGroup
+    ? (detail?.group?.members || [])
+        .filter((m) => chosen.includes(m.id) && !m.isBlocked && !(form.schemeId && m.runningSchemeIds?.includes(form.schemeId)))
+        .map((m) => {
+          const e = extras[m.id];
+          const p = e ? stock.find((x) => x.id === e.id) : null;
+          const qty = Number(e?.qty) || 0;
+          return { m, p, qty, value: p && qty > 0 ? Math.round(p.unitPrice * qty * 100) / 100 : 0 };
+        })
+        .filter((r) => r.p && r.qty > 0)
+    : [];
+  const extraKey = extraRows.map((r) => r.value).join(',');
   const product = stock.find((p) => p.id === prod.id) || null;
   const qtyNum = Number(prod.qty) || 0;
   // A product loan is for the value of the goods.
@@ -257,9 +275,9 @@ function RequisitionForm({ kind }) {
   }, [isBusiness, detail]);
 
   // Live EMI.
-  const debounced = useDebounce(JSON.stringify({ s: form.schemeId, a: form.amount, m: form.mode, t: installments, r: form.rate }), 400);
+  const debounced = useDebounce(JSON.stringify({ s: form.schemeId, a: form.amount, m: form.mode, t: installments, r: form.rate, x: extraKey }), 400);
   useEffect(() => {
-    const { s, a, m, t, r } = JSON.parse(debounced);
+    const { s, a, m, t, r, x } = JSON.parse(debounced);
     if (!s || !a || !m || !t || r === '') {
       setPreview(null);
       setPreviewError('');
@@ -267,7 +285,7 @@ function RequisitionForm({ kind }) {
     }
     const id = ++seq.current;
     api.loanRequisitions
-      .preview({ schemeId: s, amount: a, mode: m, term: Number(t), rate: r })
+      .preview({ schemeId: s, amount: a, mode: m, term: Number(t), rate: r, extras: x ? x.split(',').map(Number) : undefined })
       .then((res) => {
         if (id === seq.current) {
           setPreview(res);
@@ -293,6 +311,12 @@ function RequisitionForm({ kind }) {
     } else if (!picked) found.member = 'Select the borrower';
     else if (detail?.issues?.length) found.member = detail.issues[0];
     if (!form.employeeCode) found.employeeCode = 'Select the employee';
+    if (isGroup) {
+      const over = extraRows.find((r) => r.value > extraMax);
+      if (over) found.additional = `${over.m.code}: the product (${inr(over.value)}) is more than ${EXTRA_PERCENT}% of the loan (${inr(extraMax)})`;
+      const noStock = extraRows.find((r) => r.qty > r.p.stockQty);
+      if (noStock) found.additional = `Only ${noStock.p.stockQty} unit(s) of ${noStock.p.name} in stock`;
+    }
     if (isProduct) {
       if (!prod.id) found.stockProduct = 'Select the product';
       if (!(qtyNum >= 1)) found.quantity = 'Enter the number of units';
@@ -339,6 +363,7 @@ function RequisitionForm({ kind }) {
         formFrontPhoto: form.formFrontPhoto,
         formBackPhoto: form.formBackPhoto,
         ...(isProduct ? { stockProduct: prod.id, quantity: qtyNum } : {}),
+        ...(isGroup && extraRows.length ? { additional: extraRows.map((r) => ({ member: r.m.id, stockProduct: r.p.id, quantity: r.qty })) } : {}),
         ...(isGroup ? { group: picked.id, memberIds: effective.map((m) => m.id) } : { member: picked.id }),
         ...(isBusiness
           ? { business: { loanType: biz.loanType, businessName: biz.businessName.trim(), gstNumber: biz.gstNumber.trim(), udgamNumber: biz.loanType === 'msme' ? biz.udgamNumber.trim() : '', civilScore: Number(biz.civilScore), shopPhoto: biz.shopPhoto, bankStatement: biz.bankStatement } }
@@ -483,6 +508,10 @@ function RequisitionForm({ kind }) {
                       Tick the members who get this loan — <strong>{effective.length}</strong> of {g.members.length} selected
                     </div>
                     {errors.memberIds && <div className="field-error" role="alert">{errors.memberIds}</div>}
+                    {errors.additional && <div className="field-error" role="alert">{errors.additional}</div>}
+                    <div className="muted small" style={{ marginBottom: 6 }}>
+                      Each member can also take a product (goods) on top of the loan, up to {EXTRA_PERCENT}% of the loan amount. The EMI of the product is worked out on its actual value only.
+                    </div>
                     <div className="table-wrap">
                       <table className="data-table">
                         <thead>
@@ -496,6 +525,7 @@ function RequisitionForm({ kind }) {
                               />
                             </th>
                             <th>Member code</th><th>Name</th><th>Status</th>
+                            <th>Additional product <span className="muted">(up to {EXTRA_PERCENT}%{extraMax ? ` = ${inr(extraMax)}` : ''})</span></th>
                           </tr>
                         </thead>
                         <tbody>
@@ -517,6 +547,41 @@ function RequisitionForm({ kind }) {
                                 <td data-label="Name">{m.name}</td>
                                 <td data-label="Status">
                                   {m.isBlocked ? <span className="badge danger">Blocked</span> : busy ? <span className="badge grey">Loan in this scheme not finished</span> : <span className="badge green">Eligible</span>}
+                                </td>
+                                <td data-label="Additional product">
+                                  {ok && chosen.includes(m.id) ? (() => {
+                                    const e = extras[m.id] || { id: '', qty: '1' };
+                                    const p = stock.find((x) => x.id === e.id);
+                                    const qty = Number(e.qty) || 0;
+                                    const value = p && qty > 0 ? Math.round(p.unitPrice * qty * 100) / 100 : 0;
+                                    const idx = extraRows.findIndex((r) => r.m.id === m.id);
+                                    const emi = idx >= 0 ? preview?.extras?.[idx] : null;
+                                    const over = value > extraMax;
+                                    return (
+                                      <div style={{ minWidth: 220 }}>
+                                        <div style={{ display: 'flex', gap: 6 }}>
+                                          <select aria-label={`Additional product for ${m.code}`} value={e.id}
+                                            onChange={(ev) => setExtras((x) => ({ ...x, [m.id]: { id: ev.target.value, qty: x[m.id]?.qty || '1' } }))}>
+                                            <option value="">{stock.length ? 'None' : 'No product in stock'}</option>
+                                            {stock.map((s) => <option key={s.id} value={s.id}>{s.name} · {inr(s.unitPrice)}</option>)}
+                                          </select>
+                                          {e.id && (
+                                            <input aria-label={`Units for ${m.code}`} inputMode="numeric" style={{ width: 64 }} value={e.qty}
+                                              onChange={(ev) => setExtras((x) => ({ ...x, [m.id]: { ...x[m.id], qty: ev.target.value.replace(/\D/g, '').slice(0, 4) } }))} />
+                                          )}
+                                        </div>
+                                        {p && qty > 0 && (
+                                          <div className={`small ${over ? 'field-error' : 'muted'}`}>
+                                            {over
+                                              ? `${inr(value)} is more than ${inr(extraMax)}`
+                                              : emi && !emi.error
+                                                ? `${inr(value)} · EMI ${inr(emi.installmentAmount)}`
+                                                : `${inr(value)}`}
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })() : '—'}
                                 </td>
                               </tr>
                             );
@@ -757,6 +822,7 @@ function RequisitionForm({ kind }) {
               [schemeLabel, `${scheme.code} — ${scheme.name}`],
               [isGroup ? 'Amount per member' : 'Request amount', inr(amountNum)],
               ...(isGroup && g ? [['Members getting the loan', effective.map((m) => m.code).join(', ')], ['Number of members', String(members)], ['Group total', inr(amountNum * members)]] : []),
+              ...(isGroup && extraRows.length ? [['Additional products', extraRows.map((r, i) => `${r.m.code}: ${r.p.name} × ${r.qty} = ${inr(r.value)}${preview?.extras?.[i]?.installmentAmount ? ` (EMI ${inr(preview.extras[i].installmentAmount)})` : ''}`).join('; ')]] : []),
               ['Loan term', `${form.term} ${scheme.termUnit}`],
               ['Mode & installments', `${scheme.modes.find((m) => m.value === form.mode)?.label}, ${installments} installments`],
               ['Interest rate', `${form.rate}% p.a.`], ['EMI', inr(sum.installmentAmount)], ['Total payable', inr(sum.totalPayable)],

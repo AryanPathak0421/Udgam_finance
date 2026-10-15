@@ -60,6 +60,21 @@ const loanRequisitionSchema = new mongoose.Schema(
 
     business: { type: businessSchema },
 
+    // group loan: a product (goods) a member takes on top of the loan, up to a share of the loan
+    additionalProducts: [
+      {
+        _id: false,
+        member: { type: mongoose.Schema.Types.ObjectId, ref: 'Member' },
+        memberCode: String,
+        memberName: String,
+        product: { code: String, name: String, unitPricePaise: Number, quantity: Number },
+        valuePaise: Number,
+        installmentPaise: Number,
+        totalInterestPaise: Number,
+        totalPayablePaise: Number,
+      },
+    ],
+
     // product loan: the stock product (a snapshot) and how many units
     product: {
       code: String,

@@ -1,4 +1,4 @@
-﻿import mongoose from 'mongoose';
+import mongoose from 'mongoose';
 import { Commission, COMMISSION_TYPES } from '../models/Commission.js';
 import { FinancialYear } from '../models/FinancialYear.js';
 import { Rank } from '../models/Rank.js';
@@ -126,7 +126,8 @@ async function readRule(b, v, { multi }) {
   }
 
   // Rank(s); none selected = all ranks
-  const rankIds = [...new Set((Array.isArray(b.ranks) ? b.ranks : [b.rank]).filter((x) => !isBlank(x)).map(String))];
+  // A group leader's commission belongs to the group leader, not to a rank.
+  const rankIds = gl ? [] : [...new Set((Array.isArray(b.ranks) ? b.ranks : [b.rank]).filter((x) => !isBlank(x)).map(String))];
   let ranks = [null];
   if (rankIds.length) {
     if (!multi && rankIds.length > 1) v.add('rank', 'Select a single rank');

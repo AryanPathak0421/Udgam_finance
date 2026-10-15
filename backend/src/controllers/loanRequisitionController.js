@@ -5,7 +5,7 @@ import { Member } from '../models/Member.js';
 import { Group } from '../models/Group.js';
 import { User } from '../models/User.js';
 import { generateCode } from '../services/codeSequence.js';
-import { MODES } from '../services/loanCalculator.js';
+import { MODES, calculateLoan } from '../services/loanCalculator.js';
 import { evaluateLoan } from './loanCalculatorController.js';
 import { branchFilter, isAdmin, maskMobile } from './groupController.js';
 import { asString, escapeRegex, parseDateOnly, parsePaging, HttpError } from '../utils/http.js';
@@ -251,6 +251,23 @@ const calcInput = (b, loanDate) => ({
   startDate: loanDate ? dateOnly(loanDate) : undefined,
 });
 
+// A member of a group loan may take a product (goods) on top of the loan, up to this share of the loan.
+export const ADDITIONAL_PRODUCT_PERCENT = 25;
+
+// EMI of the additional product: the same scheme rules, mode, term and rate, on the value of the goods only.
+function additionalEmi(scheme, input, valuePaise, startDate) {
+  return calculateLoan({
+    principalPaise: valuePaise,
+    annualRateBp: Math.round(input.rate * 100),
+    calculationType: scheme.calculationType,
+    emiType: scheme.calculationType === 'flat' ? 'equal' : scheme.emiType,
+    mode: input.mode,
+    term: input.term,
+    startDate,
+    roundingPaise: (scheme.installmentRounding ?? 1) * 100,
+  });
+}
+
 // Cash in hand = loan amount - security - processing fee - insurance fee.
 const cashAfterCharges = (amountPaise, charges) =>
   amountPaise
@@ -259,7 +276,31 @@ const cashAfterCharges = (amountPaise, charges) =>
 export async function preview(req, res) {
   const r = await evaluateLoan(calcInput(req.body || {}, null));
   const amountPaise = Math.round(r.input.amount * 100);
-  res.json({ summary: r.summary, charges: r.charges, input: r.input, cash: cashAfterCharges(amountPaise, r.charges) / 100 });
+  // EMI of additional products (values in rupees) under the same scheme, mode, term and rate.
+  let extras;
+  if (Array.isArray(req.body?.extras) && req.body.extras.length) {
+    const scheme = await LoanScheme.findById(r.input.scheme.id);
+    const today = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
+    extras = req.body.extras.slice(0, 100).map((v) => {
+      const paise = Math.round(Number(v) * 100);
+      if (!Number.isFinite(paise) || paise < 100) return { value: Number(v) || 0, error: 'Too small' };
+      try {
+        const e = additionalEmi(scheme, r.input, paise, today);
+        return { value: paise / 100, installmentAmount: rupees(e.installmentAmount), totalInterest: rupees(e.totalInterest), totalPayable: rupees(e.totalPayable) };
+      } catch (err) {
+        return { value: paise / 100, error: err.message };
+      }
+    });
+  }
+  res.json({
+    summary: r.summary,
+    charges: r.charges,
+    input: r.input,
+    cash: cashAfterCharges(amountPaise, r.charges) / 100,
+    additionalMaxPercent: ADDITIONAL_PRODUCT_PERCENT,
+    additionalMax: Math.floor((amountPaise * ADDITIONAL_PRODUCT_PERCENT) / 100) / 100,
+    ...(extras ? { extras } : {}),
+  });
 }
 
 // ---- create / list / view ---------------------------------------------------------------------------------------
@@ -313,6 +354,14 @@ const present = (r, user, { detail = false } = {}) => {
         : null,
       civilCheck: r.civilCheck?.score ? { score: r.civilCheck.score, reportDate: dateOnly(r.civilCheck.reportDate), bureau: r.civilCheck.bureau } : null,
       verification: r.verification?.panPresent !== undefined && r.verification?.panPresent !== null ? r.verification : null,
+      additionalProducts: (r.additionalProducts || []).map((a) => ({
+        memberCode: a.memberCode,
+        memberName: a.memberName,
+        product: { code: a.product?.code, name: a.product?.name, unitPrice: rupees(a.product?.unitPricePaise), quantity: a.product?.quantity },
+        value: rupees(a.valuePaise),
+        emi: rupees(a.installmentPaise),
+        totalPayable: rupees(a.totalPayablePaise),
+      })),
       formFrontPhoto: r.formFrontPhoto || null,
       formBackPhoto: r.formBackPhoto || null,
       previousLoanAmount: rupees(r.previousLoanPaise),
@@ -526,6 +575,48 @@ export function createRequisition(kind) {
     if (cashPaise <= 0) {
       throw invalid({ amount: 'The security, processing fee and insurance fee are more than the loan amount' });
     }
+    // Group loan: optional product(s) on top of the loan, each up to 25% of the loan amount.
+    const additionalProducts = [];
+    if (kind === 'group' && Array.isArray(b.additional) && b.additional.length) {
+      const maxPaise = Math.floor((amountPaise * ADDITIONAL_PRODUCT_PERCENT) / 100);
+      const used = new Map();
+      const seen = new Set();
+      for (const a of b.additional) {
+        const mid = String(a?.member || '');
+        const gm = groupMembers.find((x) => String(x._id) === mid);
+        if (!gm) throw invalid({ additional: 'An additional product is for a member who is not getting the loan' });
+        if (seen.has(mid)) throw invalid({ additional: `${gm.code} has more than one additional product` });
+        seen.add(mid);
+        if (!mongoose.isValidObjectId(String(a.stockProduct || ''))) throw invalid({ additional: `Select the product for ${gm.code}` });
+        const p = await StockProduct.findOne({ _id: a.stockProduct, isDeleted: false, isActive: true });
+        if (!p) throw invalid({ additional: `The product chosen for ${gm.code} is not available` });
+        const qty = Number(a.quantity);
+        if (!Number.isInteger(qty) || qty < 1) throw invalid({ additional: `Enter the number of units for ${gm.code}` });
+        used.set(String(p._id), (used.get(String(p._id)) || 0) + qty);
+        if (used.get(String(p._id)) > p.stockQty) throw invalid({ additional: `Only ${p.stockQty} unit${p.stockQty === 1 ? '' : 's'} of ${p.name} in stock` });
+        const valuePaise = p.unitPricePaise * qty;
+        if (valuePaise > maxPaise) {
+          throw invalid({ additional: `${gm.code}: the product (₹${valuePaise / 100}) is more than ${ADDITIONAL_PRODUCT_PERCENT}% of the loan (₹${maxPaise / 100})` });
+        }
+        let e;
+        try {
+          e = additionalEmi(scheme, r.input, valuePaise, loanDate);
+        } catch (err) {
+          throw invalid({ additional: `${gm.code}: ${err.message}` });
+        }
+        additionalProducts.push({
+          member: gm._id,
+          memberCode: gm.code,
+          memberName: gm.name,
+          product: { code: p.code, name: p.name, unitPricePaise: p.unitPricePaise, quantity: qty },
+          valuePaise,
+          installmentPaise: e.installmentAmount,
+          totalInterestPaise: e.totalInterest,
+          totalPayablePaise: e.totalPayable,
+        });
+      }
+    }
+
     const memberCount = g ? groupMembers.length : undefined;
     const doc = await LoanRequisition.create({
       kind,
@@ -555,6 +646,7 @@ export function createRequisition(kind) {
           }
         : {}),
       ...(business ? { business } : {}),
+      ...(additionalProducts.length ? { additionalProducts } : {}),
       ...(product ? { product } : {}),
       ...(m ? await civilFor(m._id) : {}),
       ...(business

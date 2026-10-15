@@ -449,10 +449,10 @@ function CommissionForm({ item, helpers, years, ranks, onClose, onSaved }) {
         };
       }
       if (isEdit) {
-        await api.commissions.update(item.id, { ...payload, financialYear: yearIds[0], rank: rankIds[0] || '' });
+        await api.commissions.update(item.id, { ...payload, financialYear: yearIds[0], rank: isGL ? '' : rankIds[0] || '' });
         toast.success('Commission updated');
       } else {
-        const res = await api.commissions.create({ ...payload, financialYears: yearIds, ranks: rankIds });
+        const res = await api.commissions.create({ ...payload, financialYears: yearIds, ranks: isGL ? [] : rankIds });
         toast.success(res.commissions.length > 1 ? `${res.commissions.length} commissions added` : 'Commission added');
       }
       onSaved();
@@ -520,6 +520,7 @@ function CommissionForm({ item, helpers, years, ranks, onClose, onSaved }) {
             )}
           </FormField>
 
+          {!isGL && (
           <FormField
             id="rank"
             label={isEdit ? 'Rank' : 'Rank (select one or more)'}
@@ -536,6 +537,7 @@ function CommissionForm({ item, helpers, years, ranks, onClose, onSaved }) {
               <ChipSelect options={ranks.map((r) => ({ id: r.id, label: r.name }))} value={rankIds} onChange={setRankIds} emptyLabel="All ranks" />
             )}
           </FormField>
+          )}
         </div>
 
         {isGL ? (
@@ -752,7 +754,7 @@ function ScopeEditor({ initial, helpers, years, ranks, onClose, onSaved }) {
       await api.commissions.saveScope({
         commissionFor: rule.commissionFor,
         financialYear,
-        rank,
+        rank: isGL ? '' : rank,
         basis: rule.basis,
         targetUnit: rule.targetUnit,
         scope: rule.scope,
@@ -807,12 +809,14 @@ function ScopeEditor({ initial, helpers, years, ranks, onClose, onSaved }) {
             {years.map((y) => <option key={y.id} value={y.id}>{y.name}{y.isActive ? ' (active)' : ''}</option>)}
           </select>
         </FormField>
-        <FormField id="scopeRank" label="Rank">
-          <select id="scopeRank" value={rank} onChange={(e) => setRank(e.target.value)}>
-            <option value="">All ranks</option>
-            {ranks.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-          </select>
-        </FormField>
+        {!isGL && (
+          <FormField id="scopeRank" label="Rank">
+            <select id="scopeRank" value={rank} onChange={(e) => setRank(e.target.value)}>
+              <option value="">All ranks</option>
+              {ranks.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+            </select>
+          </FormField>
+        )}
       </div>
 
       {!isGL && (
@@ -1060,7 +1064,7 @@ export default function CommissionMaster() {
                         {c.commissionFor === helpers.legacy.key && <div className="muted small">Edit to move to a specific type</div>}
                       </td>
                       <td data-label="Year">{c.financialYear?.name || '—'}</td>
-                      <td data-label="Rank">{c.rank?.name || 'All ranks'}</td>
+                      <td data-label="Rank">{c.commissionFor === 'group_leader' ? <span className="muted">Group leader</span> : c.rank?.name || 'All ranks'}</td>
                       <td data-label="Target range">{helpers.target(c)}</td>
                       <td data-label="Commission"><span className="badge green">{helpers.value(c)}</span></td>
                       <td data-label="Rules" className="muted small">{helpers.rules(c) || '—'}</td>
