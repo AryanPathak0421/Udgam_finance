@@ -354,11 +354,21 @@ const memberRow = (m, user) => ({
 /** One group with its members. */
 export async function getGroup(req, res) {
   const g = await loadGroup(req);
-  await g.populate([POPULATE, { path: 'members.member', select: 'code name mobile isBlocked' }]);
+  await g.populate([
+    POPULATE,
+    { path: 'members.member', select: 'code name mobile isBlocked' },
+    { path: 'members.addedBy', select: 'name employeeCode' },
+  ]);
   const base = (await withEmployeeNames([present(g, req.user)]))[0];
   res.json({
     group: base,
-    members: g.members.filter((x) => x.member).map((x) => ({ ...memberRow(x.member, req.user), addedAt: x.addedAt })),
+    members: g.members
+      .filter((x) => x.member)
+      .map((x) => ({
+        ...memberRow(x.member, req.user),
+        addedAt: x.addedAt,
+        addedBy: x.addedBy ? { name: x.addedBy.name, employeeCode: x.addedBy.employeeCode || '' } : null,
+      })),
   });
 }
 

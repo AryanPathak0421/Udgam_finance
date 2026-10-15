@@ -22,6 +22,8 @@ const router = Router();
 
 const READ = ['super_admin', 'admin', 'branch_manager', 'loan_officer', 'field_officer', 'collection_officer', 'accountant', 'viewer'];
 const MANAGE = ['super_admin', 'admin', 'branch_manager', 'loan_officer', 'field_officer'];
+// Everything that changes the group master itself, and the loan disbursement entry, is admin only.
+const ADMIN = ['super_admin', 'admin'];
 const FINANCE = ['super_admin', 'admin', 'accountant'];
 const REPORT = ['super_admin', 'admin', 'branch_manager', 'accountant', 'viewer'];
 
@@ -35,11 +37,11 @@ router.get('/groups/:id', requireAuth, requireRole(...READ), h(getGroup));
 router.post('/groups/:id/members', requireAuth, requireRole(...MANAGE), h(addGroupMembers));
 router.delete('/groups/:id/members/:memberId', requireAuth, requireRole(...MANAGE), h(removeGroupMember));
 router.post('/groups', requireAuth, requireRole(...MANAGE), h(createGroup));
-router.put('/groups/:id', requireAuth, requireRole(...MANAGE), h(updateGroup));
-router.patch('/groups/:id/status', requireAuth, requireRole(...MANAGE), h(setGroupStatus));
-router.delete('/groups/:id', requireAuth, requireRole('super_admin', 'admin', 'branch_manager'), h(deleteGroup));
-router.get('/groups/:id/disbursements', requireAuth, requireRole(...READ), h(listDisbursements));
-router.put('/groups/:id/disbursements', requireAuth, requireRole(...MANAGE), h(saveDisbursement));
+router.put('/groups/:id', requireAuth, requireRole(...ADMIN), h(updateGroup));
+router.patch('/groups/:id/status', requireAuth, requireRole(...ADMIN), h(setGroupStatus));
+router.delete('/groups/:id', requireAuth, requireRole(...ADMIN), h(deleteGroup));
+router.get('/groups/:id/disbursements', requireAuth, requireRole(...ADMIN), h(listDisbursements));
+router.put('/groups/:id/disbursements', requireAuth, requireRole(...ADMIN), h(saveDisbursement));
 
 // Group leader commission: report, generation, OTP deposit
 router.get('/group-leader-commission', requireAuth, requireRole(...REPORT), h(report));

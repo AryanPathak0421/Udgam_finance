@@ -12,6 +12,7 @@ import { MemberPicker } from './GroupCreate.jsx';
 
 const MANAGERS = ['super_admin', 'admin', 'branch_manager', 'loan_officer', 'field_officer'];
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-IN') : '—');
+const fmtDateTime = (d) => (d ? new Date(d).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '—');
 
 // Add members: pick, confirm, submit.
 function AddMembersDialog({ group, existing, onClose, onDone }) {
@@ -155,7 +156,7 @@ function GroupDetail({ group, canManage, onBack }) {
         ) : (
           <div className="table-wrap">
             <table className="data-table">
-              <thead><tr><th>#</th><th>Member code</th><th>Name</th><th>Mobile</th><th>Added on</th><th>Status</th>{canManage && <th className="actions-col">Actions</th>}</tr></thead>
+              <thead><tr><th>#</th><th>Member code</th><th>Name</th><th>Mobile</th><th>Added on</th><th>Added by</th><th>Status</th>{canManage && <th className="actions-col">Actions</th>}</tr></thead>
               <tbody>
                 {data.members.map((m, i) => (
                   <tr key={m.id}>
@@ -163,7 +164,8 @@ function GroupDetail({ group, canManage, onBack }) {
                     <td data-label="Member code"><strong>{m.code}</strong></td>
                     <td data-label="Name">{m.name}</td>
                     <td data-label="Mobile">{m.mobile}</td>
-                    <td data-label="Added">{fmtDate(m.addedAt)}</td>
+                    <td data-label="Added on">{fmtDateTime(m.addedAt)}</td>
+                    <td data-label="Added by">{m.addedBy ? `${m.addedBy.name}${m.addedBy.employeeCode ? ` · ${m.addedBy.employeeCode}` : ''}` : '—'}</td>
                     <td data-label="Status"><span className={`badge ${m.isBlocked ? 'danger' : 'green'}`}>{m.isBlocked ? 'Blocked' : 'Active'}</span></td>
                     {canManage && (
                       <td data-label="Actions" className="actions-col">

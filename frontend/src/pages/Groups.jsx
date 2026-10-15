@@ -166,8 +166,10 @@ export default function Groups() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const isAdmin = ADMINS.includes(user?.role);
-  const canManage = MANAGERS.includes(user?.role);
-  const canDelete = [...ADMINS, 'branch_manager'].includes(user?.role);
+  const canManage = MANAGERS.includes(user?.role); // may create groups
+  // Editing the group master and entering loan disbursements is for the admin only.
+  const canEdit = isAdmin;
+  const canDelete = isAdmin;
 
   const [data, setData] = useState({ items: [], total: 0, totalPages: 1 });
   const [branches, setBranches] = useState([]);
@@ -281,9 +283,9 @@ export default function Groups() {
                       <td data-label="Status"><StatusBadge active={g.isActive} /></td>
                       <td data-label="Actions" className="actions-col">
                         <div className="row-actions">
-                          <button className="btn sm" onClick={() => setDialog({ type: 'loans', item: g })}>Disbursements</button>
-                          {canManage && <button className="btn sm" onClick={() => setDialog({ type: 'form', item: g })}>Edit</button>}
-                          {canManage && <button className="btn sm" onClick={() => setDialog({ type: 'status', item: g })}>{g.isActive ? 'Deactivate' : 'Activate'}</button>}
+                          {isAdmin && <button className="btn sm" onClick={() => setDialog({ type: 'loans', item: g })}>Disbursements</button>}
+                          {canEdit && <button className="btn sm" onClick={() => setDialog({ type: 'form', item: g })}>Edit</button>}
+                          {canEdit && <button className="btn sm" onClick={() => setDialog({ type: 'status', item: g })}>{g.isActive ? 'Deactivate' : 'Activate'}</button>}
                           {canDelete && <button className="btn sm danger-outline" onClick={() => setDialog({ type: 'delete', item: g })}>Delete</button>}
                         </div>
                       </td>
@@ -300,7 +302,7 @@ export default function Groups() {
       {dialog?.type === 'form' && dialog.item && (
         <GroupForm item={dialog.item} branches={branches} isAdmin={isAdmin} onClose={close} onSaved={() => { close(); load(); }} />
       )}
-      {dialog?.type === 'loans' && <DisbursementDialog group={dialog.item} canEdit={canManage} onClose={close} />}
+      {dialog?.type === 'loans' && isAdmin && <DisbursementDialog group={dialog.item} canEdit onClose={close} />}
 
       <ConfirmDialog
         open={dialog?.type === 'status'}
