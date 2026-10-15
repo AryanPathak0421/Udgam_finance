@@ -73,6 +73,21 @@ export const NAV_SECTIONS = [
     ],
   },
   {
+    title: 'Loan Requisition',
+    items: [
+      {
+        label: 'Loan Requisition',
+        path: '/loan-requisition',
+        icon: 'file',
+        roles: [...MGMT, 'loan_officer', 'field_officer', 'collection_officer', 'accountant', 'viewer'],
+        children: [
+          { label: 'Personal Loan Requisition', path: '/loan-requisition/personal', icon: 'loan', roles: [...MGMT, 'loan_officer', 'field_officer'] },
+          { label: 'Requisition List', path: '/loan-requisition/list', icon: 'ledger' },
+        ],
+      },
+    ],
+  },
+  {
     title: 'Organisation',
     items: [
       { label: 'Employees', path: '/employees', icon: 'users', roles: [...MGMT, 'accountant', 'viewer'] },

@@ -6,6 +6,7 @@ export const SYSTEM_SEQUENCES = {
   employee: { label: 'Employee Code', prefix: 'EMP', padding: 4, nextNumber: 1 },
   group: { label: 'Group Code', prefix: 'GRP', padding: 5, nextNumber: 1 },
   form: { label: 'Form ID', prefix: 'FRM', padding: 6, nextNumber: 1 },
+  loanRequisition: { label: 'Loan Requisition Form ID', prefix: 'LRQ', padding: 6, nextNumber: 1 },
 };
 
 export const formatCode = ({ prefix, padding }, n) => `${prefix}${String(n).padStart(padding, '0')}`;

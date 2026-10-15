@@ -46,8 +46,8 @@ export function getLoanCalculatorOptions(_req, res) {
   });
 }
 
-export async function runLoanCalculator(req, res) {
-  const b = req.body || {};
+/** Validates a loan request against its scheme and returns the computed schedule. Throws a 422 with field errors. */
+export async function evaluateLoan(b = {}) {
   const v = createValidator();
 
   // Optional scheme: its calculation type, EMI type and limits then govern the loan.
@@ -133,7 +133,7 @@ export async function runLoanCalculator(req, res) {
       }
     : null;
 
-  res.json({
+  return {
     input: {
       calculationType,
       emiType,
@@ -165,7 +165,11 @@ export async function runLoanCalculator(req, res) {
       installment: rupees(s.installment),
       balance: rupees(s.balance),
     })),
-  });
+  };
+}
+
+export async function runLoanCalculator(req, res) {
+  res.json(await evaluateLoan(req.body || {}));
 }
 
 

@@ -79,6 +79,15 @@ export const api = {
     sendOtp: (data) => request('/members/otp/send', { method: 'POST', body: data }),
     verifyOtp: (challengeId, otp) => request('/members/otp/verify', { method: 'POST', body: { challengeId, otp } }),
   },
+  loanRequisitions: {
+    schemes: () => request('/loan-requisitions/schemes'),
+    borrowers: (params) => request(`/loan-requisitions/borrowers${qs(params)}`),
+    borrower: (id) => request(`/loan-requisitions/borrowers/${id}`),
+    preview: (data) => request('/loan-requisitions/preview', { method: 'POST', body: data }),
+    create: (data) => request('/loan-requisitions', { method: 'POST', body: data }),
+    list: (params) => request(`/loan-requisitions${qs(params)}`),
+    get: (id) => request(`/loan-requisitions/${id}`),
+  },
   groupCommission: {
     report: (params) => request(`/group-leader-commission${qs(params)}`),
     generate: () => request('/group-leader-commission/generate', { method: 'POST' }),

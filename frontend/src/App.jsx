@@ -27,6 +27,8 @@ import BorrowerSynopsis from './pages/BorrowerSynopsis.jsx';
 import BorrowerBlock from './pages/BorrowerBlock.jsx';
 import Groups from './pages/Groups.jsx';
 import GroupCreate from './pages/GroupCreate.jsx';
+import PersonalLoanRequisition from './pages/PersonalLoanRequisition.jsx';
+import RequisitionList from './pages/RequisitionList.jsx';
 import GroupMembers from './pages/GroupMembers.jsx';
 import GroupLeaderCommission from './pages/GroupLeaderCommission.jsx';
 import Layout from './components/Layout.jsx';
@@ -41,6 +43,8 @@ const PAGES = {
   '/members/borrower-synopsis': BorrowerSynopsis,
   '/members/block-unblock': BorrowerBlock,
   '/members/nominee-detail': NomineeDetail,
+  '/loan-requisition/personal': PersonalLoanRequisition,
+  '/loan-requisition/list': RequisitionList,
   '/group-master/create': GroupCreate,
   '/group-master/list': Groups,
   '/group-master/members': GroupMembers,
@@ -91,6 +95,7 @@ export default function App() {
         <Route index element={<Dashboard />} />
         <Route path="/admin-master" element={<Navigate to="/admin-master/company-profile" replace />} />
         <Route path="/groups" element={<Navigate to="/group-master/list" replace />} />
+        <Route path="/loan-requisition" element={<Navigate to="/loan-requisition/list" replace />} />
         <Route path="/group-master" element={<Navigate to="/group-master/list" replace />} />
         {routes.map((r) => {
           const Page = PAGES[r.path] || ModulePlaceholder;
