@@ -1,4 +1,4 @@
-﻿import { Router } from 'express';
+import { Router } from 'express';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler as h } from '../utils/http.js';
 import { getCompany, saveCompany } from '../controllers/companyController.js';
@@ -46,6 +46,7 @@ import { listVouchers, createVoucher, updateVoucher, setVoucherStatus, deleteVou
 import { getLoanCalculatorOptions, runLoanCalculator } from '../controllers/loanCalculatorController.js';
 import { listSchemes, schemeOptions, createScheme, updateScheme, setSchemeStatus, deleteScheme } from '../controllers/loanSchemeController.js';
 import { listGroups, groupOptions, createGroup, updateGroup, setGroupStatus, deleteGroup } from '../controllers/accountGroupController.js';
+import { listProducts, createProduct, updateProduct, setProductStatus, deleteProduct } from '../controllers/stockProductController.js';
 import { listLedgers, createLedger, updateLedger, setLedgerStatus, deleteLedger } from '../controllers/ledgerController.js';
 import { getStates, getCities } from '../controllers/metaController.js';
 
@@ -141,6 +142,13 @@ router.post('/ledgers', ...adminOnly, h(createLedger));
 router.put('/ledgers/:id', ...adminOnly, h(updateLedger));
 router.patch('/ledgers/:id/status', ...adminOnly, h(setLedgerStatus));
 router.delete('/ledgers/:id', ...adminOnly, h(deleteLedger));
+
+// Stock products (for product loans)
+router.get('/stock-products', ...adminOnly, h(listProducts));
+router.post('/stock-products', ...adminOnly, h(createProduct));
+router.put('/stock-products/:id', ...adminOnly, h(updateProduct));
+router.patch('/stock-products/:id/status', ...adminOnly, h(setProductStatus));
+router.delete('/stock-products/:id', ...adminOnly, h(deleteProduct));
 
 export default router;
 

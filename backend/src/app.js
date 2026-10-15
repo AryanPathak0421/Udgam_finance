@@ -1,4 +1,4 @@
-﻿import express from 'express';
+import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
@@ -7,6 +7,7 @@ import adminMasterRoutes from './routes/adminMasterRoutes.js';
 import groupRoutes from './routes/groupRoutes.js';
 import memberRoutes from './routes/memberRoutes.js';
 import loanRequisitionRoutes from './routes/loanRequisitionRoutes.js';
+import civilCheckRoutes from './routes/civilCheckRoutes.js';
 
 const app = express();
 
@@ -40,6 +41,7 @@ app.use('/api/admin-master', adminMasterRoutes);
 app.use('/api', groupRoutes);
 app.use('/api', memberRoutes);
 app.use('/api', loanRequisitionRoutes);
+app.use('/api', civilCheckRoutes);
 
 app.use((_req, res) => res.status(404).json({ message: 'Not found' }));
 

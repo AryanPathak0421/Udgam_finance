@@ -84,6 +84,8 @@ export const api = {
   },
   loanRequisitions: {
     schemes: (params) => request(`/loan-requisitions/schemes${qs(params)}`),
+    stockProducts: () => request('/loan-requisitions/stock-products'),
+    verification: (memberId) => request(`/loan-requisitions/verification/${memberId}`),
     groups: (params) => request(`/loan-requisitions/groups${qs(params)}`),
     group: (id) => request(`/loan-requisitions/groups/${id}`),
     gst: (gstin, member) => request(`/loan-requisitions/gst/${gstin}${qs({ member })}`),
@@ -94,6 +96,18 @@ export const api = {
     list: (params) => request(`/loan-requisitions${qs(params)}`),
     get: (id) => request(`/loan-requisitions/${id}`),
     remove: (id) => request(`/loan-requisitions/${id}`, { method: 'DELETE' }),
+  },
+  civilChecks: {
+    member: (memberId) => request(`/civil-checks/member/${memberId}`),
+    add: (data) => request('/civil-checks', { method: 'POST', body: data }),
+    remove: (id) => request(`/civil-checks/${id}`, { method: 'DELETE' }),
+  },
+  stockProducts: {
+    list: (params) => request(`${AM}/stock-products${qs(params)}`),
+    create: (data) => request(`${AM}/stock-products`, { method: 'POST', body: data }),
+    update: (id, data) => request(`${AM}/stock-products/${id}`, { method: 'PUT', body: data }),
+    setStatus: (id, isActive) => request(`${AM}/stock-products/${id}/status`, { method: 'PATCH', body: { isActive } }),
+    remove: (id) => request(`${AM}/stock-products/${id}`, { method: 'DELETE' }),
   },
   groupCommission: {
     report: (params) => request(`/group-leader-commission${qs(params)}`),

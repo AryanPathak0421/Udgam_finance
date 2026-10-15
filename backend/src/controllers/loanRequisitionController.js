@@ -11,6 +11,9 @@ import { branchFilter, isAdmin, maskMobile } from './groupController.js';
 import { asString, escapeRegex, parseDateOnly, parsePaging, HttpError } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
 import { checkGstin, verifyGstin } from '../services/gstVerify.js';
+import { StockProduct } from '../models/StockProduct.js';
+import { CivilCheck } from '../models/CivilCheck.js';
+import { checkPanFormat, kycProviderConfigured } from '../services/kycVerify.js';
 
 const FULL_MOBILE_ROLES = ['super_admin', 'admin', 'accountant'];
 const POPULATE = [{ path: 'branch', select: 'code name' }];
@@ -65,6 +68,24 @@ export async function schemes(req, res) {
   res.json({ items: items.map(presentScheme) });
 }
 
+/** Products in stock that a product loan can be taken for. */
+export async function stockProducts(_req, res) {
+  const items = await StockProduct.find({ isDeleted: false, isActive: true, stockQty: { $gt: 0 } }).sort({ name: 1 });
+  res.json({ items: items.map((p) => ({ id: p._id, code: p.code, name: p.name, category: p.category || '', unitPrice: p.unitPricePaise / 100, stockQty: p.stockQty })) });
+}
+
+/** What can be verified for a business / MSME requisition: the borrower's PAN and the Aadhaar OTP service. */
+export async function verificationStatus(req, res) {
+  if (!mongoose.isValidObjectId(req.params.memberId)) throw new HttpError(404, 'Borrower not found');
+  const m = await Member.findOne({ _id: req.params.memberId, isDeleted: false, ...branchFilter(req.user) }).select('pan panVerifiedAt name aadhaar');
+  if (!m) throw new HttpError(404, 'Borrower not found');
+  const fmt = m.pan ? checkPanFormat(m.pan) : { ok: false };
+  res.json({
+    pan: { present: Boolean(m.pan), formatOk: Boolean(fmt.ok), verified: Boolean(m.panVerifiedAt) },
+    aadhaar: { present: Boolean(m.aadhaar), otpServiceConnected: kycProviderConfigured() },
+  });
+}
+
 // ---- borrower (personal / business / product) ----------------------------------------------------------------
 function assertBranchAccess(user, branch) {
   if (!mongoose.isValidObjectId(branch)) throw new HttpError(422, 'Select the branch first');
@@ -104,6 +125,17 @@ async function runningSchemes(memberIds) {
   return map;
 }
 
+// The newest civil check of a member, for the forms and as a snapshot on a requisition.
+async function civilSnapshot(memberId) {
+  const c = await CivilCheck.findOne({ member: memberId, isDeleted: false }).sort({ reportDate: -1, createdAt: -1 });
+  return c ? { score: c.score, reportDate: dateOnly(c.reportDate), bureau: c.bureau, daysOld: Math.floor((Date.now() - c.reportDate.getTime()) / 86_400_000) } : null;
+}
+
+async function civilFor(memberId) {
+  const c = await civilSnapshot(memberId);
+  return c ? { civilCheck: { score: c.score, reportDate: new Date(c.reportDate), bureau: c.bureau } } : {};
+}
+
 async function previousLoanPaise(memberId) {
   const last = await LoanRequisition.findOne({ member: memberId, isDeleted: false, status: { $ne: 'cancelled' } })
     .sort({ createdAt: -1 })
@@ -139,6 +171,7 @@ export async function borrowerDetail(req, res) {
       guarantorName: m.guarantor?.name || '',
       previousLoanAmount: rupees(await previousLoanPaise(m._id)),
       runningSchemeIds: [...(running || [])],
+      civilCheck: await civilSnapshot(m._id),
     },
     issues,
   });
@@ -275,6 +308,11 @@ const present = (r, user, { detail = false } = {}) => {
             bankStatement: r.business.bankStatement || null,
           }
         : null,
+      product: r.product?.name
+        ? { code: r.product.code, name: r.product.name, unitPrice: rupees(r.product.unitPricePaise), quantity: r.product.quantity }
+        : null,
+      civilCheck: r.civilCheck?.score ? { score: r.civilCheck.score, reportDate: dateOnly(r.civilCheck.reportDate), bureau: r.civilCheck.bureau } : null,
+      verification: r.verification?.panPresent !== undefined && r.verification?.panPresent !== null ? r.verification : null,
       formFrontPhoto: r.formFrontPhoto || null,
       formBackPhoto: r.formBackPhoto || null,
       previousLoanAmount: rupees(r.previousLoanPaise),
@@ -413,7 +451,24 @@ export function createRequisition(kind) {
     if (kind === 'business') {
       const errors = {};
       business = await readBusiness(b, errors, m);
+      if (!m.pan) {
+        throw new HttpError(409, 'The borrower has no PAN. Add the PAN (Borrower Synopsis → Edit details) before a business or MSME loan.', { member: 'The borrower has no PAN' });
+      }
       if (Object.keys(errors).length) throw invalid(Object.fromEntries(Object.entries(errors).map(([k, v]) => [`business.${k}`, v])));
+    }
+
+    // Product loan: the stock product and the number of units decide the loan amount.
+    let product = null;
+    if (kind === 'product') {
+      if (!mongoose.isValidObjectId(String(b.stockProduct || ''))) throw invalid({ stockProduct: 'Select the product' });
+      const p = await StockProduct.findOne({ _id: b.stockProduct, isDeleted: false, isActive: true });
+      if (!p) throw invalid({ stockProduct: 'This product is not available' });
+      const qty = Number(b.quantity);
+      if (!Number.isInteger(qty) || qty < 1) throw invalid({ quantity: 'Enter the number of units (1 or more)' });
+      if (qty > p.stockQty) throw invalid({ quantity: `Only ${p.stockQty} unit${p.stockQty === 1 ? '' : 's'} in stock` });
+      product = { code: p.code, name: p.name, unitPricePaise: p.unitPricePaise, quantity: qty };
+      // The amount of the loan is the value of the goods.
+      b.amount = String((p.unitPricePaise * qty) / 100);
     }
 
     // Scheme limits and the EMI come from the shared loan engine.
@@ -500,6 +555,19 @@ export function createRequisition(kind) {
           }
         : {}),
       ...(business ? { business } : {}),
+      ...(product ? { product } : {}),
+      ...(m ? await civilFor(m._id) : {}),
+      ...(business
+        ? {
+            verification: {
+              panPresent: true,
+              panFormatOk: checkPanFormat(m.pan).ok,
+              panVerified: Boolean(m.panVerifiedAt),
+              // The Aadhaar OTP check needs a licensed KYC service; it is recorded as not done until one is connected.
+              aadhaarOtp: 'not_available',
+            },
+          }
+        : {}),
       formFrontPhoto,
       formBackPhoto,
       scheme: scheme._id,

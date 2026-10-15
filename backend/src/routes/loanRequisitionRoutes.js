@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler as h } from '../utils/http.js';
 import {
-  schemes, borrowers, borrowerDetail, groups, groupDetail, preview, createRequisition, listRequisitions, getRequisition, deleteRequisition, gstCheck,
+  schemes, borrowers, borrowerDetail, groups, groupDetail, preview, createRequisition, listRequisitions, getRequisition, deleteRequisition, gstCheck, stockProducts, verificationStatus,
 } from '../controllers/loanRequisitionController.js';
 
 const router = Router();
@@ -15,6 +15,8 @@ router.get('/loan-requisitions/borrowers', requireAuth, requireRole(...CREATE), 
 router.get('/loan-requisitions/borrowers/:id', requireAuth, requireRole(...CREATE), h(borrowerDetail));
 router.get('/loan-requisitions/groups', requireAuth, requireRole(...CREATE), h(groups));
 router.get('/loan-requisitions/groups/:id', requireAuth, requireRole(...CREATE), h(groupDetail));
+router.get('/loan-requisitions/stock-products', requireAuth, requireRole(...CREATE), h(stockProducts));
+router.get('/loan-requisitions/verification/:memberId', requireAuth, requireRole(...CREATE), h(verificationStatus));
 router.get('/loan-requisitions/gst/:gstin', requireAuth, requireRole(...CREATE), h(gstCheck));
 router.post('/loan-requisitions/preview', requireAuth, requireRole(...CREATE), h(preview));
 router.get('/loan-requisitions', requireAuth, requireRole(...READ), h(listRequisitions));

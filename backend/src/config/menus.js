@@ -1,4 +1,4 @@
-﻿// Catalogue of menus that can be granted per user (Menu Permission).
+// Catalogue of menus that can be granted per user (Menu Permission).
 // Keys are the frontend route paths. Keep in sync with frontend/src/config/nav.js.
 // adminOnly: the backing API is restricted to admin roles regardless of grants.
 export const MENU_CATALOGUE = [
@@ -15,6 +15,7 @@ export const MENU_CATALOGUE = [
   { key: '/admin-master/loan-calculator', label: 'Loan Calculator', group: 'Admin Master', adminOnly: true },
   { key: '/admin-master/loan-schemes', label: 'Loan Scheme', group: 'Admin Master', adminOnly: true },
   { key: '/admin-master/account-groups', label: 'Account Group Master', group: 'Admin Master', adminOnly: true },
+  { key: '/admin-master/stock-products', label: 'Stock Product Master', group: 'Admin Master', adminOnly: true },
   { key: '/admin-master/ledgers', label: 'Ledger Master', group: 'Admin Master', adminOnly: true },
   { key: '/members/new-borrower', label: 'New Borrower', group: 'Member Details' },
   { key: '/members/kyc-approval', label: 'KYC Approval', group: 'Member Details' },
@@ -25,6 +26,7 @@ export const MENU_CATALOGUE = [
   { key: '/group-master/create', label: 'Create Group', group: 'Group Master' },
   { key: '/group-master/list', label: 'Group List', group: 'Group Master' },
   { key: '/group-master/members', label: 'Group Members', group: 'Group Master' },
+  { key: '/loan-requisition/civil-check', label: 'Civil Check', group: 'Loan Requisition' },
   { key: '/loan-requisition/personal', label: 'Personal Loan Requisition', group: 'Loan Requisition' },
   { key: '/loan-requisition/group', label: 'Group Loan Requisition', group: 'Loan Requisition' },
   { key: '/loan-requisition/business', label: 'Business / MSME Loan Requisition', group: 'Loan Requisition' },

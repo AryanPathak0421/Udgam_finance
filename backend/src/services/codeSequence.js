@@ -1,4 +1,4 @@
-﻿import { CodeSequence } from '../models/CodeSequence.js';
+import { CodeSequence } from '../models/CodeSequence.js';
 
 export const SYSTEM_SEQUENCES = {
   member: { label: 'Member Code', prefix: 'MEM', padding: 6, nextNumber: 1 },
@@ -7,6 +7,7 @@ export const SYSTEM_SEQUENCES = {
   group: { label: 'Group Code', prefix: 'GRP', padding: 5, nextNumber: 1 },
   form: { label: 'Form ID', prefix: 'FRM', padding: 6, nextNumber: 1 },
   loanRequisition: { label: 'Loan Requisition Form ID', prefix: 'LRQ', padding: 6, nextNumber: 1 },
+  stockProduct: { label: 'Stock Product Code', prefix: 'PRD', padding: 5, nextNumber: 1 },
 };
 
 export const formatCode = ({ prefix, padding }, n) => `${prefix}${String(n).padStart(padding, '0')}`;

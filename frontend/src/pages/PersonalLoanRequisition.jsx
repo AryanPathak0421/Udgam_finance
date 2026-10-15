@@ -128,6 +128,10 @@ function RequisitionForm({ kind }) {
   const [branches, setBranches] = useState([]);
   const [schemes, setSchemes] = useState([]);
   const [form, setForm] = useState({ branch: '', loanDate: todayISO(), employeeCode: '', filterEmployee: '', schemeId: '', amount: '', mode: '', term: '', rate: '', formFrontPhoto: '', formBackPhoto: '' });
+  const isProduct = kind === 'product';
+  const [stock, setStock] = useState([]); // product loan: products in stock
+  const [prod, setProd] = useState({ id: '', qty: '1' });
+  const [verif, setVerif] = useState(null); // business / MSME: PAN + Aadhaar OTP status
   const [chosen, setChosen] = useState([]); // group loan: ids of the members who get the loan
   const [biz, setBiz] = useState({ loanType: '', businessName: '', gstNumber: '', udgamNumber: '', civilScore: '', shopPhoto: '', bankStatement: '', bankStatementName: '' });
   const [picked, setPicked] = useState(null);
@@ -139,6 +143,10 @@ function RequisitionForm({ kind }) {
   const [confirm, setConfirm] = useState(false);
   const [saving, setSaving] = useState(false);
   const seq = useRef(0);
+
+  useEffect(() => {
+    if (isProduct) api.loanRequisitions.stockProducts().then((r) => setStock(r.items)).catch(() => setStock([]));
+  }, [isProduct]);
 
   useEffect(() => {
     api.groups.branchOptions().then((r) => {
@@ -206,7 +214,7 @@ function RequisitionForm({ kind }) {
       ...f,
       schemeId: e.target.value,
       // Starting values from the scheme, so the EMI is shown straight away; the user can change them.
-      amount: s ? String(s.amountMin) : '',
+      amount: s && !isProduct ? String(s.amountMin) : form.amount,
       mode: s ? s.modes[0].value : '',
       term: s ? String(s.termMin) : '',
       rate: s ? String(s.roiMin) : '',
@@ -227,6 +235,26 @@ function RequisitionForm({ kind }) {
       live = false;
     };
   }, [isBusiness, biz.gstNumber, picked]);
+
+  const product = stock.find((p) => p.id === prod.id) || null;
+  const qtyNum = Number(prod.qty) || 0;
+  // A product loan is for the value of the goods.
+  useEffect(() => {
+    if (isProduct) setForm((f) => ({ ...f, amount: product && qtyNum > 0 ? String(Math.round(product.unitPrice * qtyNum * 100) / 100) : '' }));
+  }, [isProduct, product, qtyNum]);
+
+  // Business / MSME: what can be verified for the chosen borrower; the civil score comes from the civil check.
+  useEffect(() => {
+    if (!isBusiness || !picked) {
+      setVerif(null);
+      return;
+    }
+    api.loanRequisitions.verification(picked.id).then(setVerif).catch(() => setVerif(null));
+  }, [isBusiness, picked]);
+  useEffect(() => {
+    const cs = detail?.borrower?.civilCheck?.score;
+    if (isBusiness && cs) setBiz((x) => (x.civilScore ? x : { ...x, civilScore: String(cs) }));
+  }, [isBusiness, detail]);
 
   // Live EMI.
   const debounced = useDebounce(JSON.stringify({ s: form.schemeId, a: form.amount, m: form.mode, t: installments, r: form.rate }), 400);
@@ -265,6 +293,12 @@ function RequisitionForm({ kind }) {
     } else if (!picked) found.member = 'Select the borrower';
     else if (detail?.issues?.length) found.member = detail.issues[0];
     if (!form.employeeCode) found.employeeCode = 'Select the employee';
+    if (isProduct) {
+      if (!prod.id) found.stockProduct = 'Select the product';
+      if (!(qtyNum >= 1)) found.quantity = 'Enter the number of units';
+      else if (product && qtyNum > product.stockQty) found.quantity = `Only ${product.stockQty} in stock`;
+    }
+    if (isBusiness && verif && !verif.pan.present) found.member = 'The borrower has no PAN. Add it first (Borrower Synopsis → Edit details)';
     if (!form.formFrontPhoto) found.formFrontPhoto = 'Upload the front photo of the form';
     if (!form.formBackPhoto) found.formBackPhoto = 'Upload the back photo of the form';
     if (isBusiness) {
@@ -304,6 +338,7 @@ function RequisitionForm({ kind }) {
         rate: form.rate,
         formFrontPhoto: form.formFrontPhoto,
         formBackPhoto: form.formBackPhoto,
+        ...(isProduct ? { stockProduct: prod.id, quantity: qtyNum } : {}),
         ...(isGroup ? { group: picked.id, memberIds: effective.map((m) => m.id) } : { member: picked.id }),
         ...(isBusiness
           ? { business: { loanType: biz.loanType, businessName: biz.businessName.trim(), gstNumber: biz.gstNumber.trim(), udgamNumber: biz.loanType === 'msme' ? biz.udgamNumber.trim() : '', civilScore: Number(biz.civilScore), shopPhoto: biz.shopPhoto, bankStatement: biz.bankStatement } }
@@ -418,7 +453,9 @@ function RequisitionForm({ kind }) {
                   items={[
                     ['Borrower code', b.code], ['Borrower name', b.name], ['Date of birth', b.dob], ['Age', `${b.age} years`],
                     ['Gender', cap(b.gender)], ['Phone', b.mobile], ['Guarantor name', b.guarantorName],
-                    ['Previous loan amount', inr(b.previousLoanAmount)], ['Address', b.address],
+                    ['Previous loan amount', inr(b.previousLoanAmount)],
+                    ['Civil score', b.civilCheck ? `${b.civilCheck.score} (${b.civilCheck.bureau}, ${b.civilCheck.reportDate})` : 'No civil check yet — use Civil Check'],
+                    ['Address', b.address],
                     ['Pincode', b.pincode], ['District / State', `${b.district}, ${b.state}`],
                   ]}
                 />
@@ -496,12 +533,43 @@ function RequisitionForm({ kind }) {
 
         {isBusiness && (
           <div className="panel" style={{ padding: 18, marginBottom: 14 }}>
+            <h3 className="section-title">Verification</h3>
+            {!picked ? (
+              <div className="muted" style={{ marginBottom: 12 }}>Select the borrower to see the PAN and Aadhaar verification.</div>
+            ) : !verif ? (
+              <div className="muted" style={{ marginBottom: 12 }}>Checking…</div>
+            ) : (
+              <div className="table-wrap" style={{ marginBottom: 14, maxWidth: 560 }}>
+                <table className="data-table">
+                  <tbody>
+                    <tr>
+                      <td>PAN</td>
+                      <td>
+                        {!verif.pan.present ? <span className="badge danger">PAN missing — add it to the member first</span>
+                          : verif.pan.verified ? <span className="badge green">Verified</span>
+                            : verif.pan.formatOk ? <span className="badge grey">Format valid · holder check not done (PAN service not connected)</span>
+                              : <span className="badge danger">PAN is not valid</span>}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td>Aadhaar OTP</td>
+                      <td>
+                        {verif.aadhaar.otpServiceConnected
+                          ? <span className="badge grey">Aadhaar OTP service is connected</span>
+                          : <span className="badge grey">Not done — Aadhaar OTP service is not connected, so it is recorded as not verified</span>}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            )}
             <h3 className="section-title">Business details</h3>
             <div className="form-grid">
               <FormField id="businessName" label="Business name" required error={errors['business.businessName']}>
                 <input id="businessName" value={biz.businessName} onChange={setB('businessName')} maxLength={100} />
               </FormField>
-              <FormField id="civilScore" label="Civil score" required error={errors['business.civilScore']} hint="300 to 900">
+              <FormField id="civilScore" label="Civil score" required error={errors['business.civilScore']}
+                hint={detail?.borrower?.civilCheck ? `From the civil check of ${detail.borrower.civilCheck.reportDate} (300 to 900)` : '300 to 900. Record it under Civil Check'}>
                 <input id="civilScore" inputMode="numeric" value={biz.civilScore} maxLength={3}
                   onChange={(e) => { setBiz((x) => ({ ...x, civilScore: e.target.value.replace(/\D/g, '').slice(0, 3) })); setErrors((er) => ({ ...er, 'business.civilScore': undefined })); }} />
               </FormField>
@@ -522,8 +590,30 @@ function RequisitionForm({ kind }) {
           </div>
         )}
 
+        {isProduct && (
+          <div className="panel" style={{ padding: 18, marginBottom: 14 }}>
+            <h3 className="section-title">Stock product</h3>
+            <div className="form-grid">
+              <FormField id="stockProduct" label="Select stock product" required error={errors.stockProduct} className="span-2"
+                hint={stock.length ? undefined : 'No product is in stock. Add products under Admin Master → Stock Product Master.'}>
+                <select id="stockProduct" value={prod.id} onChange={(e) => { setProd((p) => ({ ...p, id: e.target.value })); setErrors((er) => ({ ...er, stockProduct: undefined })); }}>
+                  <option value="">{stock.length ? 'Select product' : 'No product in stock'}</option>
+                  {stock.map((p) => <option key={p.id} value={p.id}>{p.code} — {p.name}{p.category ? ` (${p.category})` : ''} · {inr(p.unitPrice)} · {p.stockQty} in stock</option>)}
+                </select>
+              </FormField>
+              <FormField id="quantity" label="Number of units" required error={errors.quantity} hint={product ? `${inr(product.unitPrice)} per unit` : undefined}>
+                <input id="quantity" inputMode="numeric" value={prod.qty}
+                  onChange={(e) => { setProd((p) => ({ ...p, qty: e.target.value.replace(/\D/g, '').slice(0, 6) })); setErrors((er) => ({ ...er, quantity: undefined })); }} />
+              </FormField>
+              <FormField id="productValue" label="Value of the goods (loan amount)">
+                <input id="productValue" value={product && qtyNum > 0 ? inr(product.unitPrice * qtyNum) : ''} disabled placeholder="Auto" />
+              </FormField>
+            </div>
+          </div>
+        )}
+
         <div className="panel" style={{ padding: 18, marginBottom: 14 }}>
-          <h3 className="section-title">{kind === 'product' ? 'Product detail' : 'Scheme detail'}</h3>
+          <h3 className="section-title">{kind === 'product' ? 'Product loan scheme' : 'Scheme detail'}</h3>
           <div className="form-grid">
             <FormField id="schemeId" label={schemeLabel} required error={errors.schemeId} className="span-2"
               hint={isBusiness && !biz.loanType ? 'Select the loan type first' : undefined}>
@@ -554,8 +644,8 @@ function RequisitionForm({ kind }) {
                 />
               </div>
               <div className="form-grid">
-                <FormField id="amount" label={isGroup ? 'Request amount per member (₹)' : kind === 'product' ? 'Requisition amount (₹)' : 'Request amount (₹)'} required error={errors.amount}>
-                  <input id="amount" inputMode="decimal" value={form.amount} onChange={(e) => { setForm((f) => ({ ...f, amount: e.target.value.replace(/[^\d.]/g, '') })); setErrors((er) => ({ ...er, amount: undefined })); }} />
+                <FormField id="amount" label={isGroup ? 'Request amount per member (₹)' : isProduct ? 'Requisition amount (₹) — price × units' : 'Request amount (₹)'} required error={errors.amount}>
+                  <input id="amount" inputMode="decimal" value={form.amount} disabled={isProduct} onChange={(e) => { setForm((f) => ({ ...f, amount: e.target.value.replace(/[^\d.]/g, '') })); setErrors((er) => ({ ...er, amount: undefined })); }} />
                 </FormField>
                 <FormField id="mode" label="Repayment mode" required error={errors.mode}>
                   <select id="mode" value={form.mode} onChange={setF('mode')}>

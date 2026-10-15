@@ -60,6 +60,25 @@ const loanRequisitionSchema = new mongoose.Schema(
 
     business: { type: businessSchema },
 
+    // product loan: the stock product (a snapshot) and how many units
+    product: {
+      code: String,
+      name: String,
+      unitPricePaise: Number,
+      quantity: Number,
+    },
+
+    // The borrower's latest civil check when the requisition was made.
+    civilCheck: { score: Number, reportDate: Date, bureau: String },
+
+    // Business / MSME: what was verified at requisition time (nothing is claimed that was not checked).
+    verification: {
+      panPresent: Boolean,
+      panFormatOk: Boolean,
+      panVerified: Boolean,
+      aadhaarOtp: { type: String, enum: ['verified', 'not_available'] },
+    },
+
     // The filled-in application form, front and back.
     formFrontPhoto: { type: String, select: false },
     formBackPhoto: { type: String, select: false },

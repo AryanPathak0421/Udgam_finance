@@ -31,6 +31,7 @@ export const NAV_SECTIONS = [
           { label: 'Loan Calculator', path: '/admin-master/loan-calculator', icon: 'calculator' },
           { label: 'Loan Scheme', path: '/admin-master/loan-schemes', icon: 'layers' },
           { label: 'Account Group Master', path: '/admin-master/account-groups', icon: 'folder' },
+          { label: 'Stock Product Master', path: '/admin-master/stock-products', icon: 'product' },
           { label: 'Ledger Master', path: '/admin-master/ledgers', icon: 'book' },
         ],
       },
@@ -80,6 +81,7 @@ export const NAV_SECTIONS = [
         icon: 'file',
         roles: [...MGMT, 'loan_officer', 'field_officer', 'collection_officer', 'accountant', 'viewer'],
         children: [
+          { label: 'Civil Check', path: '/loan-requisition/civil-check', icon: 'shield', roles: [...MGMT, 'loan_officer', 'field_officer', 'collection_officer', 'accountant', 'viewer'] },
           { label: 'Personal Loan Requisition', path: '/loan-requisition/personal', icon: 'loan', roles: [...MGMT, 'loan_officer', 'field_officer'] },
           { label: 'Group Loan Requisition', path: '/loan-requisition/group', icon: 'group', roles: [...MGMT, 'loan_officer', 'field_officer'] },
           { label: 'Business / MSME Loan', path: '/loan-requisition/business', icon: 'bank', roles: [...MGMT, 'loan_officer', 'field_officer'] },

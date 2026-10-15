@@ -27,6 +27,8 @@ import BorrowerSynopsis from './pages/BorrowerSynopsis.jsx';
 import BorrowerBlock from './pages/BorrowerBlock.jsx';
 import Groups from './pages/Groups.jsx';
 import GroupCreate from './pages/GroupCreate.jsx';
+import CivilCheck from './pages/CivilCheck.jsx';
+import StockProductMaster from './pages/adminMaster/StockProductMaster.jsx';
 import { PersonalLoanRequisition, GroupLoanRequisition, BusinessLoanRequisition, ProductLoanRequisition } from './pages/PersonalLoanRequisition.jsx';
 import RequisitionList from './pages/RequisitionList.jsx';
 import GroupMembers from './pages/GroupMembers.jsx';
@@ -42,7 +44,9 @@ const PAGES = {
   '/members/guarantor-change': GuarantorChange,
   '/members/borrower-synopsis': BorrowerSynopsis,
   '/members/block-unblock': BorrowerBlock,
+  '/loan-requisition/civil-check': CivilCheck,
   '/loan-requisition/personal': PersonalLoanRequisition,
+  '/admin-master/stock-products': StockProductMaster,
   '/loan-requisition/group': GroupLoanRequisition,
   '/loan-requisition/business': BusinessLoanRequisition,
   '/loan-requisition/product': ProductLoanRequisition,

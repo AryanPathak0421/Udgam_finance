@@ -47,6 +47,9 @@ function Detail({ id, onClose }) {
                     ['GST number', r.business.gstNumber ? `${r.business.gstNumber}${r.business.gstVerified ? ' ✓ verified' : ''}` : ''],
                   ]
                 : []),
+              ...(r.product ? [['Stock product', `${r.product.code} — ${r.product.name}`], ['Units × price', `${r.product.quantity} × ${inr(r.product.unitPrice)}`]] : []),
+              ...(r.civilCheck ? [['Civil check', `${r.civilCheck.score} (${r.civilCheck.bureau}, ${r.civilCheck.reportDate})`]] : []),
+              ...(r.verification ? [['PAN', r.verification.panVerified ? 'Verified' : r.verification.panFormatOk ? 'Format valid, holder check not done' : 'Not valid'], ['Aadhaar OTP', r.verification.aadhaarOtp === 'verified' ? 'Verified' : 'Not done (service not connected)']] : []),
               ['Scheme', `${r.schemeCode} — ${r.schemeName}`],
               [r.group ? 'Amount per member' : 'Request amount', inr(r.amount)],
               ...(r.group ? [['Group total', inr(r.totalAmount)]] : []),
