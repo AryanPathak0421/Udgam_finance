@@ -9,7 +9,7 @@ const businessSchema = new mongoose.Schema(
     loanType: { type: String, enum: ['business', 'msme'], required: true },
     businessName: String,
     gstNumber: String,
-    udyamNumber: String,
+    udgamNumber: String,
     civilScore: Number,
     shopPhoto: { type: String, select: false },
     bankStatement: { type: String, select: false }, // PDF or image data URL

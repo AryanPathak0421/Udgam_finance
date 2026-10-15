@@ -125,7 +125,7 @@ function RequisitionForm({ kind }) {
   const [branches, setBranches] = useState([]);
   const [schemes, setSchemes] = useState([]);
   const [form, setForm] = useState({ branch: '', loanDate: todayISO(), employeeCode: '', filterEmployee: '', schemeId: '', amount: '', mode: '', term: '', rate: '' });
-  const [biz, setBiz] = useState({ loanType: '', businessName: '', gstNumber: '', udyamNumber: '', civilScore: '', shopPhoto: '', bankStatement: '', bankStatementName: '' });
+  const [biz, setBiz] = useState({ loanType: '', businessName: '', gstNumber: '', udgamNumber: '', civilScore: '', shopPhoto: '', bankStatement: '', bankStatementName: '' });
   const [picked, setPicked] = useState(null);
   const [detail, setDetail] = useState(null);
   const [preview, setPreview] = useState(null);
@@ -241,7 +241,7 @@ function RequisitionForm({ kind }) {
     if (isBusiness) {
       if (!biz.loanType) found['business.loanType'] = 'Select Business or MSME';
       if (biz.businessName.trim().length < 2) found['business.businessName'] = 'Enter the business name';
-      if (biz.loanType === 'msme' && !biz.udyamNumber.trim()) found['business.udyamNumber'] = 'Udyam number is required for an MSME loan';
+      if (biz.loanType === 'msme' && !biz.udgamNumber.trim()) found['business.udgamNumber'] = 'Udgam number is required for an MSME loan';
       const c = Number(biz.civilScore);
       if (!Number.isInteger(c) || c < 300 || c > 900) found['business.civilScore'] = 'Enter the civil score (300 to 900)';
       if (!biz.shopPhoto) found['business.shopPhoto'] = 'Shop photo is required';
@@ -272,7 +272,7 @@ function RequisitionForm({ kind }) {
         rate: form.rate,
         ...(isGroup ? { group: picked.id } : { member: picked.id }),
         ...(isBusiness
-          ? { business: { loanType: biz.loanType, businessName: biz.businessName.trim(), gstNumber: biz.gstNumber.trim(), udyamNumber: biz.udyamNumber.trim(), civilScore: Number(biz.civilScore), shopPhoto: biz.shopPhoto, bankStatement: biz.bankStatement } }
+          ? { business: { loanType: biz.loanType, businessName: biz.businessName.trim(), gstNumber: biz.gstNumber.trim(), udgamNumber: biz.udgamNumber.trim(), civilScore: Number(biz.civilScore), shopPhoto: biz.shopPhoto, bankStatement: biz.bankStatement } }
           : {}),
       };
       const r = await api.loanRequisitions.create(kind, payload);
@@ -419,8 +419,8 @@ function RequisitionForm({ kind }) {
                 <input id="civilScore" inputMode="numeric" value={biz.civilScore} maxLength={3}
                   onChange={(e) => { setBiz((x) => ({ ...x, civilScore: e.target.value.replace(/\D/g, '').slice(0, 3) })); setErrors((er) => ({ ...er, 'business.civilScore': undefined })); }} />
               </FormField>
-              <FormField id="udyamNumber" label="Udyam number" required={biz.loanType === 'msme'} error={errors['business.udyamNumber']} hint="e.g. UDYAM-MH-12-1234567">
-                <input id="udyamNumber" value={biz.udyamNumber} onChange={(e) => { setBiz((x) => ({ ...x, udyamNumber: e.target.value.toUpperCase() })); setErrors((er) => ({ ...er, 'business.udyamNumber': undefined })); }} maxLength={22} />
+              <FormField id="udgamNumber" label="Udgam number" required={biz.loanType === 'msme'} error={errors['business.udgamNumber']} hint={biz.loanType === 'msme' ? undefined : 'Optional for a business loan'}>
+                <input id="udgamNumber" value={biz.udgamNumber} onChange={(e) => { setBiz((x) => ({ ...x, udgamNumber: e.target.value.toUpperCase() })); setErrors((er) => ({ ...er, 'business.udgamNumber': undefined })); }} maxLength={30} />
               </FormField>
               <FormField id="gstNumber" label="GST number" error={errors['business.gstNumber']} hint="Optional">
                 <input id="gstNumber" value={biz.gstNumber} onChange={(e) => { setBiz((x) => ({ ...x, gstNumber: e.target.value.toUpperCase().slice(0, 15) })); setErrors((er) => ({ ...er, 'business.gstNumber': undefined })); }} maxLength={15} />

@@ -233,7 +233,7 @@ const present = (r, user, { detail = false } = {}) => {
             loanType: r.business.loanType,
             businessName: r.business.businessName || '',
             gstNumber: r.business.gstNumber || '',
-            udyamNumber: r.business.udyamNumber || '',
+            udgamNumber: r.business.udgamNumber || '',
             civilScore: r.business.civilScore ?? null,
             shopPhoto: r.business.shopPhoto || null,
             bankStatement: r.business.bankStatement || null,
@@ -255,7 +255,8 @@ const present = (r, user, { detail = false } = {}) => {
 const IMAGE_RE = /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/;
 const DOC_RE = /^data:(application\/pdf|image\/png|image\/jpeg);base64,[A-Za-z0-9+/=]+$/;
 const GST_RE = /^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
-const UDYAM_RE = /^UDYAM-[A-Z]{2}-\d{2}-\d{7}$/;
+// Udgam number: letters, digits, hyphen or slash (no fixed format is assumed).
+const UDGAM_RE = /^[A-Z0-9][A-Z0-9/-]{4,29}$/;
 const MAX_PHOTO_CHARS = 300_000;
 const MAX_DOC_CHARS = 1_100_000; // ~800 KB file
 
@@ -268,9 +269,9 @@ function readBusiness(b, errors) {
   if (out.businessName.length < 2 || out.businessName.length > 100) errors.businessName = 'Enter the business name';
   out.gstNumber = asString(x.gstNumber).toUpperCase();
   if (out.gstNumber && !GST_RE.test(out.gstNumber)) errors.gstNumber = 'Enter a valid 15-character GST number';
-  out.udyamNumber = asString(x.udyamNumber).toUpperCase();
-  if (out.udyamNumber && !UDYAM_RE.test(out.udyamNumber)) errors.udyamNumber = 'Enter the Udyam number like UDYAM-MH-12-1234567';
-  if (out.loanType === 'msme' && !out.udyamNumber) errors.udyamNumber = 'Udyam number is required for an MSME loan';
+  out.udgamNumber = asString(x.udgamNumber).toUpperCase();
+  if (out.udgamNumber && !UDGAM_RE.test(out.udgamNumber)) errors.udgamNumber = 'Enter a valid Udgam number (5 to 30 letters or digits)';
+  if (out.loanType === 'msme' && !out.udgamNumber) errors.udgamNumber = 'Udgam number is required for an MSME loan';
   const score = Number(x.civilScore);
   if (!Number.isInteger(score) || score < 300 || score > 900) errors.civilScore = 'Enter the civil score (300 to 900)';
   else out.civilScore = score;

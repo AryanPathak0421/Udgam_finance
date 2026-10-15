@@ -39,7 +39,7 @@ function Detail({ id, onClose }) {
               ...(r.business
                 ? [
                     ['Loan type', r.business.loanType === 'msme' ? 'MSME loan' : 'Business loan'], ['Business name', r.business.businessName],
-                    ['Civil score', String(r.business.civilScore ?? '')], ['Udyam number', r.business.udyamNumber], ['GST number', r.business.gstNumber],
+                    ['Civil score', String(r.business.civilScore ?? '')], ['Udgam number', r.business.udgamNumber], ['GST number', r.business.gstNumber],
                   ]
                 : []),
               ['Scheme', `${r.schemeCode} — ${r.schemeName}`],
