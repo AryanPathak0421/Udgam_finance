@@ -217,9 +217,15 @@ const calcInput = (b, loanDate) => ({
   startDate: loanDate ? dateOnly(loanDate) : undefined,
 });
 
+// Cash in hand = loan amount - security - processing fee - insurance fee.
+const cashAfterCharges = (amountPaise, charges) =>
+  amountPaise
+  - (charges ? Math.round(charges.processingFee * 100) + Math.round(charges.cost * 100) + Math.round(charges.securityAmount * 100) : 0);
+
 export async function preview(req, res) {
   const r = await evaluateLoan(calcInput(req.body || {}, null));
-  res.json({ summary: r.summary, charges: r.charges, input: r.input });
+  const amountPaise = Math.round(r.input.amount * 100);
+  res.json({ summary: r.summary, charges: r.charges, input: r.input, cash: cashAfterCharges(amountPaise, r.charges) / 100 });
 }
 
 // ---- create / list / view ---------------------------------------------------------------------------------------
@@ -240,6 +246,8 @@ const present = (r, user, { detail = false } = {}) => {
     amount: rupees(r.amountPaise),
     memberCount: isGroup ? r.memberCount : null,
     totalAmount: isGroup ? rupees(r.totalAmountPaise) : rupees(r.amountPaise),
+    cash: rupees(r.cashPaise),
+    totalCash: r.cashPaise === undefined || r.cashPaise === null ? null : isGroup ? (r.cashPaise * (r.memberCount || 1)) / 100 : r.cashPaise / 100,
     mode: r.mode,
     modeLabel: MODES[r.mode]?.label || r.mode,
     term: r.term,
@@ -442,6 +450,10 @@ export function createRequisition(kind) {
     }
 
     const amountPaise = Math.round(r.input.amount * 100);
+    const cashPaise = cashAfterCharges(amountPaise, r.charges);
+    if (cashPaise <= 0) {
+      throw invalid({ amount: 'The security, processing fee and insurance fee are more than the loan amount' });
+    }
     const memberCount = g ? groupMembers.length : undefined;
     const doc = await LoanRequisition.create({
       kind,
@@ -488,6 +500,7 @@ export function createRequisition(kind) {
       processingFeePaise: r.charges ? Math.round(r.charges.processingFee * 100) : 0,
       insuranceFeePaise: r.charges ? Math.round(r.charges.cost * 100) : 0,
       securityAmountPaise: r.charges ? Math.round(r.charges.securityAmount * 100) : 0,
+      cashPaise,
       securityType: r.charges?.securityType || 'none',
       employeeCode,
       createdBy: req.user._id,

@@ -578,9 +578,23 @@ function RequisitionForm({ kind }) {
                           <td className="num">{inr(preview.charges.securityAmount)}</td>
                         </tr>
                         <tr>
-                          <td><strong>Total</strong></td>
+                          <td><strong>Total charges</strong></td>
                           <td className="num"><strong>{inr(preview.charges.processingFee + preview.charges.cost + preview.charges.securityAmount)}</strong></td>
                         </tr>
+                        <tr>
+                          <td>{isGroup ? 'Loan amount (per member)' : 'Loan requisition amount'}</td>
+                          <td className="num">{inr(amountNum)}</td>
+                        </tr>
+                        <tr style={{ background: 'var(--surface-2, #f4f7f7)' }}>
+                          <td><strong>Cash {isGroup ? 'per member ' : ''}(amount − security − processing − insurance)</strong></td>
+                          <td className="num"><strong>{inr(preview.cash)}</strong></td>
+                        </tr>
+                        {isGroup && g && (
+                          <tr>
+                            <td><strong>Total cash for {members} member{members === 1 ? '' : 's'}</strong></td>
+                            <td className="num"><strong>{inr(preview.cash * members)}</strong></td>
+                          </tr>
+                        )}
                       </tbody>
                     </table>
                   </div>
@@ -619,7 +633,8 @@ function RequisitionForm({ kind }) {
               ['Loan term', `${form.term} ${scheme.termUnit}`],
               ['Mode & installments', `${scheme.modes.find((m) => m.value === form.mode)?.label}, ${installments} installments`],
               ['Interest rate', `${form.rate}% p.a.`], ['EMI', inr(sum.installmentAmount)], ['Total payable', inr(sum.totalPayable)],
-              ...(preview?.charges ? [['Processing fee', inr(preview.charges.processingFee)], ['Insurance fee', inr(preview.charges.cost)], ['Security amount', inr(preview.charges.securityAmount)]] : []),
+              ...(preview?.charges ? [['Processing fee', inr(preview.charges.processingFee)], ['Insurance fee', inr(preview.charges.cost)], ['Security amount', inr(preview.charges.securityAmount)], [isGroup ? 'Cash per member' : 'Cash in hand', inr(preview.cash)]] : []),
+              ...(preview?.charges && isGroup ? [['Total cash', inr(preview.cash * members)]] : []),
             ]}
           />
         )}

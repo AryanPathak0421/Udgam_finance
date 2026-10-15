@@ -51,6 +51,8 @@ function Detail({ id, onClose }) {
               ['Mode & term', `${r.modeLabel}, ${r.term} installments`], ['Interest rate', `${r.rate}% p.a. (${r.calculationType})`],
               ['EMI', inr(r.emi)], ['Total interest', inr(r.totalInterest)], ['Total payable', inr(r.totalPayable)],
               ['Processing fee', inr(r.processingFee)], ['Insurance fee', inr(r.insuranceFee)], ['Security amount', inr(r.securityAmount)],
+              [r.group ? 'Cash per member' : 'Cash in hand', inr(r.cash)],
+              ...(r.group ? [['Total cash', inr(r.totalCash)]] : []),
               ['Employee ID', r.employeeCode],
             ]}
           />
@@ -166,7 +168,7 @@ export default function RequisitionList() {
             <div className={`table-wrap${loading ? ' dim' : ''}`}>
               <table className="data-table">
                 <thead>
-                  <tr><th>Form ID</th><th>Loan date</th><th>Type</th><th>Borrower / Group</th><th>Branch</th><th>Scheme</th><th className="num">Amount</th><th className="num">EMI</th><th>Status</th><th className="actions-col">Actions</th></tr>
+                  <tr><th>Form ID</th><th>Loan date</th><th>Type</th><th>Borrower / Group</th><th>Branch</th><th>Scheme</th><th className="num">Amount</th><th className="num">Cash</th><th className="num">EMI</th><th>Status</th><th className="actions-col">Actions</th></tr>
                 </thead>
                 <tbody>
                   {data.items.map((r) => (
@@ -181,6 +183,7 @@ export default function RequisitionList() {
                         {inr(r.amount)}
                         {r.kind === 'group' && <div className="muted small">× {r.memberCount} = {inr(r.totalAmount)}</div>}
                       </td>
+                      <td data-label="Cash" className="num">{r.totalCash === null || r.totalCash === undefined ? '—' : inr(r.totalCash)}</td>
                       <td data-label="EMI" className="num">{inr(r.emi)}</td>
                       <td data-label="Status"><span className={`badge ${TONE[r.status]}`}>{cap(r.status)}</span></td>
                       <td data-label="Actions" className="actions-col">

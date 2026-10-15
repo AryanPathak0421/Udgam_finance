@@ -77,6 +77,7 @@ const loanRequisitionSchema = new mongoose.Schema(
     processingFeePaise: Number,
     insuranceFeePaise: Number, // the scheme's "cost" (insurance / other)
     securityAmountPaise: Number,
+    cashPaise: Number, // loan amount - security - processing fee - insurance fee (per borrower)
     securityType: String,
 
     employeeCode: { type: String, required: true },
