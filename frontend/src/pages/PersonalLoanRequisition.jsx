@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -7,49 +7,59 @@ import Modal from '../components/ui/Modal.jsx';
 import { DetailList, PageHeader } from '../components/ui/Feedback.jsx';
 import { useToast } from '../components/ui/Toast.jsx';
 import useDebounce from '../hooks/useDebounce.js';
-import { EmployeeSelect } from './NewBorrower.jsx';
+import { compressImage } from '../utils/image.js';
+import { EmployeeSelect, PhotoField } from './NewBorrower.jsx';
 
 const ADMINS = ['super_admin', 'admin'];
 const todayISO = () => new Date().toISOString().slice(0, 10);
-const inr = (n) => (n === null || n === undefined ? '—' : `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+const inr = (n) => (n === null || n === undefined || Number.isNaN(n) ? '—' : `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : '');
-const UNIT_LABEL = { days: 'days', weeks: 'weeks', months: 'months' };
+const MAX_DOC_BYTES = 800 * 1024;
 
-function BorrowerPicker({ branch, value, onPick, error }) {
+const KINDS = {
+  personal: { title: 'Personal Loan Requisition', desc: 'Choose the borrower and the loan scheme, check the EMI, then confirm and submit.', path: '' },
+  group: { title: 'Group Loan Requisition', desc: 'Filter the group by branch and employee, choose the group and the loan scheme, then confirm and submit.', path: '/group' },
+  business: { title: 'Business / MSME Loan Requisition', desc: 'Choose the loan type and the borrower, add the business details and documents, then confirm and submit.', path: '/business' },
+  product: { title: 'Product Loan Requisition', desc: 'Choose the borrower and the product, enter the requisition amount, then confirm and submit.', path: '/product' },
+};
+
+// ---- pickers --------------------------------------------------------------------------------------------------
+function Search({ id, label, required, error, hint, placeholder, branch, value, display, fetchItems, render, onPick, disabled }) {
   const [search, setSearch] = useState('');
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
   const q = useDebounce(search);
 
   useEffect(() => {
-    if (!branch) return undefined;
+    if (!branch || disabled) return undefined;
     let live = true;
-    api.loanRequisitions.borrowers({ branch, q }).then((r) => live && setItems(r.items)).catch(() => live && setItems([]));
+    fetchItems(q).then((r) => live && setItems(r)).catch(() => live && setItems([]));
     return () => {
       live = false;
     };
-  }, [branch, q]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [branch, q, disabled, fetchItems]);
 
   return (
-    <FormField id="borrower" label="Select borrower" required error={error} hint={!branch ? 'Select the branch first' : undefined}>
+    <FormField id={id} label={label} required={required} error={error} hint={!branch ? 'Select the branch first' : hint}>
       {value ? (
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <input id="borrower" value={`${value.code} — ${value.name}`} disabled />
+          <input id={id} value={display} disabled />
           <button type="button" className="btn sm" onClick={() => { onPick(null); setSearch(''); setOpen(true); }}>Change</button>
         </div>
       ) : (
         <div style={{ position: 'relative' }}>
-          <input id="borrower" type="search" placeholder="Search by member code, name or mobile" value={search} disabled={!branch}
-            onFocus={() => setOpen(true)} onChange={(e) => { setSearch(e.target.value); setOpen(true); }} autoComplete="off" />
-          {open && branch && (
+          <input id={id} type="search" placeholder={placeholder} value={search} disabled={!branch || disabled} autoComplete="off"
+            onFocus={() => setOpen(true)} onChange={(e) => { setSearch(e.target.value); setOpen(true); }} />
+          {open && branch && !disabled && (
             <div className="panel" style={{ position: 'absolute', zIndex: 20, left: 0, right: 0, maxHeight: 240, overflow: 'auto', marginTop: 4 }}>
               {items.length === 0 ? (
-                <div className="muted" style={{ padding: 10 }}>No borrowers found</div>
+                <div className="muted" style={{ padding: 10 }}>Nothing found</div>
               ) : (
-                items.map((m) => (
-                  <button key={m.id} type="button" className="btn" style={{ display: 'block', width: '100%', textAlign: 'left', border: 0, borderRadius: 0 }}
-                    onClick={() => { onPick(m); setOpen(false); }}>
-                    <strong>{m.code}</strong> — {m.name} <span className="muted">· {m.mobile}</span>
+                items.map((it) => (
+                  <button key={it.id} type="button" className="btn" style={{ display: 'block', width: '100%', textAlign: 'left', border: 0, borderRadius: 0 }}
+                    onClick={() => { onPick(it); setOpen(false); }}>
+                    {render(it)}
                   </button>
                 ))
               )}
@@ -61,7 +71,52 @@ function BorrowerPicker({ branch, value, onPick, error }) {
   );
 }
 
-export default function PersonalLoanRequisition() {
+// PDF or image, up to 800 KB (images are shrunk first).
+function DocumentField({ id, label, required, value, name, error, onChange }) {
+  const ref = useRef(null);
+  const [err, setErr] = useState('');
+  async function pick(e) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setErr('');
+    try {
+      let data;
+      if (file.type === 'application/pdf') {
+        if (file.size > MAX_DOC_BYTES) throw new Error('The PDF must be 800 KB or smaller');
+        data = await new Promise((resolve, reject) => {
+          const fr = new FileReader();
+          fr.onload = () => resolve(fr.result);
+          fr.onerror = () => reject(new Error('Could not read the file'));
+          fr.readAsDataURL(file);
+        });
+      } else {
+        data = await compressImage(file, { maxSide: 1600, quality: 0.75 });
+      }
+      onChange(data, file.name);
+    } catch (ex) {
+      setErr(ex.message);
+    }
+  }
+  return (
+    <FormField id={id} label={label} required={required} error={err || error}>
+      <div className="stamp-upload">
+        {value ? <div className="muted">{name || 'Document attached'}</div> : <div className="stamp-empty">No file</div>}
+        <div className="stamp-actions">
+          <input id={id} ref={ref} type="file" accept="application/pdf,image/png,image/jpeg" onChange={pick} hidden />
+          <button type="button" className="btn sm" onClick={() => ref.current?.click()}>{value ? 'Change' : 'Upload'}</button>
+          {value && <button type="button" className="btn sm danger-outline" onClick={() => onChange('', '')}>Remove</button>}
+        </div>
+      </div>
+    </FormField>
+  );
+}
+
+// ---- the form ---------------------------------------------------------------------------------------------------
+function RequisitionForm({ kind }) {
+  const cfg = KINDS[kind];
+  const isGroup = kind === 'group';
+  const isBusiness = kind === 'business';
   const toast = useToast();
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -69,9 +124,10 @@ export default function PersonalLoanRequisition() {
 
   const [branches, setBranches] = useState([]);
   const [schemes, setSchemes] = useState([]);
-  const [form, setForm] = useState({ branch: '', loanDate: todayISO(), employeeCode: '', schemeId: '', amount: '', mode: '', term: '', rate: '' });
+  const [form, setForm] = useState({ branch: '', loanDate: todayISO(), employeeCode: '', filterEmployee: '', schemeId: '', amount: '', mode: '', term: '', rate: '' });
+  const [biz, setBiz] = useState({ loanType: '', businessName: '', gstNumber: '', udyamNumber: '', civilScore: '', shopPhoto: '', bankStatement: '', bankStatementName: '' });
   const [picked, setPicked] = useState(null);
-  const [detail, setDetail] = useState(null); // auto-fetched borrower details
+  const [detail, setDetail] = useState(null);
   const [preview, setPreview] = useState(null);
   const [previewError, setPreviewError] = useState('');
   const [errors, setErrors] = useState({});
@@ -84,30 +140,48 @@ export default function PersonalLoanRequisition() {
       setBranches(r.items);
       if (r.items.length === 1) setForm((f) => ({ ...f, branch: r.items[0].id }));
     }).catch(() => {});
-    api.loanRequisitions.schemes().then((r) => setSchemes(r.items)).catch(() => {});
   }, []);
 
-  const scheme = schemes.find((s) => s.id === form.schemeId) || null;
+  // Schemes depend on the kind (and, for business, on the chosen Business / MSME type).
+  useEffect(() => {
+    if (isBusiness && !biz.loanType) {
+      setSchemes([]);
+      return;
+    }
+    api.loanRequisitions.schemes({ kind, type: isBusiness ? biz.loanType : undefined }).then((r) => setSchemes(r.items)).catch(() => setSchemes([]));
+  }, [kind, isBusiness, biz.loanType]);
 
-  const set = (key) => (e) => {
+  const scheme = schemes.find((s) => s.id === form.schemeId) || null;
+  const setF = (key) => (e) => {
     setForm((f) => ({ ...f, [key]: e.target.value }));
     setErrors((er) => ({ ...er, [key]: undefined }));
   };
+  const setB = (key) => (e) => {
+    setBiz((x) => ({ ...x, [key]: e.target.value }));
+    setErrors((er) => ({ ...er, [`business.${key}`]: undefined }));
+  };
+  const clearScheme = () => {
+    setForm((f) => ({ ...f, schemeId: '', amount: '', mode: '', term: '', rate: '' }));
+    setPreview(null);
+  };
 
-  // A new branch means a different set of borrowers and employees.
+  // A new branch means different borrowers / groups / employees.
   useEffect(() => {
     setPicked(null);
     setDetail(null);
-    setForm((f) => ({ ...f, employeeCode: '' }));
+    setForm((f) => ({ ...f, employeeCode: '', filterEmployee: '' }));
   }, [form.branch]);
 
-  async function pick(m) {
-    setPicked(m);
+  async function pick(item) {
+    setPicked(item);
     setDetail(null);
-    setErrors((er) => ({ ...er, member: undefined }));
-    if (!m) return;
+    setErrors((er) => ({ ...er, member: undefined, group: undefined }));
+    if (!item) return;
     try {
-      setDetail(await api.loanRequisitions.borrower(m.id));
+      const d = isGroup ? await api.loanRequisitions.group(item.id) : await api.loanRequisitions.borrower(item.id);
+      setDetail(d);
+      // A group loan is looked after by the group's employee.
+      if (isGroup && d.group.employeeCode) setForm((f) => ({ ...f, employeeCode: d.group.employeeCode }));
     } catch (err) {
       toast.error(err.message);
       setPicked(null);
@@ -158,11 +232,23 @@ export default function PersonalLoanRequisition() {
     e.preventDefault();
     const found = {};
     if (!form.branch) found.branch = 'Select a branch';
-    if (!picked) found.member = 'Select the borrower';
+    if (isGroup) {
+      if (!picked) found.group = 'Select the group';
+      else if (detail?.issues?.length) found.group = detail.issues[0];
+    } else if (!picked) found.member = 'Select the borrower';
     else if (detail?.issues?.length) found.member = detail.issues[0];
     if (!form.employeeCode) found.employeeCode = 'Select the employee';
-    if (!form.schemeId) found.schemeId = 'Select a loan scheme';
-    if (!form.amount) found.amount = 'Enter the request amount';
+    if (isBusiness) {
+      if (!biz.loanType) found['business.loanType'] = 'Select Business or MSME';
+      if (biz.businessName.trim().length < 2) found['business.businessName'] = 'Enter the business name';
+      if (biz.loanType === 'msme' && !biz.udyamNumber.trim()) found['business.udyamNumber'] = 'Udyam number is required for an MSME loan';
+      const c = Number(biz.civilScore);
+      if (!Number.isInteger(c) || c < 300 || c > 900) found['business.civilScore'] = 'Enter the civil score (300 to 900)';
+      if (!biz.shopPhoto) found['business.shopPhoto'] = 'Shop photo is required';
+      if (!biz.bankStatement) found['business.bankStatement'] = 'Upload the bank statement';
+    }
+    if (!form.schemeId) found.schemeId = kind === 'product' ? 'Select the product' : 'Select a loan scheme';
+    if (!form.amount) found.amount = isGroup ? 'Enter the amount per member' : 'Enter the request amount';
     if (!form.mode) found.mode = 'Select the repayment mode';
     if (!form.term) found.term = 'Enter the number of installments';
     if (form.rate === '') found.rate = 'Enter the interest rate';
@@ -175,17 +261,21 @@ export default function PersonalLoanRequisition() {
   async function submit() {
     setSaving(true);
     try {
-      const r = await api.loanRequisitions.create({
+      const payload = {
         branch: form.branch,
         loanDate: form.loanDate,
-        member: picked.id,
         employeeCode: form.employeeCode,
         schemeId: form.schemeId,
         amount: form.amount,
         mode: form.mode,
         term: Number(form.term),
         rate: form.rate,
-      });
+        ...(isGroup ? { group: picked.id } : { member: picked.id }),
+        ...(isBusiness
+          ? { business: { loanType: biz.loanType, businessName: biz.businessName.trim(), gstNumber: biz.gstNumber.trim(), udyamNumber: biz.udyamNumber.trim(), civilScore: Number(biz.civilScore), shopPhoto: biz.shopPhoto, bankStatement: biz.bankStatement } }
+          : {}),
+      };
+      const r = await api.loanRequisitions.create(kind, payload);
       toast.success(`Requisition submitted — ${r.requisition.formId}`);
       navigate('/loan-requisition/list');
     } catch (err) {
@@ -198,13 +288,16 @@ export default function PersonalLoanRequisition() {
   }
 
   const b = detail?.borrower;
+  const g = detail?.group;
   const sum = preview?.summary;
-  const termLabel = scheme ? UNIT_LABEL[scheme.termUnit] : '';
   const modeUnit = scheme?.modes.find((m) => m.value === form.mode)?.unit;
+  const members = g ? g.memberCount : 1;
+  const amountNum = Number(form.amount) || 0;
+  const schemeLabel = kind === 'product' ? 'Product' : 'Loan scheme';
 
   return (
     <>
-      <PageHeader title="Personal Loan Requisition" description="Choose the borrower and the loan scheme, check the EMI, then confirm and submit." />
+      <PageHeader title={cfg.title} description={cfg.desc} />
 
       <form onSubmit={review} noValidate>
         <div className="panel" style={{ padding: 18, marginBottom: 14 }}>
@@ -214,36 +307,68 @@ export default function PersonalLoanRequisition() {
               <input id="formid" value="Auto" disabled />
             </FormField>
             <FormField id="branch" label="Branch" required error={errors.branch}>
-              <select id="branch" value={form.branch} onChange={set('branch')}>
+              <select id="branch" value={form.branch} onChange={setF('branch')}>
                 <option value="">Select branch</option>
                 {branches.map((x) => <option key={x.id} value={x.id}>{x.code} — {x.name}</option>)}
               </select>
             </FormField>
             <FormField id="loanDate" label="Loan date" error={errors.loanDate} hint={isAdmin ? undefined : 'Today, or up to 30 days back'}>
-              <input id="loanDate" type="date" max={todayISO()} value={form.loanDate} onChange={set('loanDate')} />
+              <input id="loanDate" type="date" max={todayISO()} value={form.loanDate} onChange={setF('loanDate')} />
             </FormField>
+            {isGroup && (
+              <EmployeeSelect
+                id="filterEmployee"
+                branch={form.branch}
+                value={form.filterEmployee}
+                label="Filter groups by employee"
+                required={false}
+                autoDefault={false}
+                onChange={(code) => { setForm((f) => ({ ...f, filterEmployee: code })); setPicked(null); setDetail(null); }}
+              />
+            )}
+            {isBusiness && (
+              <FormField id="loanType" label="Loan type" required error={errors['business.loanType']}>
+                <select id="loanType" value={biz.loanType} onChange={(e) => { setB('loanType')(e); clearScheme(); }}>
+                  <option value="">Select type</option>
+                  <option value="business">Business loan</option>
+                  <option value="msme">MSME loan</option>
+                </select>
+              </FormField>
+            )}
+            <div className="span-2">
+              {isGroup ? (
+                <Search
+                  id="group" label="Select group" required error={errors.group} placeholder="Search by group code, name or leader"
+                  branch={form.branch} value={picked} display={picked ? `${picked.code} — ${picked.name}` : ''}
+                  fetchItems={(q) => api.loanRequisitions.groups({ branch: form.branch, employeeCode: form.filterEmployee, q }).then((r) => r.items)}
+                  render={(it) => <><strong>{it.code}</strong> — {it.name} <span className="muted">· {it.memberCount} members · {it.employeeCode || 'no employee'}</span></>}
+                  onPick={pick}
+                />
+              ) : (
+                <Search
+                  id="borrower" label="Select borrower" required error={errors.member} placeholder="Search by member code, name or mobile"
+                  branch={form.branch} value={picked} display={picked ? `${picked.code} — ${picked.name}` : ''}
+                  fetchItems={(q) => api.loanRequisitions.borrowers({ branch: form.branch, q }).then((r) => r.items)}
+                  render={(it) => <><strong>{it.code}</strong> — {it.name} <span className="muted">· {it.mobile}</span></>}
+                  onPick={pick}
+                />
+              )}
+            </div>
             <EmployeeSelect
               branch={form.branch}
               value={form.employeeCode}
               error={errors.employeeCode}
               onChange={(code) => { setForm((f) => ({ ...f, employeeCode: code })); setErrors((er) => ({ ...er, employeeCode: undefined })); }}
             />
-            <div className="span-2">
-              <BorrowerPicker branch={form.branch} value={picked} onPick={pick} error={errors.member} />
-            </div>
           </div>
         </div>
 
-        {picked && (
+        {picked && !isGroup && (
           <div className="panel" style={{ padding: 18, marginBottom: 14 }}>
             <h3 className="section-title">Borrower details (filled automatically)</h3>
-            {!b ? (
-              <span className="muted">Loading…</span>
-            ) : (
+            {!b ? <span className="muted">Loading…</span> : (
               <>
-                {detail.issues.length > 0 && (
-                  <div className="notice warn">{detail.issues.map((i) => <div key={i}>{i}</div>)}</div>
-                )}
+                {detail.issues.length > 0 && <div className="notice warn">{detail.issues.map((i) => <div key={i}>{i}</div>)}</div>}
                 <DetailList
                   items={[
                     ['Borrower code', b.code], ['Borrower name', b.name], ['Date of birth', b.dob], ['Age', `${b.age} years`],
@@ -257,12 +382,64 @@ export default function PersonalLoanRequisition() {
           </div>
         )}
 
+        {picked && isGroup && (
+          <div className="panel" style={{ padding: 18, marginBottom: 14 }}>
+            <h3 className="section-title">Group details (filled automatically)</h3>
+            {!g ? <span className="muted">Loading…</span> : (
+              <>
+                {detail.issues.length > 0 && <div className="notice warn">{detail.issues.map((i) => <div key={i}>{i}</div>)}</div>}
+                <DetailList
+                  items={[
+                    ['Group code', g.code], ['Group name', g.name], ['Group leader', g.leaderName],
+                    ['Employee', g.employeeCode ? `${g.employeeCode}${g.employeeName ? ` — ${g.employeeName}` : ''}` : ''],
+                    ['Meeting', g.meetingType ? cap(g.meetingType) : ''], ['Members', String(g.memberCount)],
+                  ]}
+                />
+                {g.members.length > 0 && (
+                  <div className="table-wrap" style={{ marginTop: 10 }}>
+                    <table className="data-table">
+                      <thead><tr><th>#</th><th>Member code</th><th>Name</th></tr></thead>
+                      <tbody>{g.members.map((m, i) => <tr key={m.id}><td>{i + 1}</td><td data-label="Code"><strong>{m.code}</strong></td><td data-label="Name">{m.name}{m.isBlocked ? ' (blocked)' : ''}</td></tr>)}</tbody>
+                    </table>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        {isBusiness && (
+          <div className="panel" style={{ padding: 18, marginBottom: 14 }}>
+            <h3 className="section-title">Business details</h3>
+            <div className="form-grid">
+              <FormField id="businessName" label="Business name" required error={errors['business.businessName']}>
+                <input id="businessName" value={biz.businessName} onChange={setB('businessName')} maxLength={100} />
+              </FormField>
+              <FormField id="civilScore" label="Civil score" required error={errors['business.civilScore']} hint="300 to 900">
+                <input id="civilScore" inputMode="numeric" value={biz.civilScore} maxLength={3}
+                  onChange={(e) => { setBiz((x) => ({ ...x, civilScore: e.target.value.replace(/\D/g, '').slice(0, 3) })); setErrors((er) => ({ ...er, 'business.civilScore': undefined })); }} />
+              </FormField>
+              <FormField id="udyamNumber" label="Udyam number" required={biz.loanType === 'msme'} error={errors['business.udyamNumber']} hint="e.g. UDYAM-MH-12-1234567">
+                <input id="udyamNumber" value={biz.udyamNumber} onChange={(e) => { setBiz((x) => ({ ...x, udyamNumber: e.target.value.toUpperCase() })); setErrors((er) => ({ ...er, 'business.udyamNumber': undefined })); }} maxLength={22} />
+              </FormField>
+              <FormField id="gstNumber" label="GST number" error={errors['business.gstNumber']} hint="Optional">
+                <input id="gstNumber" value={biz.gstNumber} onChange={(e) => { setBiz((x) => ({ ...x, gstNumber: e.target.value.toUpperCase().slice(0, 15) })); setErrors((er) => ({ ...er, 'business.gstNumber': undefined })); }} maxLength={15} />
+              </FormField>
+              <PhotoField id="shopPhoto" label="Shop photo" required value={biz.shopPhoto} error={errors['business.shopPhoto']}
+                onChange={(v) => { setBiz((x) => ({ ...x, shopPhoto: v })); setErrors((er) => ({ ...er, 'business.shopPhoto': undefined })); }} />
+              <DocumentField id="bankStatement" label="Bank statement" required value={biz.bankStatement} name={biz.bankStatementName} error={errors['business.bankStatement']}
+                onChange={(v, n) => { setBiz((x) => ({ ...x, bankStatement: v, bankStatementName: n })); setErrors((er) => ({ ...er, 'business.bankStatement': undefined })); }} />
+            </div>
+          </div>
+        )}
+
         <div className="panel" style={{ padding: 18, marginBottom: 14 }}>
-          <h3 className="section-title">Scheme detail</h3>
+          <h3 className="section-title">{kind === 'product' ? 'Product detail' : 'Scheme detail'}</h3>
           <div className="form-grid">
-            <FormField id="schemeId" label="Loan scheme" required error={errors.schemeId} className="span-2">
-              <select id="schemeId" value={form.schemeId} onChange={chooseScheme}>
-                <option value="">{schemes.length ? 'Select scheme' : 'No personal loan scheme available'}</option>
+            <FormField id="schemeId" label={schemeLabel} required error={errors.schemeId} className="span-2"
+              hint={isBusiness && !biz.loanType ? 'Select the loan type first' : undefined}>
+              <select id="schemeId" value={form.schemeId} onChange={chooseScheme} disabled={isBusiness && !biz.loanType}>
+                <option value="">{schemes.length ? `Select ${schemeLabel.toLowerCase()}` : `No ${schemeLabel.toLowerCase()} available`}</option>
                 {schemes.map((s) => <option key={s.id} value={s.id}>{s.code} — {s.name}</option>)}
               </select>
             </FormField>
@@ -273,8 +450,8 @@ export default function PersonalLoanRequisition() {
               <div style={{ margin: '12px 0' }}>
                 <DetailList
                   items={[
-                    ['Amount', `${inr(scheme.amountMin)} – ${inr(scheme.amountMax)}`],
-                    ['Term', `${scheme.termMin} – ${scheme.termMax} ${termLabel}`],
+                    ['Amount', `${inr(scheme.amountMin)} – ${inr(scheme.amountMax)}${isGroup ? ' per member' : ''}`],
+                    ['Term', `${scheme.termMin} – ${scheme.termMax} ${scheme.termUnit}`],
                     ['Interest', `${scheme.roiMin}% – ${scheme.roiMax}% p.a. (${scheme.calculationType})`],
                     ['Age', `${scheme.ageMin} – ${scheme.ageMax} years`],
                     ['Repayment', scheme.modes.map((m) => m.label).join(', ')],
@@ -283,11 +460,11 @@ export default function PersonalLoanRequisition() {
                 />
               </div>
               <div className="form-grid">
-                <FormField id="amount" label="Request amount (₹)" required error={errors.amount}>
+                <FormField id="amount" label={isGroup ? 'Request amount per member (₹)' : kind === 'product' ? 'Requisition amount (₹)' : 'Request amount (₹)'} required error={errors.amount}>
                   <input id="amount" inputMode="decimal" value={form.amount} onChange={(e) => { setForm((f) => ({ ...f, amount: e.target.value.replace(/[^\d.]/g, '') })); setErrors((er) => ({ ...er, amount: undefined })); }} />
                 </FormField>
                 <FormField id="mode" label="Repayment mode" required error={errors.mode}>
-                  <select id="mode" value={form.mode} onChange={set('mode')}>
+                  <select id="mode" value={form.mode} onChange={setF('mode')}>
                     <option value="">Select mode</option>
                     {scheme.modes.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
                   </select>
@@ -297,8 +474,8 @@ export default function PersonalLoanRequisition() {
                 </FormField>
                 <FormField id="rate" label="Interest rate (% p.a.)" required error={errors.rate}
                   hint={scheme.roiMin === scheme.roiMax ? 'Fixed by the scheme' : `Between ${scheme.roiMin}% and ${scheme.roiMax}%`}>
-                  <input id="rate" inputMode="decimal" value={form.rate} onChange={(e) => { setForm((f) => ({ ...f, rate: e.target.value.replace(/[^\d.]/g, '') })); setErrors((er) => ({ ...er, rate: undefined })); }}
-                    disabled={scheme.roiMin === scheme.roiMax} />
+                  <input id="rate" inputMode="decimal" value={form.rate} disabled={scheme.roiMin === scheme.roiMax}
+                    onChange={(e) => { setForm((f) => ({ ...f, rate: e.target.value.replace(/[^\d.]/g, '') })); setErrors((er) => ({ ...er, rate: undefined })); }} />
                 </FormField>
               </div>
 
@@ -306,7 +483,8 @@ export default function PersonalLoanRequisition() {
                 {previewError && <div className="field-error" role="alert">{previewError}</div>}
                 {sum && (
                   <div className="notice ok">
-                    <strong>EMI {inr(sum.installmentAmount)}</strong> × {sum.installments} {modeUnit ? `${modeUnit}s` : 'installments'} · Total interest {inr(sum.totalInterest)} · Total payable {inr(sum.totalPayable)}
+                    <strong>EMI {inr(sum.installmentAmount)}</strong>{isGroup ? ' per member' : ''} × {sum.installments} {modeUnit ? `${modeUnit}s` : 'installments'} · Total interest {inr(sum.totalInterest)} · Total payable {inr(sum.totalPayable)}
+                    {isGroup && g && <> · <strong>Group total {inr(amountNum * members)}</strong> for {members} members</>}
                     {preview.charges && <> · Processing fee {inr(preview.charges.processingFee)}</>}
                   </div>
                 )}
@@ -322,7 +500,7 @@ export default function PersonalLoanRequisition() {
 
       <Modal
         open={confirm}
-        title="Confirm loan requisition"
+        title={`Confirm ${cfg.title.toLowerCase()}`}
         onClose={() => setConfirm(false)}
         busy={saving}
         footer={
@@ -335,9 +513,12 @@ export default function PersonalLoanRequisition() {
         {picked && scheme && sum && (
           <DetailList
             items={[
-              ['Borrower', `${picked.code} — ${picked.name}`], ['Branch', branches.find((x) => x.id === form.branch)?.name],
+              [isGroup ? 'Group' : 'Borrower', `${picked.code} — ${picked.name}`], ['Branch', branches.find((x) => x.id === form.branch)?.name],
               ['Loan date', form.loanDate], ['Employee ID', form.employeeCode],
-              ['Scheme', `${scheme.code} — ${scheme.name}`], ['Request amount', inr(Number(form.amount))],
+              ...(isBusiness ? [['Loan type', biz.loanType === 'msme' ? 'MSME loan' : 'Business loan'], ['Business', biz.businessName], ['Civil score', biz.civilScore]] : []),
+              [schemeLabel, `${scheme.code} — ${scheme.name}`],
+              [isGroup ? 'Amount per member' : 'Request amount', inr(amountNum)],
+              ...(isGroup && g ? [['Members', String(members)], ['Group total', inr(amountNum * members)]] : []),
               ['Mode & term', `${scheme.modes.find((m) => m.value === form.mode)?.label}, ${form.term} installments`],
               ['Interest rate', `${form.rate}% p.a.`], ['EMI', inr(sum.installmentAmount)], ['Total payable', inr(sum.totalPayable)],
             ]}
@@ -347,3 +528,9 @@ export default function PersonalLoanRequisition() {
     </>
   );
 }
+
+export const PersonalLoanRequisition = () => <RequisitionForm kind="personal" />;
+export const GroupLoanRequisition = () => <RequisitionForm kind="group" />;
+export const BusinessLoanRequisition = () => <RequisitionForm kind="business" />;
+export const ProductLoanRequisition = () => <RequisitionForm kind="product" />;
+export default PersonalLoanRequisition;

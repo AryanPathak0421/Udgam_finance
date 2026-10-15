@@ -27,7 +27,7 @@ import BorrowerSynopsis from './pages/BorrowerSynopsis.jsx';
 import BorrowerBlock from './pages/BorrowerBlock.jsx';
 import Groups from './pages/Groups.jsx';
 import GroupCreate from './pages/GroupCreate.jsx';
-import PersonalLoanRequisition from './pages/PersonalLoanRequisition.jsx';
+import { PersonalLoanRequisition, GroupLoanRequisition, BusinessLoanRequisition, ProductLoanRequisition } from './pages/PersonalLoanRequisition.jsx';
 import RequisitionList from './pages/RequisitionList.jsx';
 import GroupMembers from './pages/GroupMembers.jsx';
 import GroupLeaderCommission from './pages/GroupLeaderCommission.jsx';
@@ -44,6 +44,9 @@ const PAGES = {
   '/members/block-unblock': BorrowerBlock,
   '/members/nominee-detail': NomineeDetail,
   '/loan-requisition/personal': PersonalLoanRequisition,
+  '/loan-requisition/group': GroupLoanRequisition,
+  '/loan-requisition/business': BusinessLoanRequisition,
+  '/loan-requisition/product': ProductLoanRequisition,
   '/loan-requisition/list': RequisitionList,
   '/group-master/create': GroupCreate,
   '/group-master/list': Groups,

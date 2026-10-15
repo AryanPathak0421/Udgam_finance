@@ -106,7 +106,7 @@ export function OtpVerify({ id, label, value, valid, purpose, mobile, verified, 
 
 // Employee whose staff ID goes on the record. On the web software it is chosen here;
 // the mobile app fills it in automatically from the signed-in employee.
-export function EmployeeSelect({ id = 'employeeCode', branch, value, onChange, error }) {
+export function EmployeeSelect({ id = 'employeeCode', label = 'Employee ID', required = true, autoDefault = true, branch, value, onChange, error }) {
   const [state, setState] = useState({ items: [], me: '', loading: false });
 
   useEffect(() => {
@@ -122,7 +122,7 @@ export function EmployeeSelect({ id = 'employeeCode', branch, value, onChange, e
         if (!live) return;
         setState({ items: r.items, me: r.me, loading: false });
         // Default to the signed-in employee when they are in this list.
-        if (!value && r.items.some((x) => x.code === r.me)) onChange(r.me);
+        if (autoDefault && !value && r.items.some((x) => x.code === r.me)) onChange(r.me);
         else if (value && !r.items.some((x) => x.code === value)) onChange('');
       })
       .catch(() => live && setState({ items: [], me: '', loading: false }));
@@ -133,9 +133,9 @@ export function EmployeeSelect({ id = 'employeeCode', branch, value, onChange, e
   }, [branch]);
 
   return (
-    <FormField id={id} label="Employee ID" required error={error} hint={!branch ? 'Select the branch first' : undefined}>
+    <FormField id={id} label={label} required={required} error={error} hint={!branch ? 'Select the branch first' : undefined}>
       <select id={id} value={value} onChange={(e) => onChange(e.target.value)} disabled={!branch || state.loading}>
-        <option value="">{state.loading ? 'Loading…' : 'Select employee'}</option>
+        <option value="">{state.loading ? 'Loading…' : required ? 'Select employee' : 'All employees'}</option>
         {state.items.map((x) => (
           <option key={x.code} value={x.code}>{x.code} — {x.name}{x.code === state.me ? ' (you)' : ''}</option>
         ))}

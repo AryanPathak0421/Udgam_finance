@@ -82,6 +82,9 @@ export const NAV_SECTIONS = [
         roles: [...MGMT, 'loan_officer', 'field_officer', 'collection_officer', 'accountant', 'viewer'],
         children: [
           { label: 'Personal Loan Requisition', path: '/loan-requisition/personal', icon: 'loan', roles: [...MGMT, 'loan_officer', 'field_officer'] },
+          { label: 'Group Loan Requisition', path: '/loan-requisition/group', icon: 'group', roles: [...MGMT, 'loan_officer', 'field_officer'] },
+          { label: 'Business / MSME Loan', path: '/loan-requisition/business', icon: 'bank', roles: [...MGMT, 'loan_officer', 'field_officer'] },
+          { label: 'Product Loan Requisition', path: '/loan-requisition/product', icon: 'product', roles: [...MGMT, 'loan_officer', 'field_officer'] },
           { label: 'Requisition List', path: '/loan-requisition/list', icon: 'ledger' },
         ],
       },
