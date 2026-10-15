@@ -9,6 +9,8 @@ const businessSchema = new mongoose.Schema(
     loanType: { type: String, enum: ['business', 'msme'], required: true },
     businessName: String,
     gstNumber: String,
+    gstStateCode: String,
+    gstVerifiedAt: Date, // set only when the GST network confirmed the number
     udgamNumber: String,
     civilScore: Number,
     shopPhoto: { type: String, select: false },

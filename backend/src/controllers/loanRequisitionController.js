@@ -10,6 +10,7 @@ import { evaluateLoan } from './loanCalculatorController.js';
 import { branchFilter, isAdmin, maskMobile } from './groupController.js';
 import { asString, escapeRegex, parseDateOnly, parsePaging, HttpError } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
+import { checkGstin, verifyGstin } from '../services/gstVerify.js';
 
 const FULL_MOBILE_ROLES = ['super_admin', 'admin', 'accountant'];
 const POPULATE = [{ path: 'branch', select: 'code name' }];
@@ -267,6 +268,7 @@ const present = (r, user, { detail = false } = {}) => {
             loanType: r.business.loanType,
             businessName: r.business.businessName || '',
             gstNumber: r.business.gstNumber || '',
+            gstVerified: Boolean(r.business.gstVerifiedAt),
             udgamNumber: r.business.udgamNumber || '',
             civilScore: r.business.civilScore ?? null,
             shopPhoto: r.business.shopPhoto || null,
@@ -299,18 +301,33 @@ const UDGAM_RE = /^[A-Z0-9][A-Z0-9/-]{4,29}$/;
 const MAX_PHOTO_CHARS = 300_000;
 const MAX_DOC_CHARS = 1_100_000; // ~800 KB file
 
-function readBusiness(b, errors) {
+async function readBusiness(b, errors, member) {
   const x = b.business || {};
   const out = {};
   out.loanType = asString(x.loanType);
   if (!['business', 'msme'].includes(out.loanType)) errors.loanType = 'Select Business or MSME';
   out.businessName = asString(x.businessName);
   if (out.businessName.length < 2 || out.businessName.length > 100) errors.businessName = 'Enter the business name';
+  // GST number: required for a business loan, optional for MSME. It is checked as a GSTIN (state, check
+  // character) and against the borrower's PAN; the GST network confirms the registration when connected.
   out.gstNumber = asString(x.gstNumber).toUpperCase();
-  if (out.gstNumber && !GST_RE.test(out.gstNumber)) errors.gstNumber = 'Enter a valid 15-character GST number';
-  out.udgamNumber = asString(x.udgamNumber).toUpperCase();
-  if (out.udgamNumber && !UDGAM_RE.test(out.udgamNumber)) errors.udgamNumber = 'Enter a valid Udgam number (5 to 30 letters or digits)';
-  if (out.loanType === 'msme' && !out.udgamNumber) errors.udgamNumber = 'Udgam number is required for an MSME loan';
+  if (out.loanType === 'business' && !out.gstNumber) errors.gstNumber = 'GST number is required for a business loan';
+  if (out.gstNumber) {
+    const c = checkGstin(out.gstNumber, { pan: member?.pan });
+    if (!c.ok) errors.gstNumber = c.message;
+    else {
+      out.gstStateCode = c.stateCode;
+      const v = await verifyGstin(out.gstNumber);
+      if (v.status === 'verified') out.gstVerifiedAt = new Date();
+      else if (v.status === 'not_found') errors.gstNumber = 'This GST number was not found';
+    }
+  }
+  // The Udgam number belongs to an MSME loan only; a business loan has none.
+  out.udgamNumber = out.loanType === 'msme' ? asString(x.udgamNumber).toUpperCase() : '';
+  if (out.loanType === 'msme') {
+    if (!out.udgamNumber) errors.udgamNumber = 'Udgam number is required for an MSME loan';
+    else if (!UDGAM_RE.test(out.udgamNumber)) errors.udgamNumber = 'Enter a valid Udgam number (5 to 30 letters or digits)';
+  }
   const score = Number(x.civilScore);
   if (!Number.isInteger(score) || score < 300 || score > 900) errors.civilScore = 'Enter the civil score (300 to 900)';
   else out.civilScore = score;
@@ -395,7 +412,7 @@ export function createRequisition(kind) {
     let business = null;
     if (kind === 'business') {
       const errors = {};
-      business = readBusiness(b, errors);
+      business = await readBusiness(b, errors, m);
       if (Object.keys(errors).length) throw invalid(Object.fromEntries(Object.entries(errors).map(([k, v]) => [`business.${k}`, v])));
     }
 
@@ -571,6 +588,20 @@ export async function deleteRequisition(req, res) {
     after: { formId: r.formId, status: r.status, for: r.borrower?.code || r.groupInfo?.code },
   });
   res.json({ message: 'Requisition deleted' });
+}
+
+/** Live check of a GST number while the form is filled in (optionally against the borrower's PAN). */
+export async function gstCheck(req, res) {
+  const gstin = asString(req.params.gstin).toUpperCase();
+  let pan;
+  if (mongoose.isValidObjectId(req.query.member)) {
+    const m = await Member.findOne({ _id: req.query.member, isDeleted: false, ...branchFilter(req.user) }).select('pan');
+    pan = m?.pan;
+  }
+  const c = checkGstin(gstin, { pan });
+  if (!c.ok) return res.json({ ok: false, message: c.message });
+  const v = await verifyGstin(gstin);
+  res.json({ ok: true, stateCode: c.stateCode, pan: c.pan, panMatched: Boolean(pan), registryChecked: v.status === 'verified' });
 }
 
 export async function getRequisition(req, res) {

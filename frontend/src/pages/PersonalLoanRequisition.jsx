@@ -131,6 +131,7 @@ function RequisitionForm({ kind }) {
   const [chosen, setChosen] = useState([]); // group loan: ids of the members who get the loan
   const [biz, setBiz] = useState({ loanType: '', businessName: '', gstNumber: '', udgamNumber: '', civilScore: '', shopPhoto: '', bankStatement: '', bankStatementName: '' });
   const [picked, setPicked] = useState(null);
+  const [gstInfo, setGstInfo] = useState(null); // live check of the GST number
   const [detail, setDetail] = useState(null);
   const [preview, setPreview] = useState(null);
   const [previewError, setPreviewError] = useState('');
@@ -214,6 +215,19 @@ function RequisitionForm({ kind }) {
     setPreview(null);
   }
 
+  // GST number: checked as soon as all 15 characters are in (against the borrower's PAN as well).
+  useEffect(() => {
+    if (!isBusiness || biz.gstNumber.length !== 15) {
+      setGstInfo(null);
+      return undefined;
+    }
+    let live = true;
+    api.loanRequisitions.gst(biz.gstNumber, picked?.id).then((r) => live && setGstInfo(r)).catch(() => live && setGstInfo(null));
+    return () => {
+      live = false;
+    };
+  }, [isBusiness, biz.gstNumber, picked]);
+
   // Live EMI.
   const debounced = useDebounce(JSON.stringify({ s: form.schemeId, a: form.amount, m: form.mode, t: installments, r: form.rate }), 400);
   useEffect(() => {
@@ -257,6 +271,8 @@ function RequisitionForm({ kind }) {
       if (!biz.loanType) found['business.loanType'] = 'Select Business or MSME';
       if (biz.businessName.trim().length < 2) found['business.businessName'] = 'Enter the business name';
       if (biz.loanType === 'msme' && !biz.udgamNumber.trim()) found['business.udgamNumber'] = 'Udgam number is required for an MSME loan';
+      if (biz.loanType === 'business' && !biz.gstNumber.trim()) found['business.gstNumber'] = 'GST number is required for a business loan';
+      else if (biz.gstNumber && gstInfo && gstInfo.ok === false) found['business.gstNumber'] = gstInfo.message;
       const c = Number(biz.civilScore);
       if (!Number.isInteger(c) || c < 300 || c > 900) found['business.civilScore'] = 'Enter the civil score (300 to 900)';
       if (!biz.shopPhoto) found['business.shopPhoto'] = 'Shop photo is required';
@@ -290,7 +306,7 @@ function RequisitionForm({ kind }) {
         formBackPhoto: form.formBackPhoto,
         ...(isGroup ? { group: picked.id, memberIds: effective.map((m) => m.id) } : { member: picked.id }),
         ...(isBusiness
-          ? { business: { loanType: biz.loanType, businessName: biz.businessName.trim(), gstNumber: biz.gstNumber.trim(), udgamNumber: biz.udgamNumber.trim(), civilScore: Number(biz.civilScore), shopPhoto: biz.shopPhoto, bankStatement: biz.bankStatement } }
+          ? { business: { loanType: biz.loanType, businessName: biz.businessName.trim(), gstNumber: biz.gstNumber.trim(), udgamNumber: biz.loanType === 'msme' ? biz.udgamNumber.trim() : '', civilScore: Number(biz.civilScore), shopPhoto: biz.shopPhoto, bankStatement: biz.bankStatement } }
           : {}),
       };
       const r = await api.loanRequisitions.create(kind, payload);
@@ -489,10 +505,13 @@ function RequisitionForm({ kind }) {
                 <input id="civilScore" inputMode="numeric" value={biz.civilScore} maxLength={3}
                   onChange={(e) => { setBiz((x) => ({ ...x, civilScore: e.target.value.replace(/\D/g, '').slice(0, 3) })); setErrors((er) => ({ ...er, 'business.civilScore': undefined })); }} />
               </FormField>
-              <FormField id="udgamNumber" label="Udgam number" required={biz.loanType === 'msme'} error={errors['business.udgamNumber']} hint={biz.loanType === 'msme' ? undefined : 'Optional for a business loan'}>
-                <input id="udgamNumber" value={biz.udgamNumber} onChange={(e) => { setBiz((x) => ({ ...x, udgamNumber: e.target.value.toUpperCase() })); setErrors((er) => ({ ...er, 'business.udgamNumber': undefined })); }} maxLength={30} />
-              </FormField>
-              <FormField id="gstNumber" label="GST number" error={errors['business.gstNumber']} hint="Optional">
+              {biz.loanType === 'msme' && (
+                <FormField id="udgamNumber" label="Udgam number" required error={errors['business.udgamNumber']}>
+                  <input id="udgamNumber" value={biz.udgamNumber} onChange={(e) => { setBiz((x) => ({ ...x, udgamNumber: e.target.value.toUpperCase() })); setErrors((er) => ({ ...er, 'business.udgamNumber': undefined })); }} maxLength={30} />
+                </FormField>
+              )}
+              <FormField id="gstNumber" label="GST number" required={biz.loanType === 'business'} error={errors['business.gstNumber'] || (gstInfo && gstInfo.ok === false ? gstInfo.message : '')}
+                hint={gstInfo?.ok ? `✓ Valid GST number — state code ${gstInfo.stateCode}${gstInfo.panMatched ? ', PAN matches the borrower' : ''}${gstInfo.registryChecked ? ', registration confirmed' : ''}` : biz.loanType === 'msme' ? 'Optional for an MSME loan' : 'Required for a business loan'}>
                 <input id="gstNumber" value={biz.gstNumber} onChange={(e) => { setBiz((x) => ({ ...x, gstNumber: e.target.value.toUpperCase().slice(0, 15) })); setErrors((er) => ({ ...er, 'business.gstNumber': undefined })); }} maxLength={15} />
               </FormField>
               <PhotoField id="shopPhoto" label="Shop photo" required value={biz.shopPhoto} error={errors['business.shopPhoto']}

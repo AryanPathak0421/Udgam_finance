@@ -86,6 +86,7 @@ export const api = {
     schemes: (params) => request(`/loan-requisitions/schemes${qs(params)}`),
     groups: (params) => request(`/loan-requisitions/groups${qs(params)}`),
     group: (id) => request(`/loan-requisitions/groups/${id}`),
+    gst: (gstin, member) => request(`/loan-requisitions/gst/${gstin}${qs({ member })}`),
     borrowers: (params) => request(`/loan-requisitions/borrowers${qs(params)}`),
     borrower: (id) => request(`/loan-requisitions/borrowers/${id}`),
     preview: (data) => request('/loan-requisitions/preview', { method: 'POST', body: data }),
