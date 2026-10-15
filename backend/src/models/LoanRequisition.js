@@ -52,10 +52,15 @@ const loanRequisitionSchema = new mongoose.Schema(
       employeeCode: String,
       members: [{ _id: false, code: String, name: String }],
     },
+    members: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Member' }], // group loan: the members who get the loan
     memberCount: Number,
     totalAmountPaise: Number,
 
     business: { type: businessSchema },
+
+    // The filled-in application form, front and back.
+    formFrontPhoto: { type: String, select: false },
+    formBackPhoto: { type: String, select: false },
 
     scheme: { type: mongoose.Schema.Types.ObjectId, ref: 'LoanScheme', required: true },
     schemeCode: String,
@@ -87,6 +92,7 @@ const loanRequisitionSchema = new mongoose.Schema(
 loanRequisitionSchema.index({ formId: 1 }, { unique: true, partialFilterExpression: { isDeleted: false } });
 loanRequisitionSchema.index({ member: 1, createdAt: -1 });
 loanRequisitionSchema.index({ group: 1, createdAt: -1 });
+loanRequisitionSchema.index({ members: 1 });
 loanRequisitionSchema.index({ branch: 1, createdAt: -1 });
 
 export const LoanRequisition = mongoose.model('LoanRequisition', loanRequisitionSchema);

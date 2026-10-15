@@ -85,6 +85,24 @@ export async function borrowers(req, res) {
   res.json({ items: items.map((m) => ({ id: m._id, code: m.code, name: m.name, mobile: m.mobile })) });
 }
 
+// A loan is still running while its requisition is pending or approved (there is no loan closing yet).
+const RUNNING = ['pending', 'approved'];
+
+/** member id -> ids of the schemes the member has a loan in that is not finished. */
+async function runningSchemes(memberIds) {
+  const rows = await LoanRequisition.find({
+    isDeleted: false,
+    status: { $in: RUNNING },
+    $or: [{ member: { $in: memberIds } }, { members: { $in: memberIds } }],
+  }).select('member members scheme');
+  const map = new Map(memberIds.map((id) => [String(id), new Set()]));
+  rows.forEach((r) => {
+    const ids = [r.member, ...(r.members || [])].filter(Boolean).map(String);
+    ids.forEach((id) => map.get(id)?.add(String(r.scheme)));
+  });
+  return map;
+}
+
 async function previousLoanPaise(memberId) {
   const last = await LoanRequisition.findOne({ member: memberId, isDeleted: false, status: { $ne: 'cancelled' } })
     .sort({ createdAt: -1 })
@@ -98,11 +116,11 @@ export async function borrowerDetail(req, res) {
   const m = await Member.findOne({ _id: req.params.id, isDeleted: false, ...branchFilter(req.user) });
   if (!m) throw new HttpError(404, 'Borrower not found');
 
-  const pending = await LoanRequisition.findOne({ member: m._id, isDeleted: false, status: 'pending' }).select('formId');
   const issues = [];
   if (m.isBlocked) issues.push('This borrower is blocked');
   if (!m.guarantor?.name) issues.push('Add the guarantor first (Member Details → Guarantor Detail)');
-  if (pending) issues.push(`A requisition (${pending.formId}) is already pending for this borrower`);
+  // Schemes this borrower already has an unfinished loan in are not offered again.
+  const running = (await runningSchemes([m._id])).get(String(m._id));
 
   res.json({
     borrower: {
@@ -119,6 +137,7 @@ export async function borrowerDetail(req, res) {
       mobile: FULL_MOBILE_ROLES.includes(req.user.role) ? m.mobile : maskMobile(m.mobile),
       guarantorName: m.guarantor?.name || '',
       previousLoanAmount: rupees(await previousLoanPaise(m._id)),
+      runningSchemeIds: [...(running || [])],
     },
     issues,
   });
@@ -159,13 +178,10 @@ async function loadGroup(req, id) {
 export async function groupDetail(req, res) {
   const g = await loadGroup(req, req.params.id);
   const members = g.members.filter((x) => x.member).map((x) => x.member);
-  const blocked = members.filter((m) => m.isBlocked);
-  const pending = await LoanRequisition.findOne({ group: g._id, isDeleted: false, status: 'pending' }).select('formId');
   const issues = [];
   if (!g.isActive) issues.push('This group is inactive');
   if (members.length === 0) issues.push('The group has no members. Add members under Group Master → Group Members');
-  if (blocked.length) issues.push(`Blocked members must be removed from the group first: ${blocked.map((m) => m.code).join(', ')}`);
-  if (pending) issues.push(`A requisition (${pending.formId}) is already pending for this group`);
+  const running = await runningSchemes(members.map((m) => m._id));
 
   const emp = g.employeeCode ? await User.findOne({ employeeCode: g.employeeCode }).select('name') : null;
   res.json({
@@ -178,7 +194,14 @@ export async function groupDetail(req, res) {
       employeeName: emp?.name || '',
       meetingType: g.meetingType || '',
       memberCount: members.length,
-      members: members.map((m) => ({ id: m._id, code: m.code, name: m.name, isBlocked: Boolean(m.isBlocked) })),
+      members: members.map((m) => ({
+        id: m._id,
+        code: m.code,
+        name: m.name,
+        isBlocked: Boolean(m.isBlocked),
+        // schemes in which this member still has an unfinished loan
+        runningSchemeIds: [...(running.get(String(m._id)) || [])],
+      })),
     },
     issues,
   });
@@ -242,6 +265,8 @@ const present = (r, user, { detail = false } = {}) => {
             bankStatement: r.business.bankStatement || null,
           }
         : null,
+      formFrontPhoto: r.formFrontPhoto || null,
+      formBackPhoto: r.formBackPhoto || null,
       previousLoanAmount: rupees(r.previousLoanPaise),
       schemeCode: r.schemeCode,
       rate: r.annualRateBp / 100,
@@ -330,21 +355,33 @@ export function createRequisition(kind) {
       if (!g.isActive) throw new HttpError(409, 'This group is inactive', { group: 'This group is inactive' });
       groupMembers = g.members.filter((x) => x.member).map((x) => x.member);
       if (!groupMembers.length) throw new HttpError(409, 'The group has no members', { group: 'The group has no members' });
-      const blocked = groupMembers.filter((x) => x.isBlocked);
-      if (blocked.length) {
-        throw new HttpError(409, `Blocked members must be removed from the group first: ${blocked.map((x) => x.code).join(', ')}`, { group: 'The group has blocked members' });
-      }
-      const pending = await LoanRequisition.findOne({ group: g._id, isDeleted: false, status: 'pending' }).select('formId');
-      if (pending) throw new HttpError(409, `A requisition (${pending.formId}) is already pending for this group`, { group: 'A requisition is already pending' });
+      // The loan goes to the members that were ticked.
+      const ids = [...new Set((Array.isArray(b.memberIds) ? b.memberIds : []).map(String))];
+      if (!ids.length) throw invalid({ memberIds: 'Select the members who get the loan' });
+      const chosen = groupMembers.filter((x) => ids.includes(String(x._id)));
+      if (chosen.length !== ids.length) throw invalid({ memberIds: 'A selected member is not in this group' });
+      const blocked = chosen.filter((x) => x.isBlocked);
+      if (blocked.length) throw new HttpError(409, `Blocked members cannot get a loan: ${blocked.map((x) => x.code).join(', ')}`, { memberIds: 'A selected member is blocked' });
+      groupMembers = chosen;
     } else {
       if (!mongoose.isValidObjectId(String(b.member || ''))) throw invalid({ member: 'Select the borrower' });
       m = await Member.findOne({ _id: b.member, isDeleted: false, branch: branchId });
       if (!m) throw invalid({ member: 'Borrower not found in this branch' });
       if (m.isBlocked) throw new HttpError(409, 'This borrower is blocked', { member: 'This borrower is blocked' });
       if (!m.guarantor?.name) throw new HttpError(409, 'The borrower has no guarantor yet', { member: 'Add the guarantor first' });
-      const pending = await LoanRequisition.findOne({ member: m._id, isDeleted: false, status: 'pending' }).select('formId');
-      if (pending) throw new HttpError(409, `A requisition (${pending.formId}) is already pending for this borrower`, { member: 'A requisition is already pending' });
     }
+
+    // The application form, front and back.
+    const formErrors = {};
+    const formPhoto = (value, field, label) => {
+      if (typeof value !== 'string' || !value) formErrors[field] = `${label} is required`;
+      else if (!IMAGE_RE.test(value)) formErrors[field] = `${label} must be a PNG or JPEG image`;
+      else if (value.length > MAX_PHOTO_CHARS) formErrors[field] = `${label} is too large`;
+      return value;
+    };
+    const formFrontPhoto = formPhoto(b.formFrontPhoto, 'formFrontPhoto', 'Form front photo');
+    const formBackPhoto = formPhoto(b.formBackPhoto, 'formBackPhoto', 'Form back photo');
+    if (Object.keys(formErrors).length) throw invalid(formErrors);
 
     // Business / MSME extras
     let business = null;
@@ -361,6 +398,26 @@ export function createRequisition(kind) {
     if (!SCHEME_TYPES[kind].includes(scheme.loanType)) throw invalid({ schemeId: `Select a ${KIND_LABEL[kind].toLowerCase()} scheme` });
     if (business && scheme.loanType !== business.loanType) {
       throw invalid({ schemeId: `This scheme is a ${scheme.loanType.toUpperCase()} scheme; choose a ${business.loanType.toUpperCase()} scheme` });
+    }
+    // The same scheme is not offered again to a member until that loan is finished.
+    const sameScheme = { isDeleted: false, scheme: scheme._id, status: { $in: RUNNING } };
+    if (m) {
+      const running = await LoanRequisition.findOne({ ...sameScheme, $or: [{ member: m._id }, { members: m._id }] }).select('formId');
+      if (running) {
+        throw new HttpError(409, `This borrower already has a loan under ${scheme.name} (requisition ${running.formId}) which is not finished yet`, {
+          schemeId: 'A loan under this scheme is not finished yet',
+        });
+      }
+    }
+    if (g) {
+      const ids = groupMembers.map((x) => x._id);
+      const busy = await runningSchemes(ids);
+      const clash = groupMembers.filter((x) => busy.get(String(x._id))?.has(String(scheme._id)));
+      if (clash.length) {
+        throw new HttpError(409, `These members already have an unfinished loan under ${scheme.name}: ${clash.map((x) => x.code).join(', ')}`, {
+          memberIds: 'Some selected members already have a loan under this scheme',
+        });
+      }
     }
     let age = null;
     if (m) {
@@ -408,11 +465,14 @@ export function createRequisition(kind) {
               code: g.code, name: g.name, leaderName: g.leaderName, employeeCode: g.employeeCode,
               members: groupMembers.map((x) => ({ code: x.code, name: x.name })),
             },
+            members: groupMembers.map((x) => x._id),
             memberCount,
             totalAmountPaise: amountPaise * memberCount,
           }
         : {}),
       ...(business ? { business } : {}),
+      formFrontPhoto,
+      formBackPhoto,
       scheme: scheme._id,
       schemeCode: scheme.code,
       schemeName: scheme.name,
@@ -503,7 +563,7 @@ export async function deleteRequisition(req, res) {
 export async function getRequisition(req, res) {
   if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Requisition not found');
   const r = await LoanRequisition.findOne({ _id: req.params.id, isDeleted: false, ...branchFilter(req.user) })
-    .select('+business.shopPhoto +business.bankStatement')
+    .select('+business.shopPhoto +business.bankStatement +formFrontPhoto +formBackPhoto')
     .populate(POPULATE);
   if (!r) throw new HttpError(404, 'Requisition not found');
   res.json({ requisition: present(r, req.user, { detail: true }) });

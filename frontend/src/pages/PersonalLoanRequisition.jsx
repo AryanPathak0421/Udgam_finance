@@ -127,7 +127,8 @@ function RequisitionForm({ kind }) {
 
   const [branches, setBranches] = useState([]);
   const [schemes, setSchemes] = useState([]);
-  const [form, setForm] = useState({ branch: '', loanDate: todayISO(), employeeCode: '', filterEmployee: '', schemeId: '', amount: '', mode: '', term: '', rate: '' });
+  const [form, setForm] = useState({ branch: '', loanDate: todayISO(), employeeCode: '', filterEmployee: '', schemeId: '', amount: '', mode: '', term: '', rate: '', formFrontPhoto: '', formBackPhoto: '' });
+  const [chosen, setChosen] = useState([]); // group loan: ids of the members who get the loan
   const [biz, setBiz] = useState({ loanType: '', businessName: '', gstNumber: '', udgamNumber: '', civilScore: '', shopPhoto: '', bankStatement: '', bankStatementName: '' });
   const [picked, setPicked] = useState(null);
   const [detail, setDetail] = useState(null);
@@ -187,6 +188,9 @@ function RequisitionForm({ kind }) {
     try {
       const d = isGroup ? await api.loanRequisitions.group(item.id) : await api.loanRequisitions.borrower(item.id);
       setDetail(d);
+      if (isGroup) setChosen(d.group.members.filter((x) => !x.isBlocked).map((x) => x.id));
+      // A scheme in which the borrower still has an unfinished loan is not offered.
+      else if (d.borrower.runningSchemeIds?.includes(form.schemeId)) clearScheme();
       // A group loan is looked after by the group's employee.
       if (isGroup && d.group.employeeCode) setForm((f) => ({ ...f, employeeCode: d.group.employeeCode }));
     } catch (err) {
@@ -242,9 +246,12 @@ function RequisitionForm({ kind }) {
     if (isGroup) {
       if (!picked) found.group = 'Select the group';
       else if (detail?.issues?.length) found.group = detail.issues[0];
+      else if (!effective.length) found.memberIds = 'Tick at least one member who gets the loan';
     } else if (!picked) found.member = 'Select the borrower';
     else if (detail?.issues?.length) found.member = detail.issues[0];
     if (!form.employeeCode) found.employeeCode = 'Select the employee';
+    if (!form.formFrontPhoto) found.formFrontPhoto = 'Upload the front photo of the form';
+    if (!form.formBackPhoto) found.formBackPhoto = 'Upload the back photo of the form';
     if (isBusiness) {
       if (!biz.loanType) found['business.loanType'] = 'Select Business or MSME';
       if (biz.businessName.trim().length < 2) found['business.businessName'] = 'Enter the business name';
@@ -278,7 +285,9 @@ function RequisitionForm({ kind }) {
         mode: form.mode,
         term: Number(installments),
         rate: form.rate,
-        ...(isGroup ? { group: picked.id } : { member: picked.id }),
+        formFrontPhoto: form.formFrontPhoto,
+        formBackPhoto: form.formBackPhoto,
+        ...(isGroup ? { group: picked.id, memberIds: effective.map((m) => m.id) } : { member: picked.id }),
         ...(isBusiness
           ? { business: { loanType: biz.loanType, businessName: biz.businessName.trim(), gstNumber: biz.gstNumber.trim(), udgamNumber: biz.udgamNumber.trim(), civilScore: Number(biz.civilScore), shopPhoto: biz.shopPhoto, bankStatement: biz.bankStatement } }
           : {}),
@@ -297,9 +306,16 @@ function RequisitionForm({ kind }) {
 
   const b = detail?.borrower;
   const g = detail?.group;
+  // Schemes the chosen borrower already has an unfinished loan in are not offered again.
+  const runningIds = !isGroup ? b?.runningSchemeIds || [] : [];
+  const visibleSchemes = schemes.filter((s) => !runningIds.includes(s.id));
+  const hiddenSchemes = schemes.filter((s) => runningIds.includes(s.id));
+  // Group loan: the members that are ticked and can get this loan.
+  const memberOk = (m) => !m.isBlocked && !(form.schemeId && m.runningSchemeIds?.includes(form.schemeId));
+  const effective = isGroup && g ? g.members.filter((m) => chosen.includes(m.id) && memberOk(m)) : [];
   const sum = preview?.summary;
   const modeUnit = scheme?.modes.find((m) => m.value === form.mode)?.unit;
-  const members = g ? g.memberCount : 1;
+  const members = isGroup && g ? effective.length : 1;
   const amountNum = Number(form.amount) || 0;
   const schemeLabel = kind === 'product' ? 'Product' : 'Loan scheme';
 
@@ -343,6 +359,10 @@ function RequisitionForm({ kind }) {
                 </select>
               </FormField>
             )}
+            <PhotoField id="formFrontPhoto" label="Form front photo" required value={form.formFrontPhoto} error={errors.formFrontPhoto}
+              onChange={(v) => { setForm((f) => ({ ...f, formFrontPhoto: v })); setErrors((er) => ({ ...er, formFrontPhoto: undefined })); }} />
+            <PhotoField id="formBackPhoto" label="Form back photo" required value={form.formBackPhoto} error={errors.formBackPhoto}
+              onChange={(v) => { setForm((f) => ({ ...f, formBackPhoto: v })); setErrors((er) => ({ ...er, formBackPhoto: undefined })); }} />
             <div className="span-2">
               {isGroup ? (
                 <Search
@@ -404,11 +424,52 @@ function RequisitionForm({ kind }) {
                   ]}
                 />
                 {g.members.length > 0 && (
-                  <div className="table-wrap" style={{ marginTop: 10 }}>
-                    <table className="data-table">
-                      <thead><tr><th>#</th><th>Member code</th><th>Name</th></tr></thead>
-                      <tbody>{g.members.map((m, i) => <tr key={m.id}><td>{i + 1}</td><td data-label="Code"><strong>{m.code}</strong></td><td data-label="Name">{m.name}{m.isBlocked ? ' (blocked)' : ''}</td></tr>)}</tbody>
-                    </table>
+                  <div style={{ marginTop: 10 }}>
+                    <div className="muted small" style={{ marginBottom: 6 }}>
+                      Tick the members who get this loan — <strong>{effective.length}</strong> of {g.members.length} selected
+                    </div>
+                    {errors.memberIds && <div className="field-error" role="alert">{errors.memberIds}</div>}
+                    <div className="table-wrap">
+                      <table className="data-table">
+                        <thead>
+                          <tr>
+                            <th style={{ width: 40 }}>
+                              <input
+                                type="checkbox"
+                                aria-label="Select all members"
+                                checked={g.members.filter(memberOk).length > 0 && g.members.filter(memberOk).every((m) => chosen.includes(m.id))}
+                                onChange={(e) => setChosen(e.target.checked ? g.members.filter(memberOk).map((m) => m.id) : [])}
+                              />
+                            </th>
+                            <th>Member code</th><th>Name</th><th>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {g.members.map((m) => {
+                            const ok = memberOk(m);
+                            const busy = form.schemeId && m.runningSchemeIds?.includes(form.schemeId);
+                            return (
+                              <tr key={m.id} style={ok ? undefined : { opacity: 0.6 }}>
+                                <td>
+                                  <input
+                                    type="checkbox"
+                                    aria-label={`Select ${m.code}`}
+                                    disabled={!ok}
+                                    checked={ok && chosen.includes(m.id)}
+                                    onChange={() => { setChosen((c) => (c.includes(m.id) ? c.filter((x) => x !== m.id) : [...c, m.id])); setErrors((er) => ({ ...er, memberIds: undefined })); }}
+                                  />
+                                </td>
+                                <td data-label="Code"><strong>{m.code}</strong></td>
+                                <td data-label="Name">{m.name}</td>
+                                <td data-label="Status">
+                                  {m.isBlocked ? <span className="badge danger">Blocked</span> : busy ? <span className="badge grey">Loan in this scheme not finished</span> : <span className="badge green">Eligible</span>}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 )}
               </>
@@ -447,10 +508,15 @@ function RequisitionForm({ kind }) {
             <FormField id="schemeId" label={schemeLabel} required error={errors.schemeId} className="span-2"
               hint={isBusiness && !biz.loanType ? 'Select the loan type first' : undefined}>
               <select id="schemeId" value={form.schemeId} onChange={chooseScheme} disabled={isBusiness && !biz.loanType}>
-                <option value="">{schemes.length ? `Select ${schemeLabel.toLowerCase()}` : `No ${schemeLabel.toLowerCase()} available`}</option>
-                {schemes.map((s) => <option key={s.id} value={s.id}>{s.code} — {s.name}</option>)}
+                <option value="">{visibleSchemes.length ? `Select ${schemeLabel.toLowerCase()}` : `No ${schemeLabel.toLowerCase()} available`}</option>
+                {visibleSchemes.map((s) => <option key={s.id} value={s.id}>{s.code} — {s.name}</option>)}
               </select>
             </FormField>
+            {hiddenSchemes.length > 0 && (
+              <div className="notice warn span-2">
+                Not offered, because {b?.name || 'this borrower'} already has a loan in {hiddenSchemes.length === 1 ? 'it' : 'them'} that is not finished: {hiddenSchemes.map((s) => s.name).join(', ')}.
+              </div>
+            )}
           </div>
 
           {scheme && (
@@ -549,7 +615,7 @@ function RequisitionForm({ kind }) {
               ...(isBusiness ? [['Loan type', biz.loanType === 'msme' ? 'MSME loan' : 'Business loan'], ['Business', biz.businessName], ['Civil score', biz.civilScore]] : []),
               [schemeLabel, `${scheme.code} — ${scheme.name}`],
               [isGroup ? 'Amount per member' : 'Request amount', inr(amountNum)],
-              ...(isGroup && g ? [['Members', String(members)], ['Group total', inr(amountNum * members)]] : []),
+              ...(isGroup && g ? [['Members getting the loan', effective.map((m) => m.code).join(', ')], ['Number of members', String(members)], ['Group total', inr(amountNum * members)]] : []),
               ['Loan term', `${form.term} ${scheme.termUnit}`],
               ['Mode & installments', `${scheme.modes.find((m) => m.value === form.mode)?.label}, ${installments} installments`],
               ['Interest rate', `${form.rate}% p.a.`], ['EMI', inr(sum.installmentAmount)], ['Total payable', inr(sum.totalPayable)],

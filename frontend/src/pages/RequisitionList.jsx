@@ -62,6 +62,16 @@ function Detail({ id, onClose }) {
               </table>
             </div>
           )}
+          <div className="stamp-view sign-row" style={{ marginTop: 12 }}>
+            <div>
+              <div className="detail-label">Form — front</div>
+              {r.formFrontPhoto ? <img src={r.formFrontPhoto} alt="Form front" className="stamp-img" /> : <span className="muted">—</span>}
+            </div>
+            <div>
+              <div className="detail-label">Form — back</div>
+              {r.formBackPhoto ? <img src={r.formBackPhoto} alt="Form back" className="stamp-img" /> : <span className="muted">—</span>}
+            </div>
+          </div>
           {r.business && (
             <div className="stamp-view sign-row" style={{ marginTop: 12 }}>
               <div>
