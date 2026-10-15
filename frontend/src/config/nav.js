@@ -107,7 +107,7 @@ export const NAV_SECTIONS = [
     items: [
       { label: 'Loan Products', path: '/loan-products', icon: 'product' },
       { label: 'Applications', path: '/applications', icon: 'file', roles: [...MGMT, 'loan_officer', 'field_officer', 'accountant', 'viewer'] },
-      { label: 'Disbursement', path: '/disbursements', icon: 'cash', roles: [...MGMT, 'accountant', 'viewer'] },
+      { label: 'Disbursement', path: '/disbursements', icon: 'cash', roles: ALL_ADMIN },
       { label: 'Loans', path: '/loans', icon: 'loan' },
     ],
   },

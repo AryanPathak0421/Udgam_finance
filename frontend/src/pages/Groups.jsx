@@ -28,14 +28,13 @@ function GroupForm({ item, branches, isAdmin, onClose, onSaved }) {
     meetingType: item.meetingType || '',
     collectionDay: item.collectionDay ? String(item.collectionDay) : '',
     meetingTime: item.meetingTime || '',
-    mobileChallengeId: '',
   });
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
 
   async function submit(e) {
     e.preventDefault();
-    const found = validateGroup(form, { isEdit: true, mobileLocked: !isAdmin, mobileChanged: form.leaderMobile !== item.leaderMobile });
+    const found = validateGroup(form, { isEdit: true, mobileLocked: !isAdmin });
     setErrors(found);
     if (Object.keys(found).length) return toast.error('Please correct the highlighted fields');
     setSaving(true);
@@ -66,7 +65,7 @@ function GroupForm({ item, branches, isAdmin, onClose, onSaved }) {
       }
     >
       <form id="grp-form" onSubmit={submit} noValidate>
-        <GroupFields form={form} setForm={setForm} errors={errors} setErrors={setErrors} branches={branches} isAdmin={isAdmin} isEdit groupCode={item.code} branchLocked savedMobile={item.leaderMobile} savedMobileVerified={item.leaderMobileVerified} />
+        <GroupFields form={form} setForm={setForm} errors={errors} setErrors={setErrors} branches={branches} isAdmin={isAdmin} isEdit groupCode={item.code} branchLocked />
       </form>
     </Modal>
   );
@@ -280,7 +279,7 @@ export default function Groups() {
                       <td data-label="Employee">{g.employeeCode ? `${g.employeeCode}${g.employeeName ? ` — ${g.employeeName}` : ''}` : '—'}</td>
                       <td data-label="Meeting">{g.meetingType ? `${MEETING_LABEL[g.meetingType]} · ${collectionLabel(g)} · ${formatTime(g.meetingTime)}` : '—'}</td>
                       <td data-label="Members" className="num">{g.memberCount}</td>
-                      <td data-label="Mobile">{g.leaderMobile}{g.leaderMobileVerified && <span className="muted small"> ✓ verified</span>}</td>
+                      <td data-label="Mobile">{g.leaderMobile}</td>
                       <td data-label="Status"><StatusBadge active={g.isActive} /></td>
                       <td data-label="Actions" className="actions-col">
                         <div className="row-actions">

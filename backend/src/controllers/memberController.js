@@ -762,9 +762,17 @@ function kycStatusOf(docs) {
 // KYC state of one person's documents: 'none' when nothing was uploaded for them.
 const partyState = (docs, who) => {
   const list = docs.filter((d) => d.who === who);
-  if (!list.length) return { status: 'none', total: 0, approved: 0, rejected: 0, pending: 0 };
+  if (!list.length) return { status: 'none', total: 0, approved: 0, rejected: 0, pending: 0, hasPending: false, hasRejected: false };
   const n = (st) => list.filter((d) => d.status === st).length;
-  return { status: kycStatusOf(list), total: list.length, approved: n('approved'), rejected: n('rejected'), pending: n('pending') };
+  return {
+    status: kycStatusOf(list),
+    total: list.length,
+    approved: n('approved'),
+    rejected: n('rejected'),
+    pending: n('pending'),
+    hasPending: n('pending') > 0,
+    hasRejected: n('rejected') > 0,
+  };
 };
 
 const kycSummary = (m, keys = m.kycKeys || []) => {
@@ -776,7 +784,7 @@ const kycSummary = (m, keys = m.kycKeys || []) => {
     nominee: partyState(docs, 'Nominee'),
   };
   // A nominee copied from the guarantor is covered by the guarantor's review.
-  if (m.nominee?.sameAsGuarantor) parties.nominee = { status: 'same', total: 0, approved: 0, rejected: 0, pending: 0 };
+  if (m.nominee?.sameAsGuarantor) parties.nominee = { status: 'same', total: 0, approved: 0, rejected: 0, pending: 0, hasPending: false, hasRejected: false };
   const changes = (m.guarantorHistory || []).map((h) => h.replacedAt).filter(Boolean);
   return {
     isBlocked: Boolean(m.isBlocked),
@@ -790,6 +798,10 @@ const kycSummary = (m, keys = m.kycKeys || []) => {
     branch: m.branch?._id ? { id: m.branch._id, code: m.branch.code, name: m.branch.name } : null,
     submittedAt: m.createdAt,
     status: kycStatusOf(docs),
+    // A member is listed under Pending while any document waits, and under Rejected while any document
+    // is rejected - so both can be true at once (e.g. 1 rejected and 4 pending).
+    hasPending: count('pending') > 0,
+    hasRejected: count('rejected') > 0,
     total: docs.length,
     approved: count('approved'),
     rejected: count('rejected'),
@@ -822,16 +834,22 @@ export async function listKyc(req, res) {
     .sort({ createdAt: -1 });
   let rows = all.map((m) => kycSummary(m));
   const counts = {
-    pending: rows.filter((r) => r.status === 'pending').length,
-    rejected: rows.filter((r) => r.status === 'rejected').length,
+    pending: rows.filter((r) => r.hasPending).length,
+    rejected: rows.filter((r) => r.hasRejected).length,
     approved: rows.filter((r) => r.status === 'approved').length,
   };
+  const matches = (r, st) => (st === 'pending' ? r.hasPending : st === 'rejected' ? r.hasRejected : r.status === 'approved');
   // Optionally look at one person only: borrower (member), guarantor or nominee.
   const party = asString(req.query.party);
   if (['member', 'guarantor', 'nominee'].includes(party)) {
     rows = rows.filter((r) => ['pending', 'rejected', 'approved'].includes(r.parties[party].status));
-    if (['pending', 'rejected', 'approved'].includes(status)) rows = rows.filter((r) => r.parties[party].status === status);
-  } else if (['pending', 'rejected', 'approved'].includes(status)) rows = rows.filter((r) => r.status === status);
+    if (['pending', 'rejected', 'approved'].includes(status)) {
+      rows = rows.filter((r) => {
+        const p = r.parties[party];
+        return status === 'pending' ? p.hasPending : status === 'rejected' ? p.hasRejected : p.status === 'approved';
+      });
+    }
+  } else if (['pending', 'rejected', 'approved'].includes(status)) rows = rows.filter((r) => matches(r, status));
   const total = rows.length;
   res.json({
     items: rows.slice(skip, skip + limit),
@@ -883,10 +901,12 @@ export async function reuploadKyc(req, res) {
   if (!KYC_KEYS.has(key)) throw new HttpError(422, 'Unknown document');
   if (!(m.kycKeys || []).includes(key)) throw new HttpError(409, 'This document has not been uploaded');
   const rec = (m.kycDocs || []).find((x) => x.key === key);
-  // A rejected (or not yet reviewed) document can be replaced by the staff; once it is approved
-  // only an admin may replace it.
-  if (rec?.status === 'approved' && !isAdmin(req.user)) {
-    throw new HttpError(403, 'This document is already approved. Only an admin can upload it again.');
+  // The branch can only upload a document again after it was rejected. Replacing a document that is
+  // pending or approved is for an admin only.
+  if (rec?.status !== 'rejected' && !isAdmin(req.user)) {
+    throw new HttpError(403, rec?.status === 'approved'
+      ? 'This document is already approved. Only an admin can replace it.'
+      : 'Only a rejected document can be uploaded again. Replacing a photo is for an admin only.');
   }
   const v = createValidator();
   const image = readImage(req.body?.image, 'image', 'Document', v, { required: true });

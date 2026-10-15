@@ -27,8 +27,11 @@ function PartyBadge({ p }) {
   if (!p || p.status === 'none') return <span className="muted">Not added</span>;
   if (p.status === 'same') return <span className="muted">Same as guarantor</span>;
   return (
-    <span className={`badge ${TONE[p.status]}`} title={`${p.approved}/${p.total} approved`}>
-      {LABEL[p.status]} {p.approved}/{p.total}
+    <span>
+      <span className={`badge ${TONE[p.status]}`} title={`${p.approved}/${p.total} approved`}>
+        {LABEL[p.status]} {p.approved}/{p.total}
+      </span>
+      {p.rejected > 0 && p.status !== 'rejected' && <span className="badge danger" style={{ marginLeft: 4 }}>{p.rejected} rejected</span>}
     </span>
   );
 }
@@ -144,12 +147,17 @@ function ReviewDialog({ memberId, canApprove, canUpload, isAdmin, onClose, onCha
                         <button className="btn sm danger-outline" disabled={busy} onClick={() => { setRejecting(d.key); setReason(''); }}>Reject</button>
                       )}
                       {canApprove && d.status === 'approved' && <span className="muted small">Approved</span>}
-                      {canUpload && (d.status === 'rejected' || d.status === 'pending' || (d.status === 'approved' && isAdmin)) && (
-                        <button className={`btn sm${d.status === 'rejected' ? ' primary' : ''}`} disabled={busy} onClick={() => { reuploadKey.current = d.key; fileRef.current?.click(); }}>
-                          {d.status === 'rejected' ? 'Re-upload' : 'Replace photo'}
+                      {/* The branch can only upload a rejected document again; replacing a photo is for an admin. */}
+                      {canUpload && d.status === 'rejected' && (
+                        <button className="btn sm primary" disabled={busy} onClick={() => { reuploadKey.current = d.key; fileRef.current?.click(); }}>
+                          Re-upload
                         </button>
                       )}
-                      {d.status === 'approved' && !isAdmin && <span className="muted small">Approved (only an admin can replace)</span>}
+                      {isAdmin && d.status !== 'rejected' && (
+                        <button className="btn sm" disabled={busy} onClick={() => { reuploadKey.current = d.key; fileRef.current?.click(); }}>
+                          Replace photo
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -272,7 +280,11 @@ export default function KycApproval() {
                       <td data-label="Documents" className="num">
                         {r.approved}/{r.total}{r.rejected ? <span className="muted"> · {r.rejected} rejected</span> : null}
                       </td>
-                      <td data-label="Status"><Badge status={r.status} /></td>
+                      <td data-label="Status">
+                        {r.hasPending && <Badge status="pending" />}{' '}
+                        {r.hasRejected && <Badge status="rejected" />}
+                        {!r.hasPending && !r.hasRejected && <Badge status="approved" />}
+                      </td>
                       <td data-label="Actions" className="actions-col">
                         <button className="btn sm" onClick={() => setOpenId(r.id)}>
                           {canApprove && r.status === 'pending' ? 'Review' : 'View'}

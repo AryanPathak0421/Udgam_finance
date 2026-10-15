@@ -35,7 +35,7 @@ export const MENU_CATALOGUE = [
   { key: '/kyc', label: 'KYC', group: 'Customers' },
   { key: '/loan-products', label: 'Loan Products', group: 'Lending' },
   { key: '/applications', label: 'Applications', group: 'Lending' },
-  { key: '/disbursements', label: 'Disbursement', group: 'Lending' },
+  { key: '/disbursements', label: 'Disbursement', group: 'Lending', adminOnly: true },
   { key: '/loans', label: 'Loans', group: 'Lending' },
   { key: '/collections', label: 'Collections', group: 'Recovery' },
   { key: '/overdue', label: 'Overdue', group: 'Recovery' },

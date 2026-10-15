@@ -168,7 +168,7 @@ export default function GroupLeaderCommission() {
         ) : !data?.items.length ? (
           <EmptyState
             title={`No commission for ${monthLabel(month)}`}
-            description="Commission appears from the month after loans are disbursed (enter them under Centers & Groups → Disbursements, then Generate)."
+            description={canDeposit && ['super_admin', 'admin'].includes(user?.role) ? 'Commission appears from the month after loans are disbursed (enter them under Group Master → Group List → Disbursements, then Generate).' : 'Commission appears from the month after loans are disbursed.'}
           />
         ) : (
           <div className={`table-wrap${loading ? ' dim' : ''}`}>
