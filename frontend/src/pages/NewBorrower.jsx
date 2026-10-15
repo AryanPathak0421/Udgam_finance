@@ -14,6 +14,21 @@ const LIMIT = 25;
 const CREATORS = ['super_admin', 'admin', 'branch_manager', 'loan_officer', 'field_officer'];
 const today = () => new Date().toISOString().slice(0, 10);
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : '');
+// Whole years since a 'YYYY-MM-DD' date.
+const yearsSince = (iso) => {
+  const d = new Date(`${iso}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return null;
+  const n = new Date();
+  let a = n.getUTCFullYear() - d.getUTCFullYear();
+  const m = n.getUTCMonth() - d.getUTCMonth();
+  if (m < 0 || (m === 0 && n.getUTCDate() < d.getUTCDate())) a -= 1;
+  return a;
+};
+// Latest date of birth that is still 18 years old today.
+const minDob = () => {
+  const n = new Date();
+  return new Date(Date.UTC(n.getUTCFullYear() - 18, n.getUTCMonth(), n.getUTCDate())).toISOString().slice(0, 10);
+};
 
 const EMPTY = {
   branch: '', name: '', dob: '', gender: '', mobile: '', email: '', husbandName: '', occupation: '', education: '',
@@ -178,7 +193,9 @@ function BorrowerForm({ branches, options, onCancel, onSaved }) {
   const [errors, setErrors] = useState({});
   const [districts, setDistricts] = useState([]);
   const [mobileCh, setMobileCh] = useState('');
-  const [panCh, setPanCh] = useState('');
+  const [pinInfo, setPinInfo] = useState(null); // result of the pincode lookup
+  const [bankInfo, setBankInfo] = useState(null); // result of the IFSC lookup
+  const pendingDistrict = useRef('');
   const [saving, setSaving] = useState(false);
 
   const set = (key) => (e) => {
@@ -201,17 +218,81 @@ function BorrowerForm({ branches, options, onCancel, onSaved }) {
     setErrors((er) => ({ ...er, [key]: undefined }));
   };
 
+  // Districts of the chosen state. A district found from the pincode is applied once the list is loaded.
   useEffect(() => {
-    setForm((f) => ({ ...f, district: '' }));
-    if (!form.state) return setDistricts([]);
-    api.members.districts(form.state).then((r) => setDistricts(r.cities)).catch(() => setDistricts([]));
+    if (!form.state) {
+      setDistricts([]);
+      setForm((f) => ({ ...f, district: '' }));
+      return;
+    }
+    api.members
+      .districts(form.state)
+      .then((r) => {
+        setDistricts(r.cities);
+        const want = pendingDistrict.current;
+        pendingDistrict.current = '';
+        setForm((f) => ({ ...f, district: want && r.cities.includes(want) ? want : '' }));
+      })
+      .catch(() => setDistricts([]));
   }, [form.state]);
 
+  // Pincode: verify it and fill in the state and district.
+  useEffect(() => {
+    if (!/^[1-9]\d{5}$/.test(form.pincode)) {
+      setPinInfo(null);
+      return undefined;
+    }
+    let live = true;
+    setPinInfo({ status: 'checking' });
+    api.members
+      .pincode(form.pincode)
+      .then((r) => {
+        if (!live) return;
+        setPinInfo(r);
+        if (r.status === 'ok' && r.stateKnown) {
+          setForm((f) => {
+            if (f.state === r.state) return { ...f, district: r.district || f.district };
+            pendingDistrict.current = r.district || '';
+            return { ...f, state: r.state };
+          });
+          setErrors((er) => ({ ...er, state: undefined, district: undefined, pincode: undefined }));
+        }
+      })
+      .catch(() => live && setPinInfo({ status: 'unavailable' }));
+    return () => {
+      live = false;
+    };
+  }, [form.pincode]);
+
+  // IFSC: verify it and fill in the bank name.
+  useEffect(() => {
+    if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(form.ifsc)) {
+      setBankInfo(null);
+      return undefined;
+    }
+    let live = true;
+    setBankInfo({ status: 'checking' });
+    api.members
+      .ifsc(form.ifsc)
+      .then((r) => {
+        if (!live) return;
+        setBankInfo(r);
+        if (r.status === 'ok' && r.bank) {
+          setForm((f) => ({ ...f, bankName: r.bank }));
+          setErrors((er) => ({ ...er, bankName: undefined, ifsc: undefined }));
+        }
+      })
+      .catch(() => live && setBankInfo({ status: 'unavailable' }));
+    return () => {
+      live = false;
+    };
+  }, [form.ifsc]);
+
   const resetMobile = useCallback(() => setMobileCh(''), []);
-  const resetPan = useCallback(() => setPanCh(''), []);
 
   const mobileValid = /^[6-9]\d{9}$/.test(form.mobile);
   const panValid = /^[A-Z]{5}\d{4}[A-Z]$/.test(form.pan);
+  const ageNow = form.dob ? yearsSince(form.dob) : null;
 
   async function submit(e) {
     e.preventDefault();
@@ -234,13 +315,16 @@ function BorrowerForm({ branches, options, onCancel, onSaved }) {
     if (!mobileValid) found.mobile = 'Enter a valid 10-digit mobile number';
     else if (!mobileCh) found.mobile = 'Verify the mobile number with an OTP';
     if (!/^\d{6}$/.test(form.pincode)) found.pincode = 'Enter a valid 6-digit pincode';
+    else if (pinInfo?.status === 'invalid') found.pincode = 'This pincode does not exist';
+    if (form.dob && ageNow !== null && ageNow < 18) found.dob = 'Borrower must be at least 18 years old';
     if (!/^\d{12}$/.test(form.aadhaar)) found.aadhaar = 'Enter the 12-digit Aadhaar number';
     if (form.pan) {
       if (!panValid) found.pan = 'Enter a valid PAN (e.g. ABCDE1234F)';
-      else if (!panCh) found.pan = 'Verify the PAN with an OTP';
+      else if (form.pan[3] !== 'P') found.pan = 'A borrower PAN must be an individual PAN (4th letter P)';
       if (!form.panPhoto) found.panPhoto = 'PAN photo is required when a PAN is given';
     }
     if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(form.ifsc)) found.ifsc = 'Enter a valid IFSC code (e.g. SBIN0001234)';
+    else if (bankInfo?.status === 'invalid') found.ifsc = 'This IFSC code does not exist';
     if (!/^\d{9,18}$/.test(form.accountNumber)) found.accountNumber = 'Account number must be 9–18 digits';
     setErrors(found);
     if (Object.keys(found).length) {
@@ -249,7 +333,7 @@ function BorrowerForm({ branches, options, onCancel, onSaved }) {
     }
     setSaving(true);
     try {
-      const r = await api.members.create({ ...form, mobileChallengeId: mobileCh, panChallengeId: form.pan ? panCh : undefined });
+      const r = await api.members.create({ ...form, mobileChallengeId: mobileCh });
       toast.success(`Borrower added — ${r.member.code}`);
       onSaved(r.member);
     } catch (err) {
@@ -292,8 +376,8 @@ function BorrowerForm({ branches, options, onCancel, onSaved }) {
           <FormField id="husbandName" label="Husband name" error={errors.husbandName}>
             <input id="husbandName" value={form.husbandName} onChange={set('husbandName')} maxLength={80} />
           </FormField>
-          <FormField id="dob" label="Date of birth" required error={errors.dob}>
-            <input id="dob" type="date" max={today()} value={form.dob} onChange={set('dob')} />
+          <FormField id="dob" label="Date of birth" required error={errors.dob} hint={ageNow !== null ? `Age: ${ageNow} years${ageNow < 18 ? ' (minimum 18)' : ''}` : 'Borrower must be at least 18 years old'}>
+            <input id="dob" type="date" max={minDob()} value={form.dob} onChange={set('dob')} />
           </FormField>
           <FormField id="gender" label="Gender" required error={errors.gender}>
             <select id="gender" value={form.gender} onChange={set('gender')}>
@@ -342,7 +426,13 @@ function BorrowerForm({ branches, options, onCancel, onSaved }) {
               {districts.map((d) => <option key={d} value={d}>{d}</option>)}
             </select>
           </FormField>
-          <FormField id="pincode" label="Pincode" required error={errors.pincode}>
+          <FormField id="pincode" label="Pincode" required error={errors.pincode}
+            hint={
+              pinInfo?.status === 'checking' ? 'Checking pincode…'
+                : pinInfo?.status === 'ok' ? `✓ Pincode verified — ${pinInfo.postalDistrict}, ${pinInfo.state}`
+                  : pinInfo?.status === 'unavailable' ? 'Could not verify the pincode right now. Choose the state and district yourself.'
+                    : pinInfo?.status === 'invalid' ? undefined : 'State and district are filled in from the pincode'
+            }>
             <input id="pincode" value={form.pincode} onChange={setDigits('pincode', 6)} inputMode="numeric" maxLength={6} />
           </FormField>
         </div>
@@ -354,21 +444,22 @@ function BorrowerForm({ branches, options, onCancel, onSaved }) {
           <FormField id="aadhaar" label="Aadhaar number" required error={errors.aadhaar}>
             <input id="aadhaar" value={form.aadhaar} onChange={setDigits('aadhaar', 12)} inputMode="numeric" maxLength={12} />
           </FormField>
-          <FormField id="pan" label="PAN number" error={errors.pan} hint={form.pan ? undefined : 'Optional. If entered it must be verified with an OTP'}>
+          <FormField id="pan" label="PAN number" error={errors.pan}
+            hint={form.pan && panValid && form.pan[3] === 'P' ? '✓ PAN format is valid' : 'Optional. Format: ABCDE1234F (individual PAN)'}>
             <input id="pan" value={form.pan} onChange={setUpper('pan', 10)} maxLength={10} />
-            {form.pan && (
-              <OtpVerify id="pan" label="PAN" purpose="pan" value={form.pan} valid={panValid && mobileValid} mobile={form.mobile}
-                verified={Boolean(panCh)} onVerified={setPanCh} onReset={resetPan}
-                hint={mobileValid ? 'OTP is sent to the mobile number above' : 'Enter the mobile number first'} />
-            )}
           </FormField>
           <FormField id="bankName" label="Bank name" required error={errors.bankName}>
             <input id="bankName" value={form.bankName} onChange={set('bankName')} maxLength={80} />
           </FormField>
-          <FormField id="ifsc" label="IFSC code" required error={errors.ifsc}>
+          <FormField id="ifsc" label="IFSC code" required error={errors.ifsc}
+            hint={
+              bankInfo?.status === 'checking' ? 'Checking IFSC…'
+                : bankInfo?.status === 'ok' ? `✓ ${bankInfo.bank}, ${bankInfo.branch}${bankInfo.city ? `, ${bankInfo.city}` : ''}`
+                  : bankInfo?.status === 'unavailable' ? 'Could not verify the IFSC right now' : 'The bank name is filled in from the IFSC'
+            }>
             <input id="ifsc" value={form.ifsc} onChange={setUpper('ifsc', 11)} maxLength={11} />
           </FormField>
-          <FormField id="accountNumber" label="Account number" required error={errors.accountNumber}>
+          <FormField id="accountNumber" label="Account number" required error={errors.accountNumber} hint="9 to 18 digits">
             <input id="accountNumber" value={form.accountNumber} onChange={setDigits('accountNumber', 18)} inputMode="numeric" maxLength={18} />
           </FormField>
         </div>
@@ -499,7 +590,7 @@ export default function NewBorrower() {
       />
       <div className="panel">
         <div className="toolbar">
-          <input type="search" className="toolbar-search" placeholder="Search by name, member code, form ID or mobile" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search borrowers" />
+          <input type="search" className="toolbar-search" placeholder="Search by name, member code, form ID, mobile, last 4 digits of Aadhaar or PAN" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search borrowers" />
         </div>
         {loading && !data.items.length ? (
           <Spinner label="Loading borrowers…" />
@@ -519,7 +610,7 @@ export default function NewBorrower() {
                     <tr key={m.id}>
                       <td data-label="Member code"><strong>{m.code}</strong></td>
                       <td data-label="Form ID">{m.formId}</td>
-                      <td data-label="Name">{m.name}</td>
+                      <td data-label="Name">{m.name}{m.matchedVia === 'guarantor' && <div className="muted small">found via guarantor</div>}</td>
                       <td data-label="Branch">{m.branch ? m.branch.name : '—'}</td>
                       <td data-label="Mobile">{m.mobile}</td>
                       <td data-label="Aadhaar">{m.aadhaar}</td>

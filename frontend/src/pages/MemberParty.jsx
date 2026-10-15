@@ -107,7 +107,7 @@ function PartyPage({ kind }) {
         <PageHeader title={`${label} Detail`} description={`Choose the member this ${label.toLowerCase()} belongs to.`} />
         <div className="panel">
           <div className="toolbar">
-            <input type="search" className="toolbar-search" placeholder="Search by member name, code, form ID or mobile" value={search} onChange={(e) => setSearch(e.target.value)} autoFocus aria-label="Search member" />
+            <input type="search" className="toolbar-search" placeholder="Search by name, member code, form ID, mobile, last 4 digits of Aadhaar or PAN (guarantor details too)" value={search} onChange={(e) => setSearch(e.target.value)} autoFocus aria-label="Search member" />
           </div>
           {searching && !results.length ? (
             <Spinner label="Searching…" />

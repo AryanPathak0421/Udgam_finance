@@ -215,7 +215,7 @@ export default function KycApproval() {
               {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           )}
-          <input type="search" className="toolbar-search" placeholder="Search member code or name" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search" />
+          <input type="search" className="toolbar-search" placeholder="Search by name, member code, form ID, mobile, last 4 digits of Aadhaar or PAN" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search" />
           {hasFilters && <button className="btn" onClick={() => { setBranch(''); setFrom(''); setTo(''); setSearch(''); }}>Clear</button>}
         </div>
 

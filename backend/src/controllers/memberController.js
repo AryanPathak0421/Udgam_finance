@@ -10,6 +10,8 @@ import { branchFilter, isAdmin, maskMobile } from './groupController.js';
 import { asString, createValidator, escapeRegex, parseDateOnly, parsePaging, HttpError } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
 import { User } from '../models/User.js';
+import { lookupPincode, lookupIfsc } from '../services/lookup.js';
+import { checkPanFormat, verifyPan, verifyBankAccount } from '../services/kycVerify.js';
 import { AuditLog } from '../models/AuditLog.js';
 
 export const GENDERS = ['male', 'female', 'other'];
@@ -95,6 +97,9 @@ const present = (m, user, { detail = false } = {}) => {
       address: m.address,
       pincode: m.pincode,
       panVerified: Boolean(m.panVerifiedAt),
+      pincodeVerified: Boolean(m.pincodeVerified),
+      ifscVerified: Boolean(m.ifscVerified),
+      accountVerified: Boolean(m.accountVerifiedAt),
       bankName: m.bankName,
       ifsc: m.ifsc,
       accountNumber: full ? m.accountNumber : `XXXXX${m.accountNumber.slice(-4)}`,
@@ -180,16 +185,12 @@ const hashOtp = (id, otp) => crypto.createHmac('sha256', process.env.JWT_SECRET 
 /** Sends an OTP to verify a mobile number (to itself) or a PAN (to the member's mobile). */
 export async function sendOtp(req, res) {
   const b = req.body || {};
-  const purpose = b.purpose === 'pan' ? 'member_pan' : b.purpose === 'mobile' ? 'member_mobile' : null;
+  const purpose = b.purpose === 'mobile' ? 'member_mobile' : null;
   const v = createValidator();
   if (!purpose) throw new HttpError(422, 'Invalid request');
   const mobile = asString(b.mobile);
   if (!MOBILE_RE.test(mobile)) v.add('mobile', 'Enter a valid 10-digit mobile number');
-  let subject = mobile;
-  if (purpose === 'member_pan') {
-    subject = asString(b.pan).toUpperCase();
-    if (!PAN_RE.test(subject)) v.add('pan', 'Enter a valid PAN (e.g. ABCDE1234F)');
-  }
+  const subject = mobile;
   v.throwIfAny();
 
   const last = await OtpChallenge.findOne({ createdBy: req.user._id, purpose, subject, consumedAt: { $exists: false } }).sort({ createdAt: -1 });
@@ -211,7 +212,7 @@ export async function sendOtp(req, res) {
   ch.hash = hashOtp(ch._id, otp);
   await ch.save();
 
-  const what = purpose === 'member_pan' ? 'PAN verification' : 'mobile verification';
+  const what = 'mobile verification';
   const sms = await sendSms({ to: mobile, text: `Udgam Microfinance: OTP ${otp} for ${what}. Valid for 5 minutes. Do not share this OTP.` });
   res.json({
     challengeId: ch._id,
@@ -334,7 +335,10 @@ export async function createMember(req, res) {
   d.aadhaar = asString(b.aadhaar).replace(/\s/g, '');
   if (!AADHAAR_RE.test(d.aadhaar) || !verhoeff(d.aadhaar)) v.add('aadhaar', 'Enter a valid 12-digit Aadhaar number');
   d.pan = asString(b.pan).toUpperCase();
-  if (d.pan && !PAN_RE.test(d.pan)) v.add('pan', 'Enter a valid PAN (e.g. ABCDE1234F)');
+  if (d.pan) {
+    const pc = checkPanFormat(d.pan, d.name);
+    if (!pc.ok) v.add('pan', pc.message);
+  }
 
   d.bankName = asString(b.bankName);
   if (d.bankName.length < 2 || d.bankName.length > 80) v.add('bankName', 'Enter the bank name');
@@ -349,15 +353,24 @@ export async function createMember(req, res) {
   d.panPhoto = readImage(b.panPhoto, 'panPhoto', 'PAN photo', v, { required: Boolean(d.pan) });
   v.throwIfAny();
 
-  // OTP verification is mandatory for the mobile number, and for the PAN when one is given.
+  // The mobile number must be verified with an OTP.
   const mobileCh = await takeVerified(b.mobileChallengeId, req.user, 'member_mobile', d.mobile);
   if (!mobileCh) v.add('mobile', 'Verify the mobile number with an OTP');
-  let panCh = null;
-  if (d.pan) {
-    panCh = await takeVerified(b.panChallengeId, req.user, 'member_pan', d.pan);
-    if (!panCh) v.add('pan', 'Verify the PAN with an OTP');
-  }
   v.throwIfAny();
+
+  // Pincode and IFSC are checked against public data when it can be reached (never blocks on an outage).
+  const pin = await lookupPincode(d.pincode);
+  if (pin.status === 'invalid') v.add('pincode', 'This pincode does not exist');
+  else if (pin.status === 'ok' && pin.stateKnown && pin.state !== d.state) v.add('state', `Pincode ${d.pincode} belongs to ${pin.state}`);
+  const bank = await lookupIfsc(d.ifsc);
+  if (bank.status === 'invalid') v.add('ifsc', 'This IFSC code does not exist');
+  v.throwIfAny();
+
+  // PAN holder and bank account verification need a KYC provider; recorded only when really verified.
+  const panCheck = d.pan ? await verifyPan(d.pan, d.name) : { status: 'unavailable' };
+  if (panCheck.status === 'mismatch') throw new HttpError(422, 'Please correct the highlighted fields', { pan: 'The PAN does not belong to this person' });
+  const acctCheck = await verifyBankAccount(d.accountNumber, d.ifsc, d.name);
+  if (acctCheck.status === 'mismatch') throw new HttpError(422, 'Please correct the highlighted fields', { accountNumber: 'The account does not match this person' });
   const employeeCode = await resolveEmployee(req, v, d.branch);
 
   if (await Member.exists({ aadhaar: d.aadhaar, isDeleted: false })) {
@@ -379,7 +392,10 @@ export async function createMember(req, res) {
       formId,
       joiningDate: new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`),
       mobileVerifiedAt: mobileCh.verifiedAt,
-      panVerifiedAt: panCh?.verifiedAt,
+      panVerifiedAt: panCheck.status === 'verified' ? new Date() : undefined,
+      pincodeVerified: pin.status === 'ok',
+      ifscVerified: bank.status === 'ok',
+      accountVerifiedAt: acctCheck.status === 'verified' ? new Date() : undefined,
       employeeCode,
       kycKeys: ['memberPhoto', 'signaturePhoto', 'aadhaarPhoto', ...(d.panPhoto ? ['panPhoto'] : [])],
       createdBy: req.user._id,
@@ -390,7 +406,7 @@ export async function createMember(req, res) {
     throw err;
   }
   const consumed = new Date();
-  await OtpChallenge.updateMany({ _id: { $in: [mobileCh._id, panCh?._id].filter(Boolean) } }, { $set: { consumedAt: consumed } });
+  await OtpChallenge.updateMany({ _id: { $in: [mobileCh._id] } }, { $set: { consumedAt: consumed } });
 
   await doc.populate(POPULATE);
   await audit(req, {
@@ -402,6 +418,39 @@ export async function createMember(req, res) {
   res.status(201).json({ member: present(doc, req.user) });
 }
 
+/**
+ * Search box used everywhere a member is looked up. Matches on the member's name, member code,
+ * form ID, mobile number, last 4 digits of Aadhaar and PAN number — and on the same details of
+ * the guarantor, so a member can be found from a guarantor too.
+ */
+export function memberSearchFilter(q) {
+  const text = asString(q);
+  if (!text) return null;
+  const rx = new RegExp(escapeRegex(text), 'i');
+  const or = [{ code: rx }, { formId: rx }, { name: rx }, { mobile: rx }, { 'guarantor.name': rx }, { 'guarantor.mobile': rx }];
+  if (/^\d{4}$/.test(text)) {
+    const tail = new RegExp(`${text}$`);
+    or.push({ aadhaar: tail }, { 'guarantor.aadhaar': tail });
+  }
+  if (/^[A-Za-z0-9]{4,10}$/.test(text) && /[A-Za-z]/.test(text)) {
+    const pan = new RegExp(`^${escapeRegex(text.toUpperCase())}`);
+    or.push({ pan }, { 'guarantor.pan': pan });
+  }
+  return { $or: or };
+}
+
+// How a listed member matched (own details, or via the guarantor).
+function matchedVia(m, q) {
+  const text = asString(q).toLowerCase();
+  if (!text) return '';
+  const has = (v) => String(v || '').toLowerCase().includes(text);
+  const own = [m.code, m.formId, m.name, m.mobile].some(has) || (/^\d{4}$/.test(text) && String(m.aadhaar || '').endsWith(text)) || String(m.pan || '').toLowerCase().startsWith(text);
+  if (own) return '';
+  const g = m.guarantor;
+  if (g?.name && (has(g.name) || has(g.mobile) || (/^\d{4}$/.test(text) && String(g.aadhaar || '').endsWith(text)) || String(g.pan || '').toLowerCase().startsWith(text))) return 'guarantor';
+  return '';
+}
+
 export async function listMembers(req, res) {
   const { page, limit, skip } = parsePaging(req.query, { defaultLimit: 25 });
   const filter = { isDeleted: false, ...branchFilter(req.user) };
@@ -409,15 +458,19 @@ export async function listMembers(req, res) {
   if (req.query.blocked === 'true') filter.isBlocked = true;
   if (req.query.blocked === 'false') filter.isBlocked = { $ne: true };
   const q = asString(req.query.q);
-  if (q) {
-    const rx = new RegExp(escapeRegex(q), 'i');
-    filter.$or = [{ code: rx }, { formId: rx }, { name: rx }, { mobile: rx }];
-  }
+  const search = memberSearchFilter(q);
+  if (search) Object.assign(filter, search);
   const [items, total] = await Promise.all([
     Member.find(filter).populate(POPULATE).sort({ createdAt: -1 }).skip(skip).limit(limit),
     Member.countDocuments(filter),
   ]);
-  res.json({ items: items.map((m) => present(m, req.user)), page, limit, total, totalPages: Math.max(Math.ceil(total / limit), 1) });
+  res.json({
+    items: items.map((m) => ({ ...present(m, req.user), matchedVia: matchedVia(m, q) })),
+    page,
+    limit,
+    total,
+    totalPages: Math.max(Math.ceil(total / limit), 1),
+  });
 }
 
 export async function getMember(req, res) {
@@ -624,11 +677,8 @@ export async function listKyc(req, res) {
     if (from) filter.createdAt.$gte = from;
     if (to) filter.createdAt.$lt = new Date(to.getTime() + 24 * 3600 * 1000);
   }
-  const q = asString(req.query.q);
-  if (q) {
-    const rx = new RegExp(escapeRegex(q), 'i');
-    filter.$or = [{ code: rx }, { formId: rx }, { name: rx }];
-  }
+  const search = memberSearchFilter(req.query.q);
+  if (search) Object.assign(filter, search);
   const status = asString(req.query.status);
 
   // Status is derived from the documents, so it is applied after loading (member sets are branch-sized).
@@ -791,4 +841,17 @@ export async function employeeOptions(req, res) {
     items: users.map((u) => ({ code: u.employeeCode, name: u.name, role: u.role })),
     me: await staffId(req.user),
   });
+}
+
+// ---- lookups used by the registration form ------------------------------------------------------------------
+export async function pincodeInfo(req, res) {
+  const pin = String(req.params.pin || '');
+  if (!PINCODE_RE.test(pin)) throw new HttpError(422, 'Enter a valid 6-digit pincode');
+  res.json(await lookupPincode(pin));
+}
+
+export async function ifscInfo(req, res) {
+  const code = String(req.params.code || '').toUpperCase();
+  if (!IFSC_RE.test(code)) throw new HttpError(422, 'Enter a valid IFSC code (e.g. SBIN0001234)');
+  res.json(await lookupIfsc(code));
 }

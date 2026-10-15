@@ -132,7 +132,7 @@ export default function BorrowerBlock() {
       <PageHeader title="Borrower Block & Unblock" description="Filter by member code, then block or unblock a borrower. Every change is recorded with the reason." />
       <div className="panel">
         <div className="toolbar">
-          <input type="search" className="toolbar-search" placeholder="Member code (e.g. MEM000001), name or mobile" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search member" />
+          <input type="search" className="toolbar-search" placeholder="Search by name, member code, form ID, mobile, last 4 digits of Aadhaar or PAN (guarantor details too)" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search member" />
           <select value={state} onChange={(e) => setState(e.target.value)} aria-label="Filter by status">
             <option value="">All members</option>
             <option value="active">Active</option>
