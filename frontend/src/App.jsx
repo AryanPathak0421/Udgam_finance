@@ -19,6 +19,7 @@ import LoanCalculator from './pages/adminMaster/LoanCalculator.jsx';
 import LoanScheme from './pages/adminMaster/LoanScheme.jsx';
 import AccountGroupMaster from './pages/adminMaster/AccountGroupMaster.jsx';
 import LedgerMaster from './pages/adminMaster/LedgerMaster.jsx';
+import NewBorrower from './pages/NewBorrower.jsx';
 import Groups from './pages/Groups.jsx';
 import GroupLeaderCommission from './pages/GroupLeaderCommission.jsx';
 import Layout from './components/Layout.jsx';
@@ -26,6 +27,7 @@ import { routableItems, canOpenPath } from './config/nav.js';
 
 // Pages that exist; every other nav path renders the placeholder.
 const PAGES = {
+  '/members/new-borrower': NewBorrower,
   '/groups': Groups,
   '/group-leader-commission': GroupLeaderCommission,
   '/admin-master/company-profile': CompanyProfile,

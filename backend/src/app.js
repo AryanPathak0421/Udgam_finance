@@ -5,6 +5,7 @@ import cookieParser from 'cookie-parser';
 import authRoutes from './routes/authRoutes.js';
 import adminMasterRoutes from './routes/adminMasterRoutes.js';
 import groupRoutes from './routes/groupRoutes.js';
+import memberRoutes from './routes/memberRoutes.js';
 
 const app = express();
 
@@ -36,6 +37,7 @@ app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 app.use('/api/auth', authRoutes);
 app.use('/api/admin-master', adminMasterRoutes);
 app.use('/api', groupRoutes);
+app.use('/api', memberRoutes);
 
 app.use((_req, res) => res.status(404).json({ message: 'Not found' }));
 

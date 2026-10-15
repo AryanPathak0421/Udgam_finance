@@ -56,6 +56,15 @@ export const api = {
     disbursements: (id) => request(`/groups/${id}/disbursements`),
     saveDisbursement: (id, month, loans) => request(`/groups/${id}/disbursements`, { method: 'PUT', body: { month, loans } }),
   },
+  members: {
+    options: () => request('/members/options'),
+    districts: (state) => request(`/members/districts${qs({ state })}`),
+    list: (params) => request(`/members${qs(params)}`),
+    get: (id) => request(`/members/${id}`),
+    create: (data) => request('/members', { method: 'POST', body: data }),
+    sendOtp: (data) => request('/members/otp/send', { method: 'POST', body: data }),
+    verifyOtp: (challengeId, otp) => request('/members/otp/verify', { method: 'POST', body: { challengeId, otp } }),
+  },
   groupCommission: {
     report: (params) => request(`/group-leader-commission${qs(params)}`),
     generate: () => request('/group-leader-commission/generate', { method: 'POST' }),
