@@ -455,7 +455,7 @@ function RequisitionForm({ kind }) {
                     ['Interest', `${scheme.roiMin}% – ${scheme.roiMax}% p.a. (${scheme.calculationType})`],
                     ['Age', `${scheme.ageMin} – ${scheme.ageMax} years`],
                     ['Repayment', scheme.modes.map((m) => m.label).join(', ')],
-                    ['Security', scheme.securityType === 'none' ? 'None' : `${scheme.securityType.replace('_', ' ')} (${scheme.securityPercent}%)`],
+                    ['Security', scheme.securityType === 'none' ? 'None' : `${scheme.securityType.replace('_', ' ')} (${scheme.securityDeposit?.type === 'fixed' ? inr(scheme.securityDeposit.value) : `${scheme.securityDeposit?.value ?? scheme.securityPercent}%`})`],
                   ]}
                 />
               </div>

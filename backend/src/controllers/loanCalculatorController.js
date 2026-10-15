@@ -1,4 +1,4 @@
-﻿import mongoose from 'mongoose';
+import mongoose from 'mongoose';
 import {
   calculateLoan,
   MODES,
@@ -40,7 +40,7 @@ export function getLoanCalculatorOptions(_req, res) {
       { value: 'equal', label: 'Equal installments (EMI)' },
       { value: 'equal_principal', label: 'Equal principal (declining installments)' },
     ],
-    roundingOptions: ROUNDING_RUPEES.map((v) => ({ value: v, label: v === 0 ? 'No rounding (exact)' : `Nearest ₹${v}` })),
+    roundingOptions: ROUNDING_RUPEES.map((v) => ({ value: v, label: v === 0 ? 'None (exact amount, no rounding)' : `Nearest ₹${v}` })),
     modes: Object.entries(MODES).map(([value, m]) => ({ value, label: m.label, unit: m.unit, perYear: m.perYear })),
     limits: { maxInstallments: MAX_INSTALLMENTS, maxYears: MAX_YEARS },
   });
@@ -122,7 +122,12 @@ export async function evaluateLoan(b = {}) {
     ? {
         processingFee: rupees(chargeAmount(scheme.processingFee, principalPaise)),
         cost: rupees(chargeAmount(scheme.cost, principalPaise)),
-        securityAmount: rupees(chargeAmount({ type: 'percentage', value: scheme.securityBp }, principalPaise)),
+        securityAmount: rupees(
+          scheme.securityDeposit?.type === 'fixed'
+            ? scheme.securityDeposit.value
+            : chargeAmount({ type: 'percentage', value: scheme.securityDeposit?.value ?? scheme.securityBp ?? 0 }, principalPaise)
+        ),
+        securityDepositType: scheme.securityDeposit?.type || 'percentage',
         securityType: scheme.securityType,
         gracePeriodDays: scheme.gracePeriodDays ?? 0,
         fine: {

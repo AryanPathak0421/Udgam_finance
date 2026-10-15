@@ -42,7 +42,9 @@ const loanSchemeSchema = new mongoose.Schema(
     emiType: { type: String, enum: ['equal', 'equal_principal'], default: 'equal' },
 
     securityType: { type: String, enum: SECURITY_TYPES, default: 'none' },
-    securityBp: { type: Number, default: 0, min: 0, max: 10000 }, // security amount as % of loan
+    securityBp: { type: Number, default: 0, min: 0, max: 10000 }, // security deposit as % of loan (kept in step with securityDeposit)
+    // Security deposit: a percentage of the loan (basis points) or a fixed amount (paise).
+    securityDeposit: { type: chargeSchema },
     processingFee: { type: chargeSchema, required: true },
     cost: { type: chargeSchema, required: true },
 

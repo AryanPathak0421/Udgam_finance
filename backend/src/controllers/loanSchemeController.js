@@ -1,4 +1,4 @@
-﻿import { LoanScheme, LOAN_TYPES, TERM_UNITS, SECURITY_TYPES, CHARGE_TYPES, FINE_COUNTING, ROUNDING_OPTIONS } from '../models/LoanScheme.js';
+import { LoanScheme, LOAN_TYPES, TERM_UNITS, SECURITY_TYPES, CHARGE_TYPES, FINE_COUNTING, ROUNDING_OPTIONS } from '../models/LoanScheme.js';
 import { MODES, CALCULATION_TYPES, EMI_TYPES } from '../services/loanCalculator.js';
 import { asString, createValidator, escapeRegex, parsePaging, HttpError } from '../utils/http.js';
 import { toMinor } from '../utils/money.js';
@@ -32,6 +32,9 @@ export const presentScheme = (s) => ({
   emiType: s.emiType,
   securityType: s.securityType,
   securityPercent: pct(s.securityBp),
+  securityDeposit: s.securityDeposit?.type === 'fixed'
+    ? { type: 'fixed', value: rs(s.securityDeposit.value) }
+    : { type: 'percentage', value: pct(s.securityDeposit?.value ?? s.securityBp ?? 0) },
   processingFee: { type: s.processingFee.type, value: s.processingFee.type === 'percentage' ? pct(s.processingFee.value) : rs(s.processingFee.value) },
   cost: { type: s.cost.type, value: s.cost.type === 'percentage' ? pct(s.cost.value) : rs(s.cost.value) },
   installmentRounding: s.installmentRounding ?? 1,
@@ -122,10 +125,21 @@ function readScheme(b) {
 
   out.securityType = String(b.securityType || 'none');
   if (!SECURITY_TYPES.includes(out.securityType)) v.add('securityType', 'Select a security type');
-  const sec = toMinor(b.securityPercent === '' || b.securityPercent === undefined ? '0' : b.securityPercent);
-  if (sec === null || sec > MAX_BP) v.add('securityPercent', 'Enter a percentage from 0 to 100 (up to 2 decimals)');
-  else if (out.securityType === 'none' && sec > 0) v.add('securityPercent', 'Choose a security type, or set this to 0');
-  out.securityBp = sec ?? 0;
+// Security deposit: a percentage of the loan or a fixed amount (older clients send securityPercent only).
+  const dep = b.securityDeposit && typeof b.securityDeposit === 'object'
+    ? b.securityDeposit
+    : { type: 'percentage', value: b.securityPercent };
+  const depType = String(dep.type || 'percentage');
+  if (!CHARGE_TYPES.includes(depType)) v.add('securityDeposit', 'Select percentage or fixed amount');
+  const depValue = toMinor(dep.value === '' || dep.value === undefined ? '0' : dep.value);
+  const depMax = depType === 'percentage' ? MAX_BP : MAX_FIXED_PAISE;
+  if (depValue === null || depValue > depMax) {
+    v.add('securityDeposit', depType === 'percentage' ? 'Enter a percentage from 0 to 100 (up to 2 decimals)' : 'Enter a valid amount (up to 2 decimals)');
+  } else if (out.securityType === 'none' && depValue > 0) {
+    v.add('securityDeposit', 'Choose a security type, or set this to 0');
+  }
+  out.securityDeposit = { type: depType, value: depValue ?? 0 };
+  out.securityBp = depType === 'percentage' ? depValue ?? 0 : 0;
 
   out.processingFee = readCharge(b.processingFee, 'processingFee', 'processing fee', v);
   out.cost = readCharge(b.cost, 'cost', 'cost', v);

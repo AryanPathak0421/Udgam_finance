@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api } from '../../api/client.js';
 import FormField from '../../components/ui/FormField.jsx';
 import Modal from '../../components/ui/Modal.jsx';
@@ -44,10 +44,10 @@ export const FINE_COUNTING = [
   ['one_time', 'One time (once, when grace ends)'],
 ];
 export const ROUNDING = [
+  ['0', 'None (exact amount, no rounding)'],
   ['1', 'Nearest ₹1 (whole rupee)'],
   ['5', 'Nearest ₹5'],
   ['10', 'Nearest ₹10'],
-  ['0', 'No rounding (exact)'],
 ];
 const TERM_UNITS = [
   ['days', 'Days'],
@@ -64,7 +64,7 @@ const EMPTY = {
   ageMin: '18', ageMax: '60',
   roiMin: '', roiMax: '',
   modes: [], calculationType: 'flat', emiType: 'equal',
-  securityType: 'none', securityPercent: '0',
+  securityType: 'none', securityDeposit: { type: 'percentage', value: '0' },
   processingFee: { type: 'percentage', value: '0' },
   cost: { type: 'percentage', value: '0' },
   installmentRounding: '1',
@@ -79,7 +79,8 @@ const toForm = (s) => ({
   ageMin: String(s.ageMin), ageMax: String(s.ageMax),
   roiMin: String(s.roiMin), roiMax: String(s.roiMax),
   modes: s.modes, calculationType: s.calculationType, emiType: s.emiType,
-  securityType: s.securityType, securityPercent: String(s.securityPercent),
+  securityType: s.securityType,
+  securityDeposit: { type: s.securityDeposit?.type || 'percentage', value: String(s.securityDeposit?.value ?? s.securityPercent ?? 0) },
   processingFee: { type: s.processingFee.type, value: String(s.processingFee.value) },
   cost: { type: s.cost.type, value: String(s.cost.value) },
   installmentRounding: String(s.installmentRounding ?? 1),
@@ -111,8 +112,9 @@ function validate(f, isEdit) {
   if (!e.roiMin && !e.roiMax && Number(f.roiMax) < Number(f.roiMin)) e.roiMax = 'Max ROI must not be less than Min ROI';
 
   if (!f.modes.length) e.modes = 'Select at least one loan mode';
-  if (!money(f.securityPercent) || Number(f.securityPercent) > 100) e.securityPercent = '0 to 100';
-  else if (f.securityType === 'none' && Number(f.securityPercent) > 0) e.securityPercent = 'Choose a security type, or set 0';
+  const dep = f.securityDeposit;
+  if (!money(dep.value) || (dep.type === 'percentage' && Number(dep.value) > 100)) e.securityDeposit = dep.type === 'percentage' ? '0 to 100' : 'Enter an amount';
+  else if (f.securityType === 'none' && Number(dep.value) > 0) e.securityDeposit = 'Choose a security type, or set 0';
   if (!int(f.gracePeriodDays) || Number(f.gracePeriodDays) > 365) e.gracePeriodDays = 'Whole days, 0 to 365';
   for (const k of ['processingFee', 'cost', 'fine']) {
     const c = f[k];
@@ -278,9 +280,7 @@ function SchemeForm({ item, onClose, onSaved }) {
               {SECURITY_TYPES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
             </select>
           </FormField>
-          <FormField id="securityPercent" label="Security amount (% of loan)" error={errors.securityPercent}>
-            <input id="securityPercent" inputMode="decimal" value={form.securityPercent} onChange={set('securityPercent')} />
-          </FormField>
+          {ChargeField({ id: 'securityDeposit', title: 'Security deposit', hint: '% of the loan amount, or a fixed ₹' })}
           {ChargeField({ id: 'processingFee', title: 'Processing fee' })}
           {ChargeField({ id: 'cost', title: 'Cost (insurance / other)' })}
         </div>
@@ -468,7 +468,7 @@ export default function LoanScheme() {
               ['Calculation', dialog.item.calculationType === 'flat' ? 'Flat' : 'Reducing balance'],
               ['EMI type', dialog.item.emiType === 'equal' ? 'Equal installments' : 'Equal principal'],
               ['Security type', label(SECURITY_TYPES, dialog.item.securityType)],
-              ['Security amount', `${dialog.item.securityPercent}% of loan`],
+              ['Security deposit', dialog.item.securityDeposit?.type === 'fixed' ? `₹${dialog.item.securityDeposit.value} fixed` : `${dialog.item.securityDeposit?.value ?? dialog.item.securityPercent}% of loan`],
               ['Processing fee', charge(dialog.item.processingFee)],
               ['Cost', charge(dialog.item.cost)],
               ['Installment rounding', dialog.item.installmentRounding ? `Nearest ₹${dialog.item.installmentRounding}` : 'None (exact)'],

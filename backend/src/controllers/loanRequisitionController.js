@@ -47,6 +47,9 @@ const presentScheme = (s) => ({
   emiType: s.emiType,
   securityType: s.securityType,
   securityPercent: s.securityBp / 100,
+  securityDeposit: s.securityDeposit?.type === 'fixed'
+    ? { type: 'fixed', value: s.securityDeposit.value / 100 }
+    : { type: 'percentage', value: (s.securityDeposit?.value ?? s.securityBp ?? 0) / 100 },
   processingFee: { type: s.processingFee.type, value: s.processingFee.value / 100 },
   gracePeriodDays: s.gracePeriodDays || 0,
 });
