@@ -24,13 +24,19 @@ function AddMembersDialog({ group, existing, onClose, onDone }) {
   const toggle = useCallback((m) => {
     setSelected((list) => (list.some((x) => x.id === m.id) ? list.filter((x) => x.id !== m.id) : [...list, m]));
   }, []);
+  const toggleAll = useCallback((shown, on) => {
+    setSelected((cur) => {
+      const rest = cur.filter((x) => !shown.some((m) => m.id === x.id));
+      return on ? [...rest, ...shown] : rest;
+    });
+  }, []);
 
   async function submit() {
     setBusy(true);
     setError('');
     try {
       const r = await api.groups.addMembers(group.id, selected.map((m) => m.id));
-      toast.success(r.message);
+      toast.success(`${r.message}. Total members in the group: ${r.memberCount}`);
       onDone();
     } catch (err) {
       setError(err.errors?.members || err.message);
@@ -75,7 +81,7 @@ function AddMembersDialog({ group, existing, onClose, onDone }) {
           </div>
         </>
       ) : (
-        <MemberPicker branch={group.branchId} selected={selected} onToggle={toggle} exclude={existing} />
+        <MemberPicker branch={group.branchId} selected={selected} onToggle={toggle} onToggleAll={toggleAll} exclude={existing} />
       )}
     </Modal>
   );
