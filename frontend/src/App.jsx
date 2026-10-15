@@ -20,7 +20,7 @@ import LoanScheme from './pages/adminMaster/LoanScheme.jsx';
 import AccountGroupMaster from './pages/adminMaster/AccountGroupMaster.jsx';
 import LedgerMaster from './pages/adminMaster/LedgerMaster.jsx';
 import NewBorrower from './pages/NewBorrower.jsx';
-import { GuarantorDetail, NomineeDetail } from './pages/MemberParty.jsx';
+import GuarantorNominee from './pages/GuarantorNominee.jsx';
 import KycApproval from './pages/KycApproval.jsx';
 import GuarantorChange from './pages/GuarantorChange.jsx';
 import BorrowerSynopsis from './pages/BorrowerSynopsis.jsx';
@@ -37,12 +37,11 @@ import { routableItems, canOpenPath } from './config/nav.js';
 // Pages that exist; every other nav path renders the placeholder.
 const PAGES = {
   '/members/new-borrower': NewBorrower,
-  '/members/guarantor-detail': GuarantorDetail,
+  '/members/guarantor-detail': GuarantorNominee,
   '/members/kyc-approval': KycApproval,
   '/members/guarantor-change': GuarantorChange,
   '/members/borrower-synopsis': BorrowerSynopsis,
   '/members/block-unblock': BorrowerBlock,
-  '/members/nominee-detail': NomineeDetail,
   '/loan-requisition/personal': PersonalLoanRequisition,
   '/loan-requisition/group': GroupLoanRequisition,
   '/loan-requisition/business': BusinessLoanRequisition,
@@ -98,6 +97,7 @@ export default function App() {
         <Route index element={<Dashboard />} />
         <Route path="/admin-master" element={<Navigate to="/admin-master/company-profile" replace />} />
         <Route path="/groups" element={<Navigate to="/group-master/list" replace />} />
+        <Route path="/members/nominee-detail" element={<Navigate to="/members/guarantor-detail" replace />} />
         <Route path="/loan-requisition" element={<Navigate to="/loan-requisition/list" replace />} />
         <Route path="/group-master" element={<Navigate to="/group-master/list" replace />} />
         {routes.map((r) => {

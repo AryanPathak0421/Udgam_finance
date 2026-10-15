@@ -21,6 +21,17 @@ function Badge({ status }) {
   return <span className={`badge ${TONE[status] || 'grey'}`}>{LABEL[status] || status}</span>;
 }
 
+// Status of one person's documents in the list ("—" when not added yet).
+function PartyBadge({ p }) {
+  if (!p || p.status === 'none') return <span className="muted">Not added</span>;
+  if (p.status === 'same') return <span className="muted">Same as guarantor</span>;
+  return (
+    <span className={`badge ${TONE[p.status]}`} title={`${p.approved}/${p.total} approved`}>
+      {LABEL[p.status]} {p.approved}/{p.total}
+    </span>
+  );
+}
+
 function ReviewDialog({ memberId, canApprove, canUpload, onClose, onChanged }) {
   const toast = useToast();
   const [data, setData] = useState(null);
@@ -163,6 +174,7 @@ export default function KycApproval() {
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState('pending');
   const [branch, setBranch] = useState('');
+  const [party, setParty] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [search, setSearch] = useState('');
@@ -177,17 +189,17 @@ export default function KycApproval() {
     setLoading(true);
     setError('');
     try {
-      setData(await api.members.kycList({ page, limit: LIMIT, status, branch, from, to, q }));
+      setData(await api.members.kycList({ page, limit: LIMIT, status, party, branch, from, to, q }));
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [page, status, branch, from, to, q]);
+  }, [page, status, party, branch, from, to, q]);
   useEffect(() => {
     load();
   }, [load]);
-  useEffect(() => setPage(1), [status, branch, from, to, q]);
+  useEffect(() => setPage(1), [status, party, branch, from, to, q]);
 
   const tab = (key, label) => (
     <button key={key} className={`btn sm${status === key ? ' primary' : ''}`} onClick={() => setStatus(key)}>
@@ -207,6 +219,12 @@ export default function KycApproval() {
             {tab('approved', 'Approved')}
             {tab('', 'All')}
           </div>
+          <select value={party} onChange={(e) => setParty(e.target.value)} aria-label="Person">
+            <option value="">Borrower, guarantor & nominee</option>
+            <option value="member">Borrower only</option>
+            <option value="guarantor">Guarantor only</option>
+            <option value="nominee">Nominee only</option>
+          </select>
           <input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} aria-label="From date" />
           <input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} aria-label="To date" />
           {branches.length > 1 && (
@@ -230,7 +248,7 @@ export default function KycApproval() {
             <div className={`table-wrap${loading ? ' dim' : ''}`}>
               <table className="data-table">
                 <thead>
-                  <tr><th>Date</th><th>Member code</th><th>Name</th><th>Branch</th><th className="num">Documents</th><th>Status</th><th className="actions-col">Actions</th></tr>
+                  <tr><th>Date</th><th>Member code</th><th>Name</th><th>Branch</th><th>Borrower</th><th>Guarantor</th><th>Nominee</th><th className="num">Documents</th><th>Status</th><th className="actions-col">Actions</th></tr>
                 </thead>
                 <tbody>
                   {data.items.map((r) => (
@@ -239,6 +257,9 @@ export default function KycApproval() {
                       <td data-label="Member code"><strong>{r.code}</strong></td>
                       <td data-label="Name">{r.name}</td>
                       <td data-label="Branch">{r.branch?.name || '—'}</td>
+                      <td data-label="Borrower"><PartyBadge p={r.parties.member} /></td>
+                      <td data-label="Guarantor"><PartyBadge p={r.parties.guarantor} /></td>
+                      <td data-label="Nominee"><PartyBadge p={r.parties.nominee} /></td>
                       <td data-label="Documents" className="num">
                         {r.approved}/{r.total}{r.rejected ? <span className="muted"> · {r.rejected} rejected</span> : null}
                       </td>

@@ -683,10 +683,26 @@ function kycStatusOf(docs) {
   return 'pending';
 }
 
+// KYC state of one person's documents: 'none' when nothing was uploaded for them.
+const partyState = (docs, who) => {
+  const list = docs.filter((d) => d.who === who);
+  if (!list.length) return { status: 'none', total: 0, approved: 0, rejected: 0, pending: 0 };
+  const n = (st) => list.filter((d) => d.status === st).length;
+  return { status: kycStatusOf(list), total: list.length, approved: n('approved'), rejected: n('rejected'), pending: n('pending') };
+};
+
 const kycSummary = (m, keys = m.kycKeys || []) => {
   const docs = docStates(m, keys);
   const count = (st) => docs.filter((d) => d.status === st).length;
+  const parties = {
+    member: partyState(docs, 'Member'),
+    guarantor: partyState(docs, 'Guarantor'),
+    nominee: partyState(docs, 'Nominee'),
+  };
+  // A nominee copied from the guarantor is covered by the guarantor's review.
+  if (m.nominee?.sameAsGuarantor) parties.nominee = { status: 'same', total: 0, approved: 0, rejected: 0, pending: 0 };
   return {
+    parties,
     id: m._id,
     code: m.code,
     formId: m.formId,
@@ -722,7 +738,7 @@ export async function listKyc(req, res) {
 
   // Status is derived from the documents, so it is applied after loading (member sets are branch-sized).
   const all = await Member.find(filter)
-    .select('name code formId mobile branch createdAt kycKeys kycDocs')
+    .select('name code formId mobile branch createdAt kycKeys kycDocs nominee.sameAsGuarantor')
     .populate(POPULATE)
     .sort({ createdAt: -1 });
   let rows = all.map((m) => kycSummary(m));
@@ -731,7 +747,12 @@ export async function listKyc(req, res) {
     rejected: rows.filter((r) => r.status === 'rejected').length,
     approved: rows.filter((r) => r.status === 'approved').length,
   };
-  if (['pending', 'rejected', 'approved'].includes(status)) rows = rows.filter((r) => r.status === status);
+  // Optionally look at one person only: borrower (member), guarantor or nominee.
+  const party = asString(req.query.party);
+  if (['member', 'guarantor', 'nominee'].includes(party)) {
+    rows = rows.filter((r) => ['pending', 'rejected', 'approved'].includes(r.parties[party].status));
+    if (['pending', 'rejected', 'approved'].includes(status)) rows = rows.filter((r) => r.parties[party].status === status);
+  } else if (['pending', 'rejected', 'approved'].includes(status)) rows = rows.filter((r) => r.status === status);
   const total = rows.length;
   res.json({
     items: rows.slice(skip, skip + limit),
