@@ -49,6 +49,10 @@ export const api = {
   groups: {
     list: (params) => request(`/groups${qs(params)}`),
     branchOptions: () => request('/groups/branch-options'),
+    get: (id) => request(`/groups/${id}`),
+    memberCandidates: (params) => request(`/groups/member-candidates${qs(params)}`),
+    addMembers: (id, memberIds) => request(`/groups/${id}/members`, { method: 'POST', body: { memberIds } }),
+    removeMember: (id, memberId) => request(`/groups/${id}/members/${memberId}`, { method: 'DELETE' }),
     create: (data) => request('/groups', { method: 'POST', body: data }),
     update: (id, data) => request(`/groups/${id}`, { method: 'PUT', body: data }),
     setStatus: (id, isActive) => request(`/groups/${id}/status`, { method: 'PATCH', body: { isActive } }),

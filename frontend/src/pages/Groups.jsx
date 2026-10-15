@@ -8,6 +8,8 @@ import Pagination from '../components/ui/Pagination.jsx';
 import { EmptyState, ErrorState, PageHeader, Spinner, StatusBadge } from '../components/ui/Feedback.jsx';
 import { useToast } from '../components/ui/Toast.jsx';
 import useDebounce from '../hooks/useDebounce.js';
+import { useNavigate } from 'react-router-dom';
+import GroupFields, { MEETING_LABEL, collectionLabel, formatTime, todayISO, validateGroup } from '../components/GroupFields.jsx';
 
 const LIMIT = 25;
 const ADMINS = ['super_admin', 'admin'];
@@ -16,43 +18,29 @@ const thisMonth = () => new Date().toISOString().slice(0, 7);
 
 function GroupForm({ item, branches, isAdmin, onClose, onSaved }) {
   const toast = useToast();
-  const isEdit = Boolean(item);
   const [form, setForm] = useState({
-    name: item?.name || '',
-    branch: item?.branchId || (branches.length === 1 ? branches[0].id : ''),
-    leaderName: item?.leaderName || '',
-    leaderMobile: item?.leaderMobile || '',
+    branch: item.branchId,
+    name: item.name,
+    openingDate: item.openingDate || todayISO(),
+    employeeCode: item.employeeCode || '',
+    leaderName: item.leaderName,
+    leaderMobile: item.leaderMobile,
+    meetingType: item.meetingType || '',
+    collectionDay: item.collectionDay ? String(item.collectionDay) : '',
+    meetingTime: item.meetingTime || '',
   });
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
-  // The registered number can only be changed by an admin once the group exists.
-  const mobileLocked = isEdit && !isAdmin;
-
-  const set = (key) => (e) => {
-    setForm((f) => ({ ...f, [key]: e.target.value }));
-    setErrors((er) => ({ ...er, [key]: undefined }));
-  };
 
   async function submit(e) {
     e.preventDefault();
-    const found = {};
-    if (form.name.trim().length < 2) found.name = 'Group name is required';
-    if (!form.branch) found.branch = 'Select a branch';
-    if (form.leaderName.trim().length < 2) found.leaderName = 'Group leader name is required';
-    if (!mobileLocked && !/^[6-9]\d{9}$/.test(form.leaderMobile)) found.leaderMobile = 'Enter a valid 10-digit mobile number';
+    const found = validateGroup(form, { isEdit: true, mobileLocked: !isAdmin });
     setErrors(found);
-    if (Object.keys(found).length) return;
+    if (Object.keys(found).length) return toast.error('Please correct the highlighted fields');
     setSaving(true);
     try {
-      const payload = {
-        name: form.name.trim(),
-        branch: form.branch,
-        leaderName: form.leaderName.trim(),
-        leaderMobile: form.leaderMobile,
-      };
-      if (isEdit) await api.groups.update(item.id, payload);
-      else await api.groups.create(payload);
-      toast.success(isEdit ? 'Group updated' : 'Group added');
+      await api.groups.update(item.id, { ...form, name: form.name.trim(), leaderName: form.leaderName.trim() });
+      toast.success('Group updated');
       onSaved();
     } catch (err) {
       setErrors(err.errors || {});
@@ -65,52 +53,19 @@ function GroupForm({ item, branches, isAdmin, onClose, onSaved }) {
   return (
     <Modal
       open
-      title={isEdit ? `Edit group — ${item.code}` : 'Add group'}
+      size="lg"
+      title={`Edit group — ${item.code}`}
       onClose={onClose}
       busy={saving}
       footer={
         <>
           <button className="btn" onClick={onClose} disabled={saving}>Cancel</button>
-          <button className="btn primary" type="submit" form="grp-form" disabled={saving}>
-            {saving ? 'Saving…' : isEdit ? 'Update group' : 'Save group'}
-          </button>
+          <button className="btn primary" type="submit" form="grp-form" disabled={saving}>{saving ? 'Saving…' : 'Update group'}</button>
         </>
       }
     >
-      <form id="grp-form" onSubmit={submit} noValidate className="form-grid">
-        {isEdit && (
-          <FormField id="code" label="Group code">
-            <input id="code" value={item.code} disabled />
-          </FormField>
-        )}
-        <FormField id="name" label="Group name" required error={errors.name}>
-          <input id="name" value={form.name} onChange={set('name')} maxLength={80} autoFocus />
-        </FormField>
-        <FormField id="branch" label="Branch" required error={errors.branch}>
-          <select id="branch" value={form.branch} onChange={set('branch')}>
-            <option value="">Select branch</option>
-            {branches.map((b) => <option key={b.id} value={b.id}>{b.code} — {b.name}</option>)}
-          </select>
-        </FormField>
-        <FormField id="leaderName" label="Group leader name" required error={errors.leaderName}>
-          <input id="leaderName" value={form.leaderName} onChange={set('leaderName')} maxLength={80} />
-        </FormField>
-        <FormField
-          id="leaderMobile"
-          label="Leader mobile number"
-          required
-          error={errors.leaderMobile}
-          hint={mobileLocked ? 'Only an admin can change the registered mobile number' : 'OTP for commission deposit is sent to this number'}
-        >
-          <input
-            id="leaderMobile"
-            value={form.leaderMobile}
-            onChange={(e) => setForm((f) => ({ ...f, leaderMobile: e.target.value.replace(/\D/g, '').slice(0, 10) }))}
-            inputMode="numeric"
-            maxLength={10}
-            disabled={mobileLocked}
-          />
-        </FormField>
+      <form id="grp-form" onSubmit={submit} noValidate>
+        <GroupFields form={form} setForm={setForm} errors={errors} setErrors={setErrors} branches={branches} isAdmin={isAdmin} isEdit groupCode={item.code} branchLocked />
       </form>
     </Modal>
   );
@@ -208,6 +163,7 @@ function DisbursementDialog({ group, canEdit, onClose }) {
 
 export default function Groups() {
   const toast = useToast();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const isAdmin = ADMINS.includes(user?.role);
   const canManage = MANAGERS.includes(user?.role);
@@ -265,9 +221,9 @@ export default function Groups() {
   return (
     <>
       <PageHeader
-        title="Centers & Groups"
-        description="Loan groups with their leader. The commission OTP goes to the leader's registered mobile number."
-        actions={canManage && <button className="btn primary" onClick={() => setDialog({ type: 'form' })}>+ Add Group</button>}
+        title="Group List"
+        description="All groups with their leader, employee and meeting schedule. The commission OTP goes to the leader's registered mobile number."
+        actions={canManage && <button className="btn primary" onClick={() => navigate('/group-master/create')}>+ Create Group</button>}
       />
 
       <div className="panel">
@@ -303,6 +259,9 @@ export default function Groups() {
                     <th>Group name</th>
                     <th>Branch</th>
                     <th>Leader</th>
+                    <th>Employee</th>
+                    <th>Meeting</th>
+                    <th className="num">Members</th>
                     <th>Leader mobile</th>
                     <th>Status</th>
                     <th className="actions-col">Actions</th>
@@ -315,6 +274,9 @@ export default function Groups() {
                       <td data-label="Group">{g.name}</td>
                       <td data-label="Branch">{g.branch ? `${g.branch.code} — ${g.branch.name}` : '—'}</td>
                       <td data-label="Leader">{g.leaderName}</td>
+                      <td data-label="Employee">{g.employeeCode ? `${g.employeeCode}${g.employeeName ? ` — ${g.employeeName}` : ''}` : '—'}</td>
+                      <td data-label="Meeting">{g.meetingType ? `${MEETING_LABEL[g.meetingType]} · ${collectionLabel(g)} · ${formatTime(g.meetingTime)}` : '—'}</td>
+                      <td data-label="Members" className="num">{g.memberCount}</td>
                       <td data-label="Mobile">{g.leaderMobile}</td>
                       <td data-label="Status"><StatusBadge active={g.isActive} /></td>
                       <td data-label="Actions" className="actions-col">
@@ -335,8 +297,8 @@ export default function Groups() {
         )}
       </div>
 
-      {dialog?.type === 'form' && (
-        <GroupForm item={dialog.item || null} branches={branches} isAdmin={isAdmin} onClose={close} onSaved={() => { close(); load(); }} />
+      {dialog?.type === 'form' && dialog.item && (
+        <GroupForm item={dialog.item} branches={branches} isAdmin={isAdmin} onClose={close} onSaved={() => { close(); load(); }} />
       )}
       {dialog?.type === 'loans' && <DisbursementDialog group={dialog.item} canEdit={canManage} onClose={close} />}
 

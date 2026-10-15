@@ -26,6 +26,8 @@ import GuarantorChange from './pages/GuarantorChange.jsx';
 import BorrowerSynopsis from './pages/BorrowerSynopsis.jsx';
 import BorrowerBlock from './pages/BorrowerBlock.jsx';
 import Groups from './pages/Groups.jsx';
+import GroupCreate from './pages/GroupCreate.jsx';
+import GroupMembers from './pages/GroupMembers.jsx';
 import GroupLeaderCommission from './pages/GroupLeaderCommission.jsx';
 import Layout from './components/Layout.jsx';
 import { routableItems, canOpenPath } from './config/nav.js';
@@ -39,7 +41,9 @@ const PAGES = {
   '/members/borrower-synopsis': BorrowerSynopsis,
   '/members/block-unblock': BorrowerBlock,
   '/members/nominee-detail': NomineeDetail,
-  '/groups': Groups,
+  '/group-master/create': GroupCreate,
+  '/group-master/list': Groups,
+  '/group-master/members': GroupMembers,
   '/group-leader-commission': GroupLeaderCommission,
   '/admin-master/company-profile': CompanyProfile,
   '/admin-master/branches': BranchMaster,
@@ -86,6 +90,8 @@ export default function App() {
       <Route element={<RequireAuth><Layout /></RequireAuth>}>
         <Route index element={<Dashboard />} />
         <Route path="/admin-master" element={<Navigate to="/admin-master/company-profile" replace />} />
+        <Route path="/groups" element={<Navigate to="/group-master/list" replace />} />
+        <Route path="/group-master" element={<Navigate to="/group-master/list" replace />} />
         {routes.map((r) => {
           const Page = PAGES[r.path] || ModulePlaceholder;
           return <Route key={r.path} path={r.path} element={<RequirePath path={r.path}><Page /></RequirePath>} />;

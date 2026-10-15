@@ -11,6 +11,10 @@ import {
   deleteGroup,
   listDisbursements,
   saveDisbursement,
+  getGroup,
+  memberCandidates,
+  addGroupMembers,
+  removeGroupMember,
 } from '../controllers/groupController.js';
 import { report, generate, sendOtp, verifyOtp } from '../controllers/groupLeaderCommissionController.js';
 
@@ -26,6 +30,10 @@ const otpLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 40, standardHead
 // Groups
 router.get('/groups', requireAuth, requireRole(...READ), h(listGroups));
 router.get('/groups/branch-options', requireAuth, requireRole(...MANAGE), h(groupBranchOptions));
+router.get('/groups/member-candidates', requireAuth, requireRole(...MANAGE), h(memberCandidates));
+router.get('/groups/:id', requireAuth, requireRole(...READ), h(getGroup));
+router.post('/groups/:id/members', requireAuth, requireRole(...MANAGE), h(addGroupMembers));
+router.delete('/groups/:id/members/:memberId', requireAuth, requireRole(...MANAGE), h(removeGroupMember));
 router.post('/groups', requireAuth, requireRole(...MANAGE), h(createGroup));
 router.put('/groups/:id', requireAuth, requireRole(...MANAGE), h(updateGroup));
 router.patch('/groups/:id/status', requireAuth, requireRole(...MANAGE), h(setGroupStatus));

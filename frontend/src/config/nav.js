@@ -57,10 +57,25 @@ export const NAV_SECTIONS = [
     ],
   },
   {
+    title: 'Group Master',
+    items: [
+      {
+        label: 'Group Master',
+        path: '/group-master',
+        icon: 'group',
+        roles: [...MGMT, 'loan_officer', 'field_officer', 'collection_officer', 'accountant', 'viewer'],
+        children: [
+          { label: 'Create Group', path: '/group-master/create', icon: 'userplus', roles: [...MGMT, 'loan_officer', 'field_officer'] },
+          { label: 'Group List', path: '/group-master/list', icon: 'users' },
+          { label: 'Group Members', path: '/group-master/members', icon: 'customer' },
+        ],
+      },
+    ],
+  },
+  {
     title: 'Organisation',
     items: [
       { label: 'Employees', path: '/employees', icon: 'users', roles: [...MGMT, 'accountant', 'viewer'] },
-      { label: 'Centers & Groups', path: '/groups', icon: 'group', roles: [...MGMT, 'loan_officer', 'field_officer', 'collection_officer', 'accountant', 'viewer'] },
     ],
   },
   {
