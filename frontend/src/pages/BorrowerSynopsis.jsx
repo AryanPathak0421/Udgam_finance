@@ -4,6 +4,8 @@ import { DetailList, EmptyState, ErrorState, PageHeader, Spinner } from '../comp
 import { useToast } from '../components/ui/Toast.jsx';
 import useDebounce from '../hooks/useDebounce.js';
 import { downloadMemberPdf } from '../utils/memberPdf.js';
+import { useAuth } from '../context/AuthContext.jsx';
+import { BorrowerForm } from './NewBorrower.jsx';
 
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : '');
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-IN') : '—');
@@ -48,6 +50,9 @@ function Person({ p }) {
 
 export default function BorrowerSynopsis() {
   const toast = useToast();
+  const { user } = useAuth();
+  const isAdmin = ['super_admin', 'admin'].includes(user?.role);
+  const [editing, setEditing] = useState(null); // { branches, options } while the admin edits
   const [search, setSearch] = useState('');
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
@@ -89,7 +94,7 @@ export default function BorrowerSynopsis() {
         <PageHeader title="Borrower Synopsis" description="Search by member code to see everything about a borrower, from A to Z." />
         <div className="panel">
           <div className="toolbar">
-            <input type="search" className="toolbar-search" placeholder="Search by name, member code, form ID, mobile, last 4 digits of Aadhaar or PAN (guarantor details too)" value={search}
+            <input type="search" className="toolbar-search" placeholder="Search by member code, name, form ID, mobile, Aadhaar number (or last 4 digits) or PAN number" value={search}
               onChange={(e) => setSearch(e.target.value)} autoFocus aria-label="Search member" />
           </div>
           {error && <ErrorState message={error} />}
@@ -122,6 +127,34 @@ export default function BorrowerSynopsis() {
   }
 
   const { member: m, kyc, blockHistory, timeline } = data;
+
+  async function startEdit() {
+    try {
+      const [b, o] = await Promise.all([api.groups.branchOptions(), api.members.options()]);
+      setEditing({ branches: b.items, options: o });
+    } catch (err) {
+      toast.error(err.message);
+    }
+  }
+
+  if (editing) {
+    return (
+      <>
+        <PageHeader title={`Edit details — ${m.name} (${m.code})`} description="Only an admin can change a member's details. Replaced photos and a changed name or Aadhaar go back to KYC approval." />
+        <BorrowerForm
+          member={m}
+          branches={editing.branches}
+          options={editing.options}
+          onCancel={() => setEditing(null)}
+          onSaved={async () => {
+            setEditing(null);
+            setData(await api.members.synopsis(m.id));
+          }}
+        />
+      </>
+    );
+  }
+
   return (
     <>
       <PageHeader
@@ -129,6 +162,7 @@ export default function BorrowerSynopsis() {
         description={`Form ID ${m.formId} · ${m.branch ? m.branch.name : ''} · Joined ${fmtDate(m.joiningDate)}`}
         actions={
           <>
+            {isAdmin && <button className="btn primary" onClick={startEdit}>Edit details</button>}
             <button className="btn" onClick={() => downloadMemberPdf(m)}>Download PDF</button>
             <button className="btn" onClick={() => setData(null)}>Search another</button>
           </>

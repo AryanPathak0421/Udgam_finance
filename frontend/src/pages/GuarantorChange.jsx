@@ -187,6 +187,11 @@ export default function GuarantorChange() {
         <>
           <PersonCard title="Current guarantor" p={member.guarantor} note={`Added ${fmtTime(member.guarantor.savedAt)}`} />
 
+          {member.isBlocked && (
+            <div className="notice warn" style={{ marginTop: 14 }}>
+              This member is blocked{member.blockReason ? ` — ${member.blockReason}` : ''}. The guarantor cannot be changed until the member is unblocked.
+            </div>
+          )}
           <form onSubmit={submit} noValidate style={{ marginTop: 14 }}>
             <div className="panel" style={{ padding: 18, marginBottom: 14 }}>
               <h3 className="section-title">New guarantor</h3>
@@ -224,7 +229,7 @@ export default function GuarantorChange() {
               </div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-              <button type="submit" className="btn primary" disabled={saving}>{saving ? 'Saving…' : 'Change guarantor'}</button>
+              <button type="submit" className="btn primary" disabled={saving || member.isBlocked}>{saving ? 'Saving…' : 'Change guarantor'}</button>
             </div>
           </form>
         </>

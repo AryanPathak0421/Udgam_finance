@@ -59,6 +59,7 @@ function PartySection({ kind, member, onSaved }) {
   // The saved number stays verified as long as it is not changed.
   const mobileVerified = Boolean(challenge) || Boolean(existing?.mobileVerified && form.mobile && form.mobile === existing.mobile);
   const noGuarantor = kind === 'nominee' && !member.guarantor;
+  const blocked = Boolean(member.isBlocked);
 
   async function submit(e) {
     e.preventDefault();
@@ -170,7 +171,7 @@ function PartySection({ kind, member, onSaved }) {
         )}
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
-          <button type="submit" className="btn primary" disabled={saving || noGuarantor}>
+          <button type="submit" className="btn primary" disabled={saving || noGuarantor || blocked}>
             {saving ? 'Saving…' : same ? 'Save nominee (same as guarantor)' : `Save ${label.toLowerCase()}`}
           </button>
         </div>
@@ -263,6 +264,11 @@ export default function GuarantorNominee() {
           </>
         }
       />
+      {member.isBlocked && (
+        <div className="notice warn">
+          This member is blocked{member.blockReason ? ` — ${member.blockReason}` : ''}. No changes can be made until the member is unblocked.
+        </div>
+      )}
       <PartySection kind="guarantor" member={member} onSaved={refresh} />
       <PartySection kind="nominee" member={member} onSaved={refresh} />
     </>

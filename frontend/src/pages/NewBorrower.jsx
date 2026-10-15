@@ -187,9 +187,40 @@ export function PhotoField({ id, label, value, error, onChange, required }) {
   );
 }
 
-function BorrowerForm({ branches, options, onCancel, onSaved }) {
+// Registers a new borrower, or (with `member`) lets an admin change every detail of an existing one.
+export function BorrowerForm({ branches, options, onCancel, onSaved, member = null }) {
   const toast = useToast();
-  const [form, setForm] = useState({ ...EMPTY, branch: branches.length === 1 ? branches[0].id : '' });
+  const isEdit = Boolean(member);
+  const [form, setForm] = useState(() =>
+    member
+      ? {
+          ...EMPTY,
+          branch: member.branchId,
+          employeeCode: member.employeeCode || '',
+          name: member.name,
+          husbandName: member.husbandName || '',
+          dob: member.dob || '',
+          gender: member.gender,
+          mobile: member.mobile,
+          email: member.email || '',
+          occupation: member.occupation,
+          education: member.education,
+          address: member.address,
+          pincode: member.pincode,
+          state: member.state,
+          district: member.district,
+          aadhaar: member.aadhaar,
+          pan: member.pan || '',
+          bankName: member.bankName,
+          ifsc: member.ifsc,
+          accountNumber: member.accountNumber,
+          memberPhoto: member.memberPhoto || '',
+          aadhaarPhoto: member.aadhaarPhoto || '',
+          panPhoto: member.panPhoto || '',
+          signaturePhoto: member.signaturePhoto || '',
+        }
+      : { ...EMPTY, branch: branches.length === 1 ? branches[0].id : '' }
+  );
   const [errors, setErrors] = useState({});
   const [districts, setDistricts] = useState([]);
   const [mobileCh, setMobileCh] = useState('');
@@ -231,7 +262,7 @@ function BorrowerForm({ branches, options, onCancel, onSaved }) {
         setDistricts(r.cities);
         const want = pendingDistrict.current;
         pendingDistrict.current = '';
-        setForm((f) => ({ ...f, district: want && r.cities.includes(want) ? want : '' }));
+        setForm((f) => ({ ...f, district: want && r.cities.includes(want) ? want : r.cities.includes(f.district) ? f.district : '' }));
       })
       .catch(() => setDistricts([]));
   }, [form.state]);
@@ -291,6 +322,7 @@ function BorrowerForm({ branches, options, onCancel, onSaved }) {
   const resetMobile = useCallback(() => setMobileCh(''), []);
 
   const mobileValid = /^[6-9]\d{9}$/.test(form.mobile);
+  const mobileKept = isEdit && member.mobileVerified && form.mobile === member.mobile;
   const panValid = /^[A-Z]{5}\d{4}[A-Z]$/.test(form.pan);
   const ageNow = form.dob ? yearsSince(form.dob) : null;
 
@@ -299,7 +331,7 @@ function BorrowerForm({ branches, options, onCancel, onSaved }) {
     const found = {};
     const need = (k, msg) => !String(form[k]).trim() && (found[k] = msg);
     need('branch', 'Select a branch');
-    need('employeeCode', 'Select the employee');
+    if (!isEdit) need('employeeCode', 'Select the employee');
     need('name', 'Member name is required');
     need('dob', 'Date of birth is required');
     need('gender', 'Select gender');
@@ -313,7 +345,7 @@ function BorrowerForm({ branches, options, onCancel, onSaved }) {
     need('aadhaarPhoto', 'Aadhaar photo is required');
     need('signaturePhoto', 'Signature photo is required');
     if (!mobileValid) found.mobile = 'Enter a valid 10-digit mobile number';
-    else if (!mobileCh) found.mobile = 'Verify the mobile number with an OTP';
+    else if (!mobileCh && !mobileKept) found.mobile = isEdit ? 'Verify the new mobile number with an OTP' : 'Verify the mobile number with an OTP';
     if (!/^\d{6}$/.test(form.pincode)) found.pincode = 'Enter a valid 6-digit pincode';
     else if (pinInfo?.status === 'invalid') found.pincode = 'This pincode does not exist';
     if (form.dob && ageNow !== null && ageNow < 18) found.dob = 'Borrower must be at least 18 years old';
@@ -333,9 +365,15 @@ function BorrowerForm({ branches, options, onCancel, onSaved }) {
     }
     setSaving(true);
     try {
-      const r = await api.members.create({ ...form, mobileChallengeId: mobileCh });
-      toast.success(`Borrower added — ${r.member.code}`);
-      onSaved(r.member);
+      if (isEdit) {
+        const r = await api.members.update(member.id, { ...form, mobileChallengeId: mobileCh || undefined });
+        toast.success('Member details updated');
+        onSaved(r.member);
+      } else {
+        const r = await api.members.create({ ...form, mobileChallengeId: mobileCh });
+        toast.success(`Borrower added — ${r.member.code}`);
+        onSaved(r.member);
+      }
     } catch (err) {
       setErrors(err.errors || {});
       toast.error(err.message);
@@ -350,7 +388,7 @@ function BorrowerForm({ branches, options, onCancel, onSaved }) {
         <h3 className="section-title">Basic details</h3>
         <div className="form-grid">
           <FormField id="branch" label="Branch" required error={errors.branch}>
-            <select id="branch" value={form.branch} onChange={set('branch')}>
+            <select id="branch" value={form.branch} onChange={set('branch')} disabled={isEdit}>
               <option value="">Select branch</option>
               {branches.map((b) => <option key={b.id} value={b.id}>{b.code} — {b.name}</option>)}
             </select>
@@ -364,12 +402,18 @@ function BorrowerForm({ branches, options, onCancel, onSaved }) {
           <FormField id="formid" label="Form ID" hint="Generated automatically on save">
             <input id="formid" value="Auto" disabled />
           </FormField>
-          <EmployeeSelect
-            branch={form.branch}
-            value={form.employeeCode}
-            error={errors.employeeCode}
-            onChange={(code) => { setForm((f) => ({ ...f, employeeCode: code })); setErrors((er) => ({ ...er, employeeCode: undefined })); }}
-          />
+          {isEdit ? (
+            <FormField id="emp" label="Employee ID" hint="Who registered the member">
+              <input id="emp" value={form.employeeCode || '—'} disabled />
+            </FormField>
+          ) : (
+            <EmployeeSelect
+              branch={form.branch}
+              value={form.employeeCode}
+              error={errors.employeeCode}
+              onChange={(code) => { setForm((f) => ({ ...f, employeeCode: code })); setErrors((er) => ({ ...er, employeeCode: undefined })); }}
+            />
+          )}
           <FormField id="name" label="Member name" required error={errors.name}>
             <input id="name" value={form.name} onChange={set('name')} maxLength={80} />
           </FormField>
@@ -406,7 +450,7 @@ function BorrowerForm({ branches, options, onCancel, onSaved }) {
           <FormField id="mobile" label="Mobile number" required error={errors.mobile}>
             <input id="mobile" value={form.mobile} onChange={setDigits('mobile', 10)} inputMode="numeric" maxLength={10} />
             <OtpVerify id="mobile" label="Mobile number" purpose="mobile" value={form.mobile} valid={mobileValid} mobile={form.mobile}
-              verified={Boolean(mobileCh)} onVerified={setMobileCh} onReset={resetMobile} />
+              verified={Boolean(mobileCh) || mobileKept} onVerified={setMobileCh} onReset={resetMobile} />
           </FormField>
           <FormField id="email" label="Email ID" error={errors.email} hint="Optional">
             <input id="email" type="email" value={form.email} onChange={set('email')} maxLength={120} />
@@ -477,7 +521,7 @@ function BorrowerForm({ branches, options, onCancel, onSaved }) {
 
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
         <button type="button" className="btn" onClick={onCancel} disabled={saving}>Cancel</button>
-        <button type="submit" className="btn primary" disabled={saving}>{saving ? 'Saving…' : 'Save borrower'}</button>
+        <button type="submit" className="btn primary" disabled={saving}>{saving ? 'Saving…' : isEdit ? 'Save changes' : 'Save borrower'}</button>
       </div>
     </form>
   );

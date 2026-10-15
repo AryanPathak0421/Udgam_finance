@@ -67,6 +67,7 @@ export const api = {
     kycReview: (id, data) => request(`/members/${id}/kyc/review`, { method: 'POST', body: data }),
     kycReupload: (id, data) => request(`/members/${id}/kyc/reupload`, { method: 'POST', body: data }),
     changeGuarantor: (id, data) => request(`/members/${id}/guarantor/change`, { method: 'PUT', body: data }),
+    update: (id, data) => request(`/members/${id}`, { method: 'PUT', body: data }),
     synopsis: (id) => request(`/members/${id}/synopsis`),
     setBlocked: (id, data) => request(`/members/${id}/block`, { method: 'POST', body: data }),
     employees: (branch) => request(`/members/employees${qs({ branch })}`),

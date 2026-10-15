@@ -285,24 +285,9 @@ function readImage(value, field, label, v, { required }) {
   return value;
 }
 
-export async function createMember(req, res) {
-  const b = req.body || {};
-  const v = createValidator();
+/** Validates the personal / contact / address / KYC / bank fields of a member (shared by create and update). */
+function readMemberFields(b, v) {
   const d = {};
-
-  // Branch
-  const branchId = String(b.branch || '');
-  let branch = null;
-  if (!mongoose.isValidObjectId(branchId)) v.add('branch', 'Select a branch');
-  else {
-    branch = await Branch.findOne({ _id: branchId, isDeleted: false, isActive: true });
-    if (!branch) v.add('branch', 'Selected branch is not available');
-    else if (!isAdmin(req.user) && !(req.user.branches || []).some((x) => String(x) === String(branch._id))) {
-      v.add('branch', 'You can only use branches assigned to you');
-    }
-  }
-  d.branch = branch?._id;
-
   d.name = asString(b.name).replace(/\s+/g, ' ');
   if (!NAME_RE.test(d.name)) v.add('name', 'Enter the full name (letters only, 2–80 characters)');
   d.husbandName = asString(b.husbandName).replace(/\s+/g, ' ');
@@ -349,6 +334,29 @@ export async function createMember(req, res) {
   if (!IFSC_RE.test(d.ifsc)) v.add('ifsc', 'Enter a valid IFSC code (e.g. SBIN0001234)');
   d.accountNumber = asString(b.accountNumber);
   if (!ACCOUNT_RE.test(d.accountNumber)) v.add('accountNumber', 'Account number must be 9–18 digits');
+
+  return d;
+}
+
+export async function createMember(req, res) {
+  const b = req.body || {};
+  const v = createValidator();
+  const d = {};
+
+  // Branch
+  const branchId = String(b.branch || '');
+  let branch = null;
+  if (!mongoose.isValidObjectId(branchId)) v.add('branch', 'Select a branch');
+  else {
+    branch = await Branch.findOne({ _id: branchId, isDeleted: false, isActive: true });
+    if (!branch) v.add('branch', 'Selected branch is not available');
+    else if (!isAdmin(req.user) && !(req.user.branches || []).some((x) => String(x) === String(branch._id))) {
+      v.add('branch', 'You can only use branches assigned to you');
+    }
+  }
+  d.branch = branch?._id;
+
+  Object.assign(d, readMemberFields(b, v));
 
   d.memberPhoto = readImage(b.memberPhoto, 'memberPhoto', 'Member photo', v, { required: true });
   d.aadhaarPhoto = readImage(b.aadhaarPhoto, 'aadhaarPhoto', 'Aadhaar photo', v, { required: true });
@@ -434,6 +442,9 @@ export function memberSearchFilter(q) {
   if (/^\d{4}$/.test(text)) {
     const tail = new RegExp(`${text}$`);
     or.push({ aadhaar: tail }, { 'guarantor.aadhaar': tail });
+  } else if (/^\d{12}$/.test(text)) {
+    // a complete Aadhaar number
+    or.push({ aadhaar: text }, { 'guarantor.aadhaar': text });
   }
   if (/^[A-Za-z0-9]{4,10}$/.test(text) && /[A-Za-z]/.test(text)) {
     const pan = new RegExp(`^${escapeRegex(text.toUpperCase())}`);
@@ -447,10 +458,10 @@ function matchedVia(m, q) {
   const text = asString(q).toLowerCase();
   if (!text) return '';
   const has = (v) => String(v || '').toLowerCase().includes(text);
-  const own = [m.code, m.formId, m.name, m.mobile].some(has) || (/^\d{4}$/.test(text) && String(m.aadhaar || '').endsWith(text)) || String(m.pan || '').toLowerCase().startsWith(text);
+  const own = [m.code, m.formId, m.name, m.mobile].some(has) || (/^\d{4}$/.test(text) && String(m.aadhaar || '').endsWith(text)) || (/^\d{12}$/.test(text) && m.aadhaar === text) || String(m.pan || '').toLowerCase().startsWith(text);
   if (own) return '';
   const g = m.guarantor;
-  if (g?.name && (has(g.name) || has(g.mobile) || (/^\d{4}$/.test(text) && String(g.aadhaar || '').endsWith(text)) || String(g.pan || '').toLowerCase().startsWith(text))) return 'guarantor';
+  if (g?.name && (has(g.name) || has(g.mobile) || (/^\d{4}$/.test(text) && String(g.aadhaar || '').endsWith(text)) || (/^\d{12}$/.test(text) && g.aadhaar === text) || String(g.pan || '').toLowerCase().startsWith(text))) return 'guarantor';
   return '';
 }
 
@@ -560,6 +571,11 @@ async function readPerson(req, kind, m, existing) {
   };
 }
 
+// A blocked member takes no part in any activity until unblocked.
+function assertNotBlocked(m) {
+  if (m.isBlocked) throw new HttpError(409, 'This member is blocked. Unblock the member before making any change.');
+}
+
 // An approved document is final: only an admin may replace it (or change the identity it belongs to).
 function guardApproved(m, kind, old, incoming, user) {
   if (isAdmin(user)) return;
@@ -602,6 +618,7 @@ export function savePerson(kind) {
     const same = kind === 'nominee' && req.body?.sameAsGuarantor === true;
     // Photos are loaded so approved documents can be told apart from changed ones.
     const m = await loadMemberFor(req, { photos: true });
+    assertNotBlocked(m);
     const old = m[kind]?.name ? m[kind].toObject() : null;
     let person;
     if (same) {
@@ -651,6 +668,7 @@ export function savePerson(kind) {
  */
 export async function changeGuarantor(req, res) {
   const m = await loadMemberFor(req, { photos: true });
+  assertNotBlocked(m);
   if (!m.guarantor?.name) {
     throw new HttpError(409, 'This member has no guarantor yet. Add one under Guarantor Detail first.');
   }
@@ -746,6 +764,7 @@ const kycSummary = (m, keys = m.kycKeys || []) => {
   if (m.nominee?.sameAsGuarantor) parties.nominee = { status: 'same', total: 0, approved: 0, rejected: 0, pending: 0 };
   const changes = (m.guarantorHistory || []).map((h) => h.replacedAt).filter(Boolean);
   return {
+    isBlocked: Boolean(m.isBlocked),
     guarantorChangedAt: changes.length ? new Date(Math.max(...changes.map((d) => new Date(d).getTime()))) : null,
     parties,
     id: m._id,
@@ -783,7 +802,7 @@ export async function listKyc(req, res) {
 
   // Status is derived from the documents, so it is applied after loading (member sets are branch-sized).
   const all = await Member.find(filter)
-    .select('name code formId mobile branch createdAt kycKeys kycDocs nominee.sameAsGuarantor guarantorHistory.replacedAt')
+    .select('name code formId mobile branch createdAt kycKeys kycDocs nominee.sameAsGuarantor guarantorHistory.replacedAt isBlocked')
     .populate(POPULATE)
     .sort({ createdAt: -1 });
   let rows = all.map((m) => kycSummary(m));
@@ -821,6 +840,7 @@ export async function getKyc(req, res) {
 /** Approve or reject one document (rejection needs a reason). */
 export async function reviewKyc(req, res) {
   const m = await loadMemberFor(req);
+  assertNotBlocked(m);
   const key = asString(req.body?.key);
   const action = asString(req.body?.action);
   const reason = asString(req.body?.reason);
@@ -843,6 +863,7 @@ export async function reviewKyc(req, res) {
 /** Replaces a rejected document; it goes back to pending. */
 export async function reuploadKyc(req, res) {
   const m = await loadMemberFor(req);
+  assertNotBlocked(m);
   const key = asString(req.body?.key);
   if (!KYC_KEYS.has(key)) throw new HttpError(422, 'Unknown document');
   if (!(m.kycKeys || []).includes(key)) throw new HttpError(409, 'This document has not been uploaded');
@@ -964,4 +985,127 @@ export async function ifscInfo(req, res) {
   const code = String(req.params.code || '').toUpperCase();
   if (!IFSC_RE.test(code)) throw new HttpError(422, 'Enter a valid IFSC code (e.g. SBIN0001234)');
   res.json(await lookupIfsc(code));
+}
+
+// ---- edit all details (admin only) ---------------------------------------------------------------------------
+const MEMBER_PHOTOS = [
+  ['memberPhoto', 'Member photo', 'memberPhoto'],
+  ['signaturePhoto', 'Signature photo', 'signaturePhoto'],
+  ['aadhaarPhoto', 'Aadhaar photo', 'aadhaarPhoto'],
+  ['panPhoto', 'PAN photo', 'panPhoto'],
+];
+
+/**
+ * Changes any detail of a member. Only an admin may do this (enforced by the route).
+ * The code, form ID, branch and joining date never change. A changed mobile number needs a new OTP;
+ * replaced photos (or a change of name / Aadhaar) go back to KYC approval.
+ */
+export async function updateMember(req, res) {
+  if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Member not found');
+  const m = await Member.findOne({ _id: req.params.id, isDeleted: false }).select(KYC_PROJECTION);
+  if (!m) throw new HttpError(404, 'Member not found');
+
+  const b = req.body || {};
+  const v = createValidator();
+  const d = readMemberFields(b, v);
+
+  // Photos: whatever is not sent stays as it is.
+  const photos = {};
+  for (const [key, label] of MEMBER_PHOTOS) {
+    const sent = b[key];
+    photos[key] = sent === undefined || sent === null || sent === ''
+      ? m[key]
+      : readImage(sent, key, label, v, { required: false });
+  }
+  if (d.pan && !photos.panPhoto) v.add('panPhoto', 'PAN photo is required when a PAN is given');
+  if (d.aadhaar && m.guarantor?.aadhaar === d.aadhaar) v.add('aadhaar', 'This Aadhaar number belongs to the guarantor');
+  v.throwIfAny();
+
+  // A changed mobile number must be verified again.
+  let mobileVerifiedAt = m.mobileVerifiedAt;
+  let mobileCh = null;
+  if (d.mobile !== m.mobile) {
+    mobileCh = await takeVerified(b.mobileChallengeId, req.user, 'member_mobile', d.mobile);
+    if (!mobileCh) throw new HttpError(422, 'Please correct the highlighted fields', { mobile: 'Verify the new mobile number with an OTP' });
+    mobileVerifiedAt = mobileCh.verifiedAt;
+  }
+
+  // Pincode / IFSC / PAN are checked again only when they were changed.
+  let pincodeVerified = m.pincodeVerified;
+  if (d.pincode !== m.pincode || d.state !== m.state) {
+    const pin = await lookupPincode(d.pincode);
+    if (pin.status === 'invalid') v.add('pincode', 'This pincode does not exist');
+    else if (pin.status === 'ok' && pin.stateKnown && pin.state !== d.state) v.add('state', `Pincode ${d.pincode} belongs to ${pin.state}`);
+    pincodeVerified = pin.status === 'ok';
+  }
+  let ifscVerified = m.ifscVerified;
+  if (d.ifsc !== m.ifsc) {
+    const bank = await lookupIfsc(d.ifsc);
+    if (bank.status === 'invalid') v.add('ifsc', 'This IFSC code does not exist');
+    ifscVerified = bank.status === 'ok';
+  }
+  v.throwIfAny();
+
+  let panVerifiedAt = m.panVerifiedAt;
+  if ((d.pan || '') !== (m.pan || '')) {
+    const pc = d.pan ? await verifyPan(d.pan, d.name) : { status: 'unavailable' };
+    if (pc.status === 'mismatch') throw new HttpError(422, 'Please correct the highlighted fields', { pan: 'The PAN does not belong to this person' });
+    panVerifiedAt = pc.status === 'verified' ? new Date() : undefined;
+  }
+  let accountVerifiedAt = m.accountVerifiedAt;
+  if (d.accountNumber !== m.accountNumber || d.ifsc !== m.ifsc) {
+    const ac = await verifyBankAccount(d.accountNumber, d.ifsc, d.name);
+    if (ac.status === 'mismatch') throw new HttpError(422, 'Please correct the highlighted fields', { accountNumber: 'The account does not match this person' });
+    accountVerifiedAt = ac.status === 'verified' ? new Date() : undefined;
+  }
+
+  // Aadhaar / PAN stay unique.
+  if (d.aadhaar !== m.aadhaar && (await Member.exists({ aadhaar: d.aadhaar, isDeleted: false, _id: { $ne: m._id } }))) {
+    throw new HttpError(409, 'A member with this Aadhaar number already exists', { aadhaar: 'This Aadhaar number is already registered' });
+  }
+  if (d.pan && d.pan !== m.pan && (await Member.exists({ pan: d.pan, isDeleted: false, _id: { $ne: m._id } }))) {
+    throw new HttpError(409, 'A member with this PAN already exists', { pan: 'This PAN is already registered' });
+  }
+
+  // What is changing (for the history and for KYC).
+  const fields = ['name', 'husbandName', 'dob', 'gender', 'occupation', 'education', 'mobile', 'email', 'address', 'pincode', 'state', 'district', 'aadhaar', 'pan', 'bankName', 'ifsc', 'accountNumber'];
+  const same = (a, c) => String(a instanceof Date ? a.toISOString().slice(0, 10) : a || '') === String(c instanceof Date ? c.toISOString().slice(0, 10) : c || '');
+  const changedFields = fields.filter((f) => !same(m[f], d[f]));
+  const changedPhotos = MEMBER_PHOTOS.map(([k]) => k).filter((k) => (m[k] || '') !== (photos[k] || ''));
+  const identityChanged = changedFields.includes('name') || changedFields.includes('aadhaar');
+
+  const before = { name: m.name, mobile: maskMobile(m.mobile), aadhaar: maskAadhaar(m.aadhaar), pan: maskPan(m.pan) };
+  for (const f of fields) m[f] = d[f] === '' ? undefined : d[f];
+  Object.assign(m, photos);
+  m.mobileVerifiedAt = mobileVerifiedAt;
+  m.pincodeVerified = pincodeVerified;
+  m.ifscVerified = ifscVerified;
+  m.panVerifiedAt = panVerifiedAt;
+  m.accountVerifiedAt = accountVerifiedAt;
+  m.updatedBy = req.user._id;
+
+  // KYC: replaced photos (or a new identity) are reviewed again.
+  const memberKeys = MEMBER_PHOTOS.map(([k]) => k);
+  const reset = identityChanged ? memberKeys : changedPhotos;
+  m.kycDocs = (m.kycDocs || []).filter((x) => !reset.includes(x.key));
+  m.kycKeys = [...(m.kycKeys || []).filter((k) => !memberKeys.includes(k)), ...memberKeys.filter((k) => photos[k])];
+
+  await m.save();
+  if (mobileCh) await OtpChallenge.updateOne({ _id: mobileCh._id }, { $set: { consumedAt: new Date() } });
+  await audit(req, {
+    action: 'member.update',
+    entity: 'Member',
+    entityId: m._id,
+    before,
+    after: {
+      code: m.code,
+      changed: [...changedFields, ...changedPhotos],
+      name: m.name,
+      mobile: maskMobile(m.mobile),
+      aadhaar: maskAadhaar(m.aadhaar),
+      pan: maskPan(m.pan),
+    },
+  });
+  await m.populate(POPULATE);
+  res.json({ member: present(m, req.user), changed: [...changedFields, ...changedPhotos] });
 }

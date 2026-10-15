@@ -92,6 +92,7 @@ function ReviewDialog({ memberId, canApprove, canUpload, isAdmin, onClose, onCha
   }
 
   const m = data?.member;
+  const blocked = Boolean(m?.isBlocked);
   return (
     <Modal open title={m ? `KYC — ${m.name} (${m.code})` : 'KYC documents'} onClose={onClose} size="lg" busy={busy}
       footer={<button className="btn" onClick={onClose}>Close</button>}>
@@ -103,6 +104,7 @@ function ReviewDialog({ memberId, canApprove, canUpload, isAdmin, onClose, onCha
       ) : (
         <>
           <p className="muted small" style={{ marginTop: 0 }}>
+            {blocked && <span className="badge danger" style={{ marginRight: 8 }}>Blocked — no changes allowed</span>}
             Form ID {m.formId} · {m.branch?.name || '—'} · Submitted {fmtDate(m.submittedAt)} · <Badge status={m.status} />
             {m.guarantorChangedAt && <> · Guarantor changed {fmtDate(m.guarantorChangedAt)}</>}
           </p>
@@ -134,7 +136,7 @@ function ReviewDialog({ memberId, canApprove, canUpload, isAdmin, onClose, onCha
                       </div>
                     </div>
                   ) : (
-                    <div className="row-actions" style={{ marginTop: 8 }}>
+                    <div className="row-actions" style={{ marginTop: 8, display: blocked ? 'none' : undefined }}>
                       {canApprove && d.status !== 'approved' && d.status !== 'rejected' && (
                         <button className="btn sm primary" disabled={busy} onClick={() => approve(d.key)}>Approve</button>
                       )}
