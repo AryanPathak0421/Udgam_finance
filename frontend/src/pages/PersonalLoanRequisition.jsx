@@ -15,6 +15,9 @@ const todayISO = () => new Date().toISOString().slice(0, 10);
 const inr = (n) => (n === null || n === undefined || Number.isNaN(n) ? '—' : `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : '');
 const MAX_DOC_BYTES = 800 * 1024;
+// Days in one term unit / one repayment period (the same 30-day month the scheme limits use).
+const UNIT_DAYS = { days: 1, weeks: 7, months: 30 };
+const MODE_DAYS = { daily: 1, weekly: 7, biweekly: 14, monthly: 30, quarterly: 90, halfyearly: 180, yearly: 360 };
 
 const KINDS = {
   personal: { title: 'Personal Loan Requisition', desc: 'Choose the borrower and the loan scheme, check the EMI, then confirm and submit.', path: '' },
@@ -152,6 +155,10 @@ function RequisitionForm({ kind }) {
   }, [kind, isBusiness, biz.loanType]);
 
   const scheme = schemes.find((s) => s.id === form.schemeId) || null;
+  // The number of installments follows from the loan term and the repayment mode.
+  const termDays = scheme && form.term ? Number(form.term) * UNIT_DAYS[scheme.termUnit] : 0;
+  const installments = scheme && form.mode && termDays ? Math.max(1, Math.round(termDays / MODE_DAYS[form.mode])) : '';
+  const evenSplit = !termDays || !form.mode || termDays % MODE_DAYS[form.mode] === 0;
   const setF = (key) => (e) => {
     setForm((f) => ({ ...f, [key]: e.target.value }));
     setErrors((er) => ({ ...er, [key]: undefined }));
@@ -195,7 +202,7 @@ function RequisitionForm({ kind }) {
       schemeId: e.target.value,
       amount: '',
       mode: s && s.modes.length === 1 ? s.modes[0].value : '',
-      term: '',
+      term: s ? String(s.termMin) : '',
       rate: s ? String(s.roiMin) : '',
     }));
     setErrors((er) => ({ ...er, schemeId: undefined }));
@@ -203,7 +210,7 @@ function RequisitionForm({ kind }) {
   }
 
   // Live EMI.
-  const debounced = useDebounce(JSON.stringify({ s: form.schemeId, a: form.amount, m: form.mode, t: form.term, r: form.rate }), 400);
+  const debounced = useDebounce(JSON.stringify({ s: form.schemeId, a: form.amount, m: form.mode, t: installments, r: form.rate }), 400);
   useEffect(() => {
     const { s, a, m, t, r } = JSON.parse(debounced);
     if (!s || !a || !m || !t || r === '') {
@@ -250,7 +257,8 @@ function RequisitionForm({ kind }) {
     if (!form.schemeId) found.schemeId = kind === 'product' ? 'Select the product' : 'Select a loan scheme';
     if (!form.amount) found.amount = isGroup ? 'Enter the amount per member' : 'Enter the request amount';
     if (!form.mode) found.mode = 'Select the repayment mode';
-    if (!form.term) found.term = 'Enter the number of installments';
+    if (!form.term) found.term = 'Enter the loan term';
+    else if (scheme && (Number(form.term) < scheme.termMin || Number(form.term) > scheme.termMax)) found.term = `Term must be ${scheme.termMin} to ${scheme.termMax} ${scheme.termUnit}`;
     if (form.rate === '') found.rate = 'Enter the interest rate';
     if (!found.amount && !found.term && !found.rate && !found.mode && previewError) found.amount = previewError;
     setErrors(found);
@@ -268,7 +276,7 @@ function RequisitionForm({ kind }) {
         schemeId: form.schemeId,
         amount: form.amount,
         mode: form.mode,
-        term: Number(form.term),
+        term: Number(installments),
         rate: form.rate,
         ...(isGroup ? { group: picked.id } : { member: picked.id }),
         ...(isBusiness
@@ -469,8 +477,13 @@ function RequisitionForm({ kind }) {
                     {scheme.modes.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
                   </select>
                 </FormField>
-                <FormField id="term" label={`Number of installments${modeUnit ? ` (${modeUnit}s)` : ''}`} required error={errors.term}>
-                  <input id="term" inputMode="numeric" value={form.term} onChange={(e) => { setForm((f) => ({ ...f, term: e.target.value.replace(/\D/g, '') })); setErrors((er) => ({ ...er, term: undefined })); }} />
+                <FormField id="term" label={`Loan term (${scheme.termUnit})`} required error={errors.term}
+                  hint={scheme.termMin === scheme.termMax ? 'Fixed by the scheme' : `Between ${scheme.termMin} and ${scheme.termMax} ${scheme.termUnit}`}>
+                  <input id="term" inputMode="numeric" value={form.term} disabled={scheme.termMin === scheme.termMax}
+                    onChange={(e) => { setForm((f) => ({ ...f, term: e.target.value.replace(/\D/g, '') })); setErrors((er) => ({ ...er, term: undefined })); }} />
+                </FormField>
+                <FormField id="installments" label="Number of installments" hint={!form.mode ? 'Select the repayment mode' : evenSplit ? 'Calculated from the term and the repayment mode' : 'Calculated and rounded to the nearest whole installment'}>
+                  <input id="installments" value={installments ? `${installments}${modeUnit ? ` ${modeUnit}s` : ''}` : ''} disabled placeholder="Auto" />
                 </FormField>
                 <FormField id="rate" label="Interest rate (% p.a.)" required error={errors.rate}
                   hint={scheme.roiMin === scheme.roiMax ? 'Fixed by the scheme' : `Between ${scheme.roiMin}% and ${scheme.roiMax}%`}>
@@ -485,7 +498,25 @@ function RequisitionForm({ kind }) {
                   <div className="notice ok">
                     <strong>EMI {inr(sum.installmentAmount)}</strong>{isGroup ? ' per member' : ''} × {sum.installments} {modeUnit ? `${modeUnit}s` : 'installments'} · Total interest {inr(sum.totalInterest)} · Total payable {inr(sum.totalPayable)}
                     {isGroup && g && <> · <strong>Group total {inr(amountNum * members)}</strong> for {members} members</>}
-                    {preview.charges && <> · Processing fee {inr(preview.charges.processingFee)}</>}
+                  </div>
+                )}
+                {preview?.charges && (
+                  <div className="table-wrap" style={{ marginTop: 10, maxWidth: 460 }}>
+                    <table className="data-table">
+                      <thead><tr><th>Charges{isGroup ? ' (per member)' : ''}</th><th className="num">Amount</th></tr></thead>
+                      <tbody>
+                        <tr><td>Processing fee</td><td className="num">{inr(preview.charges.processingFee)}</td></tr>
+                        <tr><td>Insurance fee</td><td className="num">{inr(preview.charges.cost)}</td></tr>
+                        <tr>
+                          <td>Security amount{preview.charges.securityType && preview.charges.securityType !== 'none' ? ` (${preview.charges.securityType.replace('_', ' ')})` : ''}</td>
+                          <td className="num">{inr(preview.charges.securityAmount)}</td>
+                        </tr>
+                        <tr>
+                          <td><strong>Total</strong></td>
+                          <td className="num"><strong>{inr(preview.charges.processingFee + preview.charges.cost + preview.charges.securityAmount)}</strong></td>
+                        </tr>
+                      </tbody>
+                    </table>
                   </div>
                 )}
               </div>
@@ -519,8 +550,10 @@ function RequisitionForm({ kind }) {
               [schemeLabel, `${scheme.code} — ${scheme.name}`],
               [isGroup ? 'Amount per member' : 'Request amount', inr(amountNum)],
               ...(isGroup && g ? [['Members', String(members)], ['Group total', inr(amountNum * members)]] : []),
-              ['Mode & term', `${scheme.modes.find((m) => m.value === form.mode)?.label}, ${form.term} installments`],
+              ['Loan term', `${form.term} ${scheme.termUnit}`],
+              ['Mode & installments', `${scheme.modes.find((m) => m.value === form.mode)?.label}, ${installments} installments`],
               ['Interest rate', `${form.rate}% p.a.`], ['EMI', inr(sum.installmentAmount)], ['Total payable', inr(sum.totalPayable)],
+              ...(preview?.charges ? [['Processing fee', inr(preview.charges.processingFee)], ['Insurance fee', inr(preview.charges.cost)], ['Security amount', inr(preview.charges.securityAmount)]] : []),
             ]}
           />
         )}

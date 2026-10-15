@@ -14,6 +14,7 @@ import { lookupPincode, lookupIfsc } from '../services/lookup.js';
 import { takeVerified } from '../services/otpChallenges.js';
 import { checkPanFormat, verifyPan, verifyBankAccount } from '../services/kycVerify.js';
 import { AuditLog } from '../models/AuditLog.js';
+import { Group } from '../models/Group.js';
 
 export const GENDERS = ['male', 'female', 'other'];
 export const OCCUPATIONS = ['Farmer', 'Agricultural labour', 'Dairy / animal husbandry', 'Small shop / trader', 'Tailoring / handicraft', 'Daily wage labour', 'Salaried', 'Self employed', 'Homemaker', 'Other'];
@@ -959,6 +960,25 @@ const TIMELINE_LABELS = {
   'kyc.reupload': 'Document uploaded again',
 };
 
+async function memberGroups(memberId) {
+  const groups = await Group.find({ 'members.member': memberId, isDeleted: false })
+    .populate('members.addedBy', 'name employeeCode')
+    .sort({ createdAt: 1 });
+  return groups.map((g) => {
+    const row = g.members.find((x) => String(x.member) === String(memberId));
+    return {
+      id: g._id,
+      code: g.code,
+      name: g.name,
+      leaderName: g.leaderName,
+      isActive: g.isActive,
+      memberCount: g.members.length,
+      addedAt: row?.addedAt || null,
+      addedBy: row?.addedBy ? { name: row.addedBy.name, employeeCode: row.addedBy.employeeCode || '' } : null,
+    };
+  });
+}
+
 /** Everything about one member in one response: profile, documents, KYC, guarantor, nominee, history, activity. */
 export async function synopsis(req, res) {
   const m = await Member.findOne({ _id: mongoose.isValidObjectId(req.params.id) ? req.params.id : null, isDeleted: false, ...branchFilter(req.user) })
@@ -991,6 +1011,8 @@ export async function synopsis(req, res) {
       .map((b) => ({ action: b.action, reason: b.reason, at: b.at, byCode: b.byCode || '' }))
       .reverse(),
     timeline,
+    // Every group the member belongs to, and when (and by whom) the member was added to it.
+    groups: await memberGroups(m._id),
     // Every edit an admin made to the member's details, with what changed.
     editHistory: logs
       .filter((l) => l.action === 'member.update')

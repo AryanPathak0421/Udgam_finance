@@ -126,7 +126,7 @@ export default function BorrowerSynopsis() {
     );
   }
 
-  const { member: m, kyc, blockHistory, timeline, editHistory = [] } = data;
+  const { member: m, kyc, blockHistory, timeline, editHistory = [], groups = [] } = data;
 
   async function startEdit() {
     try {
@@ -228,6 +228,31 @@ export default function BorrowerSynopsis() {
         <div style={{ marginTop: 12 }}>
           <Photos items={[['Member photo', m.memberPhoto], ['Signature', m.signaturePhoto], ['Aadhaar', m.aadhaarPhoto], ['PAN', m.panPhoto]]} />
         </div>
+      </Section>
+
+      <Section title={`Groups (${groups.length})`}>
+        {groups.length === 0 ? (
+          <span className="muted">This member is not in any group</span>
+        ) : (
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead><tr><th>Group code</th><th>Group name</th><th>Leader</th><th className="num">Members</th><th>Added on</th><th>Added by</th><th>Status</th></tr></thead>
+              <tbody>
+                {groups.map((g) => (
+                  <tr key={g.id}>
+                    <td data-label="Group code"><strong>{g.code}</strong></td>
+                    <td data-label="Group name">{g.name}</td>
+                    <td data-label="Leader">{g.leaderName}</td>
+                    <td data-label="Members" className="num">{g.memberCount}</td>
+                    <td data-label="Added on">{fmtTime(g.addedAt)}</td>
+                    <td data-label="Added by">{g.addedBy ? `${g.addedBy.name}${g.addedBy.employeeCode ? ` · ${g.addedBy.employeeCode}` : ''}` : '—'}</td>
+                    <td data-label="Status"><span className={`badge ${g.isActive ? 'green' : 'grey'}`}>{g.isActive ? 'Active' : 'Inactive'}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Section>
 
       <Section title="Guarantor">

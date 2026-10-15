@@ -250,6 +250,9 @@ const present = (r, user, { detail = false } = {}) => {
       totalInterest: rupees(r.totalInterestPaise),
       totalPayable: rupees(r.totalPayablePaise),
       processingFee: rupees(r.processingFeePaise),
+      insuranceFee: rupees(r.insuranceFeePaise ?? 0),
+      securityAmount: rupees(r.securityAmountPaise ?? 0),
+      securityType: r.securityType || 'none',
     });
   }
   return out;
@@ -423,6 +426,9 @@ export function createRequisition(kind) {
       totalInterestPaise: Math.round(r.summary.totalInterest * 100),
       totalPayablePaise: Math.round(r.summary.totalPayable * 100),
       processingFeePaise: r.charges ? Math.round(r.charges.processingFee * 100) : 0,
+      insuranceFeePaise: r.charges ? Math.round(r.charges.cost * 100) : 0,
+      securityAmountPaise: r.charges ? Math.round(r.charges.securityAmount * 100) : 0,
+      securityType: r.charges?.securityType || 'none',
       employeeCode,
       createdBy: req.user._id,
       updatedBy: req.user._id,

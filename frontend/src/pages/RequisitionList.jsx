@@ -50,7 +50,8 @@ function Detail({ id, onClose }) {
               ...(r.group ? [['Group total', inr(r.totalAmount)]] : []),
               ['Mode & term', `${r.modeLabel}, ${r.term} installments`], ['Interest rate', `${r.rate}% p.a. (${r.calculationType})`],
               ['EMI', inr(r.emi)], ['Total interest', inr(r.totalInterest)], ['Total payable', inr(r.totalPayable)],
-              ['Processing fee', inr(r.processingFee)], ['Employee ID', r.employeeCode],
+              ['Processing fee', inr(r.processingFee)], ['Insurance fee', inr(r.insuranceFee)], ['Security amount', inr(r.securityAmount)],
+              ['Employee ID', r.employeeCode],
             ]}
           />
           {r.group?.members?.length > 0 && (

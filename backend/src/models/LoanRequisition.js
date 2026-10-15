@@ -70,6 +70,9 @@ const loanRequisitionSchema = new mongoose.Schema(
     totalInterestPaise: Number,
     totalPayablePaise: Number,
     processingFeePaise: Number,
+    insuranceFeePaise: Number, // the scheme's "cost" (insurance / other)
+    securityAmountPaise: Number,
+    securityType: String,
 
     employeeCode: { type: String, required: true },
     status: { type: String, enum: REQUISITION_STATUS, default: 'pending' },
