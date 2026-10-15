@@ -11,6 +11,7 @@ import { asString, createValidator, escapeRegex, parseDateOnly, parsePaging, Htt
 import { audit } from '../utils/audit.js';
 import { User } from '../models/User.js';
 import { lookupPincode, lookupIfsc } from '../services/lookup.js';
+import { takeVerified } from '../services/otpChallenges.js';
 import { checkPanFormat, verifyPan, verifyBankAccount } from '../services/kycVerify.js';
 import { AuditLog } from '../models/AuditLog.js';
 
@@ -32,7 +33,6 @@ const MAX_IMAGE_CHARS = 300_000; // ~220 KB image
 const OTP_TTL_MS = 5 * 60 * 1000;
 const OTP_MAX_ATTEMPTS = 3;
 const OTP_RESEND_GAP_MS = 30 * 1000;
-const VERIFIED_VALID_MS = 30 * 60 * 1000; // a verified number must be used within 30 minutes
 
 // ---- Aadhaar checksum (Verhoeff) -------------------------------------------------------------
 const D = [
@@ -253,13 +253,6 @@ export async function verifyOtp(req, res) {
   res.json({ verified: true });
 }
 
-// A verified challenge for exactly this value, by this user, recent and unused.
-async function takeVerified(id, user, purpose, subject) {
-  if (!mongoose.isValidObjectId(id)) return null;
-  const ch = await OtpChallenge.findOne({ _id: id, createdBy: user._id, purpose, subject, consumedAt: { $exists: false } });
-  if (!ch || !ch.verifiedAt || Date.now() - ch.verifiedAt.getTime() > VERIFIED_VALID_MS) return null;
-  return ch;
-}
 
 // ---- create / list / view -----------------------------------------------------------------------
 const age = (dob, on = new Date()) => {
@@ -542,6 +535,11 @@ async function readPerson(req, kind, m, existing) {
   // A phone number that is given has to be verified with an OTP. The same number that was already
   // verified when it was saved earlier does not need to be verified again.
   let verifiedAt;
+  // Once a number has been verified with an OTP, only an admin may change or remove it.
+  // (A different person replacing the old one — e.g. a new nominee — starts fresh.)
+  if (existing?.mobile && existing.mobileVerifiedAt && existing.aadhaar === d.aadhaar && existing.mobile !== d.mobile && !isAdmin(req.user)) {
+    throw new HttpError(403, 'The verified phone number can only be changed by an admin.', { mobile: 'Only an admin can change a verified phone number' });
+  }
   if (d.mobile) {
     if (existing?.mobile === d.mobile && existing.mobileVerifiedAt) {
       verifiedAt = existing.mobileVerifiedAt;

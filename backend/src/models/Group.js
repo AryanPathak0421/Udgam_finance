@@ -15,6 +15,8 @@ const groupSchema = new mongoose.Schema(
     leaderName: { type: String, required: true, trim: true },
     // OTPs go here. After a group is created only an Admin may change it (enforced in the API).
     leaderMobile: { type: String, required: true, trim: true },
+    // Set when the number was verified with an OTP (groups made before that have none).
+    leaderMobileVerifiedAt: { type: Date },
     // How often the group meets / collects. weekly: 1 (Mon) – 7 (Sun); monthly: day of month 1–28; daily: none.
     meetingType: { type: String, enum: MEETING_TYPES },
     collectionDay: { type: Number },

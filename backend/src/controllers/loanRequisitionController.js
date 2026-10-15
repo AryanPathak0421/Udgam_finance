@@ -471,6 +471,26 @@ export async function listRequisitions(req, res) {
   res.json({ items: items.map((r) => present(r, req.user)), page, limit, total, totalPages: Math.max(Math.ceil(total / limit), 1) });
 }
 
+/** Removes a requisition that has not been approved. */
+export async function deleteRequisition(req, res) {
+  if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Requisition not found');
+  const r = await LoanRequisition.findOne({ _id: req.params.id, isDeleted: false, ...branchFilter(req.user) });
+  if (!r) throw new HttpError(404, 'Requisition not found');
+  if (r.status === 'approved') {
+    throw new HttpError(409, 'An approved requisition cannot be deleted.');
+  }
+  r.isDeleted = true;
+  r.updatedBy = req.user._id;
+  await r.save();
+  await audit(req, {
+    action: 'loanRequisition.delete',
+    entity: 'LoanRequisition',
+    entityId: r._id,
+    after: { formId: r.formId, status: r.status, for: r.borrower?.code || r.groupInfo?.code },
+  });
+  res.json({ message: 'Requisition deleted' });
+}
+
 export async function getRequisition(req, res) {
   if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Requisition not found');
   const r = await LoanRequisition.findOne({ _id: req.params.id, isDeleted: false, ...branchFilter(req.user) })

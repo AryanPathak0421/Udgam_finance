@@ -1,5 +1,6 @@
+import { useCallback } from 'react';
 import FormField from './ui/FormField.jsx';
-import { EmployeeSelect } from '../pages/NewBorrower.jsx';
+import { EmployeeSelect, OtpVerify } from '../pages/NewBorrower.jsx';
 
 export const WEEKDAYS = ['', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 export const MEETING_LABEL = { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly' };
@@ -7,7 +8,7 @@ export const todayISO = () => new Date().toISOString().slice(0, 10);
 
 export const EMPTY_GROUP = {
   branch: '', name: '', openingDate: todayISO(), employeeCode: '', leaderName: '', leaderMobile: '',
-  meetingType: '', collectionDay: '', meetingTime: '',
+  meetingType: '', collectionDay: '', meetingTime: '', mobileChallengeId: '',
 };
 
 export function collectionLabel(g) {
@@ -24,13 +25,14 @@ export const formatTime = (t) => {
 };
 
 /** Client-side check; returns {field: message}. */
-export function validateGroup(f, { isEdit, mobileLocked }) {
+export function validateGroup(f, { isEdit, mobileLocked, mobileChanged = false }) {
   const e = {};
   if (f.name.trim().length < 2) e.name = 'Group name is required';
   if (!f.branch) e.branch = 'Select a branch';
   if (!f.employeeCode) e.employeeCode = 'Select the employee';
   if (f.leaderName.trim().length < 2) e.leaderName = 'Group leader name is required';
   if (!mobileLocked && !/^[6-9]\d{9}$/.test(f.leaderMobile)) e.leaderMobile = 'Enter a valid 10-digit mobile number';
+  else if (!mobileLocked && (!isEdit || mobileChanged) && !f.mobileChallengeId) e.leaderMobile = 'Verify the leader mobile number with an OTP';
   if (!f.meetingType) e.meetingType = 'Select the meeting type';
   if (f.meetingType === 'weekly' && !f.collectionDay) e.collectionDay = 'Select the collection day';
   if (f.meetingType === 'monthly' && !f.collectionDay) e.collectionDay = 'Select the day of the month';
@@ -40,13 +42,18 @@ export function validateGroup(f, { isEdit, mobileLocked }) {
 }
 
 /** The fields of the group form (shared by Create Group and the Group List edit dialog). */
-export default function GroupFields({ form, setForm, errors, setErrors, branches, isAdmin, isEdit, groupCode, branchLocked = false }) {
+export default function GroupFields({ form, setForm, errors, setErrors, branches, isAdmin, isEdit, groupCode, branchLocked = false, savedMobile = '', savedMobileVerified = false }) {
   const set = (key) => (e) => {
     const value = e.target.value;
     setForm((f) => ({ ...f, [key]: value, ...(key === 'meetingType' ? { collectionDay: '' } : {}) }));
     setErrors((er) => ({ ...er, [key]: undefined }));
   };
   const mobileLocked = isEdit && !isAdmin;
+  const mobileValid = /^[6-9]\d{9}$/.test(form.leaderMobile);
+  // An unchanged number that was already verified needs no new OTP.
+  const mobileKept = isEdit && savedMobileVerified && savedMobile && form.leaderMobile === savedMobile;
+  const onVerified = useCallback((id) => setForm((f) => ({ ...f, mobileChallengeId: id })), [setForm]);
+  const onReset = useCallback(() => setForm((f) => ({ ...f, mobileChallengeId: '' })), [setForm]);
 
   return (
     <div className="form-grid">
@@ -79,7 +86,7 @@ export default function GroupFields({ form, setForm, errors, setErrors, branches
         label="Leader mobile number"
         required
         error={errors.leaderMobile}
-        hint={mobileLocked ? 'Only an admin can change the registered mobile number' : 'OTP for commission deposit is sent to this number'}
+        hint={mobileLocked ? 'Only an admin can change the registered mobile number' : 'Verified with an OTP. Commission OTPs are sent to this number; after that only an admin can change it'}
       >
         <input
           id="leaderMobile"
@@ -89,6 +96,10 @@ export default function GroupFields({ form, setForm, errors, setErrors, branches
           maxLength={10}
           disabled={mobileLocked}
         />
+        {!mobileLocked && (
+          <OtpVerify id="leader" label="Leader mobile number" purpose="mobile" value={form.leaderMobile} valid={mobileValid} mobile={form.leaderMobile}
+            verified={Boolean(form.mobileChallengeId) || Boolean(mobileKept)} onVerified={onVerified} onReset={onReset} />
+        )}
       </FormField>
       <FormField id="meetingType" label="Meeting type" required error={errors.meetingType}>
         <select id="meetingType" value={form.meetingType} onChange={set('meetingType')}>

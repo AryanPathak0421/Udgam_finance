@@ -11,6 +11,7 @@ import { loadRuleContext, ruleForMonth, payoutMonths, syncGroupEntries } from '.
 import { parseMonth } from '../services/groupLeaderCommission.js';
 import { asString, createValidator, escapeRegex, parseDateOnly, parsePaging, HttpError } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
+import { takeVerified, consumeChallenge } from '../services/otpChallenges.js';
 
 const MOBILE_RE = /^[6-9]\d{9}$/;
 const ADMIN_ROLES = ['super_admin', 'admin'];
@@ -34,6 +35,7 @@ const present = (g, user) => ({
   branchId: String(g.branch?._id || g.branch),
   leaderName: g.leaderName,
   leaderMobile: showMobile(user, g.leaderMobile),
+  leaderMobileVerified: Boolean(g.leaderMobileVerifiedAt),
   mobileMasked: !FULL_MOBILE_ROLES.includes(user.role),
   openingDate: dateOnly(g.openingDate || g.formationDate || g.createdAt),
   employeeCode: g.employeeCode || '',
@@ -204,6 +206,9 @@ export async function createGroup(req, res) {
   const v = createValidator();
   const data = await readGroup(req.body || {}, req.user, v);
   v.throwIfAny();
+  // The leader's mobile number receives the commission OTPs, so it must be verified once.
+  const mobileCh = await takeVerified(req.body?.mobileChallengeId, req.user, 'member_mobile', data.leaderMobile);
+  if (!mobileCh) throw new HttpError(422, 'Please correct the highlighted fields', { leaderMobile: 'Verify the leader mobile number with an OTP' });
   const members = await checkMembers(req.body?.memberIds, data.branch);
   if (members.length > MAX_MEMBERS) throw new HttpError(422, `A group can have at most ${MAX_MEMBERS} members`);
 
@@ -215,6 +220,7 @@ export async function createGroup(req, res) {
     doc = await Group.create({
       ...data,
       code,
+      leaderMobileVerifiedAt: mobileCh.verifiedAt,
       members: members.map((m) => ({ member: m._id, addedBy: req.user._id })),
       createdBy: req.user._id,
       updatedBy: req.user._id,
@@ -223,6 +229,7 @@ export async function createGroup(req, res) {
     if (err.code === 11000) throw duplicate();
     throw err;
   }
+  await consumeChallenge(mobileCh);
   await doc.populate(POPULATE);
   await audit(req, { action: 'group.create', entity: 'Group', entityId: doc._id, after: doc });
   res.status(201).json({ group: (await withEmployeeNames([present(doc, req.user)]))[0] });
@@ -236,6 +243,12 @@ export async function updateGroup(req, res) {
 
   const before = doc.toObject();
   const mobileChanged = data.leaderMobile !== undefined && data.leaderMobile !== doc.leaderMobile;
+  let mobileCh = null;
+  if (mobileChanged) {
+    mobileCh = await takeVerified(req.body?.mobileChallengeId, req.user, 'member_mobile', data.leaderMobile);
+    if (!mobileCh) throw new HttpError(422, 'Please correct the highlighted fields', { leaderMobile: 'Verify the new mobile number with an OTP' });
+    data.leaderMobileVerifiedAt = mobileCh.verifiedAt;
+  }
   Object.assign(doc, { ...data, updatedBy: req.user._id });
   try {
     await doc.save();
@@ -243,6 +256,7 @@ export async function updateGroup(req, res) {
     if (err.code === 11000) throw duplicate();
     throw err;
   }
+  if (mobileCh) await consumeChallenge(mobileCh);
   if (mobileChanged) {
     // An OTP sent to the old number must not be usable any more.
     await GroupLeaderCommission.updateMany(

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler as h } from '../utils/http.js';
 import {
-  schemes, borrowers, borrowerDetail, groups, groupDetail, preview, createRequisition, listRequisitions, getRequisition,
+  schemes, borrowers, borrowerDetail, groups, groupDetail, preview, createRequisition, listRequisitions, getRequisition, deleteRequisition,
 } from '../controllers/loanRequisitionController.js';
 
 const router = Router();
@@ -25,5 +25,6 @@ router.post('/loan-requisitions/business', requireAuth, requireRole(...CREATE), 
 router.post('/loan-requisitions/product', requireAuth, requireRole(...CREATE), h(createRequisition('product')));
 
 router.get('/loan-requisitions/:id', requireAuth, requireRole(...READ), h(getRequisition));
+router.delete('/loan-requisitions/:id', requireAuth, requireRole('super_admin', 'admin', 'branch_manager'), h(deleteRequisition));
 
 export default router;

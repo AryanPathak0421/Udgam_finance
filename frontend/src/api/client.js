@@ -92,6 +92,7 @@ export const api = {
     create: (kind, data) => request(kind === 'personal' ? '/loan-requisitions' : `/loan-requisitions/${kind}`, { method: 'POST', body: data }),
     list: (params) => request(`/loan-requisitions${qs(params)}`),
     get: (id) => request(`/loan-requisitions/${id}`),
+    remove: (id) => request(`/loan-requisitions/${id}`, { method: 'DELETE' }),
   },
   groupCommission: {
     report: (params) => request(`/group-leader-commission${qs(params)}`),

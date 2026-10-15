@@ -4,6 +4,7 @@ import FormField from '../components/ui/FormField.jsx';
 import { EmptyState, PageHeader, Spinner } from '../components/ui/Feedback.jsx';
 import { useToast } from '../components/ui/Toast.jsx';
 import useDebounce from '../hooks/useDebounce.js';
+import { useAuth } from '../context/AuthContext.jsx';
 import { EmployeeSelect, OtpVerify, PhotoField } from './NewBorrower.jsx';
 import { downloadMemberPdf } from '../utils/memberPdf.js';
 
@@ -26,7 +27,10 @@ const fromPerson = (p) => ({
 function PartySection({ kind, member, onSaved }) {
   const label = kind === 'guarantor' ? 'Guarantor' : 'Nominee';
   const toast = useToast();
+  const { user } = useAuth();
   const existing = member[kind];
+  // A phone number that was verified with an OTP can only be changed by an admin.
+  const phoneLocked = Boolean(existing?.mobile && existing.mobileVerified && !['super_admin', 'admin'].includes(user?.role));
   const [form, setForm] = useState(() => fromPerson(existing));
   const [errors, setErrors] = useState({});
   const [challenge, setChallenge] = useState('');
@@ -134,8 +138,8 @@ function PartySection({ kind, member, onSaved }) {
               <FormField id={`${kind}-name`} label={`${label} name`} required error={errors.name}>
                 <input id={`${kind}-name`} value={form.name} onChange={set('name')} maxLength={80} />
               </FormField>
-              <FormField id={`${kind}-mobile`} label="Phone number" error={errors.mobile} hint="Optional. If entered, it must be verified with an OTP">
-                <input id={`${kind}-mobile`} value={form.mobile} onChange={setDigits('mobile', 10)} inputMode="numeric" maxLength={10} />
+              <FormField id={`${kind}-mobile`} label="Phone number" error={errors.mobile} hint={phoneLocked ? 'Verified number. Only an admin can change it' : 'Optional. If entered, it must be verified with an OTP'}>
+                <input id={`${kind}-mobile`} value={form.mobile} onChange={setDigits('mobile', 10)} inputMode="numeric" maxLength={10} disabled={phoneLocked} />
                 {form.mobile && (
                   <OtpVerify id={`${kind}-otp`} label="Phone number" purpose="mobile" value={form.mobile} valid={mobileValid} mobile={form.mobile}
                     verified={mobileVerified} onVerified={setChallenge} onReset={resetChallenge} />

@@ -3,12 +3,15 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import Modal from '../components/ui/Modal.jsx';
+import ConfirmDialog from '../components/ui/ConfirmDialog.jsx';
+import { useToast } from '../components/ui/Toast.jsx';
 import Pagination from '../components/ui/Pagination.jsx';
 import { DetailList, EmptyState, ErrorState, PageHeader, Spinner } from '../components/ui/Feedback.jsx';
 import useDebounce from '../hooks/useDebounce.js';
 
 const LIMIT = 25;
 const CREATORS = ['super_admin', 'admin', 'branch_manager', 'loan_officer', 'field_officer'];
+const DELETERS = ['super_admin', 'admin', 'branch_manager'];
 const inr = (n) => (n === null || n === undefined ? '—' : `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const TONE = { pending: 'grey', approved: 'green', rejected: 'danger', cancelled: 'grey' };
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : '');
@@ -81,7 +84,11 @@ function Detail({ id, onClose }) {
 export default function RequisitionList() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const toast = useToast();
   const canCreate = CREATORS.includes(user?.role);
+  const canDelete = DELETERS.includes(user?.role);
+  const [removing, setRemoving] = useState(null);
+  const [busy, setBusy] = useState(false);
   const [data, setData] = useState({ items: [], total: 0, totalPages: 1 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -165,7 +172,12 @@ export default function RequisitionList() {
                       </td>
                       <td data-label="EMI" className="num">{inr(r.emi)}</td>
                       <td data-label="Status"><span className={`badge ${TONE[r.status]}`}>{cap(r.status)}</span></td>
-                      <td data-label="Actions" className="actions-col"><button className="btn sm" onClick={() => setOpenId(r.id)}>View</button></td>
+                      <td data-label="Actions" className="actions-col">
+                        <div className="row-actions">
+                          <button className="btn sm" onClick={() => setOpenId(r.id)}>View</button>
+                          {canDelete && r.status !== 'approved' && <button className="btn sm danger-outline" onClick={() => setRemoving(r)}>Delete</button>}
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -176,6 +188,29 @@ export default function RequisitionList() {
         )}
       </div>
       {openId && <Detail id={openId} onClose={() => setOpenId(null)} />}
+      <ConfirmDialog
+        open={Boolean(removing)}
+        title="Delete requisition?"
+        message={removing ? `Delete requisition ${removing.formId} of ${removing.subjectName}? An approved requisition cannot be deleted.` : ''}
+        confirmLabel="Delete"
+        tone="danger"
+        loading={busy}
+        onConfirm={async () => {
+          setBusy(true);
+          try {
+            await api.loanRequisitions.remove(removing.id);
+            toast.success('Requisition deleted');
+            setRemoving(null);
+            load();
+          } catch (err) {
+            toast.error(err.message);
+            setRemoving(null);
+          } finally {
+            setBusy(false);
+          }
+        }}
+        onCancel={() => setRemoving(null)}
+      />
     </>
   );
 }
