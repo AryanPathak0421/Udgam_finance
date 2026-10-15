@@ -38,7 +38,7 @@ function Photos({ items }) {
 function Person({ p }) {
   return (
     <>
-      <DetailList items={[['Name', p.name], ['Phone', p.mobile ? `${p.mobile}${p.mobileVerified ? ' ✓' : ''}` : ''], ['Aadhaar', p.aadhaar], ['PAN', p.pan], ['Employee ID', p.employeeCode], ...(p.sameAsGuarantor ? [['Note', 'Same person as the guarantor']] : [])]} />
+      <DetailList items={[['Name', p.name], ['Phone', p.mobile ? `${p.mobile}${p.mobileVerified ? ' ✓' : ''}` : ''], ['Aadhaar', p.aadhaar], ['PAN', p.pan ? `${p.pan}${p.panVerified ? ' ✓ verified' : ''}` : ''], ['Employee ID', p.employeeCode], ...(p.sameAsGuarantor ? [['Note', 'Same person as the guarantor']] : [])]} />
       <div style={{ marginTop: 10 }}>
         <Photos items={[['Photo', p.photo], ['Signature', p.signature], ['Aadhaar', p.aadhaarPhoto], ['PAN', p.panPhoto], ['Joint photo with member', p.jointPhoto]]} />
       </div>

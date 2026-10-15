@@ -130,6 +130,7 @@ const presentPerson = (p, full) =>
         mobileVerified: Boolean(p.mobileVerifiedAt),
         aadhaar: full ? p.aadhaar : maskAadhaar(p.aadhaar),
         pan: p.pan ? (full ? p.pan : maskPan(p.pan)) : '',
+        panVerified: Boolean(p.panVerifiedAt),
         photo: p.photo || null,
         signature: p.signature || null,
         aadhaarPhoto: p.aadhaarPhoto || null,
@@ -514,8 +515,11 @@ async function readPerson(req, kind, m, existing) {
   if (!AADHAAR_RE.test(d.aadhaar) || !verhoeff(d.aadhaar)) v.add('aadhaar', 'Enter a valid 12-digit Aadhaar number');
   else if (kind === 'guarantor' && d.aadhaar === m.aadhaar) v.add('aadhaar', 'The guarantor cannot be the borrower');
   d.pan = asString(b.pan).toUpperCase();
-  if (d.pan && !PAN_RE.test(d.pan)) v.add('pan', 'Enter a valid PAN (e.g. ABCDE1234F)');
-  else if (kind === 'guarantor' && d.pan && d.pan === m.pan) v.add('pan', 'The guarantor cannot be the borrower');
+  if (d.pan) {
+    const pc = checkPanFormat(d.pan, d.name);
+    if (!pc.ok) v.add('pan', pc.message);
+    else if (kind === 'guarantor' && d.pan === m.pan) v.add('pan', 'The guarantor cannot be the borrower');
+  }
 
   d.photo = readImage(b.photo, 'photo', `${label} photo`, v, { required: true });
   d.signature = readImage(b.signature, 'signature', 'Signature', v, { required: true });
@@ -538,11 +542,16 @@ async function readPerson(req, kind, m, existing) {
     }
   }
 
+  // PAN holder verification (needs a KYC provider; recorded only when really verified).
+  const panCheck = d.pan ? await verifyPan(d.pan, d.name) : { status: 'unavailable' };
+  if (panCheck.status === 'mismatch') throw new HttpError(422, 'Please correct the highlighted fields', { pan: 'The PAN does not belong to this person' });
+
   const employeeCode = await resolveEmployee(req, v, m.branch);
   return {
     ...d,
     mobile: d.mobile || undefined,
     pan: d.pan || undefined,
+    panVerifiedAt: panCheck.status === 'verified' ? new Date() : undefined,
     mobileVerifiedAt: verifiedAt,
     sameAsGuarantor: false,
     employeeCode,
@@ -575,6 +584,7 @@ export function savePerson(kind) {
         mobileVerifiedAt: g.mobileVerifiedAt,
         aadhaar: g.aadhaar,
         pan: g.pan,
+        panVerifiedAt: g.panVerifiedAt,
         photo: g.photo,
         signature: g.signature,
         aadhaarPhoto: g.aadhaarPhoto,
@@ -676,11 +686,13 @@ function docStates(m, keys) {
   });
 }
 
+// Pending as long as anything is still waiting for a decision (e.g. 5 of 10 reviewed, 5 pending).
+// Only when nothing is pending: rejected if any document was rejected, otherwise approved.
 function kycStatusOf(docs) {
   if (!docs.length) return 'pending';
+  if (docs.some((d) => d.status === 'pending')) return 'pending';
   if (docs.some((d) => d.status === 'rejected')) return 'rejected';
-  if (docs.every((d) => d.status === 'approved')) return 'approved';
-  return 'pending';
+  return 'approved';
 }
 
 // KYC state of one person's documents: 'none' when nothing was uploaded for them.

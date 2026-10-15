@@ -73,6 +73,7 @@ function PartySection({ kind, member, onSaved }) {
       else if (form.mobile && !mobileVerified) found.mobile = 'Verify the phone number with an OTP, or clear the number';
       if (!/^\d{12}$/.test(form.aadhaar)) found.aadhaar = existing && !form.aadhaar ? 'Re-enter the 12-digit Aadhaar number to save' : 'Enter the 12-digit Aadhaar number';
       if (form.pan && !/^[A-Z]{5}\d{4}[A-Z]$/.test(form.pan)) found.pan = 'Enter a valid PAN (e.g. ABCDE1234F)';
+      else if (form.pan && form.pan[3] !== 'P') found.pan = 'A PAN of an individual has P as the 4th letter';
       if (!form.photo) found.photo = `${label} photo is required`;
       if (!form.signature) found.signature = 'Signature is required';
       if (!form.aadhaarPhoto) found.aadhaarPhoto = 'Aadhaar photo is required';
@@ -143,7 +144,11 @@ function PartySection({ kind, member, onSaved }) {
                 hint={existing ? `Saved: ${existing.aadhaar}. Enter it again to save changes.` : undefined}>
                 <input id={`${kind}-aadhaar`} value={form.aadhaar} onChange={setDigits('aadhaar', 12)} inputMode="numeric" maxLength={12} />
               </FormField>
-              <FormField id={`${kind}-pan`} label="PAN number" error={errors.pan} hint={existing?.pan ? `Saved: ${existing.pan}. Enter it again to keep it.` : 'Optional'}>
+              <FormField id={`${kind}-pan`} label="PAN number" error={errors.pan} hint={
+                  /^[A-Z]{5}\d{4}[A-Z]$/.test(form.pan)
+                    ? (form.pan[3] === 'P' ? '✓ PAN format is valid' : 'A PAN of an individual has P as the 4th letter')
+                    : existing?.pan ? `Saved: ${existing.pan}${existing.panVerified ? ' (verified)' : ''}. Enter it again to keep it.` : 'Optional. Format: ABCDE1234F'
+                }>
                 <input id={`${kind}-pan`} value={form.pan} maxLength={10}
                   onChange={(e) => setForm((f) => ({ ...f, pan: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10) }))} />
               </FormField>

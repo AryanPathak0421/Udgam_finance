@@ -15,7 +15,7 @@ function PersonCard({ title, p, note }) {
     <div className="panel" style={{ padding: 16 }}>
       <h3 className="section-title">{title}</h3>
       {note && <div className="field-hint" style={{ marginBottom: 8 }}>{note}</div>}
-      <DetailList items={[['Name', p.name], ['Phone', p.mobile ? `${p.mobile}${p.mobileVerified ? ' ✓' : ''}` : ''], ['Aadhaar', p.aadhaar], ['PAN', p.pan], ['Employee ID', p.employeeCode]]} />
+      <DetailList items={[['Name', p.name], ['Phone', p.mobile ? `${p.mobile}${p.mobileVerified ? ' ✓' : ''}` : ''], ['Aadhaar', p.aadhaar], ['PAN', p.pan ? `${p.pan}${p.panVerified ? ' ✓ verified' : ''}` : ''], ['Employee ID', p.employeeCode]]} />
       <div className="stamp-view sign-row" style={{ marginTop: 12 }}>
         {[['Photo', p.photo], ['Signature', p.signature], ['Aadhaar', p.aadhaarPhoto], ['PAN', p.panPhoto], ['Joint photo', p.jointPhoto]].map(([l, src]) => (
           <div key={l}>
@@ -92,6 +92,7 @@ export default function GuarantorChange() {
     else if (form.mobile && !challenge) found.mobile = 'Verify the phone number with an OTP, or clear the number';
     if (!/^\d{12}$/.test(form.aadhaar)) found.aadhaar = 'Enter the 12-digit Aadhaar number';
     if (form.pan && !/^[A-Z]{5}\d{4}[A-Z]$/.test(form.pan)) found.pan = 'Enter a valid PAN (e.g. ABCDE1234F)';
+    else if (form.pan && form.pan[3] !== 'P') found.pan = 'A PAN of an individual has P as the 4th letter';
     if (!form.photo) found.photo = 'Guarantor photo is required';
     if (!form.signature) found.signature = 'Signature is required';
     if (!form.aadhaarPhoto) found.aadhaarPhoto = 'Aadhaar photo is required';
@@ -205,7 +206,7 @@ export default function GuarantorChange() {
                 <FormField id="aadhaar" label="Aadhaar number" required error={errors.aadhaar}>
                   <input id="aadhaar" value={form.aadhaar} onChange={setDigits('aadhaar', 12)} inputMode="numeric" maxLength={12} />
                 </FormField>
-                <FormField id="pan" label="PAN number" error={errors.pan} hint="Optional">
+                <FormField id="pan" label="PAN number" error={errors.pan} hint={/^[A-Z]{5}\d{4}[A-Z]$/.test(form.pan) && form.pan[3] === 'P' ? '✓ PAN format is valid' : 'Optional. Format: ABCDE1234F'}>
                   <input id="pan" value={form.pan} maxLength={10}
                     onChange={(e) => setForm((f) => ({ ...f, pan: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10) }))} />
                 </FormField>

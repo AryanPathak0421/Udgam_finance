@@ -9,6 +9,7 @@ const personSchema = new mongoose.Schema(
     mobileVerifiedAt: { type: Date },
     aadhaar: { type: String, required: true },
     pan: { type: String, uppercase: true, trim: true },
+    panVerifiedAt: { type: Date },
     // Nominee only: ticked when the nominee is the guarantor (details are copied from the guarantor).
     sameAsGuarantor: { type: Boolean, default: false },
     // Photo of the member together with the guarantor / nominee (optional).
@@ -32,6 +33,7 @@ const historySchema = new mongoose.Schema(
     mobileVerifiedAt: Date,
     aadhaar: String,
     pan: String,
+    panVerifiedAt: Date,
     jointPhoto: { type: String, select: false },
     photo: { type: String, select: false },
     signature: { type: String, select: false },
