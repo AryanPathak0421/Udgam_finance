@@ -4,6 +4,7 @@ import { Rank } from '../models/Rank.js';
 import { Branch } from '../models/Branch.js';
 import { asString, createValidator, escapeRegex, parsePaging, HttpError } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
+import { generateCode } from '../services/codeSequence.js';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MOBILE_RE = /^[6-9]\d{9}$/;
@@ -14,6 +15,7 @@ const present = (u) => ({
   name: u.name,
   email: u.email,
   mobile: u.mobile || '',
+  employeeCode: u.employeeCode || '',
   role: u.role,
   rank: u.rank && u.rank._id ? { id: u.rank._id, code: u.rank.code, name: u.rank.name } : null,
   rankId: u.rank?._id ? String(u.rank._id) : u.rank ? String(u.rank) : '',
@@ -102,7 +104,7 @@ export async function createUser(req, res) {
   let user;
   try {
     user = await User.create({
-      name, email, mobile: mobile || undefined, password, role,
+      name, email, mobile: mobile || undefined, password, role, employeeCode: await generateCode('employee'),
       rank: rank._id, branches: branches.map((x) => x._id),
       isActive: b.isActive !== false, createdBy: req.user._id, updatedBy: req.user._id,
     });

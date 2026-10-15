@@ -8,6 +8,7 @@ import { DetailList, EmptyState, ErrorState, PageHeader, Spinner } from '../comp
 import { useToast } from '../components/ui/Toast.jsx';
 import useDebounce from '../hooks/useDebounce.js';
 import { compressImage } from '../utils/image.js';
+import { downloadMemberPdf } from '../utils/memberPdf.js';
 
 const LIMIT = 25;
 const CREATORS = ['super_admin', 'admin', 'branch_manager', 'loan_officer', 'field_officer'];
@@ -21,7 +22,7 @@ const EMPTY = {
 };
 
 // A value (mobile / PAN) that must be confirmed with an OTP before the form can be saved.
-function OtpVerify({ id, label, value, valid, purpose, mobile, verified, onVerified, onReset, hint }) {
+export function OtpVerify({ id, label, value, valid, purpose, mobile, verified, onVerified, onReset, hint }) {
   const toast = useToast();
   const [challenge, setChallenge] = useState(null);
   const [otp, setOtp] = useState('');
@@ -103,7 +104,7 @@ function OtpVerify({ id, label, value, valid, purpose, mobile, verified, onVerif
   );
 }
 
-function PhotoField({ id, label, value, error, onChange, required }) {
+export function PhotoField({ id, label, value, error, onChange, required }) {
   const ref = useRef(null);
   const [err, setErr] = useState('');
   async function pick(e) {
@@ -133,6 +134,7 @@ function PhotoField({ id, label, value, error, onChange, required }) {
 
 function BorrowerForm({ branches, options, onCancel, onSaved }) {
   const toast = useToast();
+  const { user } = useAuth();
   const [form, setForm] = useState({ ...EMPTY, branch: branches.length === 1 ? branches[0].id : '' });
   const [errors, setErrors] = useState({});
   const [districts, setDistricts] = useState([]);
@@ -237,6 +239,9 @@ function BorrowerForm({ branches, options, onCancel, onSaved }) {
           </FormField>
           <FormField id="formid" label="Form ID" hint="Generated automatically on save">
             <input id="formid" value="Auto" disabled />
+          </FormField>
+          <FormField id="emp" label="Employee ID" hint="Your staff ID, filled in automatically">
+            <input id="emp" value={user?.employeeCode || '—'} disabled />
           </FormField>
           <FormField id="name" label="Member name" required error={errors.name}>
             <input id="name" value={form.name} onChange={set('name')} maxLength={80} />
@@ -351,7 +356,18 @@ function MemberDetail({ id, onClose }) {
     api.members.get(id).then((r) => setM(r.member)).catch((e) => setError(e.message));
   }, [id]);
   return (
-    <Modal open title={m ? `${m.name} — ${m.code}` : 'Borrower'} onClose={onClose} size="lg" footer={<button className="btn" onClick={onClose}>Close</button>}>
+    <Modal
+      open
+      title={m ? `${m.name} — ${m.code}` : 'Borrower'}
+      onClose={onClose}
+      size="lg"
+      footer={
+        <>
+          {m && <button className="btn" onClick={() => downloadMemberPdf(m)}>Download PDF</button>}
+          <button className="btn" onClick={onClose}>Close</button>
+        </>
+      }
+    >
       {error ? (
         <ErrorState message={error} />
       ) : !m ? (
@@ -366,6 +382,9 @@ function MemberDetail({ id, onClose }) {
               ['Occupation', m.occupation], ['Education', m.education], ['Address', `${m.address}, ${m.district}, ${m.state} - ${m.pincode}`],
               ['Aadhaar', m.aadhaar], ['PAN', m.pan ? `${m.pan}${m.panVerified ? ' ✓' : ''}` : ''],
               ['Bank', `${m.bankName} (${m.ifsc})`], ['Account number', m.accountNumber],
+              ['Employee ID', m.employeeCode],
+              ['Guarantor', m.guarantor ? `${m.guarantor.name} (${m.guarantor.mobile})` : 'Not added'],
+              ['Nominee', m.nominee ? `${m.nominee.name} (${m.nominee.mobile})` : 'Not added'],
             ]}
           />
           <div className="stamp-view sign-row" style={{ marginTop: 16 }}>
@@ -394,6 +413,7 @@ export default function NewBorrower() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [openId, setOpenId] = useState(null);
+  const [justSaved, setJustSaved] = useState(null);
   const q = useDebounce(search);
 
   useEffect(() => {
@@ -422,7 +442,7 @@ export default function NewBorrower() {
     return (
       <>
         <PageHeader title="New Borrower" description="Register a new member. Mobile number (and PAN, if given) must be verified with an OTP." />
-        <BorrowerForm branches={branches} options={options} onCancel={() => setView('list')} onSaved={() => { setView('list'); load(); }} />
+        <BorrowerForm branches={branches} options={options} onCancel={() => setView('list')} onSaved={(saved) => { setView('list'); setJustSaved(saved); load(); }} />
       </>
     );
   }
@@ -471,6 +491,27 @@ export default function NewBorrower() {
           </>
         )}
       </div>
+      <Modal
+        open={Boolean(justSaved)}
+        title="Borrower registered"
+        onClose={() => setJustSaved(null)}
+        footer={
+          <>
+            <button className="btn" onClick={() => setJustSaved(null)}>Close</button>
+            <button className="btn primary" onClick={async () => { const r = await api.members.get(justSaved.id); downloadMemberPdf(r.member); }}>Download PDF</button>
+          </>
+        }
+      >
+        {justSaved && (
+          <>
+            <p>
+              <strong>{justSaved.name}</strong> has been registered.
+            </p>
+            <DetailList items={[['Member code', justSaved.code], ['Form ID', justSaved.formId], ['Employee ID', justSaved.employeeCode]]} />
+            <p className="muted small">Add the guarantor and nominee under Member Details → Guarantor Detail / Nominee Detail.</p>
+          </>
+        )}
+      </Modal>
       {openId && <MemberDetail id={openId} onClose={() => setOpenId(null)} />}
     </>
   );

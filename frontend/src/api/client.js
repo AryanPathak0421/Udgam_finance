@@ -62,6 +62,8 @@ export const api = {
     list: (params) => request(`/members${qs(params)}`),
     get: (id) => request(`/members/${id}`),
     create: (data) => request('/members', { method: 'POST', body: data }),
+    saveGuarantor: (id, data) => request(`/members/${id}/guarantor`, { method: 'PUT', body: data }),
+    saveNominee: (id, data) => request(`/members/${id}/nominee`, { method: 'PUT', body: data }),
     sendOtp: (data) => request('/members/otp/send', { method: 'POST', body: data }),
     verifyOtp: (challengeId, otp) => request('/members/otp/verify', { method: 'POST', body: { challengeId, otp } }),
   },

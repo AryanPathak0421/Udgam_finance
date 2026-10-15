@@ -17,6 +17,8 @@ export const MENU_CATALOGUE = [
   { key: '/admin-master/account-groups', label: 'Account Group Master', group: 'Admin Master', adminOnly: true },
   { key: '/admin-master/ledgers', label: 'Ledger Master', group: 'Admin Master', adminOnly: true },
   { key: '/members/new-borrower', label: 'New Borrower', group: 'Member Details' },
+  { key: '/members/guarantor-detail', label: 'Guarantor Detail', group: 'Member Details' },
+  { key: '/members/nominee-detail', label: 'Nominee Detail', group: 'Member Details' },
   { key: '/employees', label: 'Employees', group: 'Organisation' },
   { key: '/groups', label: 'Centers & Groups', group: 'Organisation' },
   { key: '/customers', label: 'Customers', group: 'Customers' },

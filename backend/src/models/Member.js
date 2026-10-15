@@ -1,5 +1,24 @@
 import mongoose from 'mongoose';
 
+// Guarantor / nominee of a member. Photos are small PNG/JPEG data URLs.
+const personSchema = new mongoose.Schema(
+  {
+    name: { type: String, required: true, trim: true },
+    mobile: { type: String, required: true, trim: true },
+    mobileVerifiedAt: { type: Date },
+    aadhaar: { type: String, required: true },
+    pan: { type: String, uppercase: true, trim: true },
+    photo: { type: String, required: true, select: false },
+    signature: { type: String, required: true, select: false },
+    aadhaarPhoto: { type: String, required: true, select: false },
+    panPhoto: { type: String, select: false },
+    employeeCode: { type: String },
+    savedAt: { type: Date, default: Date.now },
+    savedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  },
+  { _id: false }
+);
+
 // A borrower (member). Photos are stored as small PNG/JPEG data URLs.
 const memberSchema = new mongoose.Schema(
   {
@@ -30,6 +49,10 @@ const memberSchema = new mongoose.Schema(
     panPhoto: { type: String, select: false },
     memberPhoto: { type: String, required: true, select: false },
     signaturePhoto: { type: String, required: true, select: false },
+    // Staff ID of the user who registered the member.
+    employeeCode: { type: String },
+    guarantor: { type: personSchema },
+    nominee: { type: personSchema },
     isActive: { type: Boolean, default: true },
     isDeleted: { type: Boolean, default: false },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },

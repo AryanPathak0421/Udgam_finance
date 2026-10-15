@@ -38,6 +38,7 @@ const publicUser = (u) => ({
   id: u._id,
   name: u.name,
   email: u.email,
+  employeeCode: u.employeeCode || '',
   role: u.role,
   rank: u.rank?.name || null,
   menuPermissions: effectivePermissions(u),

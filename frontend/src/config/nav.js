@@ -44,7 +44,11 @@ export const NAV_SECTIONS = [
         path: '/members',
         icon: 'customer',
         roles: [...MGMT, 'loan_officer', 'field_officer', 'collection_officer', 'accountant', 'viewer'],
-        children: [{ label: 'New Borrower', path: '/members/new-borrower', icon: 'userplus' }],
+        children: [
+          { label: 'New Borrower', path: '/members/new-borrower', icon: 'userplus' },
+          { label: 'Guarantor Detail', path: '/members/guarantor-detail', icon: 'users' },
+          { label: 'Nominee Detail', path: '/members/nominee-detail', icon: 'users' },
+        ],
       },
     ],
   },

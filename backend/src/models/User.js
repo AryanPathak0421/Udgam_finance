@@ -17,6 +17,8 @@ const userSchema = new mongoose.Schema(
     name: { type: String, required: true, trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     mobile: { type: String, trim: true },
+    // Staff ID (from the Employee Code sequence); stamped on the records this user creates.
+    employeeCode: { type: String, trim: true, uppercase: true },
     password: { type: String, required: true, minlength: 6, select: false },
     role: { type: String, enum: ROLES, default: 'viewer' },
     // Menu permissions are defined per rank (see Rank.menuPermissions).
@@ -37,6 +39,7 @@ const userSchema = new mongoose.Schema(
 );
 
 userSchema.index({ rank: 1 });
+userSchema.index({ employeeCode: 1 }, { unique: true, sparse: true });
 
 userSchema.pre('save', async function (next) {
   if (!this.isModified('password')) return next();

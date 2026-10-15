@@ -9,6 +9,7 @@ import { INDIA_LOCATIONS } from '../data/indiaLocations.js';
 import { branchFilter, isAdmin, maskMobile } from './groupController.js';
 import { asString, createValidator, escapeRegex, parseDateOnly, parsePaging, HttpError } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
+import { User } from '../models/User.js';
 
 export const GENDERS = ['male', 'female', 'other'];
 export const OCCUPATIONS = ['Farmer', 'Agricultural labour', 'Dairy / animal husbandry', 'Small shop / trader', 'Tailoring / handicraft', 'Daily wage labour', 'Salaried', 'Self employed', 'Homemaker', 'Other'];
@@ -52,6 +53,7 @@ export function verhoeff(num) {
 
 // ---- helpers ---------------------------------------------------------------------------------
 const MANAGERS = ['super_admin', 'admin', 'branch_manager'];
+const PARTY_PHOTOS = ['guarantor', 'nominee'].flatMap((k) => ['photo', 'signature', 'aadhaarPhoto', 'panPhoto'].map((f) => `+${k}.${f}`)).join(' ');
 const maskAadhaar = (a) => (a ? `XXXXXXXX${a.slice(-4)}` : '');
 const maskPan = (p) => (p ? `${p.slice(0, 2)}XXXXX${p.slice(-3)}` : '');
 const dateOnly = (d) => (d ? d.toISOString().slice(0, 10) : null);
@@ -74,6 +76,9 @@ const present = (m, user, { detail = false } = {}) => {
     district: m.district,
     aadhaar: full && detail ? m.aadhaar : maskAadhaar(m.aadhaar),
     pan: m.pan ? (full && detail ? m.pan : maskPan(m.pan)) : '',
+    employeeCode: m.employeeCode || '',
+    hasGuarantor: Boolean(m.guarantor?.name),
+    hasNominee: Boolean(m.nominee?.name),
     isActive: m.isActive,
     createdAt: m.createdAt,
   };
@@ -93,12 +98,41 @@ const present = (m, user, { detail = false } = {}) => {
       panPhoto: m.panPhoto || null,
       memberPhoto: m.memberPhoto || null,
       signaturePhoto: m.signaturePhoto || null,
+      guarantor: presentPerson(m.guarantor, full),
+      nominee: presentPerson(m.nominee, full),
     });
   }
   return out;
 };
 
+const presentPerson = (p, full) =>
+  p?.name
+    ? {
+        name: p.name,
+        mobile: p.mobile,
+        mobileVerified: Boolean(p.mobileVerifiedAt),
+        aadhaar: full ? p.aadhaar : maskAadhaar(p.aadhaar),
+        pan: p.pan ? (full ? p.pan : maskPan(p.pan)) : '',
+        photo: p.photo || null,
+        signature: p.signature || null,
+        aadhaarPhoto: p.aadhaarPhoto || null,
+        panPhoto: p.panPhoto || null,
+        employeeCode: p.employeeCode || '',
+        savedAt: p.savedAt,
+      }
+    : null;
+
 const POPULATE = { path: 'branch', select: 'code name' };
+
+// The signed-in user's staff ID (assigned on first use for accounts created before staff IDs existed).
+async function staffId(user) {
+  if (user.employeeCode) return user.employeeCode;
+  const code = await generateCode('employee');
+  await User.updateOne({ _id: user._id, employeeCode: { $exists: false } }, { $set: { employeeCode: code } });
+  const fresh = await User.findById(user._id).select('employeeCode');
+  user.employeeCode = fresh.employeeCode;
+  return user.employeeCode;
+}
 
 // ---- form options ------------------------------------------------------------------------------
 export function memberOptions(_req, res) {
@@ -319,6 +353,7 @@ export async function createMember(req, res) {
       joiningDate: new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`),
       mobileVerifiedAt: mobileCh.verifiedAt,
       panVerifiedAt: panCh?.verifiedAt,
+      employeeCode: await staffId(req.user),
       createdBy: req.user._id,
       updatedBy: req.user._id,
     });
@@ -359,7 +394,67 @@ export async function getMember(req, res) {
   if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Member not found');
   const m = await Member.findOne({ _id: req.params.id, isDeleted: false, ...branchFilter(req.user) })
     .select('+aadhaarPhoto +panPhoto +memberPhoto +signaturePhoto')
+    .select(PARTY_PHOTOS)
     .populate(POPULATE);
   if (!m) throw new HttpError(404, 'Member not found');
   res.json({ member: present(m, req.user, { detail: true }) });
+}
+
+// ---- guarantor / nominee -----------------------------------------------------------------------
+// Both use the same fields. The phone number's OTP verification is optional.
+export function savePerson(kind) {
+  const label = kind === 'guarantor' ? 'Guarantor' : 'Nominee';
+  return async (req, res) => {
+    if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Member not found');
+    const m = await Member.findOne({ _id: req.params.id, isDeleted: false, ...branchFilter(req.user) });
+    if (!m) throw new HttpError(404, 'Member not found');
+
+    const b = req.body || {};
+    const v = createValidator();
+    const d = {};
+    d.name = asString(b.name).replace(/s+/g, ' ');
+    if (!NAME_RE.test(d.name)) v.add('name', `Enter the ${label.toLowerCase()}'s full name (letters only)`);
+    d.mobile = asString(b.mobile);
+    if (!MOBILE_RE.test(d.mobile)) v.add('mobile', 'Enter a valid 10-digit mobile number');
+    d.aadhaar = asString(b.aadhaar).replace(/s/g, '');
+    if (!AADHAAR_RE.test(d.aadhaar) || !verhoeff(d.aadhaar)) v.add('aadhaar', 'Enter a valid 12-digit Aadhaar number');
+    else if (kind === 'guarantor' && d.aadhaar === m.aadhaar) v.add('aadhaar', 'The guarantor cannot be the borrower');
+    d.pan = asString(b.pan).toUpperCase();
+    if (d.pan && !PAN_RE.test(d.pan)) v.add('pan', 'Enter a valid PAN (e.g. ABCDE1234F)');
+    else if (kind === 'guarantor' && d.pan && d.pan === m.pan) v.add('pan', 'The guarantor cannot be the borrower');
+
+    d.photo = readImage(b.photo, 'photo', `${label} photo`, v, { required: true });
+    d.signature = readImage(b.signature, 'signature', 'Signature', v, { required: true });
+    d.aadhaarPhoto = readImage(b.aadhaarPhoto, 'aadhaarPhoto', 'Aadhaar photo', v, { required: true });
+    d.panPhoto = readImage(b.panPhoto, 'panPhoto', 'PAN photo', v, { required: Boolean(d.pan) });
+    v.throwIfAny();
+
+    // Optional OTP: when a challenge is supplied it must be valid for this very number.
+    let verifiedAt;
+    if (b.mobileChallengeId) {
+      const ch = await takeVerified(b.mobileChallengeId, req.user, 'member_mobile', d.mobile);
+      if (!ch) throw new HttpError(422, 'Please correct the highlighted fields', { mobile: 'Verify the mobile number with an OTP again' });
+      verifiedAt = ch.verifiedAt;
+      await OtpChallenge.updateOne({ _id: ch._id }, { $set: { consumedAt: new Date() } });
+    }
+
+    const before = Boolean(m[kind]?.name);
+    m[kind] = {
+      ...d,
+      pan: d.pan || undefined,
+      mobileVerifiedAt: verifiedAt,
+      employeeCode: await staffId(req.user),
+      savedAt: new Date(),
+      savedBy: req.user._id,
+    };
+    m.updatedBy = req.user._id;
+    await m.save();
+    await audit(req, {
+      action: `member.${kind}${before ? 'Updated' : 'Added'}`,
+      entity: 'Member',
+      entityId: m._id,
+      after: { code: m.code, [kind]: { name: d.name, aadhaar: maskAadhaar(d.aadhaar), pan: maskPan(d.pan) } },
+    });
+    res.json({ message: `${label} saved`, employeeCode: m[kind].employeeCode });
+  };
 }
