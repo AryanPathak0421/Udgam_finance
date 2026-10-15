@@ -279,6 +279,7 @@ input:disabled, select:disabled { background: #f3f4f6; color: #6b7280; cursor: n
 .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
 .badge.green { background: #dcf4e3; color: #14532d; }
 .badge.grey { background: #eceef2; color: #4b5563; }
+.badge.danger { background: var(--danger-bg); color: var(--danger); }
 
 .pagination { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding-top: 14px; font-size: 14px; color: var(--muted); }
 .pagination-btns { display: flex; align-items: center; gap: 10px; }

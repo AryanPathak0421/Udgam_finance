@@ -2,7 +2,7 @@ import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler as h } from '../utils/http.js';
-import { memberOptions, districts, sendOtp, verifyOtp, createMember, listMembers, getMember, savePerson, employeeOptions } from '../controllers/memberController.js';
+import { memberOptions, districts, sendOtp, verifyOtp, createMember, listMembers, getMember, savePerson, employeeOptions, changeGuarantor, listKyc, getKyc, reviewKyc, reuploadKyc } from '../controllers/memberController.js';
 
 const router = Router();
 
@@ -20,6 +20,13 @@ router.get('/members', requireAuth, requireRole(...READ), h(listMembers));
 router.post('/members', requireAuth, requireRole(...CREATE), h(createMember));
 router.put('/members/:id/guarantor', requireAuth, requireRole(...CREATE), h(savePerson('guarantor')));
 router.put('/members/:id/nominee', requireAuth, requireRole(...CREATE), h(savePerson('nominee')));
+const APPROVERS = ['super_admin', 'admin', 'branch_manager'];
+const CHANGERS = ['super_admin', 'admin', 'branch_manager', 'loan_officer'];
+router.get('/members/kyc', requireAuth, requireRole(...READ), h(listKyc));
+router.get('/members/:id/kyc', requireAuth, requireRole(...READ), h(getKyc));
+router.post('/members/:id/kyc/review', requireAuth, requireRole(...APPROVERS), h(reviewKyc));
+router.post('/members/:id/kyc/reupload', requireAuth, requireRole(...CREATE), h(reuploadKyc));
+router.put('/members/:id/guarantor/change', requireAuth, requireRole(...CHANGERS), h(changeGuarantor));
 router.get('/members/:id', requireAuth, requireRole(...READ), h(getMember));
 
 export default router;

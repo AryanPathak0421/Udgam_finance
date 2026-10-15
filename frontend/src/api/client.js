@@ -58,6 +58,11 @@ export const api = {
   },
   members: {
     options: () => request('/members/options'),
+    kycList: (params) => request(`/members/kyc${qs(params)}`),
+    kyc: (id) => request(`/members/${id}/kyc`),
+    kycReview: (id, data) => request(`/members/${id}/kyc/review`, { method: 'POST', body: data }),
+    kycReupload: (id, data) => request(`/members/${id}/kyc/reupload`, { method: 'POST', body: data }),
+    changeGuarantor: (id, data) => request(`/members/${id}/guarantor/change`, { method: 'PUT', body: data }),
     employees: (branch) => request(`/members/employees${qs({ branch })}`),
     districts: (state) => request(`/members/districts${qs({ state })}`),
     list: (params) => request(`/members${qs(params)}`),

@@ -19,6 +19,43 @@ const personSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// A guarantor that was replaced, with when / by whom / why.
+const historySchema = new mongoose.Schema(
+  {
+    name: String,
+    mobile: String,
+    mobileVerifiedAt: Date,
+    aadhaar: String,
+    pan: String,
+    photo: { type: String, select: false },
+    signature: { type: String, select: false },
+    aadhaarPhoto: { type: String, select: false },
+    panPhoto: { type: String, select: false },
+    employeeCode: String,
+    savedAt: Date,
+    savedBy: mongoose.Schema.Types.ObjectId,
+    replacedAt: { type: Date, required: true },
+    replacedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    replacedByCode: String,
+    reason: String,
+  },
+  { _id: false }
+);
+
+// Review state of one uploaded document (no record = pending).
+const kycDocSchema = new mongoose.Schema(
+  {
+    key: { type: String, required: true },
+    status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
+    reason: String,
+    reviewedAt: Date,
+    reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    reviewedByCode: String,
+    resubmittedAt: Date,
+  },
+  { _id: false }
+);
+
 // A borrower (member). Photos are stored as small PNG/JPEG data URLs.
 const memberSchema = new mongoose.Schema(
   {
@@ -52,6 +89,10 @@ const memberSchema = new mongoose.Schema(
     // Staff ID of the user who registered the member.
     employeeCode: { type: String },
     guarantor: { type: personSchema },
+    guarantorHistory: { type: [historySchema], default: [] },
+    // Which documents exist (kept in step with the uploads) and how each was reviewed.
+    kycKeys: { type: [String], default: [] },
+    kycDocs: { type: [kycDocSchema], default: [] },
     nominee: { type: personSchema },
     isActive: { type: Boolean, default: true },
     isDeleted: { type: Boolean, default: false },

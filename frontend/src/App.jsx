@@ -21,6 +21,8 @@ import AccountGroupMaster from './pages/adminMaster/AccountGroupMaster.jsx';
 import LedgerMaster from './pages/adminMaster/LedgerMaster.jsx';
 import NewBorrower from './pages/NewBorrower.jsx';
 import { GuarantorDetail, NomineeDetail } from './pages/MemberParty.jsx';
+import KycApproval from './pages/KycApproval.jsx';
+import GuarantorChange from './pages/GuarantorChange.jsx';
 import Groups from './pages/Groups.jsx';
 import GroupLeaderCommission from './pages/GroupLeaderCommission.jsx';
 import Layout from './components/Layout.jsx';
@@ -30,6 +32,8 @@ import { routableItems, canOpenPath } from './config/nav.js';
 const PAGES = {
   '/members/new-borrower': NewBorrower,
   '/members/guarantor-detail': GuarantorDetail,
+  '/members/kyc-approval': KycApproval,
+  '/members/guarantor-change': GuarantorChange,
   '/members/nominee-detail': NomineeDetail,
   '/groups': Groups,
   '/group-leader-commission': GroupLeaderCommission,

@@ -53,6 +53,7 @@ export function verhoeff(num) {
 
 // ---- helpers ---------------------------------------------------------------------------------
 const MANAGERS = ['super_admin', 'admin', 'branch_manager'];
+const HISTORY_PHOTOS = ['photo', 'signature', 'aadhaarPhoto', 'panPhoto'].map((f) => `+guarantorHistory.${f}`).join(' ');
 const PARTY_PHOTOS = ['guarantor', 'nominee'].flatMap((k) => ['photo', 'signature', 'aadhaarPhoto', 'panPhoto'].map((f) => `+${k}.${f}`)).join(' ');
 const maskAadhaar = (a) => (a ? `XXXXXXXX${a.slice(-4)}` : '');
 const maskPan = (p) => (p ? `${p.slice(0, 2)}XXXXX${p.slice(-3)}` : '');
@@ -100,6 +101,14 @@ const present = (m, user, { detail = false } = {}) => {
       signaturePhoto: m.signaturePhoto || null,
       guarantor: presentPerson(m.guarantor, full),
       nominee: presentPerson(m.nominee, full),
+      guarantorHistory: (m.guarantorHistory || [])
+        .map((h) => ({
+          ...presentPerson(h, full),
+          replacedAt: h.replacedAt,
+          replacedByCode: h.replacedByCode || '',
+          reason: h.reason || '',
+        }))
+        .reverse(),
     });
   }
   return out;
@@ -369,6 +378,7 @@ export async function createMember(req, res) {
       mobileVerifiedAt: mobileCh.verifiedAt,
       panVerifiedAt: panCh?.verifiedAt,
       employeeCode,
+      kycKeys: ['memberPhoto', 'signaturePhoto', 'aadhaarPhoto', ...(d.panPhoto ? ['panPhoto'] : [])],
       createdBy: req.user._id,
       updatedBy: req.user._id,
     });
@@ -410,6 +420,7 @@ export async function getMember(req, res) {
   const m = await Member.findOne({ _id: req.params.id, isDeleted: false, ...branchFilter(req.user) })
     .select('+aadhaarPhoto +panPhoto +memberPhoto +signaturePhoto')
     .select(PARTY_PHOTOS)
+    .select(HISTORY_PHOTOS)
     .populate(POPULATE);
   if (!m) throw new HttpError(404, 'Member not found');
   res.json({ member: present(m, req.user, { detail: true }) });
@@ -417,62 +428,277 @@ export async function getMember(req, res) {
 
 // ---- guarantor / nominee -----------------------------------------------------------------------
 // Both use the same fields. The phone number's OTP verification is optional.
+const PARTY_FIELDS = ['photo', 'signature', 'aadhaarPhoto', 'panPhoto'];
+
+async function loadMemberFor(req, { photos = false } = {}) {
+  if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Member not found');
+  let q = Member.findOne({ _id: req.params.id, isDeleted: false, ...branchFilter(req.user) });
+  if (photos) q = q.select(PARTY_PHOTOS).select(HISTORY_PHOTOS);
+  const m = await q;
+  if (!m) throw new HttpError(404, 'Member not found');
+  return m;
+}
+
+/** Validates the guarantor / nominee form of the request and returns the person to store. */
+async function readPerson(req, kind, m) {
+  const label = kind === 'guarantor' ? 'Guarantor' : 'Nominee';
+  const b = req.body || {};
+  const v = createValidator();
+  const d = {};
+  d.name = asString(b.name).replace(/\s+/g, ' ');
+  if (!NAME_RE.test(d.name)) v.add('name', `Enter the ${label.toLowerCase()}'s full name (letters only)`);
+  d.mobile = asString(b.mobile);
+  if (!MOBILE_RE.test(d.mobile)) v.add('mobile', 'Enter a valid 10-digit mobile number');
+  d.aadhaar = asString(b.aadhaar).replace(/\s/g, '');
+  if (!AADHAAR_RE.test(d.aadhaar) || !verhoeff(d.aadhaar)) v.add('aadhaar', 'Enter a valid 12-digit Aadhaar number');
+  else if (kind === 'guarantor' && d.aadhaar === m.aadhaar) v.add('aadhaar', 'The guarantor cannot be the borrower');
+  d.pan = asString(b.pan).toUpperCase();
+  if (d.pan && !PAN_RE.test(d.pan)) v.add('pan', 'Enter a valid PAN (e.g. ABCDE1234F)');
+  else if (kind === 'guarantor' && d.pan && d.pan === m.pan) v.add('pan', 'The guarantor cannot be the borrower');
+
+  d.photo = readImage(b.photo, 'photo', `${label} photo`, v, { required: true });
+  d.signature = readImage(b.signature, 'signature', 'Signature', v, { required: true });
+  d.aadhaarPhoto = readImage(b.aadhaarPhoto, 'aadhaarPhoto', 'Aadhaar photo', v, { required: true });
+  d.panPhoto = readImage(b.panPhoto, 'panPhoto', 'PAN photo', v, { required: Boolean(d.pan) });
+  v.throwIfAny();
+
+  // Optional OTP: when a challenge is supplied it must be valid for this very number.
+  let verifiedAt;
+  if (b.mobileChallengeId) {
+    const ch = await takeVerified(b.mobileChallengeId, req.user, 'member_mobile', d.mobile);
+    if (!ch) throw new HttpError(422, 'Please correct the highlighted fields', { mobile: 'Verify the mobile number with an OTP again' });
+    verifiedAt = ch.verifiedAt;
+    await OtpChallenge.updateOne({ _id: ch._id }, { $set: { consumedAt: new Date() } });
+  }
+
+  const employeeCode = await resolveEmployee(req, v, m.branch);
+  return {
+    ...d,
+    pan: d.pan || undefined,
+    mobileVerifiedAt: verifiedAt,
+    employeeCode,
+    savedAt: new Date(),
+    savedBy: req.user._id,
+  };
+}
+
+// A new or replaced document goes back to the approval queue.
+function resetKyc(m, prefix, person) {
+  m.kycDocs = (m.kycDocs || []).filter((x) => !x.key.startsWith(prefix));
+  const kept = (m.kycKeys || []).filter((k) => !k.startsWith(prefix));
+  const added = person ? PARTY_FIELDS.filter((f) => person[f]).map((f) => prefix + f) : [];
+  m.kycKeys = [...kept, ...added];
+}
+
 export function savePerson(kind) {
   const label = kind === 'guarantor' ? 'Guarantor' : 'Nominee';
   return async (req, res) => {
-    if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Member not found');
-    const m = await Member.findOne({ _id: req.params.id, isDeleted: false, ...branchFilter(req.user) });
-    if (!m) throw new HttpError(404, 'Member not found');
-
-    const b = req.body || {};
-    const v = createValidator();
-    const d = {};
-    d.name = asString(b.name).replace(/s+/g, ' ');
-    if (!NAME_RE.test(d.name)) v.add('name', `Enter the ${label.toLowerCase()}'s full name (letters only)`);
-    d.mobile = asString(b.mobile);
-    if (!MOBILE_RE.test(d.mobile)) v.add('mobile', 'Enter a valid 10-digit mobile number');
-    d.aadhaar = asString(b.aadhaar).replace(/s/g, '');
-    if (!AADHAAR_RE.test(d.aadhaar) || !verhoeff(d.aadhaar)) v.add('aadhaar', 'Enter a valid 12-digit Aadhaar number');
-    else if (kind === 'guarantor' && d.aadhaar === m.aadhaar) v.add('aadhaar', 'The guarantor cannot be the borrower');
-    d.pan = asString(b.pan).toUpperCase();
-    if (d.pan && !PAN_RE.test(d.pan)) v.add('pan', 'Enter a valid PAN (e.g. ABCDE1234F)');
-    else if (kind === 'guarantor' && d.pan && d.pan === m.pan) v.add('pan', 'The guarantor cannot be the borrower');
-
-    d.photo = readImage(b.photo, 'photo', `${label} photo`, v, { required: true });
-    d.signature = readImage(b.signature, 'signature', 'Signature', v, { required: true });
-    d.aadhaarPhoto = readImage(b.aadhaarPhoto, 'aadhaarPhoto', 'Aadhaar photo', v, { required: true });
-    d.panPhoto = readImage(b.panPhoto, 'panPhoto', 'PAN photo', v, { required: Boolean(d.pan) });
-    v.throwIfAny();
-
-    // Optional OTP: when a challenge is supplied it must be valid for this very number.
-    let verifiedAt;
-    if (b.mobileChallengeId) {
-      const ch = await takeVerified(b.mobileChallengeId, req.user, 'member_mobile', d.mobile);
-      if (!ch) throw new HttpError(422, 'Please correct the highlighted fields', { mobile: 'Verify the mobile number with an OTP again' });
-      verifiedAt = ch.verifiedAt;
-      await OtpChallenge.updateOne({ _id: ch._id }, { $set: { consumedAt: new Date() } });
-    }
-
-    const employeeCode = await resolveEmployee(req, v, m.branch);
+    const m = await loadMemberFor(req);
+    const person = await readPerson(req, kind, m);
     const before = Boolean(m[kind]?.name);
-    m[kind] = {
-      ...d,
-      pan: d.pan || undefined,
-      mobileVerifiedAt: verifiedAt,
-      employeeCode,
-      savedAt: new Date(),
-      savedBy: req.user._id,
-    };
+    m[kind] = person;
+    resetKyc(m, `${kind}.`, person);
     m.updatedBy = req.user._id;
     await m.save();
     await audit(req, {
       action: `member.${kind}${before ? 'Updated' : 'Added'}`,
       entity: 'Member',
       entityId: m._id,
-      after: { code: m.code, [kind]: { name: d.name, aadhaar: maskAadhaar(d.aadhaar), pan: maskPan(d.pan) } },
+      after: { code: m.code, [kind]: { name: person.name, aadhaar: maskAadhaar(person.aadhaar), pan: maskPan(person.pan) } },
     });
     res.json({ message: `${label} saved`, employeeCode: m[kind].employeeCode });
   };
+}
+
+/**
+ * Replaces the guarantor. The previous guarantor is kept (with when/who/why it was replaced)
+ * so the change history can always be shown.
+ */
+export async function changeGuarantor(req, res) {
+  const m = await loadMemberFor(req, { photos: true });
+  if (!m.guarantor?.name) {
+    throw new HttpError(409, 'This member has no guarantor yet. Add one under Guarantor Detail first.');
+  }
+  const reason = asString(req.body?.reason);
+  if (reason.length < 3 || reason.length > 200) {
+    throw new HttpError(422, 'Please correct the highlighted fields', { reason: 'Enter the reason for the change (3–200 characters)' });
+  }
+  const person = await readPerson(req, 'guarantor', m);
+  if (person.aadhaar === m.guarantor.aadhaar) {
+    throw new HttpError(422, 'Please correct the highlighted fields', { aadhaar: 'This is the current guarantor. Enter a different person.' });
+  }
+
+  const old = m.guarantor.toObject();
+  m.guarantorHistory.push({ ...old, replacedAt: new Date(), replacedBy: req.user._id, replacedByCode: person.employeeCode, reason });
+  m.guarantor = person;
+  resetKyc(m, 'guarantor.', person);
+  m.updatedBy = req.user._id;
+  await m.save();
+  await audit(req, {
+    action: 'member.guarantorChanged',
+    entity: 'Member',
+    entityId: m._id,
+    before: { guarantor: { name: old.name, aadhaar: maskAadhaar(old.aadhaar) } },
+    after: { code: m.code, reason, guarantor: { name: person.name, aadhaar: maskAadhaar(person.aadhaar) } },
+  });
+  res.json({ message: 'Guarantor changed', employeeCode: person.employeeCode });
+}
+
+// ---- KYC approval ---------------------------------------------------------------------------------
+// Every uploaded document is reviewed on its own. A document without a review record is pending.
+const cap = (s) => s[0].toUpperCase() + s.slice(1);
+export const KYC_DOCS = [
+  { key: 'memberPhoto', who: 'Member', label: 'Member photo' },
+  { key: 'signaturePhoto', who: 'Member', label: 'Signature' },
+  { key: 'aadhaarPhoto', who: 'Member', label: 'Aadhaar' },
+  { key: 'panPhoto', who: 'Member', label: 'PAN' },
+  ...['guarantor', 'nominee'].flatMap((k) => [
+    { key: `${k}.photo`, who: cap(k), label: 'Photo' },
+    { key: `${k}.signature`, who: cap(k), label: 'Signature' },
+    { key: `${k}.aadhaarPhoto`, who: cap(k), label: 'Aadhaar' },
+    { key: `${k}.panPhoto`, who: cap(k), label: 'PAN' },
+  ]),
+];
+const KYC_KEYS = new Set(KYC_DOCS.map((d) => d.key));
+const pathOf = (m, key) => key.split('.').reduce((o, p) => (o ? o[p] : undefined), m);
+
+// Review state of the given documents (keys); a document with no review record is pending.
+function docStates(m, keys) {
+  return KYC_DOCS.filter((def) => keys.includes(def.key)).map((def) => {
+    const rec = (m.kycDocs || []).find((x) => x.key === def.key);
+    return {
+      key: def.key,
+      who: def.who,
+      label: def.label,
+      status: rec?.status || 'pending',
+      reason: rec?.reason || '',
+      reviewedAt: rec?.reviewedAt || null,
+      reviewedByCode: rec?.reviewedByCode || '',
+      resubmitted: Boolean(rec?.resubmittedAt),
+    };
+  });
+}
+
+function kycStatusOf(docs) {
+  if (!docs.length) return 'pending';
+  if (docs.some((d) => d.status === 'rejected')) return 'rejected';
+  if (docs.every((d) => d.status === 'approved')) return 'approved';
+  return 'pending';
+}
+
+const kycSummary = (m, keys = m.kycKeys || []) => {
+  const docs = docStates(m, keys);
+  const count = (st) => docs.filter((d) => d.status === st).length;
+  return {
+    id: m._id,
+    code: m.code,
+    formId: m.formId,
+    name: m.name,
+    mobile: m.mobile,
+    branch: m.branch?._id ? { id: m.branch._id, code: m.branch.code, name: m.branch.name } : null,
+    submittedAt: m.createdAt,
+    status: kycStatusOf(docs),
+    total: docs.length,
+    approved: count('approved'),
+    rejected: count('rejected'),
+    pending: count('pending'),
+  };
+};
+
+const KYC_PROJECTION = '+aadhaarPhoto +panPhoto +memberPhoto +signaturePhoto';
+
+/** Date-wise queue of members whose documents need approval. */
+export async function listKyc(req, res) {
+  const { page, limit, skip } = parsePaging(req.query, { defaultLimit: 25 });
+  const filter = { isDeleted: false, ...branchFilter(req.user) };
+  if (mongoose.isValidObjectId(req.query.branch)) filter.branch = req.query.branch;
+  const from = parseDateOnly(asString(req.query.from));
+  const to = parseDateOnly(asString(req.query.to));
+  if (from || to) {
+    filter.createdAt = {};
+    if (from) filter.createdAt.$gte = from;
+    if (to) filter.createdAt.$lt = new Date(to.getTime() + 24 * 3600 * 1000);
+  }
+  const q = asString(req.query.q);
+  if (q) {
+    const rx = new RegExp(escapeRegex(q), 'i');
+    filter.$or = [{ code: rx }, { formId: rx }, { name: rx }];
+  }
+  const status = asString(req.query.status);
+
+  // Status is derived from the documents, so it is applied after loading (member sets are branch-sized).
+  const all = await Member.find(filter)
+    .select('name code formId mobile branch createdAt kycKeys kycDocs')
+    .populate(POPULATE)
+    .sort({ createdAt: -1 });
+  let rows = all.map((m) => kycSummary(m));
+  const counts = {
+    pending: rows.filter((r) => r.status === 'pending').length,
+    rejected: rows.filter((r) => r.status === 'rejected').length,
+    approved: rows.filter((r) => r.status === 'approved').length,
+  };
+  if (['pending', 'rejected', 'approved'].includes(status)) rows = rows.filter((r) => r.status === status);
+  const total = rows.length;
+  res.json({
+    items: rows.slice(skip, skip + limit),
+    counts,
+    page,
+    limit,
+    total,
+    totalPages: Math.max(Math.ceil(total / limit), 1),
+  });
+}
+
+/** All documents of one member (with images) and their review state. */
+export async function getKyc(req, res) {
+  const m = await loadMemberFor(req);
+  const full = await Member.findById(m._id).select(`${KYC_PROJECTION} ${PARTY_PHOTOS}`).populate(POPULATE);
+  const keys = KYC_DOCS.filter((d) => pathOf(full, d.key)).map((d) => d.key);
+  const docs = docStates(full, keys).map((d) => ({ ...d, image: pathOf(full, d.key) }));
+  res.json({ member: { ...kycSummary(full, keys), guarantor: full.guarantor?.name || '', nominee: full.nominee?.name || '' }, documents: docs });
+}
+
+/** Approve or reject one document (rejection needs a reason). */
+export async function reviewKyc(req, res) {
+  const m = await loadMemberFor(req);
+  const key = asString(req.body?.key);
+  const action = asString(req.body?.action);
+  const reason = asString(req.body?.reason);
+  if (!KYC_KEYS.has(key)) throw new HttpError(422, 'Unknown document');
+  if (!['approve', 'reject'].includes(action)) throw new HttpError(422, 'Choose approve or reject');
+  if (action === 'reject' && (reason.length < 3 || reason.length > 200)) {
+    throw new HttpError(422, 'Enter the reason for rejection (3–200 characters)', { reason: 'Enter the reason for rejection' });
+  }
+  const full = await Member.findById(m._id).select(`${KYC_PROJECTION} ${PARTY_PHOTOS}`);
+  if (!pathOf(full, key)) throw new HttpError(409, 'This document has not been uploaded');
+
+  const rec = { key, status: action === 'approve' ? 'approved' : 'rejected', reason: action === 'reject' ? reason : '', reviewedAt: new Date(), reviewedBy: req.user._id, reviewedByCode: await staffId(req.user) };
+  const list = (m.kycDocs || []).filter((x) => x.key !== key);
+  m.kycDocs = [...list, rec];
+  await m.save();
+  await audit(req, { action: `kyc.${action}`, entity: 'Member', entityId: m._id, after: { code: m.code, document: key, reason: rec.reason } });
+  res.json({ message: action === 'approve' ? 'Document approved' : 'Document rejected' });
+}
+
+/** Replaces a rejected document; it goes back to pending. */
+export async function reuploadKyc(req, res) {
+  const m = await loadMemberFor(req);
+  const key = asString(req.body?.key);
+  if (!KYC_KEYS.has(key)) throw new HttpError(422, 'Unknown document');
+  const rec = (m.kycDocs || []).find((x) => x.key === key);
+  if (!rec || rec.status !== 'rejected') throw new HttpError(409, 'Only a rejected document can be re-uploaded');
+  const v = createValidator();
+  const image = readImage(req.body?.image, 'image', 'Document', v, { required: true });
+  v.throwIfAny();
+
+  m.set(key, image);
+  const resubmitted = new Date();
+  m.kycDocs = (m.kycDocs || []).filter((x) => x.key !== key);
+  m.kycDocs.push({ key, status: 'pending', resubmittedAt: resubmitted });
+  m.updatedBy = req.user._id;
+  await m.save();
+  await audit(req, { action: 'kyc.reupload', entity: 'Member', entityId: m._id, after: { code: m.code, document: key } });
+  res.json({ message: 'Document uploaded again and sent for approval' });
 }
 
 // Employees (with staff IDs) that can be chosen on the forms for a branch.
