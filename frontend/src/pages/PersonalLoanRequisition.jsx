@@ -204,8 +204,9 @@ function RequisitionForm({ kind }) {
     setForm((f) => ({
       ...f,
       schemeId: e.target.value,
-      amount: '',
-      mode: s && s.modes.length === 1 ? s.modes[0].value : '',
+      // Starting values from the scheme, so the EMI is shown straight away; the user can change them.
+      amount: s ? String(s.amountMin) : '',
+      mode: s ? s.modes[0].value : '',
       term: s ? String(s.termMin) : '',
       rate: s ? String(s.roiMin) : '',
     }));
@@ -562,8 +563,25 @@ function RequisitionForm({ kind }) {
                 {previewError && <div className="field-error" role="alert">{previewError}</div>}
                 {sum && (
                   <div className="notice ok">
-                    <strong>EMI {inr(sum.installmentAmount)}</strong>{isGroup ? ' per member' : ''} × {sum.installments} {modeUnit ? `${modeUnit}s` : 'installments'} · Total interest {inr(sum.totalInterest)} · Total payable {inr(sum.totalPayable)}
+                    <strong>EMI {inr(sum.installmentAmount)}</strong>{isGroup ? ' per member' : ''} × {sum.installments} {modeUnit ? `${modeUnit}s` : 'installments'}
+                    {' = '}<strong>{inr(sum.totalPayable)}</strong>
+                    {sum.lastInstallmentAmount !== sum.installmentAmount && <span className="muted"> (the last installment is {inr(sum.lastInstallmentAmount)})</span>}
                     {isGroup && g && <> · <strong>Group total {inr(amountNum * members)}</strong> for {members} members</>}
+                  </div>
+                )}
+                {sum && (
+                  <div className="table-wrap" style={{ marginTop: 10, maxWidth: 460 }}>
+                    <table className="data-table">
+                      <thead><tr><th>Repayment{isGroup ? ' (per member)' : ''}</th><th className="num">Amount</th></tr></thead>
+                      <tbody>
+                        <tr><td>Total principal</td><td className="num">{inr(sum.totalPayable - sum.totalInterest)}</td></tr>
+                        <tr><td>Total interest</td><td className="num">{inr(sum.totalInterest)}</td></tr>
+                        <tr>
+                          <td><strong>Total payable</strong> (EMI {inr(sum.installmentAmount)} × {sum.installments})</td>
+                          <td className="num"><strong>{inr(sum.totalPayable)}</strong></td>
+                        </tr>
+                      </tbody>
+                    </table>
                   </div>
                 )}
                 {preview?.charges && (
