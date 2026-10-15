@@ -7,7 +7,7 @@ import useDebounce from '../hooks/useDebounce.js';
 import { EmployeeSelect, OtpVerify, PhotoField } from './NewBorrower.jsx';
 import { downloadMemberPdf } from '../utils/memberPdf.js';
 
-const EMPTY = { employeeCode: '', name: '', mobile: '', aadhaar: '', pan: '', photo: '', signature: '', aadhaarPhoto: '', panPhoto: '', reason: '' };
+const EMPTY = { employeeCode: '', name: '', mobile: '', aadhaar: '', pan: '', photo: '', signature: '', aadhaarPhoto: '', panPhoto: '', jointPhoto: '', reason: '' };
 const fmtTime = (d) => (d ? new Date(d).toLocaleString('en-IN') : '—');
 
 function PersonCard({ title, p, note }) {
@@ -15,9 +15,9 @@ function PersonCard({ title, p, note }) {
     <div className="panel" style={{ padding: 16 }}>
       <h3 className="section-title">{title}</h3>
       {note && <div className="field-hint" style={{ marginBottom: 8 }}>{note}</div>}
-      <DetailList items={[['Name', p.name], ['Phone', `${p.mobile}${p.mobileVerified ? ' ✓' : ''}`], ['Aadhaar', p.aadhaar], ['PAN', p.pan], ['Employee ID', p.employeeCode]]} />
+      <DetailList items={[['Name', p.name], ['Phone', p.mobile ? `${p.mobile}${p.mobileVerified ? ' ✓' : ''}` : ''], ['Aadhaar', p.aadhaar], ['PAN', p.pan], ['Employee ID', p.employeeCode]]} />
       <div className="stamp-view sign-row" style={{ marginTop: 12 }}>
-        {[['Photo', p.photo], ['Signature', p.signature], ['Aadhaar', p.aadhaarPhoto], ['PAN', p.panPhoto]].map(([l, src]) => (
+        {[['Photo', p.photo], ['Signature', p.signature], ['Aadhaar', p.aadhaarPhoto], ['PAN', p.panPhoto], ['Joint photo', p.jointPhoto]].map(([l, src]) => (
           <div key={l}>
             <div className="detail-label">{l}</div>
             {src ? <img src={src} alt={l} className="stamp-img" /> : <span className="muted">—</span>}
@@ -88,7 +88,8 @@ export default function GuarantorChange() {
     const found = {};
     if (!form.employeeCode) found.employeeCode = 'Select the employee';
     if (form.name.trim().length < 2) found.name = 'Guarantor name is required';
-    if (!mobileValid) found.mobile = 'Enter a valid 10-digit mobile number';
+    if (form.mobile && !mobileValid) found.mobile = 'Enter a valid 10-digit mobile number';
+    else if (form.mobile && !challenge) found.mobile = 'Verify the phone number with an OTP, or clear the number';
     if (!/^\d{12}$/.test(form.aadhaar)) found.aadhaar = 'Enter the 12-digit Aadhaar number';
     if (form.pan && !/^[A-Z]{5}\d{4}[A-Z]$/.test(form.pan)) found.pan = 'Enter a valid PAN (e.g. ABCDE1234F)';
     if (!form.photo) found.photo = 'Guarantor photo is required';
@@ -194,10 +195,12 @@ export default function GuarantorChange() {
                 <FormField id="name" label="Guarantor name" required error={errors.name}>
                   <input id="name" value={form.name} onChange={set('name')} maxLength={80} />
                 </FormField>
-                <FormField id="mobile" label="Phone number" required error={errors.mobile} hint="OTP verification is optional">
+                <FormField id="mobile" label="Phone number" error={errors.mobile} hint="Optional. If entered, it must be verified with an OTP">
                   <input id="mobile" value={form.mobile} onChange={setDigits('mobile', 10)} inputMode="numeric" maxLength={10} />
-                  <OtpVerify id="gmobile" label="Phone number" purpose="mobile" value={form.mobile} valid={mobileValid} mobile={form.mobile}
-                    verified={Boolean(challenge)} onVerified={setChallenge} onReset={resetChallenge} />
+                  {form.mobile && (
+                    <OtpVerify id="gmobile" label="Phone number" purpose="mobile" value={form.mobile} valid={mobileValid} mobile={form.mobile}
+                      verified={Boolean(challenge)} onVerified={setChallenge} onReset={resetChallenge} />
+                  )}
                 </FormField>
                 <FormField id="aadhaar" label="Aadhaar number" required error={errors.aadhaar}>
                   <input id="aadhaar" value={form.aadhaar} onChange={setDigits('aadhaar', 12)} inputMode="numeric" maxLength={12} />
@@ -216,6 +219,7 @@ export default function GuarantorChange() {
                 <PhotoField id="signature" label="Signature" required value={form.signature} error={errors.signature} onChange={setPhoto('signature')} />
                 <PhotoField id="aadhaarPhoto" label="Aadhaar photo" required value={form.aadhaarPhoto} error={errors.aadhaarPhoto} onChange={setPhoto('aadhaarPhoto')} />
                 <PhotoField id="panPhoto" label="PAN photo" required={Boolean(form.pan)} value={form.panPhoto} error={errors.panPhoto} onChange={setPhoto('panPhoto')} />
+                <PhotoField id="jointPhoto" label="Member & guarantor joint photo (optional)" value={form.jointPhoto} error={errors.jointPhoto} onChange={setPhoto('jointPhoto')} />
               </div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>

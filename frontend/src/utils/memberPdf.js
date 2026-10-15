@@ -94,10 +94,11 @@ export async function downloadMemberPdf(m, { company = 'Udgam Microfinance' } = 
       return;
     }
     rows([
-      ['Name', p.name], ['Mobile', `${p.mobile}${p.mobileVerified ? ' (verified)' : ''}`],
+      ['Name', p.name], ['Mobile', p.mobile ? `${p.mobile}${p.mobileVerified ? ' (verified)' : ''}` : ''],
       ['Aadhaar number', p.aadhaar], ['PAN number', p.pan],
+      ...(p.sameAsGuarantor ? [['Note', 'Same person as the guarantor'], ['', '']] : []),
     ]);
-    photos([['Photo', p.photo], ['Signature', p.signature], ['Aadhaar', p.aadhaarPhoto], ['PAN', p.panPhoto]]);
+    photos([['Photo', p.photo], ['Signature', p.signature], ['Aadhaar', p.aadhaarPhoto], ['PAN', p.panPhoto], ['Joint photo', p.jointPhoto]]);
   });
 
   doc.save(`${m.code}-application.pdf`);

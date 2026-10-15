@@ -4,10 +4,15 @@ import mongoose from 'mongoose';
 const personSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
-    mobile: { type: String, required: true, trim: true },
+    // The phone number is optional; when given it has to be verified with an OTP.
+    mobile: { type: String, trim: true },
     mobileVerifiedAt: { type: Date },
     aadhaar: { type: String, required: true },
     pan: { type: String, uppercase: true, trim: true },
+    // Nominee only: ticked when the nominee is the guarantor (details are copied from the guarantor).
+    sameAsGuarantor: { type: Boolean, default: false },
+    // Photo of the member together with the guarantor / nominee (optional).
+    jointPhoto: { type: String, select: false },
     photo: { type: String, required: true, select: false },
     signature: { type: String, required: true, select: false },
     aadhaarPhoto: { type: String, required: true, select: false },
@@ -27,6 +32,7 @@ const historySchema = new mongoose.Schema(
     mobileVerifiedAt: Date,
     aadhaar: String,
     pan: String,
+    jointPhoto: { type: String, select: false },
     photo: { type: String, select: false },
     signature: { type: String, select: false },
     aadhaarPhoto: { type: String, select: false },

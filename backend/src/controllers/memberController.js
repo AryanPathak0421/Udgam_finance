@@ -56,8 +56,8 @@ export function verhoeff(num) {
 
 // ---- helpers ---------------------------------------------------------------------------------
 const MANAGERS = ['super_admin', 'admin', 'branch_manager'];
-const HISTORY_PHOTOS = ['photo', 'signature', 'aadhaarPhoto', 'panPhoto'].map((f) => `+guarantorHistory.${f}`).join(' ');
-const PARTY_PHOTOS = ['guarantor', 'nominee'].flatMap((k) => ['photo', 'signature', 'aadhaarPhoto', 'panPhoto'].map((f) => `+${k}.${f}`)).join(' ');
+const HISTORY_PHOTOS = ['photo', 'signature', 'aadhaarPhoto', 'panPhoto', 'jointPhoto'].map((f) => `+guarantorHistory.${f}`).join(' ');
+const PARTY_PHOTOS = ['guarantor', 'nominee'].flatMap((k) => ['photo', 'signature', 'aadhaarPhoto', 'panPhoto', 'jointPhoto'].map((f) => `+${k}.${f}`)).join(' ');
 const maskAadhaar = (a) => (a ? `XXXXXXXX${a.slice(-4)}` : '');
 const maskPan = (p) => (p ? `${p.slice(0, 2)}XXXXX${p.slice(-3)}` : '');
 const dateOnly = (d) => (d ? d.toISOString().slice(0, 10) : null);
@@ -126,7 +126,7 @@ const presentPerson = (p, full) =>
   p?.name
     ? {
         name: p.name,
-        mobile: p.mobile,
+        mobile: p.mobile || '',
         mobileVerified: Boolean(p.mobileVerifiedAt),
         aadhaar: full ? p.aadhaar : maskAadhaar(p.aadhaar),
         pan: p.pan ? (full ? p.pan : maskPan(p.pan)) : '',
@@ -134,6 +134,8 @@ const presentPerson = (p, full) =>
         signature: p.signature || null,
         aadhaarPhoto: p.aadhaarPhoto || null,
         panPhoto: p.panPhoto || null,
+        jointPhoto: p.jointPhoto || null,
+        sameAsGuarantor: Boolean(p.sameAsGuarantor),
         employeeCode: p.employeeCode || '',
         savedAt: p.savedAt,
       }
@@ -486,7 +488,7 @@ export async function getMember(req, res) {
 
 // ---- guarantor / nominee -----------------------------------------------------------------------
 // Both use the same fields. The phone number's OTP verification is optional.
-const PARTY_FIELDS = ['photo', 'signature', 'aadhaarPhoto', 'panPhoto'];
+const PARTY_FIELDS = ['photo', 'signature', 'aadhaarPhoto', 'panPhoto', 'jointPhoto'];
 
 async function loadMemberFor(req, { photos = false } = {}) {
   if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Member not found');
@@ -498,15 +500,16 @@ async function loadMemberFor(req, { photos = false } = {}) {
 }
 
 /** Validates the guarantor / nominee form of the request and returns the person to store. */
-async function readPerson(req, kind, m) {
+async function readPerson(req, kind, m, existing) {
   const label = kind === 'guarantor' ? 'Guarantor' : 'Nominee';
   const b = req.body || {};
   const v = createValidator();
   const d = {};
   d.name = asString(b.name).replace(/\s+/g, ' ');
   if (!NAME_RE.test(d.name)) v.add('name', `Enter the ${label.toLowerCase()}'s full name (letters only)`);
+  // Optional phone number; when given it must be OTP-verified (checked below).
   d.mobile = asString(b.mobile);
-  if (!MOBILE_RE.test(d.mobile)) v.add('mobile', 'Enter a valid 10-digit mobile number');
+  if (d.mobile && !MOBILE_RE.test(d.mobile)) v.add('mobile', 'Enter a valid 10-digit mobile number');
   d.aadhaar = asString(b.aadhaar).replace(/\s/g, '');
   if (!AADHAAR_RE.test(d.aadhaar) || !verhoeff(d.aadhaar)) v.add('aadhaar', 'Enter a valid 12-digit Aadhaar number');
   else if (kind === 'guarantor' && d.aadhaar === m.aadhaar) v.add('aadhaar', 'The guarantor cannot be the borrower');
@@ -518,22 +521,30 @@ async function readPerson(req, kind, m) {
   d.signature = readImage(b.signature, 'signature', 'Signature', v, { required: true });
   d.aadhaarPhoto = readImage(b.aadhaarPhoto, 'aadhaarPhoto', 'Aadhaar photo', v, { required: true });
   d.panPhoto = readImage(b.panPhoto, 'panPhoto', 'PAN photo', v, { required: Boolean(d.pan) });
+  d.jointPhoto = readImage(b.jointPhoto, 'jointPhoto', 'Joint photo', v, { required: false });
   v.throwIfAny();
 
-  // Optional OTP: when a challenge is supplied it must be valid for this very number.
+  // A phone number that is given has to be verified with an OTP. The same number that was already
+  // verified when it was saved earlier does not need to be verified again.
   let verifiedAt;
-  if (b.mobileChallengeId) {
-    const ch = await takeVerified(b.mobileChallengeId, req.user, 'member_mobile', d.mobile);
-    if (!ch) throw new HttpError(422, 'Please correct the highlighted fields', { mobile: 'Verify the mobile number with an OTP again' });
-    verifiedAt = ch.verifiedAt;
-    await OtpChallenge.updateOne({ _id: ch._id }, { $set: { consumedAt: new Date() } });
+  if (d.mobile) {
+    if (existing?.mobile === d.mobile && existing.mobileVerifiedAt) {
+      verifiedAt = existing.mobileVerifiedAt;
+    } else {
+      const ch = await takeVerified(b.mobileChallengeId, req.user, 'member_mobile', d.mobile);
+      if (!ch) throw new HttpError(422, 'Please correct the highlighted fields', { mobile: 'Verify the phone number with an OTP' });
+      verifiedAt = ch.verifiedAt;
+      await OtpChallenge.updateOne({ _id: ch._id }, { $set: { consumedAt: new Date() } });
+    }
   }
 
   const employeeCode = await resolveEmployee(req, v, m.branch);
   return {
     ...d,
+    mobile: d.mobile || undefined,
     pan: d.pan || undefined,
     mobileVerifiedAt: verifiedAt,
+    sameAsGuarantor: false,
     employeeCode,
     savedAt: new Date(),
     savedBy: req.user._id,
@@ -551,20 +562,45 @@ function resetKyc(m, prefix, person) {
 export function savePerson(kind) {
   const label = kind === 'guarantor' ? 'Guarantor' : 'Nominee';
   return async (req, res) => {
-    const m = await loadMemberFor(req);
-    const person = await readPerson(req, kind, m);
+    // "Nominee is the guarantor": the nominee details are copied from the guarantor.
+    const same = kind === 'nominee' && req.body?.sameAsGuarantor === true;
+    const m = await loadMemberFor(req, { photos: same });
+    let person;
+    if (same) {
+      const g = m.guarantor;
+      if (!g?.name) throw new HttpError(409, 'Add the guarantor first, then the nominee can be marked as the same person');
+      person = {
+        name: g.name,
+        mobile: g.mobile,
+        mobileVerifiedAt: g.mobileVerifiedAt,
+        aadhaar: g.aadhaar,
+        pan: g.pan,
+        photo: g.photo,
+        signature: g.signature,
+        aadhaarPhoto: g.aadhaarPhoto,
+        panPhoto: g.panPhoto,
+        jointPhoto: g.jointPhoto,
+        sameAsGuarantor: true,
+        employeeCode: await resolveEmployee(req, createValidator(), m.branch),
+        savedAt: new Date(),
+        savedBy: req.user._id,
+      };
+    } else {
+      person = await readPerson(req, kind, m, m[kind]);
+    }
     const before = Boolean(m[kind]?.name);
     m[kind] = person;
-    resetKyc(m, `${kind}.`, person);
+    // The guarantor's documents are reviewed once; a copied nominee needs no second review.
+    resetKyc(m, `${kind}.`, same ? null : person);
     m.updatedBy = req.user._id;
     await m.save();
     await audit(req, {
       action: `member.${kind}${before ? 'Updated' : 'Added'}`,
       entity: 'Member',
       entityId: m._id,
-      after: { code: m.code, [kind]: { name: person.name, aadhaar: maskAadhaar(person.aadhaar), pan: maskPan(person.pan) } },
+      after: { code: m.code, [kind]: { name: person.name, aadhaar: maskAadhaar(person.aadhaar), pan: maskPan(person.pan), sameAsGuarantor: Boolean(same) } },
     });
-    res.json({ message: `${label} saved`, employeeCode: m[kind].employeeCode });
+    res.json({ message: same ? 'Nominee set as the guarantor' : `${label} saved`, employeeCode: m[kind].employeeCode });
   };
 }
 
@@ -589,6 +625,8 @@ export async function changeGuarantor(req, res) {
   const old = m.guarantor.toObject();
   m.guarantorHistory.push({ ...old, replacedAt: new Date(), replacedBy: req.user._id, replacedByCode: person.employeeCode, reason });
   m.guarantor = person;
+  // A nominee that was copied from the old guarantor stays that person; it is no longer "the guarantor".
+  if (m.nominee?.sameAsGuarantor) m.nominee.sameAsGuarantor = false;
   resetKyc(m, 'guarantor.', person);
   m.updatedBy = req.user._id;
   await m.save();
@@ -615,6 +653,7 @@ export const KYC_DOCS = [
     { key: `${k}.signature`, who: cap(k), label: 'Signature' },
     { key: `${k}.aadhaarPhoto`, who: cap(k), label: 'Aadhaar' },
     { key: `${k}.panPhoto`, who: cap(k), label: 'PAN' },
+    { key: `${k}.jointPhoto`, who: cap(k), label: 'Joint photo with member' },
   ]),
 ];
 const KYC_KEYS = new Set(KYC_DOCS.map((d) => d.key));
@@ -708,7 +747,7 @@ export async function listKyc(req, res) {
 export async function getKyc(req, res) {
   const m = await loadMemberFor(req);
   const full = await Member.findById(m._id).select(`${KYC_PROJECTION} ${PARTY_PHOTOS}`).populate(POPULATE);
-  const keys = KYC_DOCS.filter((d) => pathOf(full, d.key)).map((d) => d.key);
+  const keys = KYC_DOCS.filter((d) => pathOf(full, d.key) && !(d.key.startsWith('nominee.') && full.nominee?.sameAsGuarantor)).map((d) => d.key);
   const docs = docStates(full, keys).map((d) => ({ ...d, image: pathOf(full, d.key) }));
   res.json({ member: { ...kycSummary(full, keys), guarantor: full.guarantor?.name || '', nominee: full.nominee?.name || '' }, documents: docs });
 }
@@ -799,7 +838,7 @@ export async function synopsis(req, res) {
     .populate(POPULATE);
   if (!m) throw new HttpError(404, 'Member not found');
 
-  const keys = KYC_DOCS.filter((d) => pathOf(m, d.key)).map((d) => d.key);
+  const keys = KYC_DOCS.filter((d) => pathOf(m, d.key) && !(d.key.startsWith('nominee.') && m.nominee?.sameAsGuarantor)).map((d) => d.key);
   const docs = docStates(m, keys);
   const kyc = kycSummary(m, keys);
 

@@ -7,7 +7,7 @@ import useDebounce from '../hooks/useDebounce.js';
 import { EmployeeSelect, OtpVerify, PhotoField } from './NewBorrower.jsx';
 import { downloadMemberPdf } from '../utils/memberPdf.js';
 
-const EMPTY = { employeeCode: '', name: '', mobile: '', aadhaar: '', pan: '', photo: '', signature: '', aadhaarPhoto: '', panPhoto: '' };
+const EMPTY = { employeeCode: '', name: '', mobile: '', aadhaar: '', pan: '', photo: '', signature: '', aadhaarPhoto: '', panPhoto: '', jointPhoto: '' };
 
 // Guarantor and nominee share the same fields; `kind` picks which one of the member is edited.
 function PartyPage({ kind }) {
@@ -20,6 +20,7 @@ function PartyPage({ kind }) {
   const [form, setForm] = useState(EMPTY);
   const [errors, setErrors] = useState({});
   const [challenge, setChallenge] = useState('');
+  const [same, setSame] = useState(false); // nominee is the guarantor
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const q = useDebounce(search);
@@ -43,7 +44,8 @@ function PartyPage({ kind }) {
       const r = await api.members.get(id);
       setMember(r.member);
       const p = r.member[kind];
-      setForm(p ? { employeeCode: p.employeeCode || '', name: p.name, mobile: p.mobile, aadhaar: '', pan: '', photo: p.photo || '', signature: p.signature || '', aadhaarPhoto: p.aadhaarPhoto || '', panPhoto: p.panPhoto || '' } : EMPTY);
+      setForm(p ? { employeeCode: p.employeeCode || '', name: p.name, mobile: p.mobile || '', aadhaar: '', pan: '', photo: p.photo || '', signature: p.signature || '', aadhaarPhoto: p.aadhaarPhoto || '', panPhoto: p.panPhoto || '', jointPhoto: p.jointPhoto || '' } : EMPTY);
+      setSame(kind === 'nominee' && Boolean(p?.sameAsGuarantor));
       setErrors({});
       setChallenge('');
       setSaved(false);
@@ -68,13 +70,21 @@ function PartyPage({ kind }) {
 
   const mobileValid = /^[6-9]\d{9}$/.test(form.mobile);
   const existing = member?.[kind];
+  // The saved number stays verified as long as it is not changed.
+  const mobileVerified = Boolean(challenge) || Boolean(existing?.mobileVerified && form.mobile && form.mobile === existing.mobile);
 
   async function submit(e) {
     e.preventDefault();
     const found = {};
     if (!form.employeeCode) found.employeeCode = 'Select the employee';
+    if (same) {
+      setErrors(found);
+      if (Object.keys(found).length) return toast.error('Select the employee');
+      return send({ employeeCode: form.employeeCode, sameAsGuarantor: true });
+    }
     if (form.name.trim().length < 2) found.name = `${label} name is required`;
-    if (!mobileValid) found.mobile = 'Enter a valid 10-digit mobile number';
+    if (form.mobile && !mobileValid) found.mobile = 'Enter a valid 10-digit mobile number';
+    else if (form.mobile && !mobileVerified) found.mobile = 'Verify the phone number with an OTP, or clear the number';
     if (!/^\d{12}$/.test(form.aadhaar)) found.aadhaar = existing && !form.aadhaar ? 'Re-enter the 12-digit Aadhaar number to save' : 'Enter the 12-digit Aadhaar number';
     if (form.pan && !/^[A-Z]{5}\d{4}[A-Z]$/.test(form.pan)) found.pan = 'Enter a valid PAN (e.g. ABCDE1234F)';
     if (!form.photo) found.photo = `${label} photo is required`;
@@ -83,12 +93,15 @@ function PartyPage({ kind }) {
     if (form.pan && !form.panPhoto) found.panPhoto = 'PAN photo is required when a PAN is given';
     setErrors(found);
     if (Object.keys(found).length) return toast.error('Please correct the highlighted fields');
+    return send({ ...form, mobileChallengeId: challenge || undefined });
+  }
 
+  async function send(payload) {
     setSaving(true);
     try {
       const save = kind === 'guarantor' ? api.members.saveGuarantor : api.members.saveNominee;
-      await save(member.id, { ...form, mobileChallengeId: challenge || undefined });
-      toast.success(`${label} saved`);
+      await save(member.id, payload);
+      toast.success(payload.sameAsGuarantor ? 'Nominee set as the guarantor' : `${label} saved`);
       const r = await api.members.get(member.id);
       setMember(r.member);
       setSaved(true);
@@ -154,6 +167,20 @@ function PartyPage({ kind }) {
       <form onSubmit={submit} noValidate>
         <div className="panel" style={{ padding: 18, marginBottom: 14 }}>
           <h3 className="section-title">{label} details</h3>
+          {kind === 'nominee' && (
+            <label style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
+              <input type="checkbox" checked={same} disabled={!member.guarantor} onChange={(e) => setSame(e.target.checked)} />
+              <span>
+                Nominee is the same person as the guarantor
+                {!member.guarantor && <span className="muted"> (add the guarantor first)</span>}
+              </span>
+            </label>
+          )}
+          {same && member.guarantor && (
+            <div className="notice" style={{ marginBottom: 12 }}>
+              The nominee will be <strong>{member.guarantor.name}</strong> (the guarantor). The nominee detail fields are not needed — tick off to enter a different nominee.
+            </div>
+          )}
           <div className="form-grid">
             <EmployeeSelect
               branch={member.branchId}
@@ -161,13 +188,16 @@ function PartyPage({ kind }) {
               error={errors.employeeCode}
               onChange={(code) => { setForm((f) => ({ ...f, employeeCode: code })); setErrors((er) => ({ ...er, employeeCode: undefined })); }}
             />
+            {!same && (<>
             <FormField id="name" label={`${label} name`} required error={errors.name}>
               <input id="name" value={form.name} onChange={set('name')} maxLength={80} />
             </FormField>
-            <FormField id="mobile" label="Phone number" required error={errors.mobile} hint="OTP verification is optional">
+            <FormField id="mobile" label="Phone number" error={errors.mobile} hint="Optional. If entered, it must be verified with an OTP">
               <input id="mobile" value={form.mobile} onChange={setDigits('mobile', 10)} inputMode="numeric" maxLength={10} />
-              <OtpVerify id="pmobile" label="Phone number" purpose="mobile" value={form.mobile} valid={mobileValid} mobile={form.mobile}
-                verified={Boolean(challenge)} onVerified={setChallenge} onReset={resetChallenge} />
+              {form.mobile && (
+                <OtpVerify id="pmobile" label="Phone number" purpose="mobile" value={form.mobile} valid={mobileValid} mobile={form.mobile}
+                  verified={mobileVerified} onVerified={setChallenge} onReset={resetChallenge} />
+              )}
             </FormField>
             <FormField id="aadhaar" label="Aadhaar number" required error={errors.aadhaar}
               hint={existing ? `Saved: ${existing.aadhaar}. Enter it again to save changes.` : undefined}>
@@ -176,9 +206,11 @@ function PartyPage({ kind }) {
             <FormField id="pan" label="PAN number" error={errors.pan} hint={existing?.pan ? `Saved: ${existing.pan}. Enter it again to keep it.` : 'Optional'}>
               <input id="pan" value={form.pan} onChange={(e) => setForm((f) => ({ ...f, pan: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10) }))} maxLength={10} />
             </FormField>
+            </>)}
           </div>
         </div>
 
+        {!same && (
         <div className="panel" style={{ padding: 18, marginBottom: 14 }}>
           <h3 className="section-title">Photos</h3>
           <div className="form-grid">
@@ -186,11 +218,13 @@ function PartyPage({ kind }) {
             <PhotoField id="signature" label="Signature" required value={form.signature} error={errors.signature} onChange={setPhoto('signature')} />
             <PhotoField id="aadhaarPhoto" label="Aadhaar photo" required value={form.aadhaarPhoto} error={errors.aadhaarPhoto} onChange={setPhoto('aadhaarPhoto')} />
             <PhotoField id="panPhoto" label="PAN photo" required={Boolean(form.pan)} value={form.panPhoto} error={errors.panPhoto} onChange={setPhoto('panPhoto')} />
+            <PhotoField id="jointPhoto" label={`Member & ${label.toLowerCase()} joint photo (optional)`} value={form.jointPhoto} error={errors.jointPhoto} onChange={setPhoto('jointPhoto')} />
           </div>
         </div>
+        )}
 
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button type="submit" className="btn primary" disabled={saving}>{saving ? 'Saving…' : `Save ${label.toLowerCase()}`}</button>
+          <button type="submit" className="btn primary" disabled={saving}>{saving ? 'Saving…' : same ? 'Save nominee (same as guarantor)' : `Save ${label.toLowerCase()}`}</button>
         </div>
       </form>
     </>
