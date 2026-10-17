@@ -20,7 +20,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<
 function printReceipt(p) {
   const rows = p.lines.map((l) => `
     <div class="card">
-      <div class="who"><b>${esc(l.code)}</b> — ${esc(l.name)}</div>
+      <div class="who"><b>${esc(l.code)}</b> — ${esc(l.name)}${p.merged ? `<div class="muted">${esc(l.schemeName)} · ${l.installments} ${esc(l.modeLabel)} installments of ${inr(l.emi)} · ${dmy(l.emiStartDate)} to ${dmy(l.emiEndDate)}</div>` : ''}</div>
       <table>
         <tr><td>Loan amount</td><td class="n">${inr(l.amount)}</td></tr>
         <tr><td>Processing fee</td><td class="n">− ${inr(l.processingFee)}</td></tr>
@@ -38,9 +38,9 @@ function printReceipt(p) {
   <div class="head"><div><h1>Udgam Microfinance</h1><div class="muted">Loan payment receipt</div></div><div style="text-align:right"><b>${esc(p.receiptNo)}</b><br>${dmy(p.paidOn)}</div></div>
   <table class="meta">
     <tr><td>Form ID</td><td><b>${esc(p.formId)}</b></td><td>Branch</td><td>${esc(p.branch ? `${p.branch.code} — ${p.branch.name}` : '')}</td></tr>
-    <tr><td>Scheme</td><td>${esc(p.schemeName)}</td><td>Interest</td><td>${p.rate}% p.a.</td></tr>
+    ${p.merged ? `<tr><td>Paid by</td><td colspan="3">${esc(MODE_LABEL[p.payMode] || p.payMode)}${p.reference ? ` · ${esc(p.reference)}` : ''}</td></tr>` : `<tr><td>Scheme</td><td>${esc(p.schemeName)}</td><td>Interest</td><td>${p.rate}% p.a.</td></tr>
     <tr><td>Installments</td><td>${p.installments} (${esc(p.modeLabel)}) of ${inr(p.emi)}</td><td>Paid by</td><td>${esc(MODE_LABEL[p.payMode] || p.payMode)}${p.reference ? ` · ${esc(p.reference)}` : ''}</td></tr>
-    <tr><td>First installment</td><td>${dmy(p.emiStartDate)}</td><td>Last installment</td><td>${dmy(p.emiEndDate)}</td></tr>
+    <tr><td>First installment</td><td>${dmy(p.emiStartDate)}</td><td>Last installment</td><td>${dmy(p.emiEndDate)}</td></tr>`}
     ${p.group ? `<tr><td>Group</td><td colspan="3">${esc(p.group)}</td></tr>` : ''}
   </table>
   ${rows}
@@ -60,7 +60,8 @@ function ReceiptDialog({ payment, onClose, onPrintFailed }) {
     <Modal open title={`Receipt ${p.receiptNo}`} onClose={onClose} size="lg"
       footer={<><button className="btn" onClick={onClose}>Close</button><button className="btn primary" onClick={() => { if (!printReceipt(p)) onPrintFailed(); }}>Print receipt</button></>}>
       <p className="muted small" style={{ marginTop: 0 }}>
-        {p.formId} · {p.branch?.name} · Paid {dmy(p.paidOn)} by {MODE_LABEL[p.payMode]}{p.reference ? ` (${p.reference})` : ''} · First installment {dmy(p.emiStartDate)} · Last installment {dmy(p.emiEndDate)}
+        {p.formId} · {p.branch?.name} · Paid {dmy(p.paidOn)} by {MODE_LABEL[p.payMode]}{p.reference ? ` (${p.reference})` : ''}{p.merged ? ` · ${p.lines.length} member loans` : ` · First installment ${dmy(p.emiStartDate)} · Last installment ${dmy(p.emiEndDate)}`}
+        {p.failed > 0 && <span className="badge danger" style={{ marginLeft: 8 }}>{p.failed} could not be paid</span>}
         {p.status === 'cancelled' && <span className="badge danger" style={{ marginLeft: 8 }}>Cancelled: {p.cancelReason}</span>}
       </p>
       <div className="table-wrap">
@@ -69,7 +70,7 @@ function ReceiptDialog({ payment, onClose, onPrintFailed }) {
           <tbody>
             {p.lines.map((l) => (
               <tr key={l.code}>
-                <td data-label="Borrower"><strong>{l.code}</strong> {l.name}</td>
+                <td data-label="Borrower"><strong>{l.code}</strong> {l.name}{p.merged && <div className="muted small">{l.schemeName} · {l.installments} {l.modeLabel} installments of {inr(l.emi)}</div>}</td>
                 <td data-label="Amount" className="num">{inr(l.amount)}</td>
                 <td data-label="Processing" className="num">{inr(l.processingFee)}</td>
                 <td data-label="Insurance" className="num">{inr(l.insuranceFee)}</td>
@@ -82,6 +83,124 @@ function ReceiptDialog({ payment, onClose, onPrintFailed }) {
           </tbody>
         </table>
       </div>
+    </Modal>
+  );
+}
+
+// Pay every approved member loan of one group requisition together: one payment date and one way of paying, each member with her own
+// scheme and deductions, an optional product per member, and one receipt with all of them.
+function BatchPayDialog({ batch, onClose, onPaid }) {
+  const toast = useToast();
+  const [preps, setPreps] = useState(null);
+  const [error, setError] = useState('');
+  const [paidOn, setPaidOn] = useState(new Date().toISOString().slice(0, 10));
+  const [emiStart, setEmiStart] = useState('');
+  const [payMode, setPayMode] = useState('cash');
+  const [reference, setReference] = useState('');
+  const [prod, setProd] = useState({}); // loan id -> { id, qty }
+  const [errors, setErrors] = useState({});
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState([]);
+
+  useEffect(() => {
+    Promise.all(batch.loans.map((l) => api.loanPayments.prepare(l.id, { paidOn: paidOn || undefined, emiStartDate: emiStart || undefined })))
+      .then((r) => { setPreps(r); setError(''); })
+      .catch((e) => setError(e.errors?.paidOn || e.errors?.emiStartDate || e.message));
+  }, [paidOn, emiStart]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const stock = preps?.[0]?.stock || [];
+  const rows = (preps || []).map((p) => {
+    const l = p.lines[0];
+    const chosen = prod[p.requisition.id];
+    const item = stock.find((x) => x.id === chosen?.id);
+    const added = item ? item.unitPrice * (Number(chosen.qty) || 0) : 0;
+    return { p, l, item, added, cash: Math.round((l.cash - added) * 100) / 100 };
+  });
+  const total = rows.reduce((s, r) => s + r.cash, 0);
+
+  async function payAll() {
+    setBusy(true);
+    setErrors({});
+    setFailed([]);
+    try {
+      const r = await api.loanPayments.payBatch({
+        batchId: batch.batchId, paidOn, emiStartDate: emiStart || undefined, payMode, reference,
+        items: Object.entries(prod).filter(([, v]) => v.id).map(([requisition, v]) => ({ requisition, stockProduct: v.id, quantity: Number(v.qty) || 1 })),
+      });
+      const ok = r.results.filter((x) => x.ok).map((x) => x.payment);
+      if (r.failedCount) setFailed(r.results.filter((x) => !x.ok));
+      if (ok.length) {
+        const first = ok[0];
+        toast.success(`${ok.length} loan${ok.length === 1 ? '' : 's'} paid — ${inr(r.totalCash)}`);
+        onPaid({
+          merged: true, receiptNo: ok.map((x) => x.receiptNo).join(', '), formId: batch.batchFormId, group: first.group, branch: first.branch, paidOn: first.paidOn, payMode, reference,
+          status: 'paid', lines: ok.flatMap((x) => x.lines), totalCash: r.totalCash, totalAmount: ok.reduce((t, x) => t + x.totalAmount, 0), failed: r.failedCount,
+        });
+      } else toast.error(r.results[0]?.message || 'Nothing could be paid');
+    } catch (err) {
+      setErrors(err.errors || {});
+      toast.error(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal open title={`Pay all loans of ${batch.batchFormId}`} onClose={onClose} size="lg" busy={busy} footer={<button className="btn" onClick={onClose}>Close</button>}>
+      {error ? <ErrorState message={error} /> : !preps ? <Spinner label="Loading…" /> : (
+        <>
+          <p className="muted small" style={{ marginTop: 0 }}>{batch.group} · {preps.length} approved member loan{preps.length === 1 ? '' : 's'} waiting for payment. Each member keeps her own scheme, installments and deductions.</p>
+          <div className="form-grid">
+            <FormField id="bpaidOn" label="Payment date" required error={errors.paidOn}>
+              <input id="bpaidOn" type="date" max={new Date().toISOString().slice(0, 10)} value={paidOn} onChange={(e) => setPaidOn(e.target.value)} />
+            </FormField>
+            <FormField id="bstart" label="First installment date" hint="Leave empty: one period after the payment date, for each member's own mode" error={errors.emiStartDate}>
+              <input id="bstart" type="date" value={emiStart} onChange={(e) => setEmiStart(e.target.value)} />
+            </FormField>
+            <FormField id="bmode" label="Paid by" required error={errors.payMode}>
+              <select id="bmode" value={payMode} onChange={(e) => setPayMode(e.target.value)}>
+                {Object.entries(MODE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+            </FormField>
+            <FormField id="bref" label="Reference no." hint="Optional">
+              <input id="bref" value={reference} maxLength={60} onChange={(e) => setReference(e.target.value)} />
+            </FormField>
+          </div>
+          <div className="table-wrap" style={{ marginTop: 12 }}>
+            <table className="data-table">
+              <thead><tr><th>Member</th><th>Scheme</th><th className="num">Loan amount</th><th className="num">Charges</th><th>Product (optional)</th><th className="num">Cash to pay</th></tr></thead>
+              <tbody>
+                {rows.map(({ p, l, item, added, cash }) => (
+                  <tr key={p.requisition.id}>
+                    <td data-label="Member"><strong>{l.code}</strong> {l.name}<div className="muted small">{p.requisition.formId}</div></td>
+                    <td data-label="Scheme">{p.requisition.schemeName}<div className="muted small">{p.requisition.term} {p.requisition.modeLabel} installments · EMI {inr(p.requisition.emi)}</div></td>
+                    <td data-label="Loan amount" className="num">{inr(l.amount)}</td>
+                    <td data-label="Charges" className="num">− {inr(l.processingFee + l.insuranceFee + l.security)}</td>
+                    <td data-label="Product">
+                      {p.requisition.kind === 'product' ? <span className="muted">—</span> : (
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <select aria-label={`Product for ${l.code}`} value={prod[p.requisition.id]?.id || ''} onChange={(e) => setProd((x) => ({ ...x, [p.requisition.id]: { id: e.target.value, qty: x[p.requisition.id]?.qty || '1' } }))}>
+                            <option value="">{stock.length ? 'None' : 'No product in stock'}</option>
+                            {stock.map((s) => <option key={s.id} value={s.id}>{s.name} · {inr(s.unitPrice)}</option>)}
+                          </select>
+                          {item && <input aria-label={`Units for ${l.code}`} inputMode="numeric" style={{ width: 56 }} value={prod[p.requisition.id].qty} onChange={(e) => setProd((x) => ({ ...x, [p.requisition.id]: { ...x[p.requisition.id], qty: e.target.value.replace(/\D/g, '').slice(0, 4) } }))} />}
+                        </div>
+                      )}
+                      {item && <div className="muted small">− {inr(added)}</div>}
+                    </td>
+                    <td data-label="Cash" className="num"><strong>{inr(cash)}</strong></td>
+                  </tr>
+                ))}
+                <tr><td colSpan={5}><strong>Total cash for {rows.length} member{rows.length === 1 ? '' : 's'}</strong></td><td className="num"><strong>{inr(total)}</strong></td></tr>
+              </tbody>
+            </table>
+          </div>
+          {failed.length > 0 && <div className="notice warn" style={{ marginTop: 10 }}>{failed.map((f2) => <div key={f2.formId}>{f2.formId}: {f2.message}</div>)}</div>}
+          <div style={{ marginTop: 12 }}>
+            <button className="btn primary" disabled={busy} onClick={payAll}>{busy ? 'Paying…' : `Pay ${inr(total)} to ${rows.length} member${rows.length === 1 ? '' : 's'} and generate the receipt`}</button>
+          </div>
+        </>
+      )}
     </Modal>
   );
 }
@@ -284,6 +403,16 @@ export function PendingPayments() {
   const [page, setPage] = useState(1);
   const [payId, setPayId] = useState(null);
   const [receipt, setReceipt] = useState(null);
+  const [batch, setBatch] = useState(null);
+  // all the approved, unpaid member loans of the same group requisition
+  async function openBatch(r) {
+    try {
+      const res = await api.loanRequisitions.list({ status: 'approved', disbursed: 'no', batchId: r.batchId, limit: 100 });
+      setBatch({ batchId: r.batchId, batchFormId: r.batchFormId, group: `${r.subjectCode} — ${r.subjectName}`, loans: res.items });
+    } catch (err) {
+      toast.error(err.message);
+    }
+  }
   const q = useDebounce(f.search);
 
   const load = useCallback(async () => {
@@ -325,7 +454,14 @@ export function PendingPayments() {
                       <td data-label="Scheme">{r.schemeName}</td>
                       <td data-label="Amount" className="num">{inr(r.amount)}{r.kind === 'group' && r.memberCount > 1 && <div className="muted small">× {r.memberCount} = {inr(r.totalAmount)}</div>}</td>
                       <td data-label="Cash" className="num">{r.kind === 'product' ? '—' : inr(r.totalCash)}</td>
-                      <td data-label="Actions" className="actions-col">{canPay ? <button className="btn sm primary" onClick={() => setPayId(r.id)}>Pay</button> : <span className="muted">Waiting</span>}</td>
+                      <td data-label="Actions" className="actions-col">
+                        {canPay ? (
+                          <div className="row-actions">
+                            <button className="btn sm primary" onClick={() => setPayId(r.id)}>Pay</button>
+                            {r.batchCount > 1 && <button className="btn sm" onClick={() => openBatch(r)}>Pay all of {r.batchFormId}</button>}
+                          </div>
+                        ) : <span className="muted">Waiting</span>}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -336,6 +472,7 @@ export function PendingPayments() {
         )}
       </div>
       {payId && <PayDialog id={payId} onClose={() => setPayId(null)} onPaid={(p) => { setPayId(null); setReceipt(p); load(); }} />}
+      {batch && <BatchPayDialog batch={batch} onClose={() => setBatch(null)} onPaid={(p) => { setBatch(null); setReceipt(p); load(); }} />}
       {receipt && <ReceiptDialog payment={receipt} onClose={() => setReceipt(null)} onPrintFailed={() => toast.error('Allow pop-ups to print the receipt')} />}
     </>
   );

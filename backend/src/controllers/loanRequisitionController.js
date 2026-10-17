@@ -240,6 +240,14 @@ export async function groupDetail(req, res) {
   if (members.length === 0) issues.push('The group has no members. Add members under Group Master → Group Members');
   const running = await runningSchemes(members.map((m) => m._id));
   const ids = members.map((m) => m._id);
+  // the last loan amount and the newest civil score of each member
+  const prevLoans = new Map();
+  const civil = new Map();
+  await Promise.all(members.map(async (m) => {
+    prevLoans.set(String(m._id), await previousLoanPaise(m._id));
+    const cs = await civilSnapshot(m._id);
+    if (cs) civil.set(String(m._id), cs.score);
+  }));
   const groupLoans = await LoanRequisition.find({ isDeleted: false, kind: 'group', group: g._id, status: { $in: RUNNING }, members: { $in: ids } })
     .select('formId members amountPaise additionalProducts schemeName');
   const loanOf = (mid) => {
@@ -268,6 +276,10 @@ export async function groupDetail(req, res) {
         isBlocked: Boolean(m.isBlocked),
         // why this member cannot be given a loan yet (documents, guarantor, nominee)
         issues: notReady(m),
+        // shown with the member's loan on the group form
+        guarantorName: m.guarantor?.name || '',
+        previousLoan: rupees(prevLoans.get(String(m._id)) || 0),
+        civilScore: civil.get(String(m._id)) ?? null,
         // schemes in which this member still has an unfinished loan
         runningSchemeIds: [...(running.get(String(m._id)) || [])],
         // the loan this member has running in this group (one per member); more is only a product top-up
@@ -863,6 +875,7 @@ export async function listRequisitions(req, res) {
   const status = asString(req.query.status);
   if (['pending', 'approved', 'rejected', 'cancelled'].includes(status)) filter.status = status;
   if (mongoose.isValidObjectId(req.query.group)) filter.group = req.query.group;
+  if (mongoose.isValidObjectId(req.query.batchId)) filter.batchId = req.query.batchId;
   // Loans waiting for their payment (approved, not yet paid) or already paid.
   if (req.query.disbursed === 'no') filter.disbursedAt = { $exists: false };
   else if (req.query.disbursed === 'yes') filter.disbursedAt = { $exists: true };

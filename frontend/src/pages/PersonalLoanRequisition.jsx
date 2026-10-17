@@ -54,7 +54,7 @@ export function Search({ id, label, required, error, hint, placeholder, branch, 
       ) : (
         <div style={{ position: 'relative' }}>
           <input id={id} type="search" placeholder={placeholder} value={search} disabled={!branch || disabled} autoComplete="off"
-            onFocus={() => setOpen(true)} onChange={(e) => { setSearch(e.target.value); setOpen(true); }} />
+            onFocus={() => setOpen(true)} onClick={() => setOpen(true)} onChange={(e) => { setSearch(e.target.value); setOpen(true); }} />
           {open && branch && !disabled && (
             <div className="panel" style={{ position: 'absolute', zIndex: 20, left: 0, right: 0, maxHeight: 240, overflow: 'auto', marginTop: 4 }}>
               {items.length === 0 ? (

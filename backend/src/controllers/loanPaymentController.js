@@ -113,15 +113,14 @@ const present = (p) => ({
   createdByCode: p.createdByCode || '',
   createdAt: p.createdAt,
   lines: p.lines.map((l) => ({
+    schemeName: p.schemeName, installments: p.installments, modeLabel: p.modeLabel, emi: money(p.installmentPaise + (l.extraEmiPaise || 0)), emiStartDate: iso(p.emiStartDate), emiEndDate: iso(p.emiEndDate), receiptNo: p.receiptNo,
     code: l.code, name: l.name, amount: money(l.amountPaise), processingFee: money(l.processingFeePaise), insuranceFee: money(l.insuranceFeePaise), security: money(l.securityPaise),
     product: money(l.productPaise), products: (l.products || []).map((x) => ({ name: x.name, quantity: x.quantity, unitPrice: money(x.unitPricePaise) })), cash: money(l.cashPaise),
   })),
 });
 
 /** Pays an approved loan: the deductions are taken off, products added at payment time come out of the branch stock. */
-export async function payLoan(req, res) {
-  const b = req.body || {};
-  const r = await loadApproved(req, b.requisition);
+async function pay(req, r, b) {
   const kind = r.kind || 'personal';
   const paidOn = readPaidOn(req, r, b.paidOn);
   const { start, end } = emiDates(r, paidOn, b.emiStartDate);
@@ -143,7 +142,7 @@ export async function payLoan(req, res) {
   }));
   const reserve = [];
   for (const it of items) {
-    const line = lines.find((l) => String(l.member) === String(it?.member || (kind === 'group' ? '' : borrowers[0].id)));
+    const line = lines.find((l) => String(l.member) === String(it?.member || (kind === 'group' && borrowers.length > 1 ? '' : borrowers[0].id)));
     if (!line) throw invalid({ items: kind === 'group' ? 'Choose the member for every product' : 'Product is not valid' });
     if (!mongoose.isValidObjectId(String(it.stockProduct || ''))) throw invalid({ items: 'Select the product' });
     const p = await StockProduct.findOne({ _id: it.stockProduct, isDeleted: false, isActive: true, branch: r.branch });
@@ -190,7 +189,39 @@ export async function payLoan(req, res) {
   }
   await doc.populate(POPULATE);
   await audit(req, { action: 'loanPayment.create', entity: 'LoanPayment', entityId: doc._id, after: { receiptNo: doc.receiptNo, formId: r.formId, totalCash: doc.totalCashPaise / 100 } });
+  return doc;
+}
+
+export async function payLoan(req, res) {
+  const b = req.body || {};
+  const r = await loadApproved(req, b.requisition);
+  const doc = await pay(req, r, b);
   res.status(201).json({ payment: present(doc) });
+}
+
+/**
+ * Pays every approved, unpaid member loan of one group requisition (a batch) in one go: the same payment date, the way it is paid,
+ * and (when given) the first installment date; each member's loan keeps her own scheme, installments and deductions, and
+ * products can be added per member loan (items carry the member loan's requisition id). Each loan gets its own receipt.
+ */
+export async function payBatch(req, res) {
+  const b = req.body || {};
+  if (!mongoose.isValidObjectId(String(b.batchId || ''))) throw new HttpError(404, 'Batch not found');
+  const docs = await LoanRequisition.find({ batchId: b.batchId, isDeleted: false, status: 'approved', disbursedAt: { $exists: false }, ...branchFilter(req.user) }).sort({ formId: 1 });
+  if (!docs.length) throw new HttpError(404, 'No approved loan of this requisition is waiting for payment');
+  const items = Array.isArray(b.items) ? b.items : [];
+  const results = [];
+  for (const r of docs) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const doc = await pay(req, r, { ...b, requisition: r._id, items: items.filter((it) => String(it?.requisition) === String(r._id)) });
+      results.push({ formId: r.formId, ok: true, payment: present(doc) });
+    } catch (err) {
+      results.push({ formId: r.formId, ok: false, message: err.errors ? Object.values(err.errors)[0] : err.message });
+    }
+  }
+  const paid = results.filter((x) => x.ok);
+  res.status(paid.length ? 201 : 200).json({ results, paidCount: paid.length, failedCount: results.length - paid.length, totalCash: paid.reduce((t, x) => t + x.payment.totalCash, 0) });
 }
 
 export async function listPayments(req, res) {

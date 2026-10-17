@@ -53,6 +53,7 @@ function MemberLoan({ index, m, e, schemes, stock, errors, onChange, onPreview }
   return (
     <div className="panel" style={{ padding: 16, marginBottom: 14 }}>
       <h3 className="section-title">{index + 1}. {m.code} — {m.name}</h3>
+      <div className="muted small" style={{ marginBottom: 8 }}>Guarantor {m.guarantorName || '—'} · Previous loan {inr(m.previousLoan)} · Civil score {m.civilScore ?? 'not recorded'}</div>
       {err('member') && <div className="field-error" role="alert">{err('member')}</div>}
       <div className="form-grid">
         <FormField id={`sch-${m.id}`} label="Loan scheme" required error={err('schemeId')}>

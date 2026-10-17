@@ -136,6 +136,7 @@ export const api = {
   loanPayments: {
     prepare: (id, params) => request(`/loan-payments/prepare/${id}${qs(params)}`),
     pay: (data) => request('/loan-payments', { method: 'POST', body: data }),
+    payBatch: (data) => request('/loan-payments/batch', { method: 'POST', body: data }),
     list: (params) => request(`/loan-payments${qs(params)}`),
     get: (id) => request(`/loan-payments/${id}`),
     cancel: (id, reason) => request(`/loan-payments/${id}/cancel`, { method: 'POST', body: { reason } }),
