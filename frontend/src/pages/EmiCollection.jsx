@@ -43,6 +43,12 @@ function Filters({ f, set, branches, staff, modes }) {
         <option value="">All modes</option>
         {modes.map((m) => <option key={m} value={m}>{REPAY_LABEL[m] || m}</option>)}
       </select>
+      {f.status && (
+        <select value={f.status} onChange={(e) => set({ status: e.target.value })} aria-label="Paid or unpaid groups">
+          <option value="unpaid">Unpaid groups</option>
+          <option value="paid">Paid groups</option>
+        </select>
+      )}
       {f.withType && (
         <select value={f.loanType} onChange={(e) => set({ loanType: e.target.value })} aria-label="Loan type">
           {LOAN_TYPES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
@@ -53,7 +59,7 @@ function Filters({ f, set, branches, staff, modes }) {
 }
 
 function useCollection(kind) {
-  const [f, setF] = useState({ search: '', branch: '', date: todayISO(), staff: '', mode: '', loanType: '', withType: kind === 'single' });
+  const [f, setF] = useState({ search: '', branch: '', date: todayISO(), staff: '', mode: '', loanType: '', status: 'unpaid', withType: kind === 'single' });
   const [branches, setBranches] = useState([]);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -67,17 +73,17 @@ function useCollection(kind) {
     setLoading(true);
     setError('');
     try {
-      setData(await api.emi.collection({ kind, page, limit: LIMIT, branch: f.branch, date: f.date, staff: f.staff, mode: f.mode, loanType: f.loanType, q }));
+      setData(await api.emi.collection({ kind, page, limit: LIMIT, branch: f.branch, date: f.date, staff: f.staff, mode: f.mode, loanType: f.loanType, status: kind === 'group' ? f.status : undefined, q }));
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [kind, page, f.branch, f.date, f.staff, f.mode, f.loanType, q]);
+  }, [kind, page, f.branch, f.date, f.staff, f.mode, f.loanType, f.status, q]);
   useEffect(() => {
     load();
   }, [load]);
-  useEffect(() => setPage(1), [f.branch, f.date, f.staff, f.mode, f.loanType, q]);
+  useEffect(() => setPage(1), [f.branch, f.date, f.staff, f.mode, f.loanType, f.status, q]);
   return { f, set: (patch) => setF((x) => ({ ...x, ...patch })), branches, data, loading, error, load, page, setPage };
 }
 
@@ -173,14 +179,15 @@ export function SingleLoanEmi() {
 // ---- group loan EMI: choose the group, tick the members, edit the EMI and pay -----------------------------------------
 function GroupCollect({ group, canCollect, onClose, onDone }) {
   const toast = useToast();
-  const [ticked, setTicked] = useState(() => new Set(group.members.map(key)));
+  const dueMembers = group.members.filter((m) => m.status === 'due');
+  const [ticked, setTicked] = useState(() => new Set(dueMembers.map(key)));
   const [amounts, setAmounts] = useState({});
   const [payMode, setPayMode] = useState('cash');
   const [busy, setBusy] = useState(false);
   const [results, setResults] = useState(null);
   const [receipt, setReceipt] = useState(null);
   const amountOf = (m) => amounts[key(m)] ?? String(m.dueAmount);
-  const chosen = group.members.filter((m) => ticked.has(key(m)));
+  const chosen = dueMembers.filter((m) => ticked.has(key(m)));
   const total = chosen.reduce((s, m) => s + (Number(amountOf(m)) || 0), 0);
   const toggle = (m) => setTicked((t) => { const n = new Set(t); if (n.has(key(m))) n.delete(key(m)); else n.add(key(m)); return n; });
 
@@ -205,36 +212,36 @@ function GroupCollect({ group, canCollect, onClose, onDone }) {
   return (
     <>
       <Modal open title={`${group.code} — ${group.name}`} onClose={close} size="lg" busy={busy} footer={<button className="btn" onClick={close}>{results ? 'Done' : 'Close'}</button>}>
-        <p className="muted small" style={{ marginTop: 0 }}>{group.branch?.name} · staff {group.employeeCode || '—'} · {group.modeLabel} · total due {inr(group.dueAmount)}</p>
+        <p className="muted small" style={{ marginTop: 0 }}>{group.branch?.name} · staff {group.employeeCode || '—'} · {group.modeLabel} · {group.status === 'paid' ? `all ${group.members.length} members paid · EMI of the day ${inr(group.paidAmount)}` : `total due ${inr(group.dueAmount)} · ${group.dueMembers} of ${group.members.length} members have EMI due`}</p>
         {!results ? (
           <>
             <div className="table-wrap">
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th style={{ width: 40 }}><input type="checkbox" aria-label="Select all members" checked={chosen.length === group.members.length} onChange={(e) => setTicked(e.target.checked ? new Set(group.members.map(key)) : new Set())} /></th>
+                    <th style={{ width: 40 }}><input type="checkbox" aria-label="Select all members" checked={dueMembers.length > 0 && chosen.length === dueMembers.length} disabled={!dueMembers.length} onChange={(e) => setTicked(e.target.checked ? new Set(dueMembers.map(key)) : new Set())} /></th>
                     <th>Member</th><th>Loan ID</th><th>Due</th><th className="num">EMI</th><th className="num">Amount to receive</th>
                   </tr>
                 </thead>
                 <tbody>
                   {group.members.map((m) => (
-                    <tr key={key(m)} style={ticked.has(key(m)) ? undefined : { opacity: 0.55 }}>
-                      <td><input type="checkbox" aria-label={`Select ${m.code}`} checked={ticked.has(key(m))} onChange={() => toggle(m)} disabled={!canCollect} /></td>
+                    <tr key={key(m)} style={m.status !== 'due' || !ticked.has(key(m)) ? { opacity: 0.55 } : undefined}>
+                      <td><input type="checkbox" aria-label={`Select ${m.code}`} checked={ticked.has(key(m))} onChange={() => toggle(m)} disabled={!canCollect || m.status !== 'due'} /></td>
                       <td data-label="Member"><strong>{m.code}</strong> {m.name}</td>
                       <td data-label="Loan ID">{m.loanId || m.formId}</td>
-                      <td data-label="Due">{m.dueCount} installment{m.dueCount === 1 ? '' : 's'}{m.overdueDays > 0 && <div className="muted small">{m.overdueDays} day{m.overdueDays === 1 ? '' : 's'} overdue</div>}</td>
+                      <td data-label="Due">{m.status !== 'due' ? <span className="badge green">Paid</span> : <>{m.dueCount} installment{m.dueCount === 1 ? '' : 's'}</>}{m.overdueDays > 0 && <div className="muted small">{m.overdueDays} day{m.overdueDays === 1 ? '' : 's'} overdue</div>}</td>
                       <td data-label="EMI" className="num">{inr(m.emi)}</td>
                       <td data-label="Amount" className="num">
-                        <input aria-label={`Amount for ${m.code}`} inputMode="decimal" style={{ width: 110, textAlign: 'right' }} value={amountOf(m)} disabled={!canCollect || !ticked.has(key(m))}
+                        <input aria-label={`Amount for ${m.code}`} inputMode="decimal" style={{ width: 110, textAlign: 'right' }} value={m.status === 'due' ? amountOf(m) : ''} disabled={!canCollect || m.status !== 'due' || !ticked.has(key(m))}
                           onChange={(e) => setAmounts((a) => ({ ...a, [key(m)]: cleanAmount(e.target.value) }))} />
-                        <div className="muted small">due {inr(m.dueAmount)}</div>
+                        <div className="muted small">{m.status === 'due' ? `due ${inr(m.dueAmount)}` : 'nothing due'}</div>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            {canCollect ? (
+            {canCollect && dueMembers.length > 0 ? (
               <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginTop: 12 }}>
                 <FormField id="gpay" label="Paid by">
                   <select id="gpay" value={payMode} onChange={(e) => setPayMode(e.target.value)}>
@@ -243,7 +250,7 @@ function GroupCollect({ group, canCollect, onClose, onDone }) {
                 </FormField>
                 <button className="btn primary" disabled={busy || !chosen.length} onClick={collect}>{busy ? 'Collecting…' : `Collect ${inr(total)} from ${chosen.length} member${chosen.length === 1 ? '' : 's'}`}</button>
               </div>
-            ) : <div className="muted" style={{ marginTop: 10 }}>You can view the group but not collect EMI.</div>}
+            ) : <div className="muted" style={{ marginTop: 10 }}>{dueMembers.length ? 'You can view the group but not collect EMI.' : 'Every member of this group has paid.'}</div>}
           </>
         ) : (
           <>
@@ -285,13 +292,13 @@ export function GroupLoanEmi() {
       <PageHeader title="Group Loan EMI" description="Choose the group, tick the members who pay, change the EMI amount if needed and collect." />
       <div className="panel">
         <Filters f={c.f} set={c.set} branches={c.branches} staff={c.data?.staff || []} modes={c.data?.modes || []} />
-        {c.data && <div className="muted small" style={{ margin: '4px 0 10px' }}>{groups.length} group{groups.length === 1 ? '' : 's'} with EMI due · total due {inr(c.data.totalDue)}</div>}
+        {c.data && <div className="muted small" style={{ margin: '4px 0 10px' }}>{c.f.status === 'paid' ? `${groups.length} paid group${groups.length === 1 ? '' : 's'} on this date` : `${groups.length} unpaid group${groups.length === 1 ? '' : 's'} · total due ${inr(c.data.totalDue)}`}{c.data.counts ? ` · unpaid ${c.data.counts.unpaid} / paid ${c.data.counts.paid}` : ''}</div>}
         {c.loading && !c.data ? <Spinner label="Loading…" /> : c.error ? <ErrorState message={c.error} onRetry={c.load} /> : groups.length === 0 ? (
-          <EmptyState title="No group EMI is due" description="No group loan has an EMI due on or before this date for these filters." />
+          <EmptyState title={c.f.status === 'paid' ? 'No paid group' : 'No group EMI is due'} description={c.f.status === 'paid' ? 'No group has paid all its EMI due on this date for these filters.' : 'No group loan has an EMI due on or before this date for these filters.'} />
         ) : (
           <div className={`table-wrap${c.loading ? ' dim' : ''}`}>
             <table className="data-table">
-              <thead><tr><th>Group</th><th>Branch</th><th>Staff</th><th>Mode</th><th className="num">Members with EMI due</th><th className="num">Total due</th><th className="actions-col">Actions</th></tr></thead>
+              <thead><tr><th>Group</th><th>Branch</th><th>Staff</th><th>Mode</th><th>Status</th><th className="num">Members (due / all)</th><th className="num">{c.f.status === 'paid' ? 'EMI paid' : 'Total due'}</th><th className="actions-col">Actions</th></tr></thead>
               <tbody>
                 {groups.map((g) => (
                   <tr key={g.code}>
@@ -299,9 +306,10 @@ export function GroupLoanEmi() {
                     <td data-label="Branch">{g.branch?.name || '—'}</td>
                     <td data-label="Staff">{g.employeeCode || '—'}</td>
                     <td data-label="Mode">{REPAY_LABEL[g.members[0]?.mode] || g.modeLabel}</td>
-                    <td data-label="Members" className="num">{g.members.length}</td>
-                    <td data-label="Due" className="num">{inr(g.dueAmount)}</td>
-                    <td data-label="Actions" className="actions-col"><button className="btn sm primary" onClick={() => setOpen(g)}>{canCollect ? 'Select & collect' : 'View'}</button></td>
+                    <td data-label="Status"><span className={`badge ${g.status === 'paid' ? 'green' : 'danger'}`}>{g.status === 'paid' ? 'Paid' : 'Unpaid'}</span></td>
+                    <td data-label="Members" className="num">{g.dueMembers} / {g.members.length}</td>
+                    <td data-label="Due" className="num">{g.status === 'paid' ? inr(g.paidAmount) : inr(g.dueAmount)}</td>
+                    <td data-label="Actions" className="actions-col"><button className="btn sm primary" onClick={() => setOpen(g)}>{canCollect && g.status === 'unpaid' ? 'Select & collect' : 'View'}</button></td>
                   </tr>
                 ))}
               </tbody>

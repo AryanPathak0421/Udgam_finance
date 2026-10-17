@@ -197,9 +197,10 @@ function LoanSettleForm({ loanId, member, canSettle, onDone }) {
   if (!d) return <Spinner label="Loading…" />;
   const set = (k) => (e) => { setForm((f) => ({ ...f, [k]: e.target.value })); setErrors((x) => ({ ...x, [k]: undefined })); };
   const amount = Number(form.amount) || 0;
-  const waiver = Math.max(Math.round((d.state.outstanding - amount) * 100) / 100, 0);
+  const short = Math.round((d.state.outstanding - amount) * 100) / 100 !== 0;
 
   async function settle() {
+    if (short) { setErrors({ amount: `The settlement amount must be exactly the outstanding ${inr(d.state.outstanding)}` }); return; }
     setBusy(true);
     setErrors({});
     try {
@@ -226,7 +227,7 @@ function LoanSettleForm({ loanId, member, canSettle, onDone }) {
             <FormField id="sdate" label="Settlement date" required error={errors.settledOn}>
               <input id="sdate" type="date" max={todayISO()} value={form.settledOn} onChange={set('settledOn')} />
             </FormField>
-            <FormField id="samount" label="Settlement amount received (₹)" required error={errors.amount} hint={`Outstanding ${inr(d.state.outstanding)}${d.canWaive ? '. A lower amount is a waiver.' : ''}`}>
+            <FormField id="samount" label="Settlement amount received (₹)" required error={errors.amount} hint={`Must be exactly the outstanding ${inr(d.state.outstanding)}; a lower amount does not settle the loan`}>
               <input id="samount" inputMode="decimal" value={form.amount} onChange={(e) => { setForm((f) => ({ ...f, amount: e.target.value.replace(/[^\d.]/g, '') })); setErrors((x) => ({ ...x, amount: undefined })); }} />
             </FormField>
             <FormField id="smode" label="Paid by" required error={errors.payMode}>
@@ -237,11 +238,10 @@ function LoanSettleForm({ loanId, member, canSettle, onDone }) {
             <FormField id="sref" label="Reference no." hint="Optional">
               <input id="sref" value={form.reference} maxLength={60} onChange={set('reference')} />
             </FormField>
-            <FormField id="sremark" label={waiver > 0 ? 'Remark (reason for the waiver)' : 'Remark'} required={waiver > 0} error={errors.remark} className="span-2">
+            <FormField id="sremark" label="Remark" error={errors.remark} className="span-2">
               <input id="sremark" value={form.remark} maxLength={300} onChange={set('remark')} />
             </FormField>
           </div>
-          {waiver > 0 && <div className="notice warn" style={{ margin: '10px 0' }}>{inr(waiver)} will be waived.{d.canWaive ? '' : ' Only a branch manager or admin can settle for less than the outstanding.'}</div>}
           <button className="btn primary" disabled={busy} onClick={settle}>{busy ? 'Settling…' : `Settle loan — receive ${inr(amount)}`}</button>
         </div>
       )}

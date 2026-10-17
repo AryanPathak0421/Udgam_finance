@@ -14,7 +14,6 @@ const iso = (d) => (d ? new Date(d).toISOString().slice(0, 10) : null);
 const money = (p) => (p === undefined || p === null ? null : p / 100);
 const DOC_RE = /^data:(application\/pdf|image\/png|image\/jpeg);base64,[A-Za-z0-9+/=]+$/;
 const MAX_DOC_CHARS = 1_100_000; // ~800 KB file
-const WAIVER_ROLES = ['super_admin', 'admin', 'branch_manager'];
 
 /** The borrower of a loan (a group loan has one line per member). */
 function findLine(p, memberId) {
@@ -49,7 +48,7 @@ export async function preview(req, res) {
     },
     verifier: { code: req.user.employeeCode || '', name: req.user.name || '' },
     today: iso(asOf),
-    canWaive: WAIVER_ROLES.includes(req.user.role),
+    canWaive: false,
   });
 }
 
@@ -88,13 +87,10 @@ export async function settleLoan(req, res) {
   const { p, line, settledOn, outstandingPaise } = await prepare(req, b);
   const amountPaise = toMinor(typeof b.amount === 'number' ? String(b.amount) : asString(b.amount));
   if (amountPaise === null || amountPaise < 0) throw invalid({ amount: 'Enter the settlement amount received (0 or more, up to 2 decimals)' });
-  if (amountPaise > outstandingPaise) throw invalid({ amount: `The outstanding is only ₹${outstandingPaise / 100}. The amount cannot be more than that.` });
-  const waiverPaise = outstandingPaise - amountPaise;
+  // A loan is closed only by paying everything that is outstanding: ₹9,999 does not settle a loan of ₹10,000.
+  if (amountPaise !== outstandingPaise) throw invalid({ amount: `The settlement amount must be exactly the outstanding ₹${outstandingPaise / 100}. ${amountPaise < outstandingPaise ? `₹${amountPaise / 100} is not enough to settle the loan.` : 'It cannot be more than that.'}` });
+  const waiverPaise = 0;
   const remark = asString(b.remark).slice(0, 300);
-  if (waiverPaise > 0) {
-    if (!WAIVER_ROLES.includes(req.user.role)) throw new HttpError(403, 'Only a branch manager or admin can settle a loan for less than the outstanding.', { amount: 'A lower amount needs a branch manager or admin' });
-    if (remark.length < 3) throw invalid({ remark: 'Enter the reason for the waiver' });
-  }
   let payMode;
   if (amountPaise > 0) {
     payMode = asString(b.payMode);

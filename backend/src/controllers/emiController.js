@@ -304,14 +304,18 @@ export async function collectionList(req, res) {
     for (const line of l.lines) {
       if (settledSet.has(`${l._id}|${line.code}`)) continue;
       const st = stateFrom(l, line, byKey.get(`${l._id}|${line.code}`) || new Map(), asOf);
-      if (!st.due.length) continue;
+      // group screen: every member of the group is listed, one who owes nothing is shown as paid
+      if (!st.due.length && kindScope !== 'group') continue;
+      if (!st.left.length && kindScope === 'group') continue; // the loan is fully repaid
       const text = `${l.loanId} ${l.formId} ${line.code} ${line.name} ${l.group?.code || ''} ${l.group?.name || ''}`.toLowerCase();
       if (q && !text.includes(q)) continue;
+      const onDate = st.schedule.filter((x) => x.dueDate === iso(asOf));
       rows.push({
         loan: l._id, loanId: l.loanId || '', formId: l.formId, kind: l.kind, loanType: loanTypeOf(l), loanTypeLabel: KIND_LABEL[loanTypeOf(l)] || loanTypeOf(l), member: line.member, code: line.code, name: line.name,
         group: l.group?.code ? { code: l.group.code, name: l.group.name } : null, branch: l.branch ? { id: l.branch._id, code: l.branch.code, name: l.branch.name } : null, employeeCode: l.employeeCode || '',
         mode: modeOf(l), modeLabel: l.modeLabel, emi: money((l.schedule[0]?.installmentPaise || 0) + (line.extraEmiPaise || 0)), dueCount: st.due.length, dueAmount: money(st.totals.due),
-        overdueDays: Math.max(...st.due.map((d) => d.overdueDays)), nextDueDate: st.due[0].dueDate, outstanding: money(st.totals.outstanding),
+        overdueDays: st.due.length ? Math.max(...st.due.map((d) => d.overdueDays)) : 0, nextDueDate: st.due[0]?.dueDate || st.left[0]?.dueDate || '', outstanding: money(st.totals.outstanding),
+        status: st.due.length ? 'due' : 'paid', dueOnDate: onDate.length > 0, emiOnDate: money(onDate.reduce((t, x) => t + x.amountPaise, 0)),
       });
     }
   }
@@ -328,8 +332,16 @@ export async function collectionList(req, res) {
       g.members.push(r);
       g.dueAmount += r.dueAmount;
     });
-    const list = [...groups.values()].sort((a, b) => a.code.localeCompare(b.code));
-    return res.json({ groups: list, staff, modes, date: iso(asOf), totalDue: list.reduce((s, g) => s + g.dueAmount, 0) });
+    // Unpaid: at least one member still owes EMI (the whole group stays here, with its members and the total due).
+    // Paid: nobody owes anything and the group had an installment on the date.
+    const all = [...groups.values()].sort((a, b) => a.code.localeCompare(b.code)).map((g) => {
+      const unpaid = g.members.some((m) => m.status === 'due');
+      return { ...g, status: unpaid ? 'unpaid' : 'paid', paidAmount: g.members.reduce((t, m) => t + (m.dueOnDate ? m.emiOnDate : 0), 0), dueMembers: g.members.filter((m) => m.status === 'due').length };
+    }).filter((g) => g.status === 'unpaid' || g.members.some((m) => m.dueOnDate));
+    const counts = { unpaid: all.filter((g) => g.status === 'unpaid').length, paid: all.filter((g) => g.status === 'paid').length };
+    const want = asString(req.query.status) === 'paid' ? 'paid' : 'unpaid';
+    const list = all.filter((g) => g.status === want);
+    return res.json({ groups: list, counts, status: want, staff, modes, date: iso(asOf), totalDue: list.reduce((s, g) => s + g.dueAmount, 0) });
   }
   const { page, limit, skip } = parsePaging(req.query, { defaultLimit: 25 });
   rows.sort((a, b) => a.nextDueDate.localeCompare(b.nextDueDate) || a.code.localeCompare(b.code));
