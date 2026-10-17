@@ -84,7 +84,7 @@ export const api = {
   },
   loanRequisitions: {
     schemes: (params) => request(`/loan-requisitions/schemes${qs(params)}`),
-    stockProducts: () => request('/loan-requisitions/stock-products'),
+    stockProducts: (branch) => request(`/loan-requisitions/stock-products${qs({ branch })}`),
     verification: (memberId) => request(`/loan-requisitions/verification/${memberId}`),
     groups: (params) => request(`/loan-requisitions/groups${qs(params)}`),
     group: (id) => request(`/loan-requisitions/groups/${id}`),
@@ -104,7 +104,18 @@ export const api = {
     add: (data) => request('/civil-checks', { method: 'POST', body: data }),
     remove: (id) => request(`/civil-checks/${id}`, { method: 'DELETE' }),
   },
+  productOrders: {
+    products: () => request('/stock-orders/products'),
+    list: (params) => request(`/stock-orders${qs(params)}`),
+    get: (id) => request(`/stock-orders/${id}`),
+    create: (data) => request('/stock-orders', { method: 'POST', body: data }),
+    approve: (id, items) => request(`/stock-orders/${id}/approve`, { method: 'POST', body: { items } }),
+    reject: (id, reason) => request(`/stock-orders/${id}/reject`, { method: 'POST', body: { reason } }),
+    cancel: (id) => request(`/stock-orders/${id}/cancel`, { method: 'POST' }),
+  },
   stockProducts: {
+    options: () => request('/stock-products/options'),
+    report: () => request('/stock-products/report'),
     list: (params) => request(`/stock-products${qs(params)}`),
     create: (data) => request('/stock-products', { method: 'POST', body: data }),
     update: (id, data) => request(`/stock-products/${id}`, { method: 'PUT', body: data }),

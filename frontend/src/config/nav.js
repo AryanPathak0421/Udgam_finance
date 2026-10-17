@@ -41,6 +41,7 @@ export const NAV_SECTIONS = [
     items: [
       // Its own module: admins always; other ranks only when it is granted under Menu Permission.
       { label: 'Stock Product Master', path: '/stock/products', icon: 'product', grantOnly: true },
+      { label: 'Product Orders', path: '/stock/orders', icon: 'ticket', grantOnly: true },
     ],
   },
   {

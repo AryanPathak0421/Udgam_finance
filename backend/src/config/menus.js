@@ -32,6 +32,7 @@ export const MENU_CATALOGUE = [
   { key: '/loan-requisition/product', label: 'Product Loan Requisition', group: 'Loan Requisition' },
   { key: '/loan-requisition/list', label: 'Requisition List', group: 'Loan Requisition' },
   { key: '/stock/products', label: 'Stock Product Master', group: 'Stock' },
+  { key: '/stock/orders', label: 'Product Orders', group: 'Stock' },
   { key: '/employees', label: 'Employees', group: 'Organisation' },
   { key: '/customers', label: 'Customers', group: 'Customers' },
   { key: '/kyc', label: 'KYC', group: 'Customers' },

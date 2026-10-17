@@ -72,8 +72,11 @@ export async function schemes(req, res) {
 }
 
 /** Products in stock that a product loan can be taken for. */
-export async function stockProducts(_req, res) {
-  const items = await StockProduct.find({ isDeleted: false, isActive: true, stockQty: { $gt: 0 } }).sort({ name: 1 });
+export async function stockProducts(req, res) {
+  // Loans are given from the stock of the branch of the requisition.
+  if (!mongoose.isValidObjectId(String(req.query.branch || ''))) return res.json({ items: [] });
+  assertBranchAccess(req.user, req.query.branch);
+  const items = await StockProduct.find({ isDeleted: false, isActive: true, stockQty: { $gt: 0 }, branch: req.query.branch }).sort({ name: 1 });
   res.json({ items: items.map((p) => ({ id: p._id, code: p.code, name: p.name, category: p.category || '', unitPrice: p.unitPricePaise / 100, stockQty: p.stockQty })) });
 }
 
@@ -292,7 +295,7 @@ const cashAfterCharges = (amountPaise, charges) =>
  * Validates product(s) a member of a group loan takes on top of the loan. `capFor(memberId)` is how much (paise)
  * that member may still take; each member gets one product here.
  */
-async function buildAdditional({ items, members, capFor, scheme, input, loanDate }) {
+async function buildAdditional({ items, members, capFor, scheme, input, loanDate, branchId }) {
   const out = [];
   const used = new Map();
   const seen = new Set();
@@ -303,8 +306,8 @@ async function buildAdditional({ items, members, capFor, scheme, input, loanDate
     if (seen.has(mid)) throw invalid({ additional: `${gm.code} has more than one additional product` });
     seen.add(mid);
     if (!mongoose.isValidObjectId(String(a.stockProduct || ''))) throw invalid({ additional: `Select the product for ${gm.code}` });
-    const p = await StockProduct.findOne({ _id: a.stockProduct, isDeleted: false, isActive: true });
-    if (!p) throw invalid({ additional: `The product chosen for ${gm.code} is not available` });
+    const p = await StockProduct.findOne({ _id: a.stockProduct, isDeleted: false, isActive: true, branch: branchId });
+    if (!p) throw invalid({ additional: `The product chosen for ${gm.code} is not available in this branch` });
     const qty = Number(a.quantity);
     if (!Number.isInteger(qty) || qty < 1) throw invalid({ additional: `Enter the number of units for ${gm.code}` });
     used.set(String(p._id), (used.get(String(p._id)) || 0) + qty);
@@ -624,8 +627,8 @@ export function createRequisition(kind) {
     let product = null;
     if (kind === 'product') {
       if (!mongoose.isValidObjectId(String(b.stockProduct || ''))) throw invalid({ stockProduct: 'Select the product' });
-      const p = await StockProduct.findOne({ _id: b.stockProduct, isDeleted: false, isActive: true });
-      if (!p) throw invalid({ stockProduct: 'This product is not available' });
+      const p = await StockProduct.findOne({ _id: b.stockProduct, isDeleted: false, isActive: true, branch: branchId });
+      if (!p) throw invalid({ stockProduct: 'This product is not available in this branch' });
       const qty = Number(b.quantity);
       if (!Number.isInteger(qty) || qty < 1) throw invalid({ quantity: 'Enter the number of units (1 or more)' });
       if (qty > p.stockQty) throw invalid({ quantity: `Only ${p.stockQty} unit${p.stockQty === 1 ? '' : 's'} in stock` });
@@ -701,7 +704,7 @@ export function createRequisition(kind) {
     let additionalProducts = [];
     if (kind === 'group' && Array.isArray(b.additional) && b.additional.length) {
       const maxPaise = Math.floor((amountPaise * ADDITIONAL_PRODUCT_PERCENT) / 100);
-      additionalProducts = await buildAdditional({ items: b.additional, members: groupMembers, capFor: () => maxPaise, scheme, input: r.input, loanDate });
+      additionalProducts = await buildAdditional({ items: b.additional, members: groupMembers, capFor: () => maxPaise, scheme, input: r.input, loanDate, branchId });
     }
 
     const memberCount = g ? groupMembers.length : undefined;
@@ -906,6 +909,7 @@ export async function addGroupTopUp(req, res) {
     scheme,
     input: { rate: r.annualRateBp / 100, mode: r.mode, term: r.term },
     loanDate: today,
+    branchId: r.branch,
   });
 
   const formErrors = {};

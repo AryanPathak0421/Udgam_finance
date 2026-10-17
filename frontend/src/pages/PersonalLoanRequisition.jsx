@@ -289,8 +289,9 @@ function RequisitionForm({ kind }) {
   const seq = useRef(0);
 
   useEffect(() => {
-    if (isProduct || isGroup) api.loanRequisitions.stockProducts().then((r) => setStock(r.items)).catch(() => setStock([]));
-  }, [isProduct, isGroup]);
+    if ((isProduct || isGroup) && form.branch) api.loanRequisitions.stockProducts(form.branch).then((r) => setStock(r.items)).catch(() => setStock([]));
+    else setStock([]);
+  }, [isProduct, isGroup, form.branch]);
 
   useEffect(() => {
     api.groups.branchOptions().then((r) => {
@@ -860,7 +861,7 @@ function RequisitionForm({ kind }) {
             <h3 className="section-title">Stock product</h3>
             <div className="form-grid">
               <FormField id="stockProduct" label="Select stock product" required error={errors.stockProduct} className="span-2"
-                hint={stock.length ? undefined : 'No product is in stock. Add products under Admin Master → Stock Product Master.'}>
+                hint={stock.length ? undefined : 'No product is in stock in this branch. Add it under Stock → Stock Product Master, or order it from the admin under Product Orders.'}>
                 <select id="stockProduct" value={prod.id} onChange={(e) => { setProd((p) => ({ ...p, id: e.target.value })); setErrors((er) => ({ ...er, stockProduct: undefined })); }}>
                   <option value="">{stock.length ? 'Select product' : 'No product in stock'}</option>
                   {stock.map((p) => <option key={p.id} value={p.id}>{p.code} — {p.name}{p.category ? ` (${p.category})` : ''} · {inr(p.unitPrice)} · {p.stockQty} in stock</option>)}

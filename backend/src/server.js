@@ -5,6 +5,7 @@ import { LoanScheme } from './models/LoanScheme.js';
 import { User } from './models/User.js';
 import { Member } from './models/Member.js';
 import { generateCode } from './services/codeSequence.js';
+import { StockProduct } from './models/StockProduct.js';
 
 const port = process.env.PORT || 5000;
 
@@ -12,6 +13,15 @@ const port = process.env.PORT || 5000;
 async function migrate() {
   const res = await LoanScheme.updateMany({ loanType: 'prime' }, { $set: { loanType: 'msme' } });
   if (res.modifiedCount) console.log(`Migrated ${res.modifiedCount} loan scheme(s): prime -> msme`);
+
+  // Stock products made before brand / model / category existed: the old name becomes the brand (head office stock).
+  const oldProducts = await StockProduct.collection.find({ brand: { $exists: false } }).toArray();
+  for (const p of oldProducts) {
+    // eslint-disable-next-line no-await-in-loop
+    await StockProduct.collection.updateOne({ _id: p._id }, { $set: { brand: p.name, model: p.name, variant: '', category: p.category || 'Other' } });
+  }
+  if (oldProducts.length) console.log(`Updated ${oldProducts.length} stock product(s) to the new product fields`);
+  await StockProduct.syncIndexes();
 
   // Every user gets a staff ID (oldest first).
   const users = await User.find({ employeeCode: { $exists: false } }).sort({ createdAt: 1 }).select('_id');
