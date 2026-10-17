@@ -15,18 +15,26 @@ const KINDS = [['', 'All loans'], ['personal', 'Personal'], ['group', 'Group'], 
 const inr = (n) => (n === null || n === undefined || Number.isNaN(n) ? '—' : `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const fmt = (d) => (d ? new Date(d).toLocaleString('en-IN') : '—');
 
+const KIND_TEXT = {
+  group: { title: 'Group Loan Approval', desc: 'Group loan requisitions waiting for approval. Review a loan to see the offline form, change the scheme or amount, and approve or reject it.' },
+  personal: { title: 'Personal Loan Approval', desc: 'Personal loan requisitions waiting for approval. Review a loan to see the offline form, change the scheme or amount, and approve or reject it.' },
+  product: { title: 'Product Loan Approval', desc: 'Product loan requisitions waiting for approval. Review a loan to see the offline form, change the scheme, and approve or reject it.' },
+  business: { title: 'Business / MSME Loan Approval', desc: 'Business and MSME loan requisitions waiting for approval. Review a loan to see the offline form and documents, change the scheme or amount, and approve or reject it.' },
+};
 const TEXT = {
   pending: { title: 'Pending Loans', desc: 'Loan requisitions waiting for approval. Review a loan to edit the amount and approve it, or reject it with a reason.' },
   approved: { title: 'Approved Loans', desc: 'Loans that have been approved.' },
   rejected: { title: 'Rejected Loans', desc: 'Loans that have been rejected, with the reason.' },
 };
 
-// Review one pending loan: edit the amount (the EMI and cash are worked out again), approve, or reject with a reason.
+// Review one pending loan: see the offline application form, change the scheme / amount / installments / rate (the EMI and
+// cash are worked out again), then approve it or reject it with a reason.
 function ReviewDialog({ id, onClose, onDone }) {
   const toast = useToast();
   const [r, setR] = useState(null);
   const [error, setError] = useState('');
-  const [amount, setAmount] = useState('');
+  const [schemes, setSchemes] = useState([]);
+  const [f, setF] = useState({ schemeId: '', amount: '', mode: '', term: '', rate: '' });
   const [calc, setCalc] = useState(null);
   const [calcError, setCalcError] = useState('');
   const [rejecting, setRejecting] = useState(false);
@@ -34,24 +42,48 @@ function ReviewDialog({ id, onClose, onDone }) {
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
   const [full, setFull] = useState(false);
-  const debounced = useDebounce(amount, 400);
+  const [zoom, setZoom] = useState(null);
+  const debounced = useDebounce(JSON.stringify(f), 400);
 
   useEffect(() => {
-    api.loanRequisitions.get(id).then((x) => { setR(x.requisition); setAmount(String(x.requisition.amount)); }).catch((e) => setError(e.message));
+    api.loanRequisitions.get(id).then((x) => {
+      const q = x.requisition;
+      setR(q);
+      setF({ schemeId: String(q.schemeId), amount: String(q.amount), mode: q.mode, term: String(q.term), rate: String(q.rate) });
+      // the schemes this kind of loan can be moved to (a business / MSME loan stays in its own type)
+      api.loanRequisitions.schemes({ kind: q.kind, type: q.kind === 'business' ? q.business?.loanType : undefined }).then((res) => setSchemes(res.items)).catch(() => setSchemes([]));
+    }).catch((e) => setError(e.message));
   }, [id]);
 
-  const editable = r && r.kind !== 'product';
-  // The new EMI and cash for the edited amount.
+  const scheme = schemes.find((x) => x.id === f.schemeId);
+  const editableAmount = r && r.kind !== 'product';
+  const changed = r && (f.schemeId !== String(r.schemeId) || Number(f.amount) !== r.amount || f.mode !== r.mode || Number(f.term) !== r.term || Number(f.rate) !== r.rate);
+
+  // The new EMI and cash for what is entered.
   useEffect(() => {
-    if (!r || !debounced || Number(debounced) === r.amount) {
+    if (!r || !changed) {
       setCalc(null);
       setCalcError('');
       return;
     }
-    api.loanRequisitions.preview({ schemeId: r.schemeId, amount: debounced, mode: r.mode, term: r.term, rate: r.rate })
+    const x = JSON.parse(debounced);
+    api.loanRequisitions.preview({ schemeId: x.schemeId, amount: x.amount, mode: x.mode, term: Number(x.term), rate: x.rate })
       .then((res) => { setCalc(res); setCalcError(''); })
-      .catch((err) => { setCalc(null); setCalcError(err.errors?.amount || err.message); });
-  }, [debounced, r]);
+      .catch((err) => { setCalc(null); setCalcError(err.errors?.amount || err.errors?.term || err.errors?.rate || err.errors?.mode || err.errors?.schemeId || err.message); });
+  }, [debounced, r]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function chooseScheme(e) {
+    const s2 = schemes.find((x) => x.id === e.target.value);
+    setF((x) => ({
+      ...x,
+      schemeId: e.target.value,
+      // keep what the new scheme allows, otherwise start from its own values
+      mode: s2 && !s2.modes.some((m) => m.value === x.mode) ? s2.modes[0].value : x.mode,
+      rate: s2 && (Number(x.rate) < s2.roiMin || Number(x.rate) > s2.roiMax) ? String(s2.roiMin) : x.rate,
+    }));
+    setErrors({});
+  }
+  const set = (k) => (e) => { setF((x) => ({ ...x, [k]: e.target.value })); setErrors((x) => ({ ...x, [k]: undefined })); };
 
   async function act(fn, ok) {
     setBusy(true);
@@ -68,7 +100,8 @@ function ReviewDialog({ id, onClose, onDone }) {
     }
   }
 
-  const changed = r && Number(amount) !== r.amount;
+  const forms = r ? (r.memberForms?.length ? r.memberForms.map((m) => ({ label: `Form of ${m.memberCode}${m.topUp ? ' (product loan)' : ''}`, front: m.front, back: m.back })) : [{ label: 'Application form', front: r.formFrontPhoto, back: r.formBackPhoto }]) : [];
+  const Img = ({ src, alt }) => (src ? <img src={src} alt={alt} className="stamp-img" style={{ cursor: 'zoom-in' }} onClick={() => setZoom({ src, alt })} /> : <span className="muted">—</span>);
   return (
     <>
       <Modal open title={r ? `Review ${r.formId}` : 'Review loan'} onClose={onClose} size="lg" busy={busy} footer={<button className="btn" onClick={onClose}>Close</button>}>
@@ -78,29 +111,55 @@ function ReviewDialog({ id, onClose, onDone }) {
               items={[
                 ['Type', r.kindLabel], ['Branch', r.branch?.name], ['Loan date', r.loanDate],
                 [r.group ? 'Group' : 'Borrower', r.group ? `${r.group.code} — ${r.group.name} (${r.memberCount} members)` : `${r.borrower.code} — ${r.borrower.name}`],
-                ['Scheme', `${r.schemeCode} — ${r.schemeName}`], ['Mode & term', `${r.modeLabel}, ${r.term} installments`], ['Interest rate', `${r.rate}% p.a. (${r.calculationType})`],
+                ['Requested scheme', `${r.requestedSchemeName || r.schemeName}`], ['Mode & term', `${r.modeLabel}, ${r.term} installments`], ['Interest rate', `${r.rate}% p.a. (${r.calculationType})`],
                 ...(r.product ? [['Product', `${r.product.name} × ${r.product.quantity}`]] : []),
                 ['Requested amount', `${inr(r.requestedAmount ?? r.amount)}${r.group ? ' per member' : ''}`], ['EMI', inr(r.emi)], ['Cash in hand', inr(r.cash)], ['Employee ID', r.employeeCode],
               ]}
             />
-            <div style={{ marginTop: 8 }}><button className="btn sm" onClick={() => setFull(true)}>View full details and documents</button></div>
+
+            <h3 className="section-title" style={{ marginTop: 14 }}>Offline application form</h3>
+            {forms.map((x) => (
+              <div key={x.label} style={{ marginBottom: 10 }}>
+                <div className="detail-label">{x.label}</div>
+                <div className="stamp-view sign-row"><div><Img src={x.front} alt={`${x.label} front`} /></div><div><Img src={x.back} alt={`${x.label} back`} /></div></div>
+              </div>
+            ))}
+            <div style={{ margin: '4px 0 8px' }}><button className="btn sm" onClick={() => setFull(true)}>All details and other documents</button></div>
 
             {!rejecting && (
               <div className="panel" style={{ padding: 14, marginTop: 14 }}>
                 <h3 className="section-title">Approve</h3>
-                {editable ? (
-                  <FormField id="aamount" label={r.group ? 'Loan amount per member (₹)' : 'Loan amount (₹)'} error={errors.amount || calcError}
-                    hint={r.kind === 'group' ? 'Edit the amount if needed. A product on top of the loan stays within 25% of it.' : 'Edit the amount if needed. The EMI and cash are worked out again.'}>
-                    <input id="aamount" inputMode="decimal" value={amount} onChange={(e) => { setAmount(e.target.value.replace(/[^\d.]/g, '')); setErrors((x) => ({ ...x, amount: undefined })); }} />
+                <div className="muted small" style={{ marginBottom: 8 }}>The loan can be changed before it is approved: the loan scheme, the amount, the installments and the rate. The EMI and cash are worked out again.</div>
+                <div className="form-grid">
+                  <FormField id="ascheme" label="Loan scheme" error={errors.schemeId}>
+                    <select id="ascheme" value={f.schemeId} onChange={chooseScheme}>
+                      {schemes.length === 0 && <option value={f.schemeId}>{r.schemeName}</option>}
+                      {schemes.map((x) => <option key={x.id} value={x.id}>{x.code} — {x.name}</option>)}
+                    </select>
                   </FormField>
-                ) : <div className="muted small">The amount of a product loan is the value of the goods and cannot be edited.</div>}
+                  <FormField id="aamount" label={r.group ? 'Loan amount per member (₹)' : 'Loan amount (₹)'} error={errors.amount} hint={editableAmount ? (scheme ? `Scheme limit ${inr(scheme.amountMin)} to ${inr(scheme.amountMax)}` : undefined) : 'The amount of a product loan is the value of the goods'}>
+                    <input id="aamount" inputMode="decimal" value={f.amount} disabled={!editableAmount} onChange={(e) => { setF((x) => ({ ...x, amount: e.target.value.replace(/[^\d.]/g, '') })); setErrors((x) => ({ ...x, amount: undefined })); }} />
+                  </FormField>
+                  <FormField id="amode" label="Repayment mode" error={errors.mode}>
+                    <select id="amode" value={f.mode} onChange={set('mode')}>
+                      {(scheme?.modes || [{ value: r.mode, label: r.modeLabel }]).map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+                    </select>
+                  </FormField>
+                  <FormField id="aterm" label="Installments" error={errors.term}>
+                    <input id="aterm" inputMode="numeric" value={f.term} onChange={(e) => { setF((x) => ({ ...x, term: e.target.value.replace(/\D/g, '').slice(0, 4) })); setErrors((x) => ({ ...x, term: undefined })); }} />
+                  </FormField>
+                  <FormField id="arate" label="Interest rate (% p.a.)" error={errors.rate} hint={scheme ? `Scheme ${scheme.roiMin}% to ${scheme.roiMax}%` : undefined}>
+                    <input id="arate" inputMode="decimal" value={f.rate} onChange={(e) => { setF((x) => ({ ...x, rate: e.target.value.replace(/[^\d.]/g, '') })); setErrors((x) => ({ ...x, rate: undefined })); }} />
+                  </FormField>
+                </div>
+                {calcError && <div className="field-error" role="alert">{calcError}</div>}
                 {changed && calc && (
                   <div className="notice" style={{ margin: '8px 0' }}>
-                    New amount {inr(Number(amount))}{r.group ? ` per member (${inr(Number(amount) * r.memberCount)} in all)` : ''} · EMI {inr(calc.summary.installmentAmount)} · Cash in hand {inr(calc.cash)}
+                    {scheme ? `${scheme.name} · ` : ''}{inr(Number(f.amount))}{r.group ? ` per member (${inr(Number(f.amount) * r.memberCount)} in all)` : ''} · EMI {inr(calc.summary.installmentAmount)} · Cash in hand {inr(calc.cash)}
                   </div>
                 )}
-                <button className="btn primary" disabled={busy || Boolean(calcError)} onClick={() => act(() => api.loanRequisitions.approve(id, editable && changed ? amount : undefined), 'Loan approved')}>
-                  {changed ? 'Approve with the new amount' : 'Approve loan'}
+                <button className="btn primary" disabled={busy || Boolean(calcError)} onClick={() => act(() => api.loanRequisitions.approve(id, changed ? { schemeId: f.schemeId, amount: editableAmount ? f.amount : undefined, mode: f.mode, term: f.term, rate: f.rate } : {}), 'Loan approved')}>
+                  {changed ? 'Approve with these changes' : 'Approve loan'}
                 </button>{' '}
                 <button className="btn danger-outline" disabled={busy} onClick={() => setRejecting(true)}>Reject</button>
               </div>
@@ -119,11 +178,16 @@ function ReviewDialog({ id, onClose, onDone }) {
         )}
       </Modal>
       {full && <Detail id={id} onClose={() => setFull(false)} />}
+      {zoom && (
+        <Modal open title={zoom.alt} onClose={() => setZoom(null)} size="lg" footer={<button className="btn" onClick={() => setZoom(null)}>Close</button>}>
+          <img src={zoom.src} alt={zoom.alt} style={{ maxWidth: '100%', display: 'block', margin: '0 auto' }} />
+        </Modal>
+      )}
     </>
   );
 }
 
-function LoanApproval({ status }) {
+function LoanApproval({ status, fixedKind = '' }) {
   const { user } = useAuth();
   const canDecide = APPROVERS.includes(user?.role);
   const [data, setData] = useState({ items: [], total: 0, totalPages: 1 });
@@ -132,7 +196,7 @@ function LoanApproval({ status }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [page, setPage] = useState(1);
-  const [kind, setKind] = useState('');
+  const [kind, setKind] = useState(fixedKind);
   const [branch, setBranch] = useState('');
   const [group, setGroup] = useState('');
   const [from, setFrom] = useState('');
@@ -170,20 +234,20 @@ function LoanApproval({ status }) {
   }, [load]);
   useEffect(() => setPage(1), [status, kind, branch, group, from, to, q]);
   useEffect(() => {
-    setKind('');
+    setKind(fixedKind);
     setPage(1);
-  }, [status]);
+  }, [status, fixedKind]);
 
-  const hasFilters = kind || branch || group || from || to || search;
-  const text = TEXT[status];
+  const hasFilters = (!fixedKind && kind) || branch || group || from || to || search;
+  const text = fixedKind ? KIND_TEXT[fixedKind] : TEXT[status];
 
   return (
     <>
       <PageHeader title={text.title} description={text.desc} />
       <div className="panel">
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+        {!fixedKind && <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
           {KINDS.map(([k, label]) => <button key={k} className={`btn sm${kind === k ? ' primary' : ''}`} onClick={() => setKind(k)}>{label}</button>)}
-        </div>
+        </div>}
         <div className="toolbar" style={{ flexWrap: 'wrap' }}>
           <input type="search" className="toolbar-search" placeholder="Search form ID, borrower or group code / name" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search" />
           {branches.length > 1 && (
@@ -198,7 +262,7 @@ function LoanApproval({ status }) {
           </select>
           <input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} aria-label="From date" />
           <input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} aria-label="To date" />
-          {hasFilters && <button className="btn" onClick={() => { setKind(''); setBranch(''); setGroup(''); setFrom(''); setTo(''); setSearch(''); }}>Clear</button>}
+          {hasFilters && <button className="btn" onClick={() => { setKind(fixedKind); setBranch(''); setGroup(''); setFrom(''); setTo(''); setSearch(''); }}>Clear</button>}
         </div>
 
         {loading && !data.items.length ? (
@@ -258,5 +322,9 @@ function LoanApproval({ status }) {
 }
 
 export const PendingLoans = () => <LoanApproval status="pending" />;
+export const GroupLoanApproval = () => <LoanApproval status="pending" fixedKind="group" />;
+export const PersonalLoanApproval = () => <LoanApproval status="pending" fixedKind="personal" />;
+export const ProductLoanApproval = () => <LoanApproval status="pending" fixedKind="product" />;
+export const BusinessLoanApproval = () => <LoanApproval status="pending" fixedKind="business" />;
 export const ApprovedLoans = () => <LoanApproval status="approved" />;
 export const RejectedLoans = () => <LoanApproval status="rejected" />;

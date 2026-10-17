@@ -138,6 +138,7 @@ const loanRequisitionSchema = new mongoose.Schema(
     // Loan approval (branch manager / admin): who decided and when, the amount first asked for when it was edited,
     // and the reason of a rejection.
     requestedAmountPaise: Number,
+    requestedSchemeName: String, // the scheme first asked for when the approver changed it
     decidedAt: Date,
     decidedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     decidedByCode: String,

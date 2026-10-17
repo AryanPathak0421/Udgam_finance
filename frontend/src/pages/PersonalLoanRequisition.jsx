@@ -221,7 +221,7 @@ function GroupTopUp({ members, stock, onDone }) {
       <h3 className="section-title">Product loan on a running group loan</h3>
       <div className="muted small" style={{ marginBottom: 8 }}>
         A member can have only one loan in a group. If a member needs more, only a product loan up to {EXTRA_PERCENT_TOPUP}% of the running loan is allowed (for example ₹10,000 → ₹2,500).
-        Upload this loan's own form photos for the member.
+        The loan scheme is not chosen again (it is the scheme of the running loan); only the product is added, and the request amount is filled in from the product. Upload this loan's own form photos for the member.
       </div>
       {eligible.map((m) => {
         const l = m.runningInGroup;
@@ -243,6 +243,9 @@ function GroupTopUp({ members, stock, onDone }) {
                     {e.id && <input aria-label={`Units for ${m.code}`} inputMode="numeric" style={{ width: 64 }} value={e.qty} onChange={(ev) => set(m.id, { qty: ev.target.value.replace(/\D/g, '').slice(0, 4) })} />}
                   </div>
                   {p && <div className="small muted">{inr(value)}</div>}
+                </FormField>
+                <FormField id={`tpa-${m.id}`} label="Request amount (25% product amount)" hint={`Filled in from the product, up to ${inr(l.topUpLeft)}`}>
+                  <input id={`tpa-${m.id}`} value={p ? String(value) : ''} placeholder="Choose the product" disabled />
                 </FormField>
                 <PhotoField id={`tpf-${m.id}`} label="Form front photo" required value={e.front} error={er.front} onChange={(v) => set(m.id, { front: v })} />
                 <PhotoField id={`tpb-${m.id}`} label="Form back photo" required value={e.back} error={er.back} onChange={(v) => set(m.id, { back: v })} />

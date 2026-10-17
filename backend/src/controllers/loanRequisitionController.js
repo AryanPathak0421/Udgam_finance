@@ -416,6 +416,7 @@ const present = (r, user, { detail = false } = {}) => {
     schemeId: r.scheme?._id || r.scheme,
     rate: r.annualRateBp / 100,
     requestedAmount: r.requestedAmountPaise ? rupees(r.requestedAmountPaise) : null,
+    requestedSchemeName: r.requestedSchemeName || '',
     decidedAt: r.decidedAt || null,
     decidedByCode: r.decidedByCode || '',
     rejectReason: r.rejectReason || '',
@@ -1000,36 +1001,72 @@ async function loadForDecision(req) {
 export async function approveRequisition(req, res) {
   const r = await loadForDecision(req);
   const kind = r.kind || 'personal';
-  const given = req.body?.amount;
-  const edited = given !== undefined && given !== null && String(given).trim() !== '';
-  if (edited) {
-    const target = Math.round(Number(given) * 100);
-    if (!Number.isFinite(target) || target < 100) throw invalid({ amount: 'Enter a valid loan amount' });
-    if (target !== r.amountPaise) {
-      if (kind === 'product') throw invalid({ amount: 'The amount of a product loan is the value of the goods and cannot be edited' });
-      const ev = await evaluateLoan({
-        schemeId: String(r.scheme), amount: String(target / 100), rate: String(r.annualRateBp / 100), mode: r.mode, term: r.term, startDate: dateOnly(r.loanDate),
-      });
-      const cash = cashAfterCharges(target, ev.charges);
-      if (cash <= 0) throw invalid({ amount: 'The security, processing fee and insurance fee are more than the loan amount' });
-      // A product taken on top of a group loan stays within 25% of the (new) loan.
-      if (kind === 'group') {
-        const cap = Math.floor((target * ADDITIONAL_PRODUCT_PERCENT) / 100);
-        const over = (r.additionalProducts || []).filter((a) => (r.additionalProducts || []).filter((x) => String(x.member) === String(a.member)).reduce((sum, x) => sum + x.valuePaise, 0) > cap);
-        if (over.length) {
-          throw invalid({ amount: `With this amount a member's product (${over[0].memberCode}) is more than ${ADDITIONAL_PRODUCT_PERCENT}% of the loan (₹${cap / 100}). Use a higher amount.` });
-        }
+  const b = req.body || {};
+  const has = (v) => v !== undefined && v !== null && String(v).trim() !== '';
+  // What the branch manager may change before approving: the scheme and, with it, amount, mode, installments and rate.
+  const schemeId = has(b.schemeId) ? String(b.schemeId) : String(r.scheme);
+  const mode = has(b.mode) ? String(b.mode) : r.mode;
+  const term = has(b.term) ? Number(b.term) : r.term;
+  const rateStr = has(b.rate) ? String(b.rate) : String(r.annualRateBp / 100);
+  const target = has(b.amount) ? Math.round(Number(b.amount) * 100) : r.amountPaise;
+  if (!Number.isFinite(target) || target < 100) throw invalid({ amount: 'Enter a valid loan amount' });
+  if (!Number.isInteger(term) || term < 1) throw invalid({ term: 'Enter the number of installments' });
+  const schemeChanged = schemeId !== String(r.scheme);
+  const changed = target !== r.amountPaise || schemeChanged || mode !== r.mode || term !== r.term || Math.round(Number(rateStr) * 100) !== r.annualRateBp;
+
+  if (changed) {
+    if (kind === 'product' && target !== r.amountPaise) throw invalid({ amount: 'The amount of a product loan is the value of the goods and cannot be edited' });
+    const ev = await evaluateLoan({ schemeId, amount: String(target / 100), rate: rateStr, mode, term, startDate: dateOnly(r.loanDate) });
+    const scheme = await LoanScheme.findById(ev.input.scheme.id);
+    if (!SCHEME_TYPES[kind].includes(scheme.loanType)) throw invalid({ schemeId: `Select a ${KIND_LABEL[kind].toLowerCase()} scheme` });
+    if (kind === 'business' && r.business?.loanType && scheme.loanType !== r.business.loanType) {
+      throw invalid({ schemeId: `This is a ${r.business.loanType.toUpperCase()} loan; choose a ${r.business.loanType.toUpperCase()} scheme` });
+    }
+    if (schemeChanged) {
+      // The borrower(s) must not already have an unfinished loan in the new scheme.
+      const clash = await LoanRequisition.findOne({
+        isDeleted: false, scheme: scheme._id, status: { $in: RUNNING }, _id: { $ne: r._id }, $or: [{ member: { $in: [r.member, ...(r.members || [])].filter(Boolean) } }, { members: { $in: [r.member, ...(r.members || [])].filter(Boolean) } }],
+      }).select('formId');
+      if (clash) throw new HttpError(409, `The borrower already has a loan under ${scheme.name} (requisition ${clash.formId}) which is not finished yet`, { schemeId: 'A loan under this scheme is not finished yet' });
+      if (r.member && r.borrower?.dob) {
+        const age = ageOn(new Date(r.borrower.dob), new Date(r.loanDate));
+        if (age < scheme.ageMin || age > scheme.ageMax) throw invalid({ schemeId: `${scheme.name} is for ages ${scheme.ageMin} to ${scheme.ageMax}; the borrower is ${age}` });
       }
-      if (!r.requestedAmountPaise) r.requestedAmountPaise = r.amountPaise;
-      r.amountPaise = target;
-      r.installmentPaise = Math.round(ev.summary.installmentAmount * 100);
-      r.totalInterestPaise = Math.round(ev.summary.totalInterest * 100);
-      r.totalPayablePaise = Math.round(ev.summary.totalPayable * 100);
-      r.processingFeePaise = ev.charges ? Math.round(ev.charges.processingFee * 100) : 0;
-      r.insuranceFeePaise = ev.charges ? Math.round(ev.charges.cost * 100) : 0;
-      r.securityAmountPaise = ev.charges ? Math.round(ev.charges.securityAmount * 100) : 0;
-      r.cashPaise = cash;
-      if (kind === 'group') r.totalAmountPaise = target * (r.memberCount || r.members.length);
+    }
+    const cash = cashAfterCharges(target, ev.charges);
+    if (cash <= 0) throw invalid({ amount: 'The security, processing fee and insurance fee are more than the loan amount' });
+    // A product taken on top of a group loan stays within 25% of the (new) loan.
+    if (kind === 'group') {
+      const cap = Math.floor((target * ADDITIONAL_PRODUCT_PERCENT) / 100);
+      const over = (r.additionalProducts || []).filter((x) => (r.additionalProducts || []).filter((y) => String(y.member) === String(x.member)).reduce((sum, y) => sum + y.valuePaise, 0) > cap);
+      if (over.length) throw invalid({ amount: `With this amount a member's product (${over[0].memberCode}) is more than ${ADDITIONAL_PRODUCT_PERCENT}% of the loan (₹${cap / 100}). Use a higher amount.` });
+    }
+    if (target !== r.amountPaise && !r.requestedAmountPaise) r.requestedAmountPaise = r.amountPaise;
+    if (schemeChanged && !r.requestedSchemeName) r.requestedSchemeName = r.schemeName;
+    r.scheme = scheme._id;
+    r.schemeCode = scheme.code;
+    r.schemeName = scheme.name;
+    r.amountPaise = target;
+    r.mode = ev.input.mode;
+    r.term = ev.input.term;
+    r.annualRateBp = Math.round(ev.input.rate * 100);
+    r.calculationType = ev.input.calculationType;
+    r.emiType = ev.input.emiType;
+    r.installmentPaise = Math.round(ev.summary.installmentAmount * 100);
+    r.totalInterestPaise = Math.round(ev.summary.totalInterest * 100);
+    r.totalPayablePaise = Math.round(ev.summary.totalPayable * 100);
+    r.processingFeePaise = ev.charges ? Math.round(ev.charges.processingFee * 100) : 0;
+    r.insuranceFeePaise = ev.charges ? Math.round(ev.charges.cost * 100) : 0;
+    r.securityAmountPaise = ev.charges ? Math.round(ev.charges.securityAmount * 100) : 0;
+    r.securityType = ev.charges?.securityType || 'none';
+    r.cashPaise = cash;
+    if (kind === 'group') r.totalAmountPaise = target * (r.memberCount || r.members.length);
+    // The EMI of a product on top of a group loan follows the scheme, mode, installments and rate of the loan.
+    for (const x of r.additionalProducts || []) {
+      const e = additionalEmi(scheme, ev.input, x.valuePaise, new Date(r.loanDate));
+      x.installmentPaise = e.installmentAmount;
+      x.totalInterestPaise = e.totalInterest;
+      x.totalPayablePaise = e.totalPayable;
     }
   }
   r.status = 'approved';
@@ -1043,7 +1080,7 @@ export async function approveRequisition(req, res) {
     action: 'loanRequisition.approve',
     entity: 'LoanRequisition',
     entityId: r._id,
-    after: { formId: r.formId, amount: r.amountPaise / 100, ...(r.requestedAmountPaise ? { requestedAmount: r.requestedAmountPaise / 100 } : {}) },
+    after: { formId: r.formId, amount: r.amountPaise / 100, scheme: r.schemeCode, ...(r.requestedAmountPaise ? { requestedAmount: r.requestedAmountPaise / 100 } : {}), ...(r.requestedSchemeName ? { requestedScheme: r.requestedSchemeName } : {}) },
   });
   res.json({ requisition: present(r, req.user, { detail: true }) });
 }

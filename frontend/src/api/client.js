@@ -98,7 +98,7 @@ export const api = {
     list: (params) => request(`/loan-requisitions${qs(params)}`),
     get: (id) => request(`/loan-requisitions/${id}`),
     remove: (id) => request(`/loan-requisitions/${id}`, { method: 'DELETE' }),
-    approve: (id, amount) => request(`/loan-requisitions/${id}/approve`, { method: 'POST', body: { amount } }),
+    approve: (id, changes) => request(`/loan-requisitions/${id}/approve`, { method: 'POST', body: changes || {} }),
     reject: (id, reason) => request(`/loan-requisitions/${id}/reject`, { method: 'POST', body: { reason } }),
   },
   civilChecks: {

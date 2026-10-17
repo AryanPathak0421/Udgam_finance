@@ -34,7 +34,7 @@ import StockTransfer from './pages/StockTransfer.jsx';
 import Cashbook from './pages/Cashbook.jsx';
 import { PersonalLoanRequisition, GroupLoanRequisition, BusinessLoanRequisition, ProductLoanRequisition } from './pages/PersonalLoanRequisition.jsx';
 import RequisitionList from './pages/RequisitionList.jsx';
-import { PendingLoans, ApprovedLoans, RejectedLoans } from './pages/LoanApproval.jsx';
+import { PendingLoans, ApprovedLoans, RejectedLoans, GroupLoanApproval, PersonalLoanApproval, ProductLoanApproval, BusinessLoanApproval } from './pages/LoanApproval.jsx';
 import { PendingPayments, PaidLoans } from './pages/LoanPayment.jsx';
 import { RegularEmi, AdvanceEmi, EmiReceipts } from './pages/EmiPayment.jsx';
 import { SingleLoanEmi, GroupLoanEmi } from './pages/EmiCollection.jsx';
@@ -78,6 +78,10 @@ const PAGES = {
   '/loan-payment/pending': PendingPayments,
   '/loan-payment/paid': PaidLoans,
   '/loan-approval/pending': PendingLoans,
+  '/loan-approval/group': GroupLoanApproval,
+  '/loan-approval/personal': PersonalLoanApproval,
+  '/loan-approval/product': ProductLoanApproval,
+  '/loan-approval/business': BusinessLoanApproval,
   '/loan-approval/approved': ApprovedLoans,
   '/loan-approval/rejected': RejectedLoans,
   '/group-master/create': GroupCreate,
