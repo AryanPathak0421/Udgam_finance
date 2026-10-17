@@ -11,6 +11,11 @@ const productPaymentSchema = new mongoose.Schema(
     mode: { type: String, enum: PAYMENT_MODES, required: true },
     reference: String,
     note: String,
+    // paid = the branch has paid and waits for the admin to receive it; received = counted in the purchase balance
+    status: { type: String, enum: ['paid', 'received', 'rejected'], default: 'received' },
+    receivedOn: Date,
+    receivedByCode: String,
+    rejectReason: String,
     isDeleted: { type: Boolean, default: false },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     createdByCode: String,

@@ -88,7 +88,7 @@ export async function verificationStatus(req, res) {
   const fmt = m.pan ? checkPanFormat(m.pan) : { ok: false };
   res.json({
     pan: { present: Boolean(m.pan), formatOk: Boolean(fmt.ok), verified: Boolean(m.panVerifiedAt) },
-    aadhaar: { present: Boolean(m.aadhaar), otpServiceConnected: kycProviderConfigured() },
+    aadhaar: { present: Boolean(m.aadhaar), masked: m.aadhaar ? `XXXX XXXX ${String(m.aadhaar).slice(-4)}` : '', otpServiceConnected: kycProviderConfigured() },
   });
 }
 
@@ -539,10 +539,9 @@ async function readBusiness(b, errors, member, req) {
   doc('udyamCertificate', 'Udyam certificate', out.loanType === 'msme');
 
   // The borrower's Aadhaar number is filled in and the borrower confirms with an OTP sent to the mobile registered on the member.
-  const aadhaar = asString(x.aadhaarNumber).replace(/\s/g, '');
-  if (!/^\d{12}$/.test(aadhaar) || !verhoeff(aadhaar)) errors.aadhaarNumber = 'Enter the 12-digit Aadhaar number';
-  else if (member && aadhaar !== member.aadhaar) errors.aadhaarNumber = 'This is not the Aadhaar number of the borrower';
-  out.aadhaarMatched = Boolean(member && aadhaar === member.aadhaar);
+  // The Aadhaar number is the one filled in at registration (fetched from the member record, never typed here).
+  out.aadhaarMatched = Boolean(member?.aadhaar);
+  if (!member?.aadhaar) errors.aadhaarNumber = 'The borrower has no Aadhaar number on record';
   out.otpChallenge = member ? await takeVerified(x.otpChallengeId, req.user, 'member_mobile', member.mobile) : null;
   if (!out.otpChallenge) errors.otp = "Verify the OTP sent to the borrower's registered mobile number";
   return out;

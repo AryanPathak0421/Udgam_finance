@@ -138,6 +138,12 @@ export const api = {
     get: (id) => request(`/loan-payments/${id}`),
     cancel: (id, reason) => request(`/loan-payments/${id}/cancel`, { method: 'POST', body: { reason } }),
   },
+  cashbook: (params) => request(`/cashbook${qs(params)}`),
+  stockTransfers: {
+    stock: (from) => request(`/stock-transfers/stock${qs({ from })}`),
+    list: (params) => request(`/stock-transfers${qs(params)}`),
+    create: (data) => request('/stock-transfers', { method: 'POST', body: data }),
+  },
   productOrders: {
     products: () => request('/stock-orders/products'),
     list: (params) => request(`/stock-orders${qs(params)}`),
@@ -150,6 +156,9 @@ export const api = {
     payments: (branch) => request(`/stock-payments${qs({ branch })}`),
     addPayment: (data) => request('/stock-payments', { method: 'POST', body: data }),
     removePayment: (id) => request(`/stock-payments/${id}`, { method: 'DELETE' }),
+    payHeadOffice: (data) => request('/stock-payments/pay', { method: 'POST', body: data }),
+    receivePayment: (id) => request(`/stock-payments/${id}/receive`, { method: 'POST' }),
+    rejectPayment: (id, reason) => request(`/stock-payments/${id}/reject`, { method: 'POST', body: { reason } }),
   },
   stockProducts: {
     options: () => request('/stock-products/options'),

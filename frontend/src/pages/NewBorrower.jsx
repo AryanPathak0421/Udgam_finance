@@ -37,7 +37,7 @@ const EMPTY = {
 };
 
 // A value (mobile / PAN) that must be confirmed with an OTP before the form can be saved.
-export function OtpVerify({ id, label, value, valid, purpose, mobile, verified, onVerified, onReset, hint }) {
+export function OtpVerify({ id, label, value, valid, purpose, mobile, verified, onVerified, onReset, hint, forMember = false, exceptMember }) {
   const toast = useToast();
   const [challenge, setChallenge] = useState(null);
   const [otp, setOtp] = useState('');
@@ -60,7 +60,7 @@ export function OtpVerify({ id, label, value, valid, purpose, mobile, verified, 
     setBusy(true);
     setError('');
     try {
-      const r = await api.members.sendOtp({ purpose, mobile, pan: purpose === 'pan' ? value : undefined });
+      const r = await api.members.sendOtp({ purpose, mobile, pan: purpose === 'pan' ? value : undefined, forMember: forMember || undefined, exceptMember });
       setChallenge(r);
       setOtp('');
       toast.success(`OTP sent to ${r.sentTo}`);
@@ -457,7 +457,7 @@ export function BorrowerForm({ branches, options, onCancel, onSaved, member = nu
         <div className="form-grid">
           <FormField id="mobile" label="Mobile number" required error={errors.mobile}>
             <input id="mobile" value={form.mobile} onChange={setDigits('mobile', 10)} inputMode="numeric" maxLength={10} />
-            <OtpVerify id="mobile" label="Mobile number" purpose="mobile" value={form.mobile} valid={mobileValid} mobile={form.mobile}
+            <OtpVerify id="mobile" label="Mobile number" purpose="mobile" forMember exceptMember={member?.id} value={form.mobile} valid={mobileValid} mobile={form.mobile}
               verified={Boolean(mobileCh) || mobileKept} onVerified={setMobileCh} onReset={resetMobile} />
           </FormField>
           <FormField id="email" label="Email ID" error={errors.email} hint="Optional">

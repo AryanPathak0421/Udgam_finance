@@ -98,7 +98,7 @@ function NewOrder({ branches, onClose, onSaved }) {
 }
 
 // What a branch bought from head office, what it paid, and what it still owes. Head office records the payments.
-function PaymentsDialog({ row, isAdmin, onClose, onChanged }) {
+function PaymentsDialog({ row, isAdmin, canPay, onClose, onChanged }) {
   const toast = useToast();
   const today = new Date().toISOString().slice(0, 10);
   const [items, setItems] = useState(null);
@@ -106,6 +106,9 @@ function PaymentsDialog({ row, isAdmin, onClose, onChanged }) {
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
   const [balance, setBalance] = useState(row.balance);
+  const [waiting, setWaiting] = useState(row.waiting || 0); // paid by the branch, not yet received by the admin
+  const [rejecting, setRejecting] = useState(null);
+  const [reason, setReason] = useState('');
 
   const load = useCallback(() => api.productOrders.payments(row.branchId).then((r) => setItems(r.items)).catch(() => setItems([])), [row.branchId]);
   useEffect(() => {
@@ -121,15 +124,53 @@ function PaymentsDialog({ row, isAdmin, onClose, onChanged }) {
     setBusy(true);
     setErrors({});
     try {
-      const r = await api.productOrders.addPayment({ ...form, branch: row.branchId });
-      toast.success('Payment recorded');
-      setBalance(r.balance);
+      if (isAdmin) {
+        const r = await api.productOrders.addPayment({ ...form, branch: row.branchId });
+        toast.success('Payment recorded');
+        setBalance(r.balance);
+      } else {
+        const r = await api.productOrders.payHeadOffice({ ...form, branch: row.branchId });
+        toast.success('Payment sent. It shows in the cashbook; the admin will receive it.');
+        setWaiting((w) => w + r.payment.amount);
+      }
       setForm((f) => ({ ...f, amount: '', reference: '' }));
       load();
       onChanged();
     } catch (err) {
       setErrors(err.errors || {});
       toast.error(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function receive(p) {
+    setBusy(true);
+    try {
+      await api.productOrders.receivePayment(p.id);
+      toast.success('Payment received');
+      setBalance((b) => b - p.amount);
+      setWaiting((w) => w - p.amount);
+      load();
+      onChanged();
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function rejectIt() {
+    if (reason.trim().length < 3) return toast.error('Enter the reason');
+    setBusy(true);
+    try {
+      await api.productOrders.rejectPayment(rejecting.id, reason.trim());
+      toast.success('Payment rejected');
+      setWaiting((w) => w - rejecting.amount);
+      setRejecting(null);
+      setReason('');
+      load();
+      onChanged();
+    } catch (err) {
+      toast.error(err.errors?.reason || err.message);
     } finally {
       setBusy(false);
     }
@@ -151,10 +192,10 @@ function PaymentsDialog({ row, isAdmin, onClose, onChanged }) {
 
   return (
     <Modal open title={`Payments — ${row.branch ? `${row.branch.code} ${row.branch.name}` : ''}`} onClose={onClose} size="lg" busy={busy} footer={<button className="btn" onClick={onClose}>Close</button>}>
-      <p style={{ marginTop: 0 }}>Purchased <strong>{inr(row.purchased)}</strong> · Paid <strong>{inr(row.purchased - balance)}</strong> · Balance <strong>{inr(balance)}</strong></p>
-      {isAdmin && (
+      <p style={{ marginTop: 0 }}>Purchased <strong>{inr(row.purchased)}</strong> · Received <strong>{inr(row.purchased - balance)}</strong>{waiting > 0 && <> · Paid, waiting for the admin <strong>{inr(waiting)}</strong></>} · Balance <strong>{inr(balance)}</strong></p>
+      {(isAdmin || canPay) && (
         <form onSubmit={add} noValidate className="form-grid" style={{ marginBottom: 14 }}>
-          <FormField id="pamount" label="Amount received (₹)" required error={errors.amount}>
+          <FormField id="pamount" label={isAdmin ? 'Amount received (₹)' : 'Amount to pay (₹)'} required error={errors.amount}>
             <input id="pamount" inputMode="decimal" value={form.amount} onChange={(e) => { setForm((f) => ({ ...f, amount: e.target.value.replace(/[^\d.]/g, '') })); setErrors((er) => ({ ...er, amount: undefined })); }} />
           </FormField>
           <FormField id="ppaidOn" label="Date" error={errors.paidOn}>
@@ -171,13 +212,13 @@ function PaymentsDialog({ row, isAdmin, onClose, onChanged }) {
           <FormField id="pref" label="Reference no." hint="Optional">
             <input id="pref" value={form.reference} maxLength={60} onChange={set('reference')} />
           </FormField>
-          <div><button className="btn primary" type="submit" disabled={busy || balance <= 0}>Record payment</button></div>
+          <div><button className="btn primary" type="submit" disabled={busy || balance - waiting <= 0}>{isAdmin ? 'Record payment received' : 'Pay'}</button></div>
         </form>
       )}
       {items === null ? <Spinner label="Loading…" /> : items.length === 0 ? <span className="muted">No payment yet</span> : (
         <div className="table-wrap">
           <table className="data-table">
-            <thead><tr><th>Date</th><th className="num">Amount</th><th>Mode</th><th>Reference</th><th>Recorded by</th>{isAdmin && <th className="actions-col">Actions</th>}</tr></thead>
+            <thead><tr><th>Date</th><th className="num">Amount</th><th>Mode</th><th>Reference</th><th>Status</th><th>Paid by</th>{isAdmin && <th className="actions-col">Actions</th>}</tr></thead>
             <tbody>
               {items.map((p) => (
                 <tr key={p.id}>
@@ -185,12 +226,33 @@ function PaymentsDialog({ row, isAdmin, onClose, onChanged }) {
                   <td data-label="Amount" className="num">{inr(p.amount)}</td>
                   <td data-label="Mode">{cap(p.mode)}</td>
                   <td data-label="Reference">{p.reference || '—'}</td>
+                  <td data-label="Status">
+                    {p.status === 'paid' ? <span className="badge grey">Waiting for the admin</span> : p.status === 'rejected' ? <span className="badge danger">Rejected</span> : <span className="badge green">Received</span>}
+                    {p.status === 'rejected' && <div className="muted small">{p.rejectReason}</div>}
+                    {p.receivedOn && <div className="muted small">{p.receivedOn}{p.receivedByCode ? ` · ${p.receivedByCode}` : ''}</div>}
+                  </td>
                   <td data-label="By">{p.createdByCode || '—'}</td>
-                  {isAdmin && <td data-label="Actions" className="actions-col"><button className="btn sm danger-outline" disabled={busy} onClick={() => remove(p)}>Remove</button></td>}
+                  {isAdmin && (
+                    <td data-label="Actions" className="actions-col">
+                      <div className="row-actions">
+                        {p.status === 'paid' && <button className="btn sm primary" disabled={busy} onClick={() => receive(p)}>Receive</button>}
+                        {p.status === 'paid' && <button className="btn sm danger-outline" disabled={busy} onClick={() => { setRejecting(p); setReason(''); }}>Reject</button>}
+                        {p.status === 'received' && <button className="btn sm danger-outline" disabled={busy} onClick={() => remove(p)}>Remove</button>}
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+      {rejecting && (
+        <div className="panel" style={{ padding: 12, marginTop: 12 }}>
+          <FormField id="prj" label={`Reason for rejecting ${inr(rejecting.amount)}`} required>
+            <input id="prj" value={reason} maxLength={200} autoFocus onChange={(e) => setReason(e.target.value)} />
+          </FormField>
+          <div className="row-actions"><button className="btn danger-outline" disabled={busy} onClick={rejectIt}>Reject payment</button><button className="btn" onClick={() => setRejecting(null)}>Cancel</button></div>
         </div>
       )}
     </Modal>
@@ -203,6 +265,7 @@ function OrderDialog({ id, isAdmin, canCancel, onClose, onChanged }) {
   const [order, setOrder] = useState(null);
   const [error, setError] = useState('');
   const [qty, setQty] = useState({});
+  const [src, setSrc] = useState({}); // where each product is taken from (head office or a branch)
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState('');
   const [errors, setErrors] = useState({});
@@ -212,6 +275,7 @@ function OrderDialog({ id, isAdmin, canCancel, onClose, onChanged }) {
     api.productOrders.get(id).then((r) => {
       setOrder(r.order);
       setQty(Object.fromEntries(r.order.items.map((i) => [i.id, String(i.requestedQty)])));
+      setSrc(Object.fromEntries(r.order.items.map((i) => [i.id, i.sources?.find((s) => s.key === 'ho' && s.stockQty >= i.requestedQty)?.key || i.sources?.find((s) => s.stockQty >= i.requestedQty)?.key || i.sources?.[0]?.key || ''])));
     }).catch((err) => setError(err.message));
   }, [id]);
 
@@ -247,7 +311,7 @@ function OrderDialog({ id, isAdmin, canCancel, onClose, onChanged }) {
           {errors.items && <div className="field-error" role="alert">{errors.items}</div>}
           <div className="table-wrap">
             <table className="data-table">
-              <thead><tr><th>Category</th><th>Product</th><th className="num">Price</th><th className="num">Ordered</th><th className="num">{pending && isAdmin ? 'Approve quantity' : 'Approved'}</th></tr></thead>
+              <thead><tr><th>Category</th><th>Product</th><th className="num">Price</th><th className="num">Ordered</th>{pending && isAdmin && <th>Take from</th>}<th className="num">{pending && isAdmin ? 'Approve quantity' : 'Approved'}</th></tr></thead>
               <tbody>
                 {order.items.map((i) => (
                   <tr key={i.id}>
@@ -255,6 +319,15 @@ function OrderDialog({ id, isAdmin, canCancel, onClose, onChanged }) {
                     <td data-label="Product">{i.name}</td>
                     <td data-label="Price" className="num">{inr(i.unitPrice)}</td>
                     <td data-label="Ordered" className="num">{i.requestedQty}</td>
+                    {pending && isAdmin && (
+                      <td data-label="Take from">
+                        {i.sources?.length ? (
+                          <select aria-label={`Take ${i.name} from`} value={src[i.id] || ''} onChange={(e) => setSrc((x) => ({ ...x, [i.id]: e.target.value }))}>
+                            {i.sources.map((s) => <option key={s.key} value={s.key}>{s.label} · {s.stockQty} in stock</option>)}
+                          </select>
+                        ) : <span className="field-error">Not in stock anywhere</span>}
+                      </td>
+                    )}
                     <td data-label="Approved" className="num">
                       {pending && isAdmin ? (
                         <input aria-label={`Approve quantity of ${i.name}`} inputMode="numeric" style={{ width: 90 }} value={qty[i.id] ?? ''} onChange={(e) => setQty((x) => ({ ...x, [i.id]: e.target.value.replace(/\D/g, '').slice(0, 7) }))} />
@@ -269,7 +342,7 @@ function OrderDialog({ id, isAdmin, canCancel, onClose, onChanged }) {
 
           {pending && isAdmin && !rejecting && (
             <div className="row-actions" style={{ marginTop: 12 }}>
-              <button className="btn primary" disabled={busy} onClick={() => act(() => api.productOrders.approve(id, order.items.map((i) => ({ id: i.id, quantity: Number(qty[i.id]) || 0 }))), 'Order approved — stock moved to the branch')}>Approve order</button>
+              <button className="btn primary" disabled={busy} onClick={() => act(() => api.productOrders.approve(id, order.items.map((i) => ({ id: i.id, quantity: Number(qty[i.id]) || 0, source: src[i.id] || undefined }))), 'Order approved — stock moved to the branch')}>Approve order</button>
               <button className="btn danger-outline" disabled={busy} onClick={() => setRejecting(true)}>Reject</button>
             </div>
           )}
@@ -350,16 +423,17 @@ export default function ProductOrders() {
           <h3 className="section-title">Purchase balance (products bought from head office)</h3>
           <div className="table-wrap">
             <table className="data-table">
-              <thead><tr><th>Branch</th><th className="num">Orders</th><th className="num">Purchased</th><th className="num">Paid</th><th className="num">Balance</th><th className="actions-col">Actions</th></tr></thead>
+              <thead><tr><th>Branch</th><th className="num">Orders</th><th className="num">Purchased</th><th className="num">Received</th><th className="num">Waiting</th><th className="num">Balance</th><th className="actions-col">Actions</th></tr></thead>
               <tbody>
                 {balance.rows.map((r) => (
                   <tr key={r.branchId}>
                     <td data-label="Branch">{r.branch ? `${r.branch.code} — ${r.branch.name}` : '—'}</td>
                     <td data-label="Orders" className="num">{r.orders}</td>
                     <td data-label="Purchased" className="num">{inr(r.purchased)}</td>
-                    <td data-label="Paid" className="num">{inr(r.paid)}</td>
+                    <td data-label="Received" className="num">{inr(r.paid)}</td>
+                    <td data-label="Waiting" className="num">{r.waiting > 0 ? <span className="badge grey">{inr(r.waiting)}</span> : '—'}</td>
                     <td data-label="Balance" className="num"><strong>{inr(r.balance)}</strong></td>
-                    <td data-label="Actions" className="actions-col"><button className="btn sm" onClick={() => setPayRow(r)}>{isAdmin ? 'Payments' : 'View payments'}</button></td>
+                    <td data-label="Actions" className="actions-col"><button className="btn sm" onClick={() => setPayRow(r)}>{isAdmin ? 'Receive / payments' : 'Pay / payments'}</button></td>
                   </tr>
                 ))}
                 {balance.rows.length > 1 && (
@@ -367,6 +441,7 @@ export default function ProductOrders() {
                     <td><strong>Total</strong></td><td />
                     <td className="num"><strong>{inr(balance.total.purchased)}</strong></td>
                     <td className="num"><strong>{inr(balance.total.paid)}</strong></td>
+                    <td className="num"><strong>{inr(balance.total.waiting)}</strong></td>
                     <td className="num"><strong>{inr(balance.total.balance)}</strong></td><td />
                   </tr>
                 )}
@@ -416,7 +491,7 @@ export default function ProductOrders() {
       </div>
       {creating && <NewOrder branches={branches} onClose={() => setCreating(false)} onSaved={() => { setCreating(false); load(); }} />}
       {openId && <OrderDialog id={openId} isAdmin={isAdmin} canCancel={canCancel} onClose={() => setOpenId(null)} onChanged={() => { load(); loadBalance(); }} />}
-      {payRow && <PaymentsDialog row={payRow} isAdmin={isAdmin} onClose={() => setPayRow(null)} onChanged={loadBalance} />}
+      {payRow && <PaymentsDialog row={payRow} isAdmin={isAdmin} canPay={canAdd} onClose={() => setPayRow(null)} onChanged={loadBalance} />}
     </>
   );
 }

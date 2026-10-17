@@ -2,7 +2,8 @@ import { Router } from 'express';
 import { requireAuth, requireMenu, requireRole } from '../middleware/auth.js';
 import { asyncHandler as h } from '../utils/http.js';
 import { listProducts, createProduct, updateProduct, setProductStatus, deleteProduct, productOptions, stockReport } from '../controllers/stockProductController.js';
-import { orderableProducts, listOrders, getOrder, createOrder, approveOrder, rejectOrder, cancelOrder, purchaseBalance, listPayments, addPayment, voidPayment } from '../controllers/stockOrderController.js';
+import { stockAt, createTransfer, listTransfers } from '../controllers/stockTransferController.js';
+import { orderableProducts, listOrders, getOrder, createOrder, approveOrder, rejectOrder, cancelOrder, purchaseBalance, listPayments, addPayment, voidPayment, payToHeadOffice, receivePayment, rejectPayment } from '../controllers/stockOrderController.js';
 
 const router = Router();
 const MENU = '/stock/products';
@@ -23,6 +24,10 @@ router.get('/stock-orders/products', requireAuth, requireMenu(ORDERS, 'add'), h(
 router.get('/stock-orders/balance', requireAuth, requireMenu(ORDERS, 'view'), h(purchaseBalance));
 router.get('/stock-payments', requireAuth, requireMenu(ORDERS, 'view'), h(listPayments));
 router.post('/stock-payments', requireAuth, requireRole(...ADMIN), h(addPayment));
+// A branch pays for the products; only the admin receives (or rejects) it.
+router.post('/stock-payments/pay', requireAuth, requireMenu(ORDERS, 'add'), h(payToHeadOffice));
+router.post('/stock-payments/:id/receive', requireAuth, requireRole(...ADMIN), h(receivePayment));
+router.post('/stock-payments/:id/reject', requireAuth, requireRole(...ADMIN), h(rejectPayment));
 router.delete('/stock-payments/:id', requireAuth, requireRole(...ADMIN), h(voidPayment));
 router.get('/stock-orders', requireAuth, requireMenu(ORDERS, 'view'), h(listOrders));
 router.post('/stock-orders', requireAuth, requireMenu(ORDERS, 'add'), h(createOrder));
@@ -30,5 +35,10 @@ router.get('/stock-orders/:id', requireAuth, requireMenu(ORDERS, 'view'), h(getO
 router.post('/stock-orders/:id/approve', requireAuth, requireRole(...ADMIN), h(approveOrder));
 router.post('/stock-orders/:id/reject', requireAuth, requireRole(...ADMIN), h(rejectOrder));
 router.post('/stock-orders/:id/cancel', requireAuth, requireMenu(ORDERS, 'delete'), h(cancelOrder));
+
+// Moving stock between head office and branches (BR01 -> BR02): admin only.
+router.get('/stock-transfers/stock', requireAuth, requireRole(...ADMIN), h(stockAt));
+router.get('/stock-transfers', requireAuth, requireRole(...ADMIN), h(listTransfers));
+router.post('/stock-transfers', requireAuth, requireRole(...ADMIN), h(createTransfer));
 
 export default router;

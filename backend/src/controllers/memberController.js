@@ -190,6 +190,13 @@ export function districts(req, res) {
 const hashOtp = (id, otp) => crypto.createHmac('sha256', process.env.JWT_SECRET || 'dev').update(`${id}:${otp}`).digest('hex');
 
 /** Sends an OTP to verify a mobile number (to itself) or a PAN (to the member's mobile). */
+/** A mobile number can be registered to one member only. */
+async function assertMobileFree(mobile, exceptId, v) {
+  if (!MOBILE_RE.test(mobile || '')) return;
+  const taken = await Member.findOne({ mobile, isDeleted: false, ...(exceptId ? { _id: { $ne: exceptId } } : {}) }).select('code name');
+  if (taken) v.add('mobile', `This mobile number is already registered to member ${taken.code}. Use a different number.`);
+}
+
 export async function sendOtp(req, res) {
   const b = req.body || {};
   const purpose = b.purpose === 'mobile' ? 'member_mobile' : null;
@@ -198,6 +205,11 @@ export async function sendOtp(req, res) {
   const mobile = asString(b.mobile);
   if (!MOBILE_RE.test(mobile)) v.add('mobile', 'Enter a valid 10-digit mobile number');
   const subject = mobile;
+  // The mobile number of a member (registration / edit) must not be in use by another member.
+  if (b.forMember === true && MOBILE_RE.test(mobile)) {
+    const taken = await Member.findOne({ mobile, isDeleted: false, ...(mongoose.isValidObjectId(b.exceptMember) ? { _id: { $ne: b.exceptMember } } : {}) }).select('code name');
+    if (taken) v.add('mobile', `This mobile number is already registered to member ${taken.code}. Use a different number.`);
+  }
   v.throwIfAny();
 
   const last = await OtpChallenge.findOne({ createdBy: req.user._id, purpose, subject, consumedAt: { $exists: false } }).sort({ createdAt: -1 });
@@ -371,6 +383,10 @@ export async function createMember(req, res) {
   d.aadhaarPhoto = readImage(b.aadhaarPhoto, 'aadhaarPhoto', 'Aadhaar photo', v, { required: true });
   d.signaturePhoto = readImage(b.signaturePhoto, 'signaturePhoto', 'Signature photo', v, { required: true });
   d.panPhoto = readImage(b.panPhoto, 'panPhoto', 'PAN photo', v, { required: Boolean(d.pan) });
+  v.throwIfAny();
+
+  // A mobile number belongs to one member only.
+  await assertMobileFree(d.mobile, null, v);
   v.throwIfAny();
 
   // The mobile number must be verified with an OTP.
@@ -1141,6 +1157,8 @@ export async function updateMember(req, res) {
   let mobileVerifiedAt = m.mobileVerifiedAt;
   let mobileCh = null;
   if (d.mobile !== m.mobile) {
+    await assertMobileFree(d.mobile, m._id, v);
+    v.throwIfAny();
     mobileCh = await takeVerified(b.mobileChallengeId, req.user, 'member_mobile', d.mobile);
     if (!mobileCh) throw new HttpError(422, 'Please correct the highlighted fields', { mobile: 'Verify the new mobile number with an OTP' });
     mobileVerifiedAt = mobileCh.verifiedAt;

@@ -275,7 +275,7 @@ function RequisitionForm({ kind }) {
   const [verif, setVerif] = useState(null); // business / MSME: PAN + Aadhaar OTP status
   const [extras, setExtras] = useState({}); // group loan: additional product per member { memberId: { id, qty } }
   const [chosen, setChosen] = useState([]); // group loan: ids of the members who get the loan
-  const [biz, setBiz] = useState({ loanType: '', businessName: '', gstNumber: '', udgamNumber: '', civilScore: '', shopPhoto: '', bankStatement: '', bankStatementName: '', itr: '', itrName: '', agreement: '', agreementName: '', udyamCertificate: '', udyamCertificateName: '', aadhaarNumber: '' });
+  const [biz, setBiz] = useState({ loanType: '', businessName: '', gstNumber: '', udgamNumber: '', civilScore: '', shopPhoto: '', bankStatement: '', bankStatementName: '', itr: '', itrName: '', agreement: '', agreementName: '', udyamCertificate: '', udyamCertificateName: '' });
   const [otpId, setOtpId] = useState(''); // business loan: OTP sent to the borrower's registered mobile, verified
   const [memberForms, setMemberForms] = useState({}); // group loan: form photos of each member { memberId: { front, back } }
   const [picked, setPicked] = useState(null);
@@ -489,7 +489,7 @@ function RequisitionForm({ kind }) {
       if (!biz.shopPhoto) found['business.shopPhoto'] = 'Shop photo is required';
       if (!biz.bankStatement) found['business.bankStatement'] = 'Upload the bank statement';
       if (biz.loanType === 'msme' && !biz.udyamCertificate) found['business.udyamCertificate'] = 'Upload the Udyam certificate';
-      if (!/^\d{12}$/.test(biz.aadhaarNumber)) found['business.aadhaarNumber'] = 'Enter the 12-digit Aadhaar number';
+      if (verif && !verif.aadhaar.present) found['business.aadhaarNumber'] = 'The borrower has no Aadhaar number on record';
       if (!otpId) found['business.otp'] = "Verify the OTP sent to the borrower's registered mobile number";
     }
     if (!form.schemeId) found.schemeId = kind === 'product' ? 'Select the product' : 'Select a loan scheme';
@@ -523,7 +523,7 @@ function RequisitionForm({ kind }) {
         ...(isGroup && extraRows.length ? { additional: extraRows.map((r) => ({ member: r.m.id, stockProduct: r.p.id, quantity: r.qty })) } : {}),
         ...(isGroup ? { group: picked.id, memberIds: effective.map((m) => m.id) } : { member: picked.id }),
         ...(isBusiness
-          ? { business: { loanType: biz.loanType, businessName: biz.businessName.trim(), gstNumber: biz.gstNumber.trim(), udgamNumber: biz.loanType === 'msme' ? biz.udgamNumber.trim() : '', civilScore: Number(biz.civilScore), shopPhoto: biz.shopPhoto, bankStatement: biz.bankStatement, itr: biz.itr, agreement: biz.agreement, udyamCertificate: biz.udyamCertificate, aadhaarNumber: biz.aadhaarNumber, otpChallengeId: otpId } }
+          ? { business: { loanType: biz.loanType, businessName: biz.businessName.trim(), gstNumber: biz.gstNumber.trim(), udgamNumber: biz.loanType === 'msme' ? biz.udgamNumber.trim() : '', civilScore: Number(biz.civilScore), shopPhoto: biz.shopPhoto, bankStatement: biz.bankStatement, itr: biz.itr, agreement: biz.agreement, udyamCertificate: biz.udyamCertificate, otpChallengeId: otpId } }
           : {}),
       };
       const r = await api.loanRequisitions.create(kind, payload);
@@ -799,13 +799,12 @@ function RequisitionForm({ kind }) {
                     <tr>
                       <td>Aadhaar number</td>
                       <td>
-                        <input aria-label="Aadhaar number" inputMode="numeric" maxLength={12} placeholder="12-digit Aadhaar number" value={biz.aadhaarNumber}
-                          onChange={(e) => { setBiz((x) => ({ ...x, aadhaarNumber: e.target.value.replace(/\D/g, '').slice(0, 12) })); setErrors((er) => ({ ...er, 'business.aadhaarNumber': undefined })); }} />
+                        <strong>{verif.aadhaar.masked || '—'}</strong> <span className="muted small">(from the registration)</span>
                         {errors['business.aadhaarNumber'] && <div className="field-error" role="alert">{errors['business.aadhaarNumber']}</div>}
                       </td>
                     </tr>
                     <tr>
-                      <td>OTP to registered mobile</td>
+                      <td>OTP to the registered mobile</td>
                       <td>
                         <BorrowerOtp member={picked.id} verified={Boolean(otpId)} onVerified={setOtpId} onReset={() => setOtpId('')} />
                         {errors['business.otp'] && <div className="field-error" role="alert">{errors['business.otp']}</div>}

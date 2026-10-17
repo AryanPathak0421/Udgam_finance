@@ -30,6 +30,8 @@ import GroupCreate from './pages/GroupCreate.jsx';
 import CivilCheck from './pages/CivilCheck.jsx';
 import StockProductMaster from './pages/adminMaster/StockProductMaster.jsx';
 import ProductOrders from './pages/ProductOrders.jsx';
+import StockTransfer from './pages/StockTransfer.jsx';
+import Cashbook from './pages/Cashbook.jsx';
 import { PersonalLoanRequisition, GroupLoanRequisition, BusinessLoanRequisition, ProductLoanRequisition } from './pages/PersonalLoanRequisition.jsx';
 import RequisitionList from './pages/RequisitionList.jsx';
 import { PendingLoans, ApprovedLoans, RejectedLoans } from './pages/LoanApproval.jsx';
@@ -56,6 +58,8 @@ const PAGES = {
   '/loan-requisition/personal': PersonalLoanRequisition,
   '/stock/products': StockProductMaster,
   '/stock/orders': ProductOrders,
+  '/stock/transfers': StockTransfer,
+  '/cashbook': Cashbook,
   '/loan-requisition/group': GroupLoanRequisition,
   '/loan-requisition/business': BusinessLoanRequisition,
   '/loan-requisition/product': ProductLoanRequisition,
