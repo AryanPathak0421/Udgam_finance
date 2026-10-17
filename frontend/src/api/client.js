@@ -100,6 +100,7 @@ export const api = {
     remove: (id) => request(`/loan-requisitions/${id}`, { method: 'DELETE' }),
     approve: (id, changes) => request(`/loan-requisitions/${id}/approve`, { method: 'POST', body: changes || {} }),
     reject: (id, reason) => request(`/loan-requisitions/${id}/reject`, { method: 'POST', body: { reason } }),
+    unapprove: (id, reason) => request(`/loan-requisitions/${id}/unapprove`, { method: 'POST', body: { reason } }),
     approveBatch: (batchId) => request(`/loan-requisitions/batch/${batchId}/approve`, { method: 'POST' }),
     rejectBatch: (batchId, reason) => request(`/loan-requisitions/batch/${batchId}/reject`, { method: 'POST', body: { reason } }),
   },

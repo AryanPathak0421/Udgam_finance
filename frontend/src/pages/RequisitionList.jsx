@@ -16,18 +16,57 @@ const inr = (n) => (n === null || n === undefined ? '—' : `₹${Number(n).toLo
 const TONE = { pending: 'grey', approved: 'green', rejected: 'danger', cancelled: 'grey' };
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : '');
 
-export function Detail({ id, onClose }) {
+export function Detail({ id, onClose, onChanged }) {
+  const { user } = useAuth();
+  const toast = useToast();
   const [r, setR] = useState(null);
   const [error, setError] = useState('');
+  const [taking, setTaking] = useState(false);
+  const [reason, setReason] = useState('');
+  const [reasonError, setReasonError] = useState('');
+  const [busy, setBusy] = useState(false);
   useEffect(() => {
     api.loanRequisitions.get(id).then((x) => setR(x.requisition)).catch((e) => setError(e.message));
   }, [id]);
 
+  // An approval made by mistake can be taken back ("Don't approve") until the loan is paid.
+  const canTakeBack = r && r.status === 'approved' && !r.disbursedAt && DELETERS.includes(user?.role);
+  const takeBack = async () => {
+    if (reason.trim().length < 3) { setReasonError('Enter why the approval is taken back'); return; }
+    setBusy(true);
+    try {
+      await api.loanRequisitions.unapprove(id, reason.trim());
+      toast.success('Approval taken back: the loan is pending again');
+      if (onChanged) onChanged();
+      onClose();
+    } catch (e) {
+      setReasonError(e.errors?.reason || e.message);
+      setBusy(false);
+    }
+  };
   const who = (x) => (x.group ? `${x.group.code} — ${x.group.name}` : `${x.borrower.code} — ${x.borrower.name}`);
   return (
     <Modal open title={r ? `${r.formId} — ${r.subjectName}` : 'Requisition'} onClose={onClose} size="lg" footer={<button className="btn" onClick={onClose}>Close</button>}>
       {error ? <ErrorState message={error} /> : !r ? <Spinner label="Loading…" /> : (
         <>
+          {canTakeBack && (
+            <div className="panel" style={{ padding: 14, marginBottom: 14 }}>
+              {!taking ? (
+                <>
+                  <div className="muted small" style={{ marginBottom: 8 }}>Approved by mistake? Until the loan is paid, the approval can be taken back and the loan goes back to pending.</div>
+                  <button className="btn danger-outline" onClick={() => setTaking(true)}>Don't approve (take back approval)</button>
+                </>
+              ) : (
+                <>
+                  <label htmlFor="tb-reason" className="detail-label">Reason *</label>
+                  <input id="tb-reason" value={reason} maxLength={200} onChange={(e) => { setReason(e.target.value); setReasonError(''); }} style={{ width: '100%', marginBottom: 6 }} />
+                  {reasonError && <div className="field-error" role="alert">{reasonError}</div>}
+                  <button className="btn danger-outline" disabled={busy} onClick={takeBack}>Take back approval</button>{' '}
+                  <button className="btn" disabled={busy} onClick={() => setTaking(false)}>Cancel</button>
+                </>
+              )}
+            </div>
+          )}
           <DetailList
             items={[
               ['Form ID', r.formId], ['Type', r.kindLabel], ['Status', cap(r.status)],

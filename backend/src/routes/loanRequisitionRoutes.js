@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler as h } from '../utils/http.js';
 import {
-  schemes, borrowers, borrowerDetail, groups, groupDetail, preview, createRequisition, listRequisitions, getRequisition, deleteRequisition, gstCheck, stockProducts, verificationStatus, borrowerOtp, addGroupTopUp, approveRequisition, rejectRequisition, createGroupRequisition, approveBatch, rejectBatch,
+  schemes, borrowers, borrowerDetail, groups, groupDetail, preview, createRequisition, listRequisitions, getRequisition, deleteRequisition, gstCheck, stockProducts, verificationStatus, borrowerOtp, addGroupTopUp, approveRequisition, rejectRequisition, unapproveRequisition, createGroupRequisition, approveBatch, rejectBatch,
 } from '../controllers/loanRequisitionController.js';
 
 const router = Router();
@@ -33,6 +33,7 @@ router.post('/loan-requisitions/:id/top-up', requireAuth, requireRole(...CREATE)
 router.post('/loan-requisitions/batch/:batchId/approve', requireAuth, requireRole(...APPROVE), h(approveBatch));
 router.post('/loan-requisitions/batch/:batchId/reject', requireAuth, requireRole(...APPROVE), h(rejectBatch));
 router.post('/loan-requisitions/:id/approve', requireAuth, requireRole(...APPROVE), h(approveRequisition));
+router.post('/loan-requisitions/:id/unapprove', requireAuth, requireRole(...APPROVE), h(unapproveRequisition));
 router.post('/loan-requisitions/:id/reject', requireAuth, requireRole(...APPROVE), h(rejectRequisition));
 router.get('/loan-requisitions/:id', requireAuth, requireRole(...READ), h(getRequisition));
 router.delete('/loan-requisitions/:id', requireAuth, requireRole('super_admin', 'admin', 'branch_manager'), h(deleteRequisition));

@@ -326,7 +326,7 @@ function LoanApproval({ status, fixedKind = '' }) {
         )}
       </div>
       {reviewId && <ReviewDialog id={reviewId} onClose={() => setReviewId(null)} onDone={() => { setReviewId(null); load(); }} />}
-      {viewId && <Detail id={viewId} onClose={() => setViewId(null)} />}
+      {viewId && <Detail id={viewId} onClose={() => setViewId(null)} onChanged={load} />}
     </>
   );
 }

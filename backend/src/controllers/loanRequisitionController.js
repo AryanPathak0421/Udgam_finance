@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import { LoanRequisition, REQUISITION_KINDS } from '../models/LoanRequisition.js';
+import { LoanPayment } from '../models/LoanPayment.js';
 import { LoanScheme } from '../models/LoanScheme.js';
 import { Member } from '../models/Member.js';
 import { Group } from '../models/Group.js';
@@ -1147,6 +1148,30 @@ const readReason = (req) => {
 export async function rejectRequisition(req, res) {
   const r = await loadForDecision(req);
   await applyRejection(req, r, readReason(req));
+  res.json({ requisition: present(r, req.user, { detail: true }) });
+}
+
+/**
+ * Takes back an approval made by mistake ("Don't approve"): the loan goes back to pending so it can be reviewed again, changed,
+ * approved or rejected. Only while the loan is not paid yet; a paid loan can no longer be taken back. Each member loan of a
+ * group requisition is handled on its own.
+ */
+export async function unapproveRequisition(req, res) {
+  if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Requisition not found');
+  const r = await LoanRequisition.findOne({ _id: req.params.id, isDeleted: false, ...branchFilter(req.user) });
+  if (!r) throw new HttpError(404, 'Requisition not found');
+  if (r.status !== 'approved') throw new HttpError(409, `Only an approved loan can be taken back (this one is ${r.status})`);
+  if (r.disbursedAt || (await LoanPayment.exists({ requisition: r._id }))) throw new HttpError(409, 'This loan is already paid and its approval cannot be taken back');
+  const reason = asString(req.body?.reason);
+  if (reason.length < 3 || reason.length > 200) throw invalid({ reason: 'Enter why the approval is taken back (3–200 characters)' });
+  r.status = 'pending';
+  r.decidedAt = undefined;
+  r.decidedBy = undefined;
+  r.decidedByCode = '';
+  r.updatedBy = req.user._id;
+  await r.save();
+  await r.populate(POPULATE);
+  await audit(req, { action: 'loanRequisition.unapprove', entity: 'LoanRequisition', entityId: r._id, after: { formId: r.formId, reason } });
   res.json({ requisition: present(r, req.user, { detail: true }) });
 }
 
