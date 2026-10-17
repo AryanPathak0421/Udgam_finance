@@ -152,10 +152,10 @@ function BatchPayDialog({ batch, onClose, onPaid }) {
           <p className="muted small" style={{ marginTop: 0 }}>{batch.group} · {preps.length} approved member loan{preps.length === 1 ? '' : 's'} waiting for payment. Each member keeps her own scheme, installments and deductions.</p>
           <div className="form-grid">
             <FormField id="bpaidOn" label="Payment date" required error={errors.paidOn}>
-              <input id="bpaidOn" type="date" max={new Date().toISOString().slice(0, 10)} value={paidOn} onChange={(e) => setPaidOn(e.target.value)} />
+              <input id="bpaidOn" type="date" min={preps.map((p) => p.dates.minPaidOn).sort().pop()} max={new Date().toISOString().slice(0, 10)} value={paidOn} onChange={(e) => { setPaidOn(e.target.value); setEmiStart(''); }} />
             </FormField>
-            <FormField id="bstart" label="First installment date" hint="Leave empty: one period after the payment date, for each member's own mode" error={errors.emiStartDate}>
-              <input id="bstart" type="date" value={emiStart} onChange={(e) => setEmiStart(e.target.value)} />
+            <FormField id="bstart" label="First installment date" hint="Leave empty: each member's first installment is one period after the payment date (on the group's collection day). It cannot be earlier." error={errors.emiStartDate}>
+              <input id="bstart" type="date" min={preps.map((p) => p.dates.defaultEmiStartDate).sort().pop()} value={emiStart} onChange={(e) => setEmiStart(e.target.value)} />
             </FormField>
             <FormField id="bmode" label="Paid by" required error={errors.payMode}>
               <select id="bmode" value={payMode} onChange={(e) => setPayMode(e.target.value)}>
@@ -173,7 +173,7 @@ function BatchPayDialog({ batch, onClose, onPaid }) {
                 {rows.map(({ p, l, item, added, cash }) => (
                   <tr key={p.requisition.id}>
                     <td data-label="Member"><strong>{l.code}</strong> {l.name}<div className="muted small">{p.requisition.formId}</div></td>
-                    <td data-label="Scheme">{p.requisition.schemeName}<div className="muted small">{p.requisition.term} {p.requisition.modeLabel} installments · EMI {inr(p.requisition.emi)}</div></td>
+                    <td data-label="Scheme">{p.requisition.schemeName}<div className="muted small">{p.requisition.term} {p.requisition.modeLabel} installments · EMI {inr(p.requisition.emi)}<br />First installment {dmy(p.dates.emiStartDate)}{p.dates.collectionDay ? ` (${p.dates.collectionDay})` : ""} · last {dmy(p.dates.emiEndDate)}</div></td>
                     <td data-label="Loan amount" className="num">{inr(l.amount)}</td>
                     <td data-label="Charges" className="num">− {inr(l.processingFee + l.insuranceFee + l.security)}</td>
                     <td data-label="Product">
@@ -225,12 +225,18 @@ function PayDialog({ id, onClose, onPaid }) {
   useEffect(() => {
     load().then((r) => { setPaidOn(r.dates.paidOn); setEmiStart(r.dates.emiStartDate); }).catch((e) => setError(e.message));
   }, [load]);
-  // The last installment date follows the payment date and the first installment date.
+  // A new payment date moves the first installment to its usual date (one period later, on the group's collection day).
   useEffect(() => {
-    if (!prep || !dPaid || !dStart) return;
-    if (dPaid === prep.dates.paidOn && dStart === prep.dates.emiStartDate) return;
-    load(dPaid, dStart).then((r) => setErrors((x) => ({ ...x, paidOn: undefined, emiStartDate: undefined, dates: undefined, _r: r && undefined }))).catch((e) => setErrors((x) => ({ ...x, paidOn: e.errors?.paidOn, emiStartDate: e.errors?.emiStartDate, dates: e.message })));
-  }, [dPaid, dStart]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!prep || !dPaid || dPaid === prep.dates.paidOn) return;
+    load(dPaid, '')
+      .then((r) => { setEmiStart(r.dates.emiStartDate); setErrors((x) => ({ ...x, paidOn: undefined, emiStartDate: undefined, dates: undefined })); })
+      .catch((e) => setErrors((x) => ({ ...x, paidOn: e.errors?.paidOn, dates: e.message })));
+  }, [dPaid]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The last installment date follows the first installment date.
+  useEffect(() => {
+    if (!prep || !dStart || dStart === prep.dates.emiStartDate) return;
+    load(dPaid, dStart).then(() => setErrors((x) => ({ ...x, emiStartDate: undefined, dates: undefined }))).catch((e) => setErrors((x) => ({ ...x, emiStartDate: e.errors?.emiStartDate, dates: e.message })));
+  }, [dStart]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const stock = prep?.stock || [];
   const isGroup = prep?.requisition.kind === 'group';
@@ -271,10 +277,16 @@ function PayDialog({ id, onClose, onPaid }) {
           </p>
           <div className="form-grid">
             <FormField id="ppaidOn" label="Payment date" required error={errors.paidOn}>
-              <input id="ppaidOn" type="date" max={new Date().toISOString().slice(0, 10)} value={paidOn} onChange={(e) => setPaidOn(e.target.value)} />
+              <input id="ppaidOn" type="date" min={prep.dates.minPaidOn} max={new Date().toISOString().slice(0, 10)} value={paidOn} onChange={(e) => setPaidOn(e.target.value)} />
             </FormField>
-            <FormField id="pstart" label="First installment date" error={errors.emiStartDate} hint="One period after the payment date, unless you change it">
-              <input id="pstart" type="date" value={emiStart} onChange={(e) => setEmiStart(e.target.value)} />
+            <FormField id="pstart" label="First installment date" error={errors.emiStartDate} hint={prep.dates.allowedEmiStartDates ? `The group collects on ${prep.dates.collectionDay}: only those dates` : `Not before ${dmy(prep.dates.defaultEmiStartDate)} (one period after the payment date)`}>
+              {prep.dates.allowedEmiStartDates ? (
+                <select id="pstart" value={emiStart} onChange={(e) => setEmiStart(e.target.value)}>
+                  {prep.dates.allowedEmiStartDates.map((d) => <option key={d} value={d}>{new Date(`${d}T00:00:00Z`).toLocaleDateString('en-IN', { weekday: 'long', day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' })}</option>)}
+                </select>
+              ) : (
+                <input id="pstart" type="date" min={prep.dates.defaultEmiStartDate} value={emiStart} onChange={(e) => setEmiStart(e.target.value)} />
+              )}
             </FormField>
             <FormField id="pend" label="Last installment date" hint="Worked out from the first installment">
               <input id="pend" value={dmy(prep.dates.emiEndDate)} disabled />

@@ -5,6 +5,7 @@ import { StockProduct } from '../models/StockProduct.js';
 import { generateCode } from '../services/codeSequence.js';
 import { MODES, calculateLoan } from '../services/loanCalculator.js';
 import { LoanScheme } from '../models/LoanScheme.js';
+import { Group } from '../models/Group.js';
 import { EmiPayment } from '../models/EmiPayment.js';
 import { asString, escapeRegex, parseDateOnly, parsePaging, HttpError } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
@@ -35,19 +36,62 @@ function borrowersOf(r) {
   return [{ id: r.member, code: r.borrower?.code, name: r.borrower?.name }];
 }
 
-/** The first installment is one repayment period after the payment unless chosen; the last follows from it. */
-function emiDates(r, paidOn, startInput) {
+const WEEKDAY = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const isoWeekday = (d) => ((d.getUTCDay() + 6) % 7) + 1; // Monday 1 … Sunday 7, the way a group stores its collection day
+const addDaysTo = (d, n) => new Date(d.getTime() + n * DAY);
+
+/**
+ * A weekly group collects on one weekday and a monthly group on one day of the month: the installments of a loan in that mode
+ * fall on that day. Daily groups, and every loan that is not a group loan, have no such day.
+ */
+async function collectionRule(r) {
+  if ((r.kind || 'personal') !== 'group' || !r.group) return null;
+  const g = await Group.findById(r.group).select('meetingType collectionDay');
+  if (!g || !g.collectionDay) return null;
+  if (g.meetingType === 'weekly' && r.mode === 'weekly') return { type: 'weekday', day: g.collectionDay, label: WEEKDAY[g.collectionDay % 7] };
+  if (g.meetingType === 'monthly' && r.mode === 'monthly') return { type: 'monthday', day: g.collectionDay, label: `day ${g.collectionDay} of the month` };
+  return null;
+}
+
+/** The first date on or after `date` that falls on the group's collection day. */
+function snapToRule(date, rule) {
+  if (!rule) return date;
+  if (rule.type === 'weekday') return addDaysTo(date, (rule.day - isoWeekday(date) + 7) % 7);
+  const same = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), rule.day));
+  return same >= date ? same : new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, rule.day));
+}
+
+const fitsRule = (date, rule) => !rule || (rule.type === 'weekday' ? isoWeekday(date) === rule.day : date.getUTCDate() === rule.day);
+
+/**
+ * The first installment is one repayment period after the payment (moved on to the group's collection day when it has one) and
+ * never earlier than that; the last follows from it.
+ */
+function emiDates(r, paidOn, startInput, rule) {
   const mode = MODES[r.mode];
-  const defaultStart = mode.next(paidOn, 1);
+  const defaultStart = snapToRule(mode.next(paidOn, 1), rule);
   let start = defaultStart;
   if (startInput) {
     start = parseDateOnly(asString(startInput));
     if (!start) throw invalid({ emiStartDate: 'Enter a valid date' });
-    if (start <= paidOn) throw invalid({ emiStartDate: 'The first installment must be after the payment date' });
+    if (start < defaultStart) throw invalid({ emiStartDate: `The first installment cannot be before ${iso(defaultStart)}` });
+    if (!fitsRule(start, rule)) throw invalid({ emiStartDate: `The first installment must fall on the group's collection day (${rule.label})` });
     if (start.getTime() > defaultStart.getTime() + 31 * DAY) throw invalid({ emiStartDate: 'The first installment cannot be more than a month after the usual date' });
   }
-  return { start, end: mode.next(start, Math.max(r.term - 1, 0)), defaultStart };
+  // the dates the first installment can be chosen from
+  const allowed = [];
+  if (rule) {
+    for (let d = defaultStart; d.getTime() <= defaultStart.getTime() + 31 * DAY && allowed.length < 8; d = snapToRule(addDaysTo(d, 1), rule)) allowed.push(iso(d));
+  }
+  return { start, end: mode.next(start, Math.max(r.term - 1, 0)), defaultStart, allowed, rule };
 }
+
+/** The payment can be made on or after the loan date and the day the loan was approved, never in the future. */
+const earliestPayment = (r) => {
+  const approved = r.decidedAt ? parseDateOnly(iso(r.decidedAt)) : null;
+  const loanDate = new Date(r.loanDate);
+  return approved && approved > loanDate ? approved : loanDate;
+};
 
 function readPaidOn(req, r, input) {
   const today = startOfToday();
@@ -56,7 +100,8 @@ function readPaidOn(req, r, input) {
     paidOn = parseDateOnly(asString(input));
     if (!paidOn) throw invalid({ paidOn: 'Enter a valid date' });
     if (paidOn > today) throw invalid({ paidOn: 'The payment date cannot be in the future' });
-    if (paidOn < r.loanDate) throw invalid({ paidOn: 'The payment cannot be before the loan date' });
+    if (paidOn < new Date(r.loanDate)) throw invalid({ paidOn: 'The payment cannot be before the requisition (loan) date' });
+    if (paidOn < earliestPayment(r)) throw invalid({ paidOn: 'The payment cannot be before the approval date' });
     if (!isAdmin(req.user) && today.getTime() - paidOn.getTime() > 30 * DAY) throw invalid({ paidOn: 'The payment date cannot be older than 30 days' });
   }
   return paidOn;
@@ -66,7 +111,7 @@ function readPaidOn(req, r, input) {
 export async function preparePayment(req, res) {
   const r = await loadApproved(req, req.params.id);
   const paidOn = readPaidOn(req, r, req.query.paidOn);
-  const { start, end, defaultStart } = emiDates(r, paidOn, req.query.emiStartDate);
+  const { start, end, defaultStart, allowed, rule } = emiDates(r, paidOn, req.query.emiStartDate, await collectionRule(r));
   const kind = r.kind || 'personal';
   const stock = kind === 'product' ? [] : await StockProduct.find({ isDeleted: false, isActive: true, stockQty: { $gt: 0 }, branch: r.branch }).sort({ name: 1 });
   const charges = (r.processingFeePaise || 0) + (r.insuranceFeePaise || 0) + (r.securityAmountPaise || 0);
@@ -77,7 +122,11 @@ export async function preparePayment(req, res) {
       term: r.term, rate: r.annualRateBp / 100, emi: money(r.installmentPaise), group: r.groupInfo?.code ? `${r.groupInfo.code} — ${r.groupInfo.name}` : '',
       subject: kind === 'group' ? `${r.groupInfo?.code} — ${r.groupInfo?.name}` : `${r.borrower?.code} — ${r.borrower?.name}`,
     },
-    dates: { paidOn: iso(paidOn), emiStartDate: iso(start), emiEndDate: iso(end), defaultEmiStartDate: iso(defaultStart) },
+    dates: {
+      paidOn: iso(paidOn), emiStartDate: iso(start), emiEndDate: iso(end), defaultEmiStartDate: iso(defaultStart), minPaidOn: iso(earliestPayment(r)),
+      // the first installment is chosen from these dates when the group collects on a fixed day, otherwise from the usual date onwards
+      allowedEmiStartDates: rule ? allowed : null, collectionDay: rule ? rule.label : '',
+    },
     lines: borrowersOf(r).map((b) => ({
       member: b.id, code: b.code, name: b.name, amount: money(r.amountPaise), processingFee: money(r.processingFeePaise || 0), insuranceFee: money(r.insuranceFeePaise || 0),
       security: money(r.securityAmountPaise || 0), product: money(goods), cash: money(r.amountPaise - charges - goods),
@@ -123,7 +172,7 @@ const present = (p) => ({
 async function pay(req, r, b) {
   const kind = r.kind || 'personal';
   const paidOn = readPaidOn(req, r, b.paidOn);
-  const { start, end } = emiDates(r, paidOn, b.emiStartDate);
+  const { start, end } = emiDates(r, paidOn, b.emiStartDate, await collectionRule(r));
   const payMode = asString(b.payMode);
   if (!PAYMENT_MODES.includes(payMode)) throw invalid({ payMode: 'Select how the loan is paid' });
 
