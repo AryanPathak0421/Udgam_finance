@@ -16,36 +16,43 @@ const inr = (n) => (n === null || n === undefined || Number.isNaN(n) ? '—' : `
 const dmy = (s) => (s ? new Date(`${s}T00:00:00`).toLocaleDateString('en-IN') : '—');
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
-// Opens the receipt in its own window and prints it.
-function printReceipt(p) {
-  const rows = p.lines.map((l) => `
-    <div class="card">
-      <div class="who"><b>${esc(l.code)}</b> — ${esc(l.name)}${p.merged ? `<div class="muted">${esc(l.schemeName)} · ${l.installments} ${esc(l.modeLabel)} installments of ${inr(l.emi)} · ${dmy(l.emiStartDate)} to ${dmy(l.emiEndDate)}</div>` : ''}</div>
-      <table>
-        <tr><td>Loan amount</td><td class="n">${inr(l.amount)}</td></tr>
-        <tr><td>Processing fee</td><td class="n">− ${inr(l.processingFee)}</td></tr>
-        <tr><td>Insurance fee</td><td class="n">− ${inr(l.insuranceFee)}</td></tr>
-        <tr><td>Security</td><td class="n">− ${inr(l.security)}</td></tr>
-        <tr><td>Product${l.products.length ? ` (${l.products.map((x) => `${esc(x.name)} × ${x.quantity}`).join(', ')})` : ''}</td><td class="n">− ${inr(l.product)}</td></tr>
-        <tr class="tot"><td>${l.cash < 0 ? 'To be paid by the borrower' : 'Balance cash paid'}</td><td class="n">${inr(Math.abs(l.cash))}</td></tr>
-      </table>
-    </div>`).join('');
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Receipt ${esc(p.receiptNo)}</title>
+// Opens the receipts in their own window and prints them: one receipt for each member (each on its own page).
+// `only` prints just the member with that code.
+function printReceipt(p, only) {
+  const lines = p.lines.filter((l) => !only || l.code === only);
+  const pages = lines.map((l) => {
+    const receiptNo = l.receiptNo || p.receiptNo;
+    const loanId = l.loanId || p.loanId;
+    const scheme = p.merged ? l : p;
+    return `
+  <section class="page">
+    <div class="head"><div><h1>Udgam Microfinance</h1><div class="muted">Loan payment receipt</div></div><div style="text-align:right"><b>${esc(receiptNo)}</b><br>${dmy(p.paidOn)}</div></div>
+    <table class="meta">
+      <tr><td>Loan ID</td><td><b>${esc(loanId)}</b></td><td>Form ID</td><td>${esc(l.formId || p.formId)}</td></tr>
+      <tr><td>Member</td><td><b>${esc(l.code)}</b> — ${esc(l.name)}</td><td>Branch</td><td>${esc(p.branch ? `${p.branch.code} — ${p.branch.name}` : '')}</td></tr>
+      ${p.group ? `<tr><td>Group</td><td colspan="3">${esc(p.group)}</td></tr>` : ''}
+      <tr><td>Scheme</td><td>${esc(scheme.schemeName)}</td><td>Interest</td><td>${l.rate ?? p.rate}% p.a.</td></tr>
+      <tr><td>Installments</td><td>${scheme.installments} (${esc(scheme.modeLabel)}) of ${inr(p.merged ? l.emi : (l.emi ?? p.emi))}</td><td>Paid by</td><td>${esc(MODE_LABEL[p.payMode] || p.payMode)}${p.reference ? ` · ${esc(p.reference)}` : ''}</td></tr>
+      <tr><td>First installment</td><td>${dmy(scheme.emiStartDate)}</td><td>Last installment</td><td>${dmy(scheme.emiEndDate)}</td></tr>
+    </table>
+    <table class="amt">
+      <tr><td>Loan amount</td><td class="n">${inr(l.amount)}</td></tr>
+      <tr><td>Processing fee</td><td class="n">− ${inr(l.processingFee)}</td></tr>
+      <tr><td>Insurance fee</td><td class="n">− ${inr(l.insuranceFee)}</td></tr>
+      <tr><td>Security</td><td class="n">− ${inr(l.security)}</td></tr>
+      <tr><td>Product${l.products.length ? ` (${l.products.map((x) => `${esc(x.name)} × ${x.quantity}`).join(', ')})` : ''}</td><td class="n">− ${inr(l.product)}</td></tr>
+      <tr class="tot"><td>${l.cash < 0 ? 'To be paid by the borrower' : 'Balance cash paid'}</td><td class="n">${inr(Math.abs(l.cash))}</td></tr>
+    </table>
+    <div class="sign"><div>Member's signature</div><div>Authorised signatory</div></div>
+  </section>`;
+  }).join('');
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Receipt ${esc(only || p.receiptNo)}</title>
   <style>body{font-family:Arial,sans-serif;max-width:720px;margin:24px auto;color:#111;font-size:14px}h1{margin:0;font-size:20px}.muted{color:#555}
-  .head{display:flex;justify-content:space-between;border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:12px}table{width:100%;border-collapse:collapse}
-  td{padding:4px 6px;border-bottom:1px solid #ddd}.n{text-align:right}.tot td{font-weight:bold;border-top:2px solid #111}.card{border:1px solid #bbb;border-radius:6px;padding:10px;margin:10px 0;page-break-inside:avoid}
-  .meta td{border:0;padding:2px 6px}.sign{display:flex;justify-content:space-between;margin-top:48px}.sign div{border-top:1px solid #111;padding-top:4px;width:40%;text-align:center}</style></head><body>
-  <div class="head"><div><h1>Udgam Microfinance</h1><div class="muted">Loan payment receipt</div></div><div style="text-align:right"><b>${esc(p.receiptNo)}</b><br>${dmy(p.paidOn)}</div></div>
-  <table class="meta">
-    <tr><td>Form ID</td><td><b>${esc(p.formId)}</b></td><td>Branch</td><td>${esc(p.branch ? `${p.branch.code} — ${p.branch.name}` : '')}</td></tr>
-    ${p.merged ? `<tr><td>Paid by</td><td colspan="3">${esc(MODE_LABEL[p.payMode] || p.payMode)}${p.reference ? ` · ${esc(p.reference)}` : ''}</td></tr>` : `<tr><td>Scheme</td><td>${esc(p.schemeName)}</td><td>Interest</td><td>${p.rate}% p.a.</td></tr>
-    <tr><td>Installments</td><td>${p.installments} (${esc(p.modeLabel)}) of ${inr(p.emi)}</td><td>Paid by</td><td>${esc(MODE_LABEL[p.payMode] || p.payMode)}${p.reference ? ` · ${esc(p.reference)}` : ''}</td></tr>
-    <tr><td>First installment</td><td>${dmy(p.emiStartDate)}</td><td>Last installment</td><td>${dmy(p.emiEndDate)}</td></tr>`}
-    ${p.group ? `<tr><td>Group</td><td colspan="3">${esc(p.group)}</td></tr>` : ''}
-  </table>
-  ${rows}
-  <table><tr class="tot"><td>Total ${p.lines.length > 1 ? `(${p.lines.length} members)` : ''} cash paid</td><td class="n">${inr(p.totalCash)}</td></tr></table>
-  <div class="sign"><div>Borrower's signature</div><div>Authorised signatory</div></div>
+  .head{display:flex;justify-content:space-between;border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:12px}table{width:100%;border-collapse:collapse;margin-bottom:10px}
+  td{padding:4px 6px;border-bottom:1px solid #ddd}.n{text-align:right}.tot td{font-weight:bold;border-top:2px solid #111}
+  .meta td{border:0;padding:2px 6px}.sign{display:flex;justify-content:space-between;margin-top:48px}.sign div{border-top:1px solid #111;padding-top:4px;width:40%;text-align:center}
+  .page{page-break-after:always}.page:last-child{page-break-after:auto}</style></head><body>
+  ${pages}
   <script>window.onload=function(){window.print()}</script></body></html>`;
   const w = window.open('', '_blank', 'width=820,height=900');
   if (!w) return false;
@@ -58,28 +65,30 @@ function ReceiptDialog({ payment, onClose, onPrintFailed }) {
   const p = payment;
   return (
     <Modal open title={`Receipt ${p.receiptNo}`} onClose={onClose} size="lg"
-      footer={<><button className="btn" onClick={onClose}>Close</button><button className="btn primary" onClick={() => { if (!printReceipt(p)) onPrintFailed(); }}>Print receipt</button></>}>
+      footer={<><button className="btn" onClick={onClose}>Close</button><button className="btn primary" onClick={() => { if (!printReceipt(p)) onPrintFailed(); }}>{p.lines.length > 1 ? 'Print all (one receipt per member)' : 'Print receipt'}</button></>}>
       <p className="muted small" style={{ marginTop: 0 }}>
-        {p.formId} · {p.branch?.name} · Paid {dmy(p.paidOn)} by {MODE_LABEL[p.payMode]}{p.reference ? ` (${p.reference})` : ''}{p.merged ? ` · ${p.lines.length} member loans` : ` · First installment ${dmy(p.emiStartDate)} · Last installment ${dmy(p.emiEndDate)}`}
+        {p.loanId ? `Loan ID ${p.loanId} · ` : ''}{p.formId} · {p.branch?.name} · Paid {dmy(p.paidOn)} by {MODE_LABEL[p.payMode]}{p.reference ? ` (${p.reference})` : ''}{p.merged ? ` · ${p.lines.length} member loans` : ` · First installment ${dmy(p.emiStartDate)} · Last installment ${dmy(p.emiEndDate)}`}
         {p.failed > 0 && <span className="badge danger" style={{ marginLeft: 8 }}>{p.failed} could not be paid</span>}
         {p.status === 'cancelled' && <span className="badge danger" style={{ marginLeft: 8 }}>Cancelled: {p.cancelReason}</span>}
       </p>
       <div className="table-wrap">
         <table className="data-table">
-          <thead><tr><th>Borrower</th><th className="num">Loan amount</th><th className="num">Processing</th><th className="num">Insurance</th><th className="num">Security</th><th className="num">Product</th><th className="num">Cash paid</th></tr></thead>
+          <thead><tr><th>Borrower</th><th>Loan ID</th><th className="num">Loan amount</th><th className="num">Processing</th><th className="num">Insurance</th><th className="num">Security</th><th className="num">Product</th><th className="num">Cash paid</th><th /></tr></thead>
           <tbody>
             {p.lines.map((l) => (
               <tr key={l.code}>
                 <td data-label="Borrower"><strong>{l.code}</strong> {l.name}{p.merged && <div className="muted small">{l.schemeName} · {l.installments} {l.modeLabel} installments of {inr(l.emi)}</div>}</td>
+                <td data-label="Loan ID"><strong>{l.loanId || p.loanId || '—'}</strong>{(l.receiptNo || p.receiptNo) && <div className="muted small">{l.receiptNo || p.receiptNo}</div>}</td>
                 <td data-label="Amount" className="num">{inr(l.amount)}</td>
                 <td data-label="Processing" className="num">{inr(l.processingFee)}</td>
                 <td data-label="Insurance" className="num">{inr(l.insuranceFee)}</td>
                 <td data-label="Security" className="num">{inr(l.security)}</td>
                 <td data-label="Product" className="num">{inr(l.product)}{l.products.map((x, i) => <div key={i} className="muted small">{x.name} × {x.quantity}</div>)}</td>
                 <td data-label="Cash" className="num"><strong>{inr(l.cash)}</strong></td>
+                <td data-label="Print">{p.lines.length > 1 && <button className="btn sm" onClick={() => { if (!printReceipt(p, l.code)) onPrintFailed(); }}>Print</button>}</td>
               </tr>
             ))}
-            {p.lines.length > 1 && <tr><td colSpan={6}><strong>Total cash</strong></td><td className="num"><strong>{inr(p.totalCash)}</strong></td></tr>}
+            {p.lines.length > 1 && <tr><td colSpan={7}><strong>Total cash</strong></td><td className="num"><strong>{inr(p.totalCash)}</strong></td><td /></tr>}
           </tbody>
         </table>
       </div>
@@ -279,7 +288,7 @@ function PayDialog({ id, onClose, onPaid }) {
             <FormField id="ppaidOn" label="Payment date" required error={errors.paidOn}>
               <input id="ppaidOn" type="date" min={prep.dates.minPaidOn} max={new Date().toISOString().slice(0, 10)} value={paidOn} onChange={(e) => setPaidOn(e.target.value)} />
             </FormField>
-            <FormField id="pstart" label="First installment date" error={errors.emiStartDate} hint={prep.dates.allowedEmiStartDates ? `The group collects on ${prep.dates.collectionDay}: only those dates` : `Not before ${dmy(prep.dates.defaultEmiStartDate)} (one period after the payment date)`}>
+            <FormField id="pstart" label="First installment date" error={errors.emiStartDate} hint={prep.dates.collectionDay ? `The group collects on ${prep.dates.collectionDay}: only those dates` : `Not before ${dmy(prep.dates.defaultEmiStartDate)} (one period after the payment date); no Sundays`}>
               {prep.dates.allowedEmiStartDates ? (
                 <select id="pstart" value={emiStart} onChange={(e) => setEmiStart(e.target.value)}>
                   {prep.dates.allowedEmiStartDates.map((d) => <option key={d} value={d}>{new Date(`${d}T00:00:00Z`).toLocaleDateString('en-IN', { weekday: 'long', day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' })}</option>)}
@@ -556,11 +565,12 @@ export function PaidLoans() {
           <>
             <div className={`table-wrap${loading ? ' dim' : ''}`}>
               <table className="data-table">
-                <thead><tr><th>Receipt</th><th>Paid on</th><th>Form ID</th><th>Type</th><th>Borrower / Group</th><th>Branch</th><th className="num">Loan amount</th><th className="num">Cash paid</th><th>First / last installment</th><th className="actions-col">Actions</th></tr></thead>
+                <thead><tr><th>Loan ID</th><th>Receipt</th><th>Paid on</th><th>Form ID</th><th>Type</th><th>Borrower / Group</th><th>Branch</th><th className="num">Loan amount</th><th className="num">Cash paid</th><th>First / last installment</th><th className="actions-col">Actions</th></tr></thead>
                 <tbody>
                   {data.items.map((p) => (
                     <tr key={p.id}>
-                      <td data-label="Receipt"><strong>{p.receiptNo}</strong></td>
+                      <td data-label="Loan ID"><strong>{p.loanId || '—'}</strong></td>
+                      <td data-label="Receipt">{p.receiptNo}</td>
                       <td data-label="Paid on">{dmy(p.paidOn)}</td>
                       <td data-label="Form ID">{p.formId}</td>
                       <td data-label="Type">{p.kind}</td>
@@ -588,7 +598,7 @@ export function PaidLoans() {
       {cancelling && (
         <Modal open title={`Cancel payment ${cancelling.receiptNo}?`} onClose={() => setCancelling(null)} busy={busy}
           footer={<><button className="btn" onClick={() => setCancelling(null)} disabled={busy}>Keep</button><button className="btn danger-outline" onClick={cancel} disabled={busy}>Cancel payment</button></>}>
-          <p style={{ marginTop: 0 }}>The loan goes back to Pending Payment and any product added at payment time returns to stock.</p>
+          <p style={{ marginTop: 0 }}>The loan goes back to Pending Payment (approved, not paid) and any product added at payment time returns to stock.</p>
           <FormField id="creason" label="Reason" required error={reasonError}>
             <input id="creason" value={reason} maxLength={200} autoFocus onChange={(e) => { setReason(e.target.value); setReasonError(''); }} />
           </FormField>
