@@ -7,6 +7,7 @@ export const PAYMENT_MODES = ['cash', 'bank', 'upi', 'cheque'];
 const loanPaymentSchema = new mongoose.Schema(
   {
     receiptNo: { type: String, required: true, uppercase: true, trim: true, immutable: true },
+    loanId: { type: String, uppercase: true, trim: true, immutable: true }, // Loan ID (EMI payments are made against it)
     requisition: { type: mongoose.Schema.Types.ObjectId, ref: 'LoanRequisition', required: true },
     formId: String,
     kind: String,
@@ -22,6 +23,8 @@ const loanPaymentSchema = new mongoose.Schema(
     installmentPaise: Number,
     payMode: { type: String, enum: PAYMENT_MODES, required: true },
     reference: String,
+    // installments of the loan (one borrower's); the due dates follow the first installment date chosen at payment
+    schedule: [{ _id: false, no: Number, dueDate: Date, installmentPaise: Number, principalPaise: Number, interestPaise: Number }],
     // one line per borrower (a group loan has one per member)
     lines: [
       {
@@ -36,6 +39,7 @@ const loanPaymentSchema = new mongoose.Schema(
         productPaise: Number,
         products: [{ _id: false, code: String, name: String, unitPricePaise: Number, quantity: Number }],
         cashPaise: Number, // balance paid in cash (negative = the borrower pays the difference)
+        extraEmiPaise: { type: Number, default: 0 }, // EMI of a product taken on top of a group loan, paid with every installment
       },
     ],
     totalAmountPaise: Number,
@@ -51,6 +55,7 @@ const loanPaymentSchema = new mongoose.Schema(
 );
 
 loanPaymentSchema.index({ receiptNo: 1 }, { unique: true });
+loanPaymentSchema.index({ loanId: 1 }, { unique: true, partialFilterExpression: { loanId: { $type: 'string' } } });
 loanPaymentSchema.index({ requisition: 1 }, { unique: true, partialFilterExpression: { status: 'paid' } });
 loanPaymentSchema.index({ branch: 1, paidOn: -1 });
 

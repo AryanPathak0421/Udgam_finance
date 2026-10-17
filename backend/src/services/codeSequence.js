@@ -9,6 +9,7 @@ export const SYSTEM_SEQUENCES = {
   loanRequisition: { label: 'Loan Requisition Form ID', prefix: 'LRQ', padding: 6, nextNumber: 1 },
   stockProduct: { label: 'Stock Product Code', prefix: 'PRD', padding: 5, nextNumber: 1 },
   loanReceipt: { label: 'Loan Payment Receipt No', prefix: 'RCP', padding: 6, nextNumber: 1 },
+  emiReceipt: { label: 'EMI Receipt No', prefix: 'EMR', padding: 6, nextNumber: 1 },
   productOrder: { label: 'Product Order No', prefix: 'ORD', padding: 5, nextNumber: 1 },
 };
 

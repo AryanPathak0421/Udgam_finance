@@ -3,7 +3,9 @@ import { LoanPayment, PAYMENT_MODES } from '../models/LoanPayment.js';
 import { LoanRequisition } from '../models/LoanRequisition.js';
 import { StockProduct } from '../models/StockProduct.js';
 import { generateCode } from '../services/codeSequence.js';
-import { MODES } from '../services/loanCalculator.js';
+import { MODES, calculateLoan } from '../services/loanCalculator.js';
+import { LoanScheme } from '../models/LoanScheme.js';
+import { EmiPayment } from '../models/EmiPayment.js';
 import { asString, escapeRegex, parseDateOnly, parsePaging, HttpError } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
 import { branchFilter, isAdmin } from './groupController.js';
@@ -88,6 +90,7 @@ export async function preparePayment(req, res) {
 const present = (p) => ({
   id: p._id,
   receiptNo: p.receiptNo,
+  loanId: p.loanId || '',
   requisitionId: p.requisition?._id || p.requisition,
   formId: p.formId,
   kind: p.kind,
@@ -135,6 +138,8 @@ export async function payLoan(req, res) {
     member: x.id, code: x.code, name: x.name, amountPaise: r.amountPaise, processingFeePaise: r.processingFeePaise || 0, insuranceFeePaise: r.insuranceFeePaise || 0,
     securityPaise: r.securityAmountPaise || 0, productPaise: goods, products: kind === 'product' && r.product?.code ? [{ code: r.product.code, name: r.product.name, unitPricePaise: r.product.unitPricePaise, quantity: r.product.quantity }] : [],
     cashPaise: r.amountPaise - charges - goods,
+    // a product taken on top of a group loan is repaid with the installments of that member
+    extraEmiPaise: (r.additionalProducts || []).filter((a) => String(a.member) === String(x.id)).reduce((s, a) => s + (a.installmentPaise || 0), 0),
   }));
   const reserve = [];
   for (const it of items) {
@@ -157,12 +162,20 @@ export async function payLoan(req, res) {
   // Take the loan out of the pending list first (so it cannot be paid twice), then the goods out of stock.
   const claimed = await LoanRequisition.updateOne({ _id: r._id, disbursedAt: { $exists: false }, status: 'approved' }, { $set: { disbursedAt: new Date() } });
   if (!claimed.modifiedCount) throw new HttpError(409, 'This loan has already been paid');
+  // The installment schedule (amounts from the loan engine, due dates from the first installment date).
+  const scheme = await LoanScheme.findById(r.scheme).select('installmentRounding');
+  const sched = calculateLoan({
+    principalPaise: r.amountPaise, annualRateBp: r.annualRateBp, calculationType: r.calculationType, emiType: r.emiType || 'equal', mode: r.mode, term: r.term, startDate: paidOn,
+    roundingPaise: (scheme?.installmentRounding ?? 1) * 100,
+  }).schedule.map((s) => ({ no: s.no, dueDate: MODES[r.mode].next(start, s.no - 1), installmentPaise: s.installment, principalPaise: s.principal, interestPaise: s.interest }));
   let reserved = [];
   let doc;
   try {
     reserved = await reserveStock(reserve);
     doc = await LoanPayment.create({
       receiptNo: await generateCode('loanReceipt'),
+      loanId: await generateCode('loan'),
+      schedule: sched,
       requisition: r._id, formId: r.formId, kind, branch: r.branch,
       group: r.groupInfo?.code ? { code: r.groupInfo.code, name: r.groupInfo.name } : undefined,
       paidOn, emiStartDate: start, emiEndDate: end, installments: r.term, modeLabel: MODES[r.mode]?.label || r.mode, schemeName: r.schemeName,
@@ -220,6 +233,7 @@ export async function cancelPayment(req, res) {
   if (!p) throw new HttpError(404, 'Payment not found');
   const reason = asString(req.body?.reason);
   if (reason.length < 3 || reason.length > 200) throw invalid({ reason: 'Enter the reason (3–200 characters)' });
+  if (await EmiPayment.exists({ loanPayment: p._id, status: 'paid' })) throw new HttpError(409, 'EMI has already been collected on this loan, so the payment cannot be cancelled.');
   p.status = 'cancelled';
   p.cancelReason = reason;
   p.cancelledAt = new Date();

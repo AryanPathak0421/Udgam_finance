@@ -106,6 +106,13 @@ export const api = {
     add: (data) => request('/civil-checks', { method: 'POST', body: data }),
     remove: (id) => request(`/civil-checks/${id}`, { method: 'DELETE' }),
   },
+  emi: {
+    search: (q) => request(`/emi/search${qs({ q })}`),
+    loan: (id) => request(`/emi/loans/${id}`),
+    pay: (data) => request('/emi/pay', { method: 'POST', body: data }),
+    payments: (params) => request(`/emi/payments${qs(params)}`),
+    cancel: (id, reason) => request(`/emi/payments/${id}/cancel`, { method: 'POST', body: { reason } }),
+  },
   loanPayments: {
     prepare: (id, params) => request(`/loan-payments/prepare/${id}${qs(params)}`),
     pay: (data) => request('/loan-payments', { method: 'POST', body: data }),
