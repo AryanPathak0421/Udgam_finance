@@ -2,6 +2,9 @@ import mongoose from 'mongoose';
 import { ProductOrder } from '../models/ProductOrder.js';
 import { StockProduct } from '../models/StockProduct.js';
 import { Branch } from '../models/Branch.js';
+import { ProductPayment, PAYMENT_MODES } from '../models/ProductPayment.js';
+import { toMinor } from '../utils/money.js';
+import { parseDateOnly } from '../utils/http.js';
 import { generateCode } from '../services/codeSequence.js';
 import { asString, parsePaging, HttpError } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
@@ -201,4 +204,97 @@ export async function cancelOrder(req, res) {
   await o.populate(POPULATE);
   await audit(req, { action: 'productOrder.cancel', entity: 'ProductOrder', entityId: o._id, after: { code: o.code } });
   res.json({ order: present(o) });
+}
+
+// ---- purchase balance: what each branch bought from head office, paid, and still owes ----------------------------
+async function purchased(branchIds) {
+  const rows = await ProductOrder.aggregate([
+    { $match: { isDeleted: false, status: 'approved', ...(branchIds ? { branch: { $in: branchIds } } : {}) } },
+    { $unwind: '$items' },
+    { $group: { _id: '$branch', orders: { $addToSet: '$_id' }, amountPaise: { $sum: { $multiply: [{ $ifNull: ['$items.approvedQty', 0] }, { $ifNull: ['$items.unitPricePaise', 0] }] } } } },
+  ]);
+  return new Map(rows.map((r) => [String(r._id), { orders: r.orders.length, amountPaise: r.amountPaise }]));
+}
+async function paid(branchIds) {
+  const rows = await ProductPayment.aggregate([
+    { $match: { isDeleted: false, ...(branchIds ? { branch: { $in: branchIds } } : {}) } },
+    { $group: { _id: '$branch', amountPaise: { $sum: '$amountPaise' }, count: { $sum: 1 } } },
+  ]);
+  return new Map(rows.map((r) => [String(r._id), { amountPaise: r.amountPaise, count: r.count }]));
+}
+async function balanceOf(branchId) {
+  const [p, q] = await Promise.all([purchased([new mongoose.Types.ObjectId(String(branchId))]), paid([new mongoose.Types.ObjectId(String(branchId))])]);
+  return (p.get(String(branchId))?.amountPaise || 0) - (q.get(String(branchId))?.amountPaise || 0);
+}
+
+export async function purchaseBalance(req, res) {
+  const ids = isAdmin(req.user) ? null : (req.user.branches || []).map((b) => new mongoose.Types.ObjectId(String(b)));
+  const [p, q] = await Promise.all([purchased(ids), paid(ids)]);
+  const keys = [...new Set([...p.keys(), ...q.keys()])];
+  const branches = await Branch.find({ _id: { $in: keys } }).select('code name');
+  const rows = keys
+    .map((k) => {
+      const b = branches.find((x) => String(x._id) === k);
+      const bought = p.get(k)?.amountPaise || 0;
+      const paidAmt = q.get(k)?.amountPaise || 0;
+      return { branchId: k, branch: b ? { id: b._id, code: b.code, name: b.name } : null, orders: p.get(k)?.orders || 0, purchased: bought / 100, paid: paidAmt / 100, balance: (bought - paidAmt) / 100 };
+    })
+    .sort((a, b) => (a.branch?.code || '').localeCompare(b.branch?.code || ''));
+  res.json({
+    rows,
+    total: { purchased: rows.reduce((s, r) => s + r.purchased, 0), paid: rows.reduce((s, r) => s + r.paid, 0), balance: rows.reduce((s, r) => s + r.balance, 0) },
+  });
+}
+
+const presentPayment = (p) => ({
+  id: p._id,
+  branch: p.branch?._id ? { id: p.branch._id, code: p.branch.code, name: p.branch.name } : null,
+  amount: p.amountPaise / 100,
+  paidOn: p.paidOn.toISOString().slice(0, 10),
+  mode: p.mode,
+  reference: p.reference || '',
+  note: p.note || '',
+  createdByCode: p.createdByCode || '',
+  createdAt: p.createdAt,
+});
+
+export async function listPayments(req, res) {
+  const filter = { isDeleted: false, ...scope(req.user) };
+  if (mongoose.isValidObjectId(req.query.branch) && (isAdmin(req.user) || (req.user.branches || []).some((b) => String(b) === req.query.branch))) filter.branch = req.query.branch;
+  const items = await ProductPayment.find(filter).populate(POPULATE).sort({ paidOn: -1, createdAt: -1 }).limit(200);
+  res.json({ items: items.map(presentPayment) });
+}
+
+/** Head office records a payment received from a branch; it cannot be more than the branch still owes. */
+export async function addPayment(req, res) {
+  const b = req.body || {};
+  if (!mongoose.isValidObjectId(String(b.branch || ''))) throw invalid({ branch: 'Select the branch' });
+  if (!(await Branch.exists({ _id: b.branch, isDeleted: false }))) throw invalid({ branch: 'Branch not found' });
+  const amountPaise = toMinor(b.amount);
+  if (amountPaise === null || amountPaise < 100) throw invalid({ amount: 'Enter the amount paid (₹1 or more, up to 2 decimals)' });
+  const today = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
+  const paidOn = b.paidOn ? parseDateOnly(asString(b.paidOn)) : today;
+  if (!paidOn) throw invalid({ paidOn: 'Enter a valid date' });
+  if (paidOn > today) throw invalid({ paidOn: 'The payment date cannot be in the future' });
+  const mode = asString(b.mode);
+  if (!PAYMENT_MODES.includes(mode)) throw invalid({ mode: 'Select the payment mode' });
+  const balance = await balanceOf(b.branch);
+  if (amountPaise > balance) throw invalid({ amount: `The branch owes only ₹${balance / 100}. The payment cannot be more than the balance.` });
+  const p = await ProductPayment.create({
+    branch: b.branch, amountPaise, paidOn, mode, reference: asString(b.reference).slice(0, 60), note: asString(b.note).slice(0, 200),
+    createdBy: req.user._id, createdByCode: req.user.employeeCode || '',
+  });
+  await p.populate(POPULATE);
+  await audit(req, { action: 'productPayment.create', entity: 'ProductPayment', entityId: p._id, after: { branch: p.branch.code, amount: amountPaise / 100, mode } });
+  res.status(201).json({ payment: presentPayment(p), balance: (balance - amountPaise) / 100 });
+}
+
+export async function voidPayment(req, res) {
+  if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Payment not found');
+  const p = await ProductPayment.findOne({ _id: req.params.id, isDeleted: false });
+  if (!p) throw new HttpError(404, 'Payment not found');
+  p.isDeleted = true;
+  await p.save();
+  await audit(req, { action: 'productPayment.delete', entity: 'ProductPayment', entityId: p._id, after: { amount: p.amountPaise / 100 } });
+  res.json({ message: 'Payment removed' });
 }

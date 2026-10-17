@@ -97,6 +97,106 @@ function NewOrder({ branches, onClose, onSaved }) {
   );
 }
 
+// What a branch bought from head office, what it paid, and what it still owes. Head office records the payments.
+function PaymentsDialog({ row, isAdmin, onClose, onChanged }) {
+  const toast = useToast();
+  const today = new Date().toISOString().slice(0, 10);
+  const [items, setItems] = useState(null);
+  const [form, setForm] = useState({ amount: '', paidOn: today, mode: 'bank', reference: '' });
+  const [errors, setErrors] = useState({});
+  const [busy, setBusy] = useState(false);
+  const [balance, setBalance] = useState(row.balance);
+
+  const load = useCallback(() => api.productOrders.payments(row.branchId).then((r) => setItems(r.items)).catch(() => setItems([])), [row.branchId]);
+  useEffect(() => {
+    load();
+  }, [load]);
+  const set = (k) => (e) => {
+    setForm((f) => ({ ...f, [k]: e.target.value }));
+    setErrors((er) => ({ ...er, [k]: undefined }));
+  };
+
+  async function add(e) {
+    e.preventDefault();
+    setBusy(true);
+    setErrors({});
+    try {
+      const r = await api.productOrders.addPayment({ ...form, branch: row.branchId });
+      toast.success('Payment recorded');
+      setBalance(r.balance);
+      setForm((f) => ({ ...f, amount: '', reference: '' }));
+      load();
+      onChanged();
+    } catch (err) {
+      setErrors(err.errors || {});
+      toast.error(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function remove(p) {
+    setBusy(true);
+    try {
+      await api.productOrders.removePayment(p.id);
+      toast.success('Payment removed');
+      setBalance((b) => b + p.amount);
+      load();
+      onChanged();
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal open title={`Payments — ${row.branch ? `${row.branch.code} ${row.branch.name}` : ''}`} onClose={onClose} size="lg" busy={busy} footer={<button className="btn" onClick={onClose}>Close</button>}>
+      <p style={{ marginTop: 0 }}>Purchased <strong>{inr(row.purchased)}</strong> · Paid <strong>{inr(row.purchased - balance)}</strong> · Balance <strong>{inr(balance)}</strong></p>
+      {isAdmin && (
+        <form onSubmit={add} noValidate className="form-grid" style={{ marginBottom: 14 }}>
+          <FormField id="pamount" label="Amount received (₹)" required error={errors.amount}>
+            <input id="pamount" inputMode="decimal" value={form.amount} onChange={(e) => { setForm((f) => ({ ...f, amount: e.target.value.replace(/[^\d.]/g, '') })); setErrors((er) => ({ ...er, amount: undefined })); }} />
+          </FormField>
+          <FormField id="ppaidOn" label="Date" error={errors.paidOn}>
+            <input id="ppaidOn" type="date" max={today} value={form.paidOn} onChange={set('paidOn')} />
+          </FormField>
+          <FormField id="pmode" label="Mode" required error={errors.mode}>
+            <select id="pmode" value={form.mode} onChange={set('mode')}>
+              <option value="bank">Bank transfer</option>
+              <option value="cash">Cash</option>
+              <option value="upi">UPI</option>
+              <option value="cheque">Cheque</option>
+            </select>
+          </FormField>
+          <FormField id="pref" label="Reference no." hint="Optional">
+            <input id="pref" value={form.reference} maxLength={60} onChange={set('reference')} />
+          </FormField>
+          <div><button className="btn primary" type="submit" disabled={busy || balance <= 0}>Record payment</button></div>
+        </form>
+      )}
+      {items === null ? <Spinner label="Loading…" /> : items.length === 0 ? <span className="muted">No payment yet</span> : (
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead><tr><th>Date</th><th className="num">Amount</th><th>Mode</th><th>Reference</th><th>Recorded by</th>{isAdmin && <th className="actions-col">Actions</th>}</tr></thead>
+            <tbody>
+              {items.map((p) => (
+                <tr key={p.id}>
+                  <td data-label="Date">{p.paidOn}</td>
+                  <td data-label="Amount" className="num">{inr(p.amount)}</td>
+                  <td data-label="Mode">{cap(p.mode)}</td>
+                  <td data-label="Reference">{p.reference || '—'}</td>
+                  <td data-label="By">{p.createdByCode || '—'}</td>
+                  {isAdmin && <td data-label="Actions" className="actions-col"><button className="btn sm danger-outline" disabled={busy} onClick={() => remove(p)}>Remove</button></td>}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 // Order detail. The admin can change the quantities and approve, or reject with a reason.
 function OrderDialog({ id, isAdmin, canCancel, onClose, onChanged }) {
   const toast = useToast();
@@ -209,6 +309,12 @@ export default function ProductOrders() {
   const [branch, setBranch] = useState('');
   const [creating, setCreating] = useState(false);
   const [openId, setOpenId] = useState(null);
+  const [balance, setBalance] = useState(null);
+  const [payRow, setPayRow] = useState(null);
+  const loadBalance = useCallback(() => api.productOrders.balance().then(setBalance).catch(() => setBalance(null)), []);
+  useEffect(() => {
+    loadBalance();
+  }, [loadBalance]);
 
   useEffect(() => {
     api.groups.branchOptions().then((r) => setBranches(r.items)).catch(() => {});
@@ -239,6 +345,36 @@ export default function ProductOrders() {
         description={isAdmin ? 'Orders sent by the branches. Approve (the quantity can be edited) to move the stock from head office to the branch, or reject.' : 'Order products from the head-office stock. The admin approves your order and may change the quantity.'}
         actions={canAdd ? <button className="btn primary" onClick={() => setCreating(true)}>+ New order</button> : null}
       />
+      {balance && balance.rows.length > 0 && (
+        <div className="panel" style={{ marginBottom: 14, padding: 16 }}>
+          <h3 className="section-title">Purchase balance (products bought from head office)</h3>
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead><tr><th>Branch</th><th className="num">Orders</th><th className="num">Purchased</th><th className="num">Paid</th><th className="num">Balance</th><th className="actions-col">Actions</th></tr></thead>
+              <tbody>
+                {balance.rows.map((r) => (
+                  <tr key={r.branchId}>
+                    <td data-label="Branch">{r.branch ? `${r.branch.code} — ${r.branch.name}` : '—'}</td>
+                    <td data-label="Orders" className="num">{r.orders}</td>
+                    <td data-label="Purchased" className="num">{inr(r.purchased)}</td>
+                    <td data-label="Paid" className="num">{inr(r.paid)}</td>
+                    <td data-label="Balance" className="num"><strong>{inr(r.balance)}</strong></td>
+                    <td data-label="Actions" className="actions-col"><button className="btn sm" onClick={() => setPayRow(r)}>{isAdmin ? 'Payments' : 'View payments'}</button></td>
+                  </tr>
+                ))}
+                {balance.rows.length > 1 && (
+                  <tr>
+                    <td><strong>Total</strong></td><td />
+                    <td className="num"><strong>{inr(balance.total.purchased)}</strong></td>
+                    <td className="num"><strong>{inr(balance.total.paid)}</strong></td>
+                    <td className="num"><strong>{inr(balance.total.balance)}</strong></td><td />
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
       <div className="panel">
         <div className="toolbar" style={{ flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', gap: 6 }}>
@@ -279,7 +415,8 @@ export default function ProductOrders() {
         )}
       </div>
       {creating && <NewOrder branches={branches} onClose={() => setCreating(false)} onSaved={() => { setCreating(false); load(); }} />}
-      {openId && <OrderDialog id={openId} isAdmin={isAdmin} canCancel={canCancel} onClose={() => setOpenId(null)} onChanged={load} />}
+      {openId && <OrderDialog id={openId} isAdmin={isAdmin} canCancel={canCancel} onClose={() => setOpenId(null)} onChanged={() => { load(); loadBalance(); }} />}
+      {payRow && <PaymentsDialog row={payRow} isAdmin={isAdmin} onClose={() => setPayRow(null)} onChanged={loadBalance} />}
     </>
   );
 }

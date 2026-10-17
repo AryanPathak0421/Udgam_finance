@@ -324,6 +324,7 @@ async function buildAdditional({ items, members, capFor, scheme, input, loanDate
       throw invalid({ additional: `${gm.code}: ${err.message}` });
     }
     out.push({
+      productId: p._id,
       member: gm._id,
       memberCode: gm.code,
       memberName: gm.name,
@@ -336,6 +337,24 @@ async function buildAdditional({ items, members, capFor, scheme, input, loanDate
   }
   return out;
 }
+
+/** Takes units out of stock (a product was sold). All or nothing: when one line is short, what was taken is put back. */
+async function reserveStock(lines) {
+  const done = [];
+  try {
+    for (const l of lines) {
+      // eslint-disable-next-line no-await-in-loop
+      const res = await StockProduct.updateOne({ _id: l.id, isDeleted: false, stockQty: { $gte: l.qty } }, { $inc: { stockQty: -l.qty } });
+      if (!res.modifiedCount) throw new HttpError(409, `Not enough stock of ${l.name}`, { stockProduct: `Not enough stock of ${l.name}` });
+      done.push(l);
+    }
+  } catch (err) {
+    await releaseStock(done);
+    throw err;
+  }
+  return done;
+}
+const releaseStock = (lines) => Promise.all(lines.map((l) => StockProduct.updateOne({ _id: l.id }, { $inc: { stockQty: l.qty } })));
 
 export async function preview(req, res) {
   const r = await evaluateLoan(calcInput(req.body || {}, null));
@@ -625,6 +644,7 @@ export function createRequisition(kind) {
 
     // Product loan: the stock product and the number of units decide the loan amount.
     let product = null;
+    let productId = null;
     if (kind === 'product') {
       if (!mongoose.isValidObjectId(String(b.stockProduct || ''))) throw invalid({ stockProduct: 'Select the product' });
       const p = await StockProduct.findOne({ _id: b.stockProduct, isDeleted: false, isActive: true, branch: branchId });
@@ -633,6 +653,7 @@ export function createRequisition(kind) {
       if (!Number.isInteger(qty) || qty < 1) throw invalid({ quantity: 'Enter the number of units (1 or more)' });
       if (qty > p.stockQty) throw invalid({ quantity: `Only ${p.stockQty} unit${p.stockQty === 1 ? '' : 's'} in stock` });
       product = { code: p.code, name: p.name, unitPricePaise: p.unitPricePaise, quantity: qty };
+      productId = p._id;
       // The amount of the loan is the value of the goods.
       b.amount = String((p.unitPricePaise * qty) / 100);
     }
@@ -708,7 +729,14 @@ export function createRequisition(kind) {
     }
 
     const memberCount = g ? groupMembers.length : undefined;
-    const doc = await LoanRequisition.create({
+    // The product is sold with the requisition, so its units leave the branch stock now.
+    const reserved = await reserveStock([
+      ...(product ? [{ id: productId, qty: product.quantity, name: product.name }] : []),
+      ...additionalProducts.map((a) => ({ id: a.productId, qty: a.product.quantity, name: a.product.name })),
+    ]);
+    let doc;
+    try {
+    doc = await LoanRequisition.create({
       kind,
       formId: await generateCode('loanRequisition'),
       branch: branchId,
@@ -774,6 +802,10 @@ export function createRequisition(kind) {
       createdBy: req.user._id,
       updatedBy: req.user._id,
     });
+    } catch (err) {
+      await releaseStock(reserved);
+      throw err;
+    }
     if (otpCh) await consumeChallenge(otpCh);
     await doc.populate(POPULATE);
     await audit(req, {
@@ -833,6 +865,12 @@ export async function deleteRequisition(req, res) {
   r.isDeleted = true;
   r.updatedBy = req.user._id;
   await r.save();
+  // The sale is undone, so the units go back into stock.
+  const back = [
+    ...(r.product?.code ? [{ code: r.product.code, qty: r.product.quantity }] : []),
+    ...(r.additionalProducts || []).map((a) => ({ code: a.product?.code, qty: a.product?.quantity })),
+  ].filter((x) => x.code && x.qty > 0);
+  await Promise.all(back.map((x) => StockProduct.updateOne({ code: x.code }, { $inc: { stockQty: x.qty } })));
   await audit(req, {
     action: 'loanRequisition.delete',
     entity: 'LoanRequisition',
@@ -916,10 +954,16 @@ export async function addGroupTopUp(req, res) {
   const forms = readMemberForms(b.memberForms, added.map((a) => ({ _id: a.member, code: a.memberCode })), formErrors);
   if (Object.keys(formErrors).length) throw invalid(formErrors);
 
+  const reserved = await reserveStock(added.map((a) => ({ id: a.productId, qty: a.product.quantity, name: a.product.name })));
   r.additionalProducts.push(...added);
   r.memberForms.push(...forms.map((f) => ({ ...f, topUp: true, addedAt: new Date() })));
   r.updatedBy = req.user._id;
-  await r.save();
+  try {
+    await r.save();
+  } catch (err) {
+    await releaseStock(reserved);
+    throw err;
+  }
   await audit(req, {
     action: 'loanRequisition.topUp',
     entity: 'LoanRequisition',

@@ -112,6 +112,10 @@ export const api = {
     approve: (id, items) => request(`/stock-orders/${id}/approve`, { method: 'POST', body: { items } }),
     reject: (id, reason) => request(`/stock-orders/${id}/reject`, { method: 'POST', body: { reason } }),
     cancel: (id) => request(`/stock-orders/${id}/cancel`, { method: 'POST' }),
+    balance: () => request('/stock-orders/balance'),
+    payments: (branch) => request(`/stock-payments${qs({ branch })}`),
+    addPayment: (data) => request('/stock-payments', { method: 'POST', body: data }),
+    removePayment: (id) => request(`/stock-payments/${id}`, { method: 'DELETE' }),
   },
   stockProducts: {
     options: () => request('/stock-products/options'),
