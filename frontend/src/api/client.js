@@ -106,6 +106,13 @@ export const api = {
     add: (data) => request('/civil-checks', { method: 'POST', body: data }),
     remove: (id) => request(`/civil-checks/${id}`, { method: 'DELETE' }),
   },
+  loanPayments: {
+    prepare: (id, params) => request(`/loan-payments/prepare/${id}${qs(params)}`),
+    pay: (data) => request('/loan-payments', { method: 'POST', body: data }),
+    list: (params) => request(`/loan-payments${qs(params)}`),
+    get: (id) => request(`/loan-payments/${id}`),
+    cancel: (id, reason) => request(`/loan-payments/${id}/cancel`, { method: 'POST', body: { reason } }),
+  },
   productOrders: {
     products: () => request('/stock-orders/products'),
     list: (params) => request(`/stock-orders${qs(params)}`),

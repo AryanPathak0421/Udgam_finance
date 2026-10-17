@@ -116,6 +116,21 @@ export const NAV_SECTIONS = [
     ],
   },
   {
+    title: 'Loan Payment',
+    items: [
+      {
+        label: 'Loan Payment',
+        path: '/loan-payment',
+        icon: 'cash',
+        roles: [...MGMT, 'accountant', 'loan_officer', 'field_officer', 'collection_officer', 'viewer'],
+        children: [
+          { label: 'Pending Payment', path: '/loan-payment/pending', icon: 'calendar', roles: [...MGMT, 'accountant'] },
+          { label: 'Paid Loans & Receipts', path: '/loan-payment/paid', icon: 'ledger', roles: [...MGMT, 'accountant', 'loan_officer', 'field_officer', 'collection_officer', 'viewer'] },
+        ],
+      },
+    ],
+  },
+  {
     title: 'Organisation',
     items: [
       { label: 'Employees', path: '/employees', icon: 'users', roles: [...MGMT, 'accountant', 'viewer'] },

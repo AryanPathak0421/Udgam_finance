@@ -142,6 +142,7 @@ const loanRequisitionSchema = new mongoose.Schema(
     decidedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     decidedByCode: String,
     rejectReason: String,
+    disbursedAt: Date, // set when the loan has been paid out (Loan Payment)
     status: { type: String, enum: REQUISITION_STATUS, default: 'pending' },
 
     isDeleted: { type: Boolean, default: false },

@@ -339,7 +339,7 @@ async function buildAdditional({ items, members, capFor, scheme, input, loanDate
 }
 
 /** Takes units out of stock (a product was sold). All or nothing: when one line is short, what was taken is put back. */
-async function reserveStock(lines) {
+export async function reserveStock(lines) {
   const done = [];
   try {
     for (const l of lines) {
@@ -354,7 +354,7 @@ async function reserveStock(lines) {
   }
   return done;
 }
-const releaseStock = (lines) => Promise.all(lines.map((l) => StockProduct.updateOne({ _id: l.id }, { $inc: { stockQty: l.qty } })));
+export const releaseStock = (lines) => Promise.all(lines.map((l) => StockProduct.updateOne({ _id: l.id }, { $inc: { stockQty: l.qty } })));
 
 export async function preview(req, res) {
   const r = await evaluateLoan(calcInput(req.body || {}, null));
@@ -419,6 +419,7 @@ const present = (r, user, { detail = false } = {}) => {
     decidedAt: r.decidedAt || null,
     decidedByCode: r.decidedByCode || '',
     rejectReason: r.rejectReason || '',
+    disbursedAt: r.disbursedAt || null,
   };
   if (detail) {
     Object.assign(out, {
@@ -839,6 +840,9 @@ export async function listRequisitions(req, res) {
   const status = asString(req.query.status);
   if (['pending', 'approved', 'rejected', 'cancelled'].includes(status)) filter.status = status;
   if (mongoose.isValidObjectId(req.query.group)) filter.group = req.query.group;
+  // Loans waiting for their payment (approved, not yet paid) or already paid.
+  if (req.query.disbursed === 'no') filter.disbursedAt = { $exists: false };
+  else if (req.query.disbursed === 'yes') filter.disbursedAt = { $exists: true };
   const kind = asString(req.query.kind);
   if (kind === 'personal') filter.kind = { $in: ['personal', null] };
   else if (REQUISITION_KINDS.includes(kind)) filter.kind = kind;

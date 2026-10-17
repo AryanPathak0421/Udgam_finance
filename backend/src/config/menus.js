@@ -37,6 +37,8 @@ export const MENU_CATALOGUE = [
   { key: '/loan-approval/pending', label: 'Pending Loans', group: 'Loan Approval' },
   { key: '/loan-approval/approved', label: 'Approved Loans', group: 'Loan Approval' },
   { key: '/loan-approval/rejected', label: 'Rejected Loans', group: 'Loan Approval' },
+  { key: '/loan-payment/pending', label: 'Pending Payment', group: 'Loan Payment' },
+  { key: '/loan-payment/paid', label: 'Paid Loans & Receipts', group: 'Loan Payment' },
   { key: '/employees', label: 'Employees', group: 'Organisation' },
   { key: '/customers', label: 'Customers', group: 'Customers' },
   { key: '/kyc', label: 'KYC', group: 'Customers' },

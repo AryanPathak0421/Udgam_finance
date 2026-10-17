@@ -33,6 +33,7 @@ import ProductOrders from './pages/ProductOrders.jsx';
 import { PersonalLoanRequisition, GroupLoanRequisition, BusinessLoanRequisition, ProductLoanRequisition } from './pages/PersonalLoanRequisition.jsx';
 import RequisitionList from './pages/RequisitionList.jsx';
 import { PendingLoans, ApprovedLoans, RejectedLoans } from './pages/LoanApproval.jsx';
+import { PendingPayments, PaidLoans } from './pages/LoanPayment.jsx';
 import GroupMembers from './pages/GroupMembers.jsx';
 import GroupLeaderCommission from './pages/GroupLeaderCommission.jsx';
 import Layout from './components/Layout.jsx';
@@ -55,6 +56,8 @@ const PAGES = {
   '/loan-requisition/business': BusinessLoanRequisition,
   '/loan-requisition/product': ProductLoanRequisition,
   '/loan-requisition/list': RequisitionList,
+  '/loan-payment/pending': PendingPayments,
+  '/loan-payment/paid': PaidLoans,
   '/loan-approval/pending': PendingLoans,
   '/loan-approval/approved': ApprovedLoans,
   '/loan-approval/rejected': RejectedLoans,
