@@ -139,7 +139,9 @@ export const NAV_SECTIONS = [
         icon: 'collect',
         roles: [...MGMT, 'accountant', 'collection_officer', 'field_officer', 'loan_officer', 'viewer'],
         children: [
-          { label: 'EMI Payment', path: '/emi/payment', icon: 'cash', roles: [...MGMT, 'accountant', 'collection_officer', 'field_officer', 'loan_officer', 'viewer'] },
+          { label: 'Single Loan EMI', path: '/emi/single', icon: 'customer', roles: [...MGMT, 'accountant', 'collection_officer', 'field_officer', 'loan_officer', 'viewer'] },
+          { label: 'Group Loan EMI', path: '/emi/group', icon: 'group', roles: [...MGMT, 'accountant', 'collection_officer', 'field_officer', 'loan_officer', 'viewer'] },
+          { label: 'EMI Payment (by Loan ID)', path: '/emi/payment', icon: 'cash', roles: [...MGMT, 'accountant', 'collection_officer', 'field_officer', 'loan_officer', 'viewer'] },
           { label: 'Advance EMI Payment', path: '/emi/advance', icon: 'calendar', roles: [...MGMT, 'accountant', 'collection_officer', 'field_officer', 'loan_officer', 'viewer'] },
           { label: 'EMI Receipts', path: '/emi/receipts', icon: 'ledger', roles: [...MGMT, 'accountant', 'collection_officer', 'field_officer', 'loan_officer', 'viewer'] },
         ],

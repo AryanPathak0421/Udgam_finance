@@ -35,6 +35,7 @@ import RequisitionList from './pages/RequisitionList.jsx';
 import { PendingLoans, ApprovedLoans, RejectedLoans } from './pages/LoanApproval.jsx';
 import { PendingPayments, PaidLoans } from './pages/LoanPayment.jsx';
 import { RegularEmi, AdvanceEmi, EmiReceipts } from './pages/EmiPayment.jsx';
+import { SingleLoanEmi, GroupLoanEmi } from './pages/EmiCollection.jsx';
 import GroupMembers from './pages/GroupMembers.jsx';
 import GroupLeaderCommission from './pages/GroupLeaderCommission.jsx';
 import Layout from './components/Layout.jsx';
@@ -57,6 +58,8 @@ const PAGES = {
   '/loan-requisition/business': BusinessLoanRequisition,
   '/loan-requisition/product': ProductLoanRequisition,
   '/loan-requisition/list': RequisitionList,
+  '/emi/single': SingleLoanEmi,
+  '/emi/group': GroupLoanEmi,
   '/emi/payment': RegularEmi,
   '/emi/advance': AdvanceEmi,
   '/emi/receipts': EmiReceipts,

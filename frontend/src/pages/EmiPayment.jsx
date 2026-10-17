@@ -40,7 +40,7 @@ function printReceipt(p) {
   return true;
 }
 
-function ReceiptDialog({ payment: p, onClose }) {
+export function ReceiptDialog({ payment: p, onClose }) {
   const toast = useToast();
   return (
     <Modal open title={`Receipt ${p.receiptNo}`} onClose={onClose} size="lg"
@@ -87,7 +87,7 @@ function LoanView({ id, advance, canCollect, onBack }) {
   const pool = advance ? leftRows : dueRows;
   const n = Math.min(Math.max(Number(count) || 0, 0), pool.length);
   const chosen = pool.slice(0, n);
-  const amount = chosen.reduce((s, x) => s + x.amount, 0);
+  const amount = chosen.reduce((s, x) => s + x.remaining, 0);
   // Whole due amount by default for a regular EMI.
   useEffect(() => {
     if (!b) return;
@@ -181,7 +181,7 @@ function LoanView({ id, advance, canCollect, onBack }) {
             {chosen.length > 0 && (
               <div className="notice" style={{ margin: '10px 0' }}>
                 {advance ? 'Advance EMI' : 'EMI'}: installments {chosen[0].no}{chosen.length > 1 ? ` to ${chosen[chosen.length - 1].no}` : ''} ({dmy(chosen[0].dueDate)}{chosen.length > 1 ? ` → ${dmy(chosen[chosen.length - 1].dueDate)}` : ''})
-                {' '}· {chosen.length} × {inr(b.emi)} = <strong>{inr(amount)}</strong>
+                {' '}· {chosen.length} installment{chosen.length === 1 ? '' : 's'} = <strong>{inr(amount)}</strong>
               </div>
             )}
             {errors.general && <div className="field-error" role="alert">{errors.general}</div>}
@@ -194,14 +194,15 @@ function LoanView({ id, advance, canCollect, onBack }) {
         <h3 className="section-title">Installments of {b.code}</h3>
         <div className="table-wrap">
           <table className="data-table">
-            <thead><tr><th className="num">No</th><th>Due date</th><th className="num">Amount</th><th>Status</th><th>Receipt</th></tr></thead>
+            <thead><tr><th className="num">No</th><th>Due date</th><th className="num">Amount</th><th className="num">Received</th><th>Status</th><th>Receipt</th></tr></thead>
             <tbody>
               {b.schedule.map((s) => (
                 <tr key={s.no}>
                   <td data-label="No" className="num">{s.no}</td>
                   <td data-label="Due date">{dmy(s.dueDate)}{s.overdueDays > 0 && <div className="muted small">{s.overdueDays} day{s.overdueDays === 1 ? '' : 's'} overdue</div>}</td>
                   <td data-label="Amount" className="num">{inr(s.amount)}</td>
-                  <td data-label="Status"><span className={`badge ${TONE[s.status]}`}>{LABEL[s.status]}</span>{s.paidType === 'advance' && <span className="badge grey" style={{ marginLeft: 4 }}>Advance</span>}</td>
+                  <td data-label="Received" className="num">{s.paid ? inr(s.paid) : '—'}</td>
+                  <td data-label="Status"><span className={`badge ${TONE[s.status]}`}>{LABEL[s.status]}</span>{s.partial && <span className="badge grey" style={{ marginLeft: 4 }}>Part paid</span>}{s.paidType === 'advance' && <span className="badge grey" style={{ marginLeft: 4 }}>Advance</span>}</td>
                   <td data-label="Receipt">{s.receiptNo ? `${s.receiptNo} · ${dmy(s.paidOn)}` : '—'}</td>
                 </tr>
               ))}

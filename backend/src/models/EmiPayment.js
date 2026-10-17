@@ -32,8 +32,8 @@ const emiPaymentSchema = new mongoose.Schema(
 );
 
 emiPaymentSchema.index({ receiptNo: 1 }, { unique: true });
-// An installment of a borrower is paid once (a cancelled payment frees it).
-emiPaymentSchema.index({ loanPayment: 1, memberCode: 1, installments: 1 }, { unique: true, partialFilterExpression: { status: 'paid' } });
+// (An installment can be paid in parts, so it is the total received that is kept within the loan, not a unique index.)
+emiPaymentSchema.index({ loanPayment: 1, memberCode: 1, status: 1 });
 emiPaymentSchema.index({ branch: 1, paidOn: -1 });
 
 export const EmiPayment = mongoose.model('EmiPayment', emiPaymentSchema);

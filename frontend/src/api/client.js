@@ -110,6 +110,8 @@ export const api = {
     search: (q) => request(`/emi/search${qs({ q })}`),
     loan: (id) => request(`/emi/loans/${id}`),
     pay: (data) => request('/emi/pay', { method: 'POST', body: data }),
+    collection: (params) => request(`/emi/collection${qs(params)}`),
+    collect: (data) => request('/emi/collect', { method: 'POST', body: data }),
     payments: (params) => request(`/emi/payments${qs(params)}`),
     cancel: (id, reason) => request(`/emi/payments/${id}/cancel`, { method: 'POST', body: { reason } }),
   },

@@ -18,6 +18,8 @@ const loanPaymentSchema = new mongoose.Schema(
     emiEndDate: { type: Date, required: true }, // last installment
     installments: Number,
     modeLabel: String, // repayment mode (weekly, monthly ...)
+    mode: String, // the same as a key (daily, weekly ...)
+    loanType: String, // personal, business, msme, product or group
     schemeName: String,
     annualRateBp: Number,
     installmentPaise: Number,

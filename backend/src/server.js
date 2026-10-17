@@ -6,6 +6,7 @@ import { User } from './models/User.js';
 import { Member } from './models/Member.js';
 import { generateCode } from './services/codeSequence.js';
 import { StockProduct } from './models/StockProduct.js';
+import { EmiPayment } from './models/EmiPayment.js';
 
 const port = process.env.PORT || 5000;
 
@@ -22,6 +23,7 @@ async function migrate() {
   }
   if (oldProducts.length) console.log(`Updated ${oldProducts.length} stock product(s) to the new product fields`);
   await StockProduct.syncIndexes();
+  await EmiPayment.syncIndexes();
 
   // Every user gets a staff ID (oldest first).
   const users = await User.find({ employeeCode: { $exists: false } }).sort({ createdAt: 1 }).select('_id');

@@ -178,7 +178,7 @@ export async function payLoan(req, res) {
       schedule: sched,
       requisition: r._id, formId: r.formId, kind, branch: r.branch,
       group: r.groupInfo?.code ? { code: r.groupInfo.code, name: r.groupInfo.name } : undefined,
-      paidOn, emiStartDate: start, emiEndDate: end, installments: r.term, modeLabel: MODES[r.mode]?.label || r.mode, schemeName: r.schemeName,
+      paidOn, emiStartDate: start, emiEndDate: end, installments: r.term, modeLabel: MODES[r.mode]?.label || r.mode, mode: r.mode, loanType: kind === 'business' ? r.business?.loanType || 'business' : kind, schemeName: r.schemeName,
       annualRateBp: r.annualRateBp, installmentPaise: r.installmentPaise, payMode, reference: asString(b.reference).slice(0, 60), lines,
       totalAmountPaise: lines.reduce((s, l) => s + l.amountPaise, 0), totalCashPaise: lines.reduce((s, l) => s + l.cashPaise, 0),
       employeeCode: r.employeeCode, createdBy: req.user._id, createdByCode: req.user.employeeCode || '',
