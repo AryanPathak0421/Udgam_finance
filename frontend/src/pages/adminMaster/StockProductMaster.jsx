@@ -7,6 +7,8 @@ import Pagination from '../../components/ui/Pagination.jsx';
 import { EmptyState, ErrorState, PageHeader, Spinner, StatusBadge } from '../../components/ui/Feedback.jsx';
 import { useToast } from '../../components/ui/Toast.jsx';
 import useDebounce from '../../hooks/useDebounce.js';
+import { useAuth } from '../../context/AuthContext.jsx';
+import { canDo } from '../../config/nav.js';
 
 const LIMIT = 25;
 const inr = (n) => `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -93,6 +95,10 @@ export default function StockProductMaster() {
   const [dialog, setDialog] = useState(null);
   const [busy, setBusy] = useState(false);
   const q = useDebounce(search);
+  const { user } = useAuth();
+  const canAdd = canDo(user, '/stock/products', 'add');
+  const canEdit = canDo(user, '/stock/products', 'edit');
+  const canDelete = canDo(user, '/stock/products', 'delete');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -130,7 +136,7 @@ export default function StockProductMaster() {
       <PageHeader
         title="Stock Product Master"
         description="Products in stock that a product loan can be taken for. A product loan picks a product from here."
-        actions={<button className="btn primary" onClick={() => setDialog({ type: 'form' })}>+ Add Product</button>}
+        actions={canAdd ? <button className="btn primary" onClick={() => setDialog({ type: 'form' })}>+ Add Product</button> : null}
       />
       <div className="panel">
         <div className="toolbar">
@@ -163,9 +169,10 @@ export default function StockProductMaster() {
                       <td data-label="Status"><StatusBadge active={p.isActive} /></td>
                       <td data-label="Actions" className="actions-col">
                         <div className="row-actions">
-                          <button className="btn sm" onClick={() => setDialog({ type: 'form', item: p })}>Edit</button>
-                          <button className="btn sm" onClick={() => setDialog({ type: 'status', item: p })}>{p.isActive ? 'Deactivate' : 'Activate'}</button>
-                          <button className="btn sm danger-outline" onClick={() => setDialog({ type: 'delete', item: p })}>Delete</button>
+                          {canEdit && <button className="btn sm" onClick={() => setDialog({ type: 'form', item: p })}>Edit</button>}
+                          {canEdit && <button className="btn sm" onClick={() => setDialog({ type: 'status', item: p })}>{p.isActive ? 'Deactivate' : 'Activate'}</button>}
+                          {canDelete && <button className="btn sm danger-outline" onClick={() => setDialog({ type: 'delete', item: p })}>Delete</button>}
+                          {!canEdit && !canDelete && <span className="muted">View only</span>}
                         </div>
                       </td>
                     </tr>

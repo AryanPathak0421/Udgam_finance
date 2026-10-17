@@ -22,3 +22,13 @@ export async function requireAuth(req, res, next) {
 
 export const requireRole = (...roles) => (req, res, next) =>
   roles.includes(req.user.role) ? next() : res.status(403).json({ message: 'Forbidden' });
+
+// Menu Permission on the API: admin roles always pass; everyone else needs the action (view / add / edit / delete)
+// ticked for the menu in their rank.
+export const requireMenu = (menu, action) => (req, res, next) => {
+  if (['super_admin', 'admin'].includes(req.user.role)) return next();
+  const perms = req.user.rank?.menuPermissions;
+  const row = Array.isArray(perms) ? perms.find((p) => p.menu === menu) : null;
+  if (row && row.view && row[action]) return next();
+  return res.status(403).json({ message: `You do not have permission to ${action} stock products.` });
+};

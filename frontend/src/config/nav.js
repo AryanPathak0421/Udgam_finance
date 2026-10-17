@@ -31,10 +31,16 @@ export const NAV_SECTIONS = [
           { label: 'Loan Calculator', path: '/admin-master/loan-calculator', icon: 'calculator' },
           { label: 'Loan Scheme', path: '/admin-master/loan-schemes', icon: 'layers' },
           { label: 'Account Group Master', path: '/admin-master/account-groups', icon: 'folder' },
-          { label: 'Stock Product Master', path: '/admin-master/stock-products', icon: 'product' },
           { label: 'Ledger Master', path: '/admin-master/ledgers', icon: 'book' },
         ],
       },
+    ],
+  },
+  {
+    title: 'Stock',
+    items: [
+      // Its own module: admins always; other ranks only when it is granted under Menu Permission.
+      { label: 'Stock Product Master', path: '/stock/products', icon: 'product', grantOnly: true },
     ],
   },
   {
@@ -170,6 +176,8 @@ export function canOpenPath(user, path) {
   const roles = item.roles || item.parentRoles;
   const roleOk = !roles || roles.includes(user.role);
   if (ALL_ADMIN.includes(user.role)) return roleOk;
+  // A grant-only module is for admins unless a rank is given the menu.
+  if (item.grantOnly) return Array.isArray(user.menuPermissions) && user.menuPermissions.some((p) => p.menu === path && p.view);
   if (roles && roles.every((r) => ALL_ADMIN.includes(r))) return false;
   if (Array.isArray(user.menuPermissions)) return user.menuPermissions.some((p) => p.menu === path && p.view);
   return roleOk;
@@ -189,3 +197,11 @@ export function navForUser(user) {
 
 
 
+
+/** Whether the user may add / edit / delete on a menu (admins always; others through Menu Permission). */
+export function canDo(user, path, action) {
+  if (!user) return false;
+  if (ALL_ADMIN.includes(user.role)) return true;
+  const row = Array.isArray(user.menuPermissions) ? user.menuPermissions.find((p) => p.menu === path) : null;
+  return Boolean(row && row.view && row[action]);
+}

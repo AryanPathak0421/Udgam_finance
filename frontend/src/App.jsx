@@ -47,7 +47,7 @@ const PAGES = {
   '/members/block-unblock': BorrowerBlock,
   '/loan-requisition/civil-check': CivilCheck,
   '/loan-requisition/personal': PersonalLoanRequisition,
-  '/admin-master/stock-products': StockProductMaster,
+  '/stock/products': StockProductMaster,
   '/loan-requisition/group': GroupLoanRequisition,
   '/loan-requisition/business': BusinessLoanRequisition,
   '/loan-requisition/product': ProductLoanRequisition,

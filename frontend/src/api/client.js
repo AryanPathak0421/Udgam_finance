@@ -105,11 +105,11 @@ export const api = {
     remove: (id) => request(`/civil-checks/${id}`, { method: 'DELETE' }),
   },
   stockProducts: {
-    list: (params) => request(`${AM}/stock-products${qs(params)}`),
-    create: (data) => request(`${AM}/stock-products`, { method: 'POST', body: data }),
-    update: (id, data) => request(`${AM}/stock-products/${id}`, { method: 'PUT', body: data }),
-    setStatus: (id, isActive) => request(`${AM}/stock-products/${id}/status`, { method: 'PATCH', body: { isActive } }),
-    remove: (id) => request(`${AM}/stock-products/${id}`, { method: 'DELETE' }),
+    list: (params) => request(`/stock-products${qs(params)}`),
+    create: (data) => request('/stock-products', { method: 'POST', body: data }),
+    update: (id, data) => request(`/stock-products/${id}`, { method: 'PUT', body: data }),
+    setStatus: (id, isActive) => request(`/stock-products/${id}/status`, { method: 'PATCH', body: { isActive } }),
+    remove: (id) => request(`/stock-products/${id}`, { method: 'DELETE' }),
   },
   groupCommission: {
     report: (params) => request(`/group-leader-commission${qs(params)}`),

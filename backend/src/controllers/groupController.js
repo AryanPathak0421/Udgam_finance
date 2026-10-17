@@ -274,6 +274,9 @@ export async function setGroupStatus(req, res) {
 
 export async function deleteGroup(req, res) {
   const doc = await loadGroup(req);
+  if ((doc.members || []).length > 0) {
+    throw new HttpError(409, `This group has ${doc.members.length} member${doc.members.length === 1 ? '' : 's'} and cannot be deleted. Remove all the members first (Group Master → Group Members), or deactivate the group.`);
+  }
   if (await GroupDisbursement.exists({ group: doc._id })) {
     throw new HttpError(409, 'This group has disbursement history and cannot be deleted. Deactivate it instead.');
   }

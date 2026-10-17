@@ -168,7 +168,7 @@ export default function MenuPermission() {
             Admin and Super Admin users always have full access.
           </div>
 
-          <div className="table-wrap">
+          <div className="table-wrap perm-wrap">
             <table className="data-table perm-table">
               <thead>
                 <tr>
