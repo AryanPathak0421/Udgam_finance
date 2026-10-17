@@ -14,6 +14,9 @@ import { checkGstin, verifyGstin } from '../services/gstVerify.js';
 import { StockProduct } from '../models/StockProduct.js';
 import { CivilCheck } from '../models/CivilCheck.js';
 import { checkPanFormat, kycProviderConfigured } from '../services/kycVerify.js';
+import { takeVerified, consumeChallenge, issueOtp } from '../services/otpChallenges.js';
+import { sendSms } from '../services/sms.js';
+import { verhoeff } from './memberController.js';
 
 const FULL_MOBILE_ROLES = ['super_admin', 'admin', 'accountant'];
 const POPULATE = [{ path: 'branch', select: 'code name' }];
@@ -216,6 +219,16 @@ export async function groupDetail(req, res) {
   if (!g.isActive) issues.push('This group is inactive');
   if (members.length === 0) issues.push('The group has no members. Add members under Group Master → Group Members');
   const running = await runningSchemes(members.map((m) => m._id));
+  const ids = members.map((m) => m._id);
+  const groupLoans = await LoanRequisition.find({ isDeleted: false, kind: 'group', group: g._id, status: { $in: RUNNING }, members: { $in: ids } })
+    .select('formId members amountPaise additionalProducts schemeName');
+  const loanOf = (mid) => {
+    const l = groupLoans.find((x) => x.members.some((id) => String(id) === String(mid)));
+    if (!l) return null;
+    const used = (l.additionalProducts || []).filter((a) => String(a.member) === String(mid)).reduce((s, a) => s + a.valuePaise, 0);
+    const max = Math.floor((l.amountPaise * ADDITIONAL_PRODUCT_PERCENT) / 100);
+    return { requisitionId: l._id, formId: l.formId, schemeName: l.schemeName, amount: l.amountPaise / 100, topUpUsed: used / 100, topUpMax: max / 100, topUpLeft: Math.max(max - used, 0) / 100 };
+  };
 
   const emp = g.employeeCode ? await User.findOne({ employeeCode: g.employeeCode }).select('name') : null;
   res.json({
@@ -235,6 +248,8 @@ export async function groupDetail(req, res) {
         isBlocked: Boolean(m.isBlocked),
         // schemes in which this member still has an unfinished loan
         runningSchemeIds: [...(running.get(String(m._id)) || [])],
+        // the loan this member has running in this group (one per member); more is only a product top-up
+        runningInGroup: loanOf(m._id),
       })),
     },
     issues,
@@ -272,6 +287,52 @@ function additionalEmi(scheme, input, valuePaise, startDate) {
 const cashAfterCharges = (amountPaise, charges) =>
   amountPaise
   - (charges ? Math.round(charges.processingFee * 100) + Math.round(charges.cost * 100) + Math.round(charges.securityAmount * 100) : 0);
+
+/**
+ * Validates product(s) a member of a group loan takes on top of the loan. `capFor(memberId)` is how much (paise)
+ * that member may still take; each member gets one product here.
+ */
+async function buildAdditional({ items, members, capFor, scheme, input, loanDate }) {
+  const out = [];
+  const used = new Map();
+  const seen = new Set();
+  for (const a of items) {
+    const mid = String(a?.member || '');
+    const gm = members.find((x) => String(x._id) === mid);
+    if (!gm) throw invalid({ additional: 'An additional product is for a member who is not getting the loan' });
+    if (seen.has(mid)) throw invalid({ additional: `${gm.code} has more than one additional product` });
+    seen.add(mid);
+    if (!mongoose.isValidObjectId(String(a.stockProduct || ''))) throw invalid({ additional: `Select the product for ${gm.code}` });
+    const p = await StockProduct.findOne({ _id: a.stockProduct, isDeleted: false, isActive: true });
+    if (!p) throw invalid({ additional: `The product chosen for ${gm.code} is not available` });
+    const qty = Number(a.quantity);
+    if (!Number.isInteger(qty) || qty < 1) throw invalid({ additional: `Enter the number of units for ${gm.code}` });
+    used.set(String(p._id), (used.get(String(p._id)) || 0) + qty);
+    if (used.get(String(p._id)) > p.stockQty) throw invalid({ additional: `Only ${p.stockQty} unit${p.stockQty === 1 ? '' : 's'} of ${p.name} in stock` });
+    const valuePaise = p.unitPricePaise * qty;
+    const maxPaise = capFor(mid);
+    if (valuePaise > maxPaise) {
+      throw invalid({ additional: `${gm.code}: the product (₹${valuePaise / 100}) is more than the ${ADDITIONAL_PRODUCT_PERCENT}% of the loan that is allowed (₹${maxPaise / 100})` });
+    }
+    let e;
+    try {
+      e = additionalEmi(scheme, input, valuePaise, loanDate);
+    } catch (err) {
+      throw invalid({ additional: `${gm.code}: ${err.message}` });
+    }
+    out.push({
+      member: gm._id,
+      memberCode: gm.code,
+      memberName: gm.name,
+      product: { code: p.code, name: p.name, unitPricePaise: p.unitPricePaise, quantity: qty },
+      valuePaise,
+      installmentPaise: e.installmentAmount,
+      totalInterestPaise: e.totalInterest,
+      totalPayablePaise: e.totalPayable,
+    });
+  }
+  return out;
+}
 
 export async function preview(req, res) {
   const r = await evaluateLoan(calcInput(req.body || {}, null));
@@ -347,6 +408,9 @@ const present = (r, user, { detail = false } = {}) => {
             civilScore: r.business.civilScore ?? null,
             shopPhoto: r.business.shopPhoto || null,
             bankStatement: r.business.bankStatement || null,
+            itr: r.business.itr || null,
+            agreement: r.business.agreement || null,
+            udyamCertificate: r.business.udyamCertificate || null,
           }
         : null,
       product: r.product?.name
@@ -364,6 +428,13 @@ const present = (r, user, { detail = false } = {}) => {
       })),
       formFrontPhoto: r.formFrontPhoto || null,
       formBackPhoto: r.formBackPhoto || null,
+      memberForms: (r.memberForms || []).map((f) => ({
+        memberCode: f.memberCode,
+        member: f.member,
+        front: f.front || null,
+        back: f.back || null,
+        topUp: Boolean(f.topUp),
+      })),
       previousLoanAmount: rupees(r.previousLoanPaise),
       schemeCode: r.schemeCode,
       rate: r.annualRateBp / 100,
@@ -388,7 +459,7 @@ const UDGAM_RE = /^[A-Z0-9][A-Z0-9/-]{4,29}$/;
 const MAX_PHOTO_CHARS = 300_000;
 const MAX_DOC_CHARS = 1_100_000; // ~800 KB file
 
-async function readBusiness(b, errors, member) {
+async function readBusiness(b, errors, member, req) {
   const x = b.business || {};
   const out = {};
   out.loanType = asString(x.loanType);
@@ -424,10 +495,47 @@ async function readBusiness(b, errors, member) {
   else if (!IMAGE_RE.test(out.shopPhoto)) errors.shopPhoto = 'Shop photo must be a PNG or JPEG image';
   else if (out.shopPhoto.length > MAX_PHOTO_CHARS) errors.shopPhoto = 'Shop photo is too large';
 
-  out.bankStatement = typeof x.bankStatement === 'string' ? x.bankStatement : '';
-  if (!out.bankStatement) errors.bankStatement = 'Upload the bank statement';
-  else if (!DOC_RE.test(out.bankStatement)) errors.bankStatement = 'Bank statement must be a PDF or image';
-  else if (out.bankStatement.length > MAX_DOC_CHARS) errors.bankStatement = 'Bank statement must be 800 KB or smaller';
+  const doc = (field, label, required) => {
+    const v = typeof x[field] === 'string' ? x[field] : '';
+    if (!v) {
+      if (required) errors[field] = `Upload the ${label}`;
+    } else if (!DOC_RE.test(v)) errors[field] = `${label[0].toUpperCase()}${label.slice(1)} must be a PDF or image`;
+    else if (v.length > MAX_DOC_CHARS) errors[field] = `${label[0].toUpperCase()}${label.slice(1)} must be 800 KB or smaller`;
+    out[field] = v;
+  };
+  doc('bankStatement', 'bank statement', true);
+  // Documents of the business: income tax return, shop / business agreement, Udyam certificate (needed for MSME).
+  doc('itr', 'income tax return (ITR)', false);
+  doc('agreement', 'shop / business agreement', false);
+  doc('udyamCertificate', 'Udyam certificate', out.loanType === 'msme');
+
+  // The borrower's Aadhaar number is filled in and the borrower confirms with an OTP sent to the mobile registered on the member.
+  const aadhaar = asString(x.aadhaarNumber).replace(/\s/g, '');
+  if (!/^\d{12}$/.test(aadhaar) || !verhoeff(aadhaar)) errors.aadhaarNumber = 'Enter the 12-digit Aadhaar number';
+  else if (member && aadhaar !== member.aadhaar) errors.aadhaarNumber = 'This is not the Aadhaar number of the borrower';
+  out.aadhaarMatched = Boolean(member && aadhaar === member.aadhaar);
+  out.otpChallenge = member ? await takeVerified(x.otpChallengeId, req.user, 'member_mobile', member.mobile) : null;
+  if (!out.otpChallenge) errors.otp = "Verify the OTP sent to the borrower's registered mobile number";
+  return out;
+}
+
+function checkFormPhoto(value, field, label, errors) {
+  if (typeof value !== 'string' || !value) errors[field] = `${label} is required`;
+  else if (!IMAGE_RE.test(value)) errors[field] = `${label} must be a PNG or JPEG image`;
+  else if (value.length > MAX_PHOTO_CHARS) errors[field] = `${label} is too large`;
+  return value;
+}
+
+/** Front and back form photo of every member getting a loan. */
+function readMemberForms(items, members, errors) {
+  const list = Array.isArray(items) ? items : [];
+  const out = [];
+  for (const m of members) {
+    const f = list.find((x) => String(x?.member) === String(m._id)) || {};
+    const front = checkFormPhoto(f.front, `memberForms.${m._id}.front`, `Form front photo of ${m.code}`, errors);
+    const back = checkFormPhoto(f.back, `memberForms.${m._id}.back`, `Form back photo of ${m.code}`, errors);
+    out.push({ member: m._id, memberCode: m.code, front, back });
+  }
   return out;
 }
 
@@ -485,21 +593,27 @@ export function createRequisition(kind) {
 
     // The application form, front and back.
     const formErrors = {};
-    const formPhoto = (value, field, label) => {
-      if (typeof value !== 'string' || !value) formErrors[field] = `${label} is required`;
-      else if (!IMAGE_RE.test(value)) formErrors[field] = `${label} must be a PNG or JPEG image`;
-      else if (value.length > MAX_PHOTO_CHARS) formErrors[field] = `${label} is too large`;
-      return value;
-    };
-    const formFrontPhoto = formPhoto(b.formFrontPhoto, 'formFrontPhoto', 'Form front photo');
-    const formBackPhoto = formPhoto(b.formBackPhoto, 'formBackPhoto', 'Form back photo');
+    const formPhoto = (value, field, label) => checkFormPhoto(value, field, label, formErrors);
+    // A group loan has one requisition but each member's loan has its own form: front and back photos per member.
+    let formFrontPhoto;
+    let formBackPhoto;
+    let memberForms;
+    if (kind === 'group') {
+      memberForms = readMemberForms(b.memberForms, groupMembers, formErrors);
+    } else {
+      formFrontPhoto = formPhoto(b.formFrontPhoto, 'formFrontPhoto', 'Form front photo');
+      formBackPhoto = formPhoto(b.formBackPhoto, 'formBackPhoto', 'Form back photo');
+    }
     if (Object.keys(formErrors).length) throw invalid(formErrors);
 
     // Business / MSME extras
     let business = null;
+    let otpCh = null;
     if (kind === 'business') {
       const errors = {};
-      business = await readBusiness(b, errors, m);
+      business = await readBusiness(b, errors, m, req);
+      otpCh = business.otpChallenge;
+      delete business.otpChallenge;
       if (!m.pan) {
         throw new HttpError(409, 'The borrower has no PAN. Add the PAN (Borrower Synopsis → Edit details) before a business or MSME loan.', { member: 'The borrower has no PAN' });
       }
@@ -540,6 +654,14 @@ export function createRequisition(kind) {
     }
     if (g) {
       const ids = groupMembers.map((x) => x._id);
+      // Within one group a member can have only one loan at a time; a further loan is a product top-up (up to 25%).
+      const inGroup = await LoanRequisition.find({ isDeleted: false, kind: 'group', group: g._id, status: { $in: RUNNING }, members: { $in: ids } }).select('formId members');
+      const taken = groupMembers.filter((x) => inGroup.some((l) => l.members.some((id) => String(id) === String(x._id))));
+      if (taken.length) {
+        throw new HttpError(409, `${taken.map((x) => x.code).join(', ')} already ha${taken.length > 1 ? 've' : 's'} a running loan in this group. A member can take only one loan in a group; use "Add product loan" for up to ${ADDITIONAL_PRODUCT_PERCENT}% of that loan.`, {
+          memberIds: 'Some selected members already have a loan in this group',
+        });
+      }
       const busy = await runningSchemes(ids);
       const clash = groupMembers.filter((x) => busy.get(String(x._id))?.has(String(scheme._id)));
       if (clash.length) {
@@ -576,45 +698,10 @@ export function createRequisition(kind) {
       throw invalid({ amount: 'The security, processing fee and insurance fee are more than the loan amount' });
     }
     // Group loan: optional product(s) on top of the loan, each up to 25% of the loan amount.
-    const additionalProducts = [];
+    let additionalProducts = [];
     if (kind === 'group' && Array.isArray(b.additional) && b.additional.length) {
       const maxPaise = Math.floor((amountPaise * ADDITIONAL_PRODUCT_PERCENT) / 100);
-      const used = new Map();
-      const seen = new Set();
-      for (const a of b.additional) {
-        const mid = String(a?.member || '');
-        const gm = groupMembers.find((x) => String(x._id) === mid);
-        if (!gm) throw invalid({ additional: 'An additional product is for a member who is not getting the loan' });
-        if (seen.has(mid)) throw invalid({ additional: `${gm.code} has more than one additional product` });
-        seen.add(mid);
-        if (!mongoose.isValidObjectId(String(a.stockProduct || ''))) throw invalid({ additional: `Select the product for ${gm.code}` });
-        const p = await StockProduct.findOne({ _id: a.stockProduct, isDeleted: false, isActive: true });
-        if (!p) throw invalid({ additional: `The product chosen for ${gm.code} is not available` });
-        const qty = Number(a.quantity);
-        if (!Number.isInteger(qty) || qty < 1) throw invalid({ additional: `Enter the number of units for ${gm.code}` });
-        used.set(String(p._id), (used.get(String(p._id)) || 0) + qty);
-        if (used.get(String(p._id)) > p.stockQty) throw invalid({ additional: `Only ${p.stockQty} unit${p.stockQty === 1 ? '' : 's'} of ${p.name} in stock` });
-        const valuePaise = p.unitPricePaise * qty;
-        if (valuePaise > maxPaise) {
-          throw invalid({ additional: `${gm.code}: the product (₹${valuePaise / 100}) is more than ${ADDITIONAL_PRODUCT_PERCENT}% of the loan (₹${maxPaise / 100})` });
-        }
-        let e;
-        try {
-          e = additionalEmi(scheme, r.input, valuePaise, loanDate);
-        } catch (err) {
-          throw invalid({ additional: `${gm.code}: ${err.message}` });
-        }
-        additionalProducts.push({
-          member: gm._id,
-          memberCode: gm.code,
-          memberName: gm.name,
-          product: { code: p.code, name: p.name, unitPricePaise: p.unitPricePaise, quantity: qty },
-          valuePaise,
-          installmentPaise: e.installmentAmount,
-          totalInterestPaise: e.totalInterest,
-          totalPayablePaise: e.totalPayable,
-        });
-      }
+      additionalProducts = await buildAdditional({ items: b.additional, members: groupMembers, capFor: () => maxPaise, scheme, input: r.input, loanDate });
     }
 
     const memberCount = g ? groupMembers.length : undefined;
@@ -657,11 +744,12 @@ export function createRequisition(kind) {
               panVerified: Boolean(m.panVerifiedAt),
               // The Aadhaar OTP check needs a licensed KYC service; it is recorded as not done until one is connected.
               aadhaarOtp: 'not_available',
+              aadhaarMatched: Boolean(business.aadhaarMatched),
+              otpVerifiedAt: otpCh?.verifiedAt,
             },
           }
         : {}),
-      formFrontPhoto,
-      formBackPhoto,
+      ...(kind === 'group' ? { memberForms } : { formFrontPhoto, formBackPhoto }),
       scheme: scheme._id,
       schemeCode: scheme.code,
       schemeName: scheme.name,
@@ -683,6 +771,7 @@ export function createRequisition(kind) {
       createdBy: req.user._id,
       updatedBy: req.user._id,
     });
+    if (otpCh) await consumeChallenge(otpCh);
     await doc.populate(POPULATE);
     await audit(req, {
       action: 'loanRequisition.create',
@@ -767,8 +856,72 @@ export async function gstCheck(req, res) {
 export async function getRequisition(req, res) {
   if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Requisition not found');
   const r = await LoanRequisition.findOne({ _id: req.params.id, isDeleted: false, ...branchFilter(req.user) })
-    .select('+business.shopPhoto +business.bankStatement +formFrontPhoto +formBackPhoto')
+    .select('+business.shopPhoto +business.bankStatement +business.itr +business.agreement +business.udyamCertificate +formFrontPhoto +formBackPhoto +memberForms.front +memberForms.back')
     .populate(POPULATE);
   if (!r) throw new HttpError(404, 'Requisition not found');
   res.json({ requisition: present(r, req.user, { detail: true }) });
+}
+
+/** OTP to the mobile registered on the borrower (the Aadhaar / consent check of a business loan). */
+export async function borrowerOtp(req, res) {
+  if (!mongoose.isValidObjectId(String(req.body?.member || ''))) throw invalid({ member: 'Select the borrower' });
+  const m = await Member.findOne({ _id: req.body.member, isDeleted: false, ...branchFilter(req.user) }).select('mobile name');
+  if (!m) throw new HttpError(404, 'Borrower not found');
+  const { challenge, otp } = await issueOtp({ user: req.user, purpose: 'member_mobile', subject: m.mobile, sentTo: m.mobile });
+  const sms = await sendSms({ to: m.mobile, text: `Udgam Microfinance: OTP ${otp} to confirm your Aadhaar for a loan. Valid for 5 minutes. Do not share this OTP.` });
+  res.json({
+    challengeId: challenge._id,
+    sentTo: maskMobile(m.mobile),
+    expiresAt: challenge.expiresAt,
+    ...(sms.dev && process.env.NODE_ENV !== 'production' ? { devOtp: otp } : {}),
+  });
+}
+
+/**
+ * Product top-up on a running group loan: a member who already has a loan in the group may take goods worth up to
+ * 25% of that loan (in all). Each member's form (front and back) is uploaded with it.
+ */
+export async function addGroupTopUp(req, res) {
+  if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Requisition not found');
+  const r = await LoanRequisition.findOne({ _id: req.params.id, isDeleted: false, kind: 'group', ...branchFilter(req.user) });
+  if (!r) throw new HttpError(404, 'Group loan not found');
+  if (!RUNNING.includes(r.status)) throw new HttpError(409, 'This loan is not running');
+  const b = req.body || {};
+  const items = Array.isArray(b.additional) ? b.additional : [];
+  if (!items.length) throw invalid({ additional: 'Choose a product for at least one member' });
+
+  const g = await Group.findOne({ _id: r.group, isDeleted: false }).populate('members.member', 'code name isBlocked');
+  const loanMembers = (g?.members || []).filter((x) => x.member && r.members.some((id) => String(id) === String(x.member._id))).map((x) => x.member);
+  const blocked = loanMembers.filter((x) => items.some((a) => String(a?.member) === String(x._id)) && x.isBlocked);
+  if (blocked.length) throw new HttpError(409, `Blocked members cannot get a product: ${blocked.map((x) => x.code).join(', ')}`);
+
+  const maxPaise = Math.floor((r.amountPaise * ADDITIONAL_PRODUCT_PERCENT) / 100);
+  const usedBy = (mid) => (r.additionalProducts || []).filter((a) => String(a.member) === String(mid)).reduce((s, a) => s + a.valuePaise, 0);
+  const scheme = await LoanScheme.findById(r.scheme);
+  const today = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
+  const added = await buildAdditional({
+    items,
+    members: loanMembers,
+    capFor: (mid) => Math.max(maxPaise - usedBy(mid), 0),
+    scheme,
+    input: { rate: r.annualRateBp / 100, mode: r.mode, term: r.term },
+    loanDate: today,
+  });
+
+  const formErrors = {};
+  const forms = readMemberForms(b.memberForms, added.map((a) => ({ _id: a.member, code: a.memberCode })), formErrors);
+  if (Object.keys(formErrors).length) throw invalid(formErrors);
+
+  r.additionalProducts.push(...added);
+  r.memberForms.push(...forms.map((f) => ({ ...f, topUp: true, addedAt: new Date() })));
+  r.updatedBy = req.user._id;
+  await r.save();
+  await audit(req, {
+    action: 'loanRequisition.topUp',
+    entity: 'LoanRequisition',
+    entityId: r._id,
+    after: { formId: r.formId, members: added.map((a) => a.memberCode), value: added.reduce((s, a) => s + a.valuePaise, 0) / 100 },
+  });
+  await r.populate(POPULATE);
+  res.status(201).json({ requisition: present(r, req.user, { detail: true }) });
 }

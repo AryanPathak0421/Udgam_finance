@@ -15,6 +15,9 @@ const businessSchema = new mongoose.Schema(
     civilScore: Number,
     shopPhoto: { type: String, select: false },
     bankStatement: { type: String, select: false }, // PDF or image data URL
+    itr: { type: String, select: false }, // income tax return (PDF or image)
+    agreement: { type: String, select: false }, // shop / business agreement
+    udyamCertificate: { type: String, select: false },
   },
   { _id: false }
 );
@@ -91,8 +94,23 @@ const loanRequisitionSchema = new mongoose.Schema(
       panPresent: Boolean,
       panFormatOk: Boolean,
       panVerified: Boolean,
-      aadhaarOtp: { type: String, enum: ['verified', 'not_available'] },
+      aadhaarOtp: { type: String, enum: ['verified', 'not_available'] }, // UIDAI Aadhaar e-KYC
+      aadhaarMatched: Boolean, // the Aadhaar number entered is the one on the member record
+      otpVerifiedAt: Date, // OTP sent to the borrower's registered mobile was confirmed
     },
+
+    // group loan: the filled-in application form of each member, front and back
+    memberForms: [
+      {
+        _id: false,
+        member: { type: mongoose.Schema.Types.ObjectId, ref: 'Member' },
+        memberCode: String,
+        front: { type: String, select: false },
+        back: { type: String, select: false },
+        topUp: Boolean, // the form of a product top-up added later
+        addedAt: Date,
+      },
+    ],
 
     // The filled-in application form, front and back.
     formFrontPhoto: { type: String, select: false },

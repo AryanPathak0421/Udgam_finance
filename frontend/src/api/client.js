@@ -92,6 +92,8 @@ export const api = {
     borrowers: (params) => request(`/loan-requisitions/borrowers${qs(params)}`),
     borrower: (id) => request(`/loan-requisitions/borrowers/${id}`),
     preview: (data) => request('/loan-requisitions/preview', { method: 'POST', body: data }),
+    borrowerOtp: (member) => request('/loan-requisitions/borrower-otp', { method: 'POST', body: { member } }),
+    topUp: (id, data) => request(`/loan-requisitions/${id}/top-up`, { method: 'POST', body: data }),
     create: (kind, data) => request(kind === 'personal' ? '/loan-requisitions' : `/loan-requisitions/${kind}`, { method: 'POST', body: data }),
     list: (params) => request(`/loan-requisitions${qs(params)}`),
     get: (id) => request(`/loan-requisitions/${id}`),

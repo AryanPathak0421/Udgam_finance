@@ -49,7 +49,7 @@ function Detail({ id, onClose }) {
                 : []),
               ...(r.product ? [['Stock product', `${r.product.code} — ${r.product.name}`], ['Units × price', `${r.product.quantity} × ${inr(r.product.unitPrice)}`]] : []),
               ...(r.civilCheck ? [['Civil check', `${r.civilCheck.score} (${r.civilCheck.bureau}, ${r.civilCheck.reportDate})`]] : []),
-              ...(r.verification ? [['PAN', r.verification.panVerified ? 'Verified' : r.verification.panFormatOk ? 'Format valid, holder check not done' : 'Not valid'], ['Aadhaar OTP', r.verification.aadhaarOtp === 'verified' ? 'Verified' : 'Not done (service not connected)']] : []),
+              ...(r.verification ? [['PAN', r.verification.panVerified ? 'Verified' : r.verification.panFormatOk ? 'Format valid, holder check not done' : 'Not valid'], ['Aadhaar number', r.verification.aadhaarMatched ? 'Entered and matches the member record' : 'Not matched'], ['OTP to registered mobile', r.verification.otpVerifiedAt ? `Verified ${new Date(r.verification.otpVerifiedAt).toLocaleString('en-IN')}` : 'Not done'], ['Aadhaar e-KYC (UIDAI)', r.verification.aadhaarOtp === 'verified' ? 'Verified' : 'Not done (service not connected)']] : []),
               ['Scheme', `${r.schemeCode} — ${r.schemeName}`],
               [r.group ? 'Amount per member' : 'Request amount', inr(r.amount)],
               ...(r.group ? [['Group total', inr(r.totalAmount)]] : []),
@@ -66,8 +66,8 @@ function Detail({ id, onClose }) {
               <table className="data-table">
                 <thead><tr><th>Additional product of</th><th>Product</th><th className="num">Units × price</th><th className="num">Value</th><th className="num">EMI</th></tr></thead>
                 <tbody>
-                  {r.additionalProducts.map((a) => (
-                    <tr key={a.memberCode}>
+                  {r.additionalProducts.map((a, i) => (
+                    <tr key={`${a.memberCode}-${i}`}>
                       <td data-label="Member"><strong>{a.memberCode}</strong> {a.memberName}</td>
                       <td data-label="Product">{a.product.name}</td>
                       <td data-label="Units" className="num">{a.product.quantity} × {inr(a.product.unitPrice)}</td>
@@ -87,6 +87,17 @@ function Detail({ id, onClose }) {
               </table>
             </div>
           )}
+          {r.memberForms?.length > 0 ? (
+            r.memberForms.map((f, i) => (
+              <div key={`${f.memberCode}-${i}`} style={{ marginTop: 12 }}>
+                <div className="detail-label">Form of {f.memberCode}{f.topUp ? ' (product loan)' : ''}</div>
+                <div className="stamp-view sign-row">
+                  <div>{f.front ? <img src={f.front} alt={`Form front ${f.memberCode}`} className="stamp-img" /> : <span className="muted">—</span>}</div>
+                  <div>{f.back ? <img src={f.back} alt={`Form back ${f.memberCode}`} className="stamp-img" /> : <span className="muted">—</span>}</div>
+                </div>
+              </div>
+            ))
+          ) : (
           <div className="stamp-view sign-row" style={{ marginTop: 12 }}>
             <div>
               <div className="detail-label">Form — front</div>
@@ -97,6 +108,7 @@ function Detail({ id, onClose }) {
               {r.formBackPhoto ? <img src={r.formBackPhoto} alt="Form back" className="stamp-img" /> : <span className="muted">—</span>}
             </div>
           </div>
+          )}
           {r.business && (
             <div className="stamp-view sign-row" style={{ marginTop: 12 }}>
               <div>
@@ -109,6 +121,12 @@ function Detail({ id, onClose }) {
                   <a className="btn sm" href={r.business.bankStatement} download={`${r.formId}-bank-statement`} target="_blank" rel="noreferrer">Open / download</a>
                 ) : <span className="muted">—</span>}
               </div>
+              {[['ITR', 'itr'], ['Shop / business agreement', 'agreement'], ['Udyam certificate', 'udyamCertificate']].map(([label, k]) => (
+                <div key={k}>
+                  <div className="detail-label">{label}</div>
+                  {r.business[k] ? <a className="btn sm" href={r.business[k]} download={`${r.formId}-${k}`} target="_blank" rel="noreferrer">Open / download</a> : <span className="muted">—</span>}
+                </div>
+              ))}
             </div>
           )}
         </>

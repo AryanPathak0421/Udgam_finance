@@ -15,6 +15,7 @@ const todayISO = () => new Date().toISOString().slice(0, 10);
 const inr = (n) => (n === null || n === undefined || Number.isNaN(n) ? '—' : `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : '');
 const MAX_DOC_BYTES = 800 * 1024;
+const EXTRA_PERCENT_TOPUP = 25;
 // Days in one term unit / one repayment period (the same 30-day month the scheme limits use).
 const UNIT_DAYS = { days: 1, weeks: 7, months: 30 };
 const MODE_DAYS = { daily: 1, weekly: 7, biweekly: 14, monthly: 30, quarterly: 90, halfyearly: 180, yearly: 360 };
@@ -115,6 +116,146 @@ function DocumentField({ id, label, required, value, name, error, onChange }) {
   );
 }
 
+// OTP to the mobile registered on the borrower (business loan: confirms the Aadhaar of the borrower).
+function BorrowerOtp({ member, verified, onVerified, onReset }) {
+  const toast = useToast();
+  const [challenge, setChallenge] = useState(null);
+  const [otp, setOtp] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setChallenge(null);
+    setOtp('');
+    setError('');
+    onReset();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [member]);
+
+  async function send() {
+    setBusy(true);
+    setError('');
+    try {
+      const r = await api.loanRequisitions.borrowerOtp(member);
+      setChallenge(r);
+      setOtp('');
+      toast.success(`OTP sent to ${r.sentTo}`);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function verify() {
+    if (!/^\d{6}$/.test(otp)) return setError('Enter the 6-digit OTP');
+    setBusy(true);
+    setError('');
+    try {
+      await api.members.verifyOtp(challenge.challengeId, otp);
+      onVerified(challenge.challengeId);
+      toast.success('Borrower verified with OTP');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (verified) return <span className="badge green">OTP verified</span>;
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <button type="button" className="btn sm" disabled={busy || !member} onClick={send}>{challenge ? 'Resend OTP' : "Send OTP to the borrower's mobile"}</button>
+        {challenge && (
+          <>
+            <input aria-label="OTP" inputMode="numeric" style={{ width: 110 }} placeholder="6-digit OTP" value={otp} maxLength={6}
+              onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} />
+            <button type="button" className="btn sm primary" disabled={busy} onClick={verify}>Verify</button>
+          </>
+        )}
+      </div>
+      {challenge && <div className="muted small">OTP sent to {challenge.sentTo}{challenge.devOtp ? ` (dev OTP: ${challenge.devOtp})` : ''}</div>}
+      {error && <div className="field-error" role="alert">{error}</div>}
+    </div>
+  );
+}
+
+// A member who already has a loan in the group takes a product loan on it: up to 25% of the running loan.
+function GroupTopUp({ members, stock, onDone }) {
+  const toast = useToast();
+  const [row, setRow] = useState({}); // { memberId: { id, qty, front, back } }
+  const [busy, setBusy] = useState('');
+  const [errors, setErrors] = useState({});
+  const eligible = members.filter((m) => m.runningInGroup && !m.isBlocked);
+  if (!eligible.length) return null;
+  const set = (mid, patch) => setRow((r) => ({ ...r, [mid]: { id: '', qty: '1', front: '', back: '', ...r[mid], ...patch } }));
+
+  async function add(m) {
+    const e = row[m.id] || {};
+    const found = {};
+    if (!e.id) found.additional = 'Select the product';
+    if (!e.front) found.front = 'Upload the front photo of the form';
+    if (!e.back) found.back = 'Upload the back photo of the form';
+    const p = stock.find((x) => x.id === e.id);
+    if (p && p.unitPrice * (Number(e.qty) || 0) > m.runningInGroup.topUpLeft) found.additional = `More than the ${inr(m.runningInGroup.topUpLeft)} that can still be taken`;
+    setErrors((x) => ({ ...x, [m.id]: found }));
+    if (Object.keys(found).length) return;
+    setBusy(m.id);
+    try {
+      await api.loanRequisitions.topUp(m.runningInGroup.requisitionId, {
+        additional: [{ member: m.id, stockProduct: e.id, quantity: Number(e.qty) || 1 }],
+        memberForms: [{ member: m.id, front: e.front, back: e.back }],
+      });
+      toast.success(`Product loan added for ${m.code}`);
+      setRow((r) => ({ ...r, [m.id]: undefined }));
+      onDone();
+    } catch (err) {
+      setErrors((x) => ({ ...x, [m.id]: { additional: err.errors?.additional || err.message, front: err.errors?.[`memberForms.${m.id}.front`], back: err.errors?.[`memberForms.${m.id}.back`] } }));
+    } finally {
+      setBusy('');
+    }
+  }
+
+  return (
+    <div className="panel" style={{ padding: 18, marginBottom: 14 }}>
+      <h3 className="section-title">Product loan on a running group loan</h3>
+      <div className="muted small" style={{ marginBottom: 8 }}>
+        A member can have only one loan in a group. If a member needs more, only a product loan up to {EXTRA_PERCENT_TOPUP}% of the running loan is allowed (for example ₹10,000 → ₹2,500).
+        Upload this loan's own form photos for the member.
+      </div>
+      {eligible.map((m) => {
+        const l = m.runningInGroup;
+        const e = row[m.id] || { id: '', qty: '1', front: '', back: '' };
+        const er = errors[m.id] || {};
+        const p = stock.find((x) => x.id === e.id);
+        const value = p ? Math.round(p.unitPrice * (Number(e.qty) || 0) * 100) / 100 : 0;
+        return (
+          <div key={m.id} className="panel" style={{ padding: 12, marginBottom: 10 }}>
+            <div><strong>{m.code}</strong> — {m.name} <span className="muted">· running loan {l.formId} of {inr(l.amount)} · product loan limit {inr(l.topUpMax)}, left {inr(l.topUpLeft)}</span></div>
+            {l.topUpLeft <= 0 ? <div className="muted small">The product loan limit is used up.</div> : (
+              <div className="form-grid" style={{ marginTop: 8 }}>
+                <FormField id={`tp-${m.id}`} label="Product" error={er.additional}>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <select id={`tp-${m.id}`} value={e.id} onChange={(ev) => set(m.id, { id: ev.target.value })}>
+                      <option value="">{stock.length ? 'Select product' : 'No product in stock'}</option>
+                      {stock.map((s) => <option key={s.id} value={s.id}>{s.name} · {inr(s.unitPrice)}</option>)}
+                    </select>
+                    {e.id && <input aria-label={`Units for ${m.code}`} inputMode="numeric" style={{ width: 64 }} value={e.qty} onChange={(ev) => set(m.id, { qty: ev.target.value.replace(/\D/g, '').slice(0, 4) })} />}
+                  </div>
+                  {p && <div className="small muted">{inr(value)}</div>}
+                </FormField>
+                <PhotoField id={`tpf-${m.id}`} label="Form front photo" required value={e.front} error={er.front} onChange={(v) => set(m.id, { front: v })} />
+                <PhotoField id={`tpb-${m.id}`} label="Form back photo" required value={e.back} error={er.back} onChange={(v) => set(m.id, { back: v })} />
+                <div><button type="button" className="btn primary" disabled={busy === m.id} onClick={() => add(m)}>{busy === m.id ? 'Adding…' : 'Add product loan'}</button></div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ---- the form ---------------------------------------------------------------------------------------------------
 function RequisitionForm({ kind }) {
   const cfg = KINDS[kind];
@@ -134,7 +275,9 @@ function RequisitionForm({ kind }) {
   const [verif, setVerif] = useState(null); // business / MSME: PAN + Aadhaar OTP status
   const [extras, setExtras] = useState({}); // group loan: additional product per member { memberId: { id, qty } }
   const [chosen, setChosen] = useState([]); // group loan: ids of the members who get the loan
-  const [biz, setBiz] = useState({ loanType: '', businessName: '', gstNumber: '', udgamNumber: '', civilScore: '', shopPhoto: '', bankStatement: '', bankStatementName: '' });
+  const [biz, setBiz] = useState({ loanType: '', businessName: '', gstNumber: '', udgamNumber: '', civilScore: '', shopPhoto: '', bankStatement: '', bankStatementName: '', itr: '', itrName: '', agreement: '', agreementName: '', udyamCertificate: '', udyamCertificateName: '', aadhaarNumber: '' });
+  const [otpId, setOtpId] = useState(''); // business loan: OTP sent to the borrower's registered mobile, verified
+  const [memberForms, setMemberForms] = useState({}); // group loan: form photos of each member { memberId: { front, back } }
   const [picked, setPicked] = useState(null);
   const [gstInfo, setGstInfo] = useState(null); // live check of the GST number
   const [detail, setDetail] = useState(null);
@@ -199,7 +342,8 @@ function RequisitionForm({ kind }) {
       const d = isGroup ? await api.loanRequisitions.group(item.id) : await api.loanRequisitions.borrower(item.id);
       setDetail(d);
       setExtras({});
-      if (isGroup) setChosen(d.group.members.filter((x) => !x.isBlocked).map((x) => x.id));
+      setMemberForms({});
+      if (isGroup) setChosen(d.group.members.filter((x) => !x.isBlocked && !x.runningInGroup).map((x) => x.id));
       // A scheme in which the borrower still has an unfinished loan is not offered.
       else if (d.borrower.runningSchemeIds?.includes(form.schemeId)) clearScheme();
       // A group loan is looked after by the group's employee.
@@ -244,7 +388,7 @@ function RequisitionForm({ kind }) {
   const extraMax = Math.floor(amountForLimit * EXTRA_PERCENT) / 100;
   const extraRows = isGroup
     ? (detail?.group?.members || [])
-        .filter((m) => chosen.includes(m.id) && !m.isBlocked && !(form.schemeId && m.runningSchemeIds?.includes(form.schemeId)))
+        .filter((m) => chosen.includes(m.id) && !m.isBlocked && !m.runningInGroup && !(form.schemeId && m.runningSchemeIds?.includes(form.schemeId)))
         .map((m) => {
           const e = extras[m.id];
           const p = e ? stock.find((x) => x.id === e.id) : null;
@@ -323,8 +467,16 @@ function RequisitionForm({ kind }) {
       else if (product && qtyNum > product.stockQty) found.quantity = `Only ${product.stockQty} in stock`;
     }
     if (isBusiness && verif && !verif.pan.present) found.member = 'The borrower has no PAN. Add it first (Borrower Synopsis → Edit details)';
-    if (!form.formFrontPhoto) found.formFrontPhoto = 'Upload the front photo of the form';
-    if (!form.formBackPhoto) found.formBackPhoto = 'Upload the back photo of the form';
+    if (isGroup) {
+      // every member's loan has its own form
+      effective.forEach((m) => {
+        if (!memberForms[m.id]?.front) found[`memberForms.${m.id}.front`] = `Upload the front photo of the form of ${m.code}`;
+        if (!memberForms[m.id]?.back) found[`memberForms.${m.id}.back`] = `Upload the back photo of the form of ${m.code}`;
+      });
+    } else {
+      if (!form.formFrontPhoto) found.formFrontPhoto = 'Upload the front photo of the form';
+      if (!form.formBackPhoto) found.formBackPhoto = 'Upload the back photo of the form';
+    }
     if (isBusiness) {
       if (!biz.loanType) found['business.loanType'] = 'Select Business or MSME';
       if (biz.businessName.trim().length < 2) found['business.businessName'] = 'Enter the business name';
@@ -335,6 +487,9 @@ function RequisitionForm({ kind }) {
       if (!Number.isInteger(c) || c < 300 || c > 900) found['business.civilScore'] = 'Enter the civil score (300 to 900)';
       if (!biz.shopPhoto) found['business.shopPhoto'] = 'Shop photo is required';
       if (!biz.bankStatement) found['business.bankStatement'] = 'Upload the bank statement';
+      if (biz.loanType === 'msme' && !biz.udyamCertificate) found['business.udyamCertificate'] = 'Upload the Udyam certificate';
+      if (!/^\d{12}$/.test(biz.aadhaarNumber)) found['business.aadhaarNumber'] = 'Enter the 12-digit Aadhaar number';
+      if (!otpId) found['business.otp'] = "Verify the OTP sent to the borrower's registered mobile number";
     }
     if (!form.schemeId) found.schemeId = kind === 'product' ? 'Select the product' : 'Select a loan scheme';
     if (!form.amount) found.amount = isGroup ? 'Enter the amount per member' : 'Enter the request amount';
@@ -360,13 +515,14 @@ function RequisitionForm({ kind }) {
         mode: form.mode,
         term: Number(installments),
         rate: form.rate,
-        formFrontPhoto: form.formFrontPhoto,
-        formBackPhoto: form.formBackPhoto,
+        ...(isGroup
+          ? { memberForms: effective.map((m) => ({ member: m.id, front: memberForms[m.id]?.front, back: memberForms[m.id]?.back })) }
+          : { formFrontPhoto: form.formFrontPhoto, formBackPhoto: form.formBackPhoto }),
         ...(isProduct ? { stockProduct: prod.id, quantity: qtyNum } : {}),
         ...(isGroup && extraRows.length ? { additional: extraRows.map((r) => ({ member: r.m.id, stockProduct: r.p.id, quantity: r.qty })) } : {}),
         ...(isGroup ? { group: picked.id, memberIds: effective.map((m) => m.id) } : { member: picked.id }),
         ...(isBusiness
-          ? { business: { loanType: biz.loanType, businessName: biz.businessName.trim(), gstNumber: biz.gstNumber.trim(), udgamNumber: biz.loanType === 'msme' ? biz.udgamNumber.trim() : '', civilScore: Number(biz.civilScore), shopPhoto: biz.shopPhoto, bankStatement: biz.bankStatement } }
+          ? { business: { loanType: biz.loanType, businessName: biz.businessName.trim(), gstNumber: biz.gstNumber.trim(), udgamNumber: biz.loanType === 'msme' ? biz.udgamNumber.trim() : '', civilScore: Number(biz.civilScore), shopPhoto: biz.shopPhoto, bankStatement: biz.bankStatement, itr: biz.itr, agreement: biz.agreement, udyamCertificate: biz.udyamCertificate, aadhaarNumber: biz.aadhaarNumber, otpChallengeId: otpId } }
           : {}),
       };
       const r = await api.loanRequisitions.create(kind, payload);
@@ -388,7 +544,7 @@ function RequisitionForm({ kind }) {
   const visibleSchemes = schemes.filter((s) => !runningIds.includes(s.id));
   const hiddenSchemes = schemes.filter((s) => runningIds.includes(s.id));
   // Group loan: the members that are ticked and can get this loan.
-  const memberOk = (m) => !m.isBlocked && !(form.schemeId && m.runningSchemeIds?.includes(form.schemeId));
+  const memberOk = (m) => !m.isBlocked && !m.runningInGroup && !(form.schemeId && m.runningSchemeIds?.includes(form.schemeId));
   const effective = isGroup && g ? g.members.filter((m) => chosen.includes(m.id) && memberOk(m)) : [];
   const sum = preview?.summary;
   const modeUnit = scheme?.modes.find((m) => m.value === form.mode)?.unit;
@@ -436,10 +592,14 @@ function RequisitionForm({ kind }) {
                 </select>
               </FormField>
             )}
-            <PhotoField id="formFrontPhoto" label="Form front photo" required value={form.formFrontPhoto} error={errors.formFrontPhoto}
-              onChange={(v) => { setForm((f) => ({ ...f, formFrontPhoto: v })); setErrors((er) => ({ ...er, formFrontPhoto: undefined })); }} />
-            <PhotoField id="formBackPhoto" label="Form back photo" required value={form.formBackPhoto} error={errors.formBackPhoto}
-              onChange={(v) => { setForm((f) => ({ ...f, formBackPhoto: v })); setErrors((er) => ({ ...er, formBackPhoto: undefined })); }} />
+            {!isGroup && (
+              <>
+                <PhotoField id="formFrontPhoto" label="Form front photo" required value={form.formFrontPhoto} error={errors.formFrontPhoto}
+                  onChange={(v) => { setForm((f) => ({ ...f, formFrontPhoto: v })); setErrors((er) => ({ ...er, formFrontPhoto: undefined })); }} />
+                <PhotoField id="formBackPhoto" label="Form back photo" required value={form.formBackPhoto} error={errors.formBackPhoto}
+                  onChange={(v) => { setForm((f) => ({ ...f, formBackPhoto: v })); setErrors((er) => ({ ...er, formBackPhoto: undefined })); }} />
+              </>
+            )}
             <div className="span-2">
               {isGroup ? (
                 <Search
@@ -546,7 +706,7 @@ function RequisitionForm({ kind }) {
                                 <td data-label="Code"><strong>{m.code}</strong></td>
                                 <td data-label="Name">{m.name}</td>
                                 <td data-label="Status">
-                                  {m.isBlocked ? <span className="badge danger">Blocked</span> : busy ? <span className="badge grey">Loan in this scheme not finished</span> : <span className="badge green">Eligible</span>}
+                                  {m.isBlocked ? <span className="badge danger">Blocked</span> : m.runningInGroup ? <span className="badge grey">Has loan {m.runningInGroup.formId} in this group — product loan only</span> : busy ? <span className="badge grey">Loan in this scheme not finished</span> : <span className="badge green">Eligible</span>}
                                 </td>
                                 <td data-label="Additional product">
                                   {ok && chosen.includes(m.id) ? (() => {
@@ -589,12 +749,31 @@ function RequisitionForm({ kind }) {
                         </tbody>
                       </table>
                     </div>
+                    {effective.length > 0 && (
+                      <div style={{ marginTop: 14 }}>
+                        <h3 className="section-title">Application form of each member</h3>
+                        <div className="muted small" style={{ marginBottom: 6 }}>The requisition is one, but every member's loan has its own form: upload the front and back photo for each member.</div>
+                        {effective.map((m) => (
+                          <div key={m.id} className="panel" style={{ padding: 12, marginBottom: 10 }}>
+                            <strong>{m.code}</strong> — {m.name}
+                            <div className="form-grid" style={{ marginTop: 6 }}>
+                              <PhotoField id={`mf-${m.id}-front`} label="Form front photo" required value={memberForms[m.id]?.front || ''} error={errors[`memberForms.${m.id}.front`]}
+                                onChange={(v) => { setMemberForms((x) => ({ ...x, [m.id]: { ...x[m.id], front: v } })); setErrors((er) => ({ ...er, [`memberForms.${m.id}.front`]: undefined })); }} />
+                              <PhotoField id={`mf-${m.id}-back`} label="Form back photo" required value={memberForms[m.id]?.back || ''} error={errors[`memberForms.${m.id}.back`]}
+                                onChange={(v) => { setMemberForms((x) => ({ ...x, [m.id]: { ...x[m.id], back: v } })); setErrors((er) => ({ ...er, [`memberForms.${m.id}.back`]: undefined })); }} />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </>
             )}
           </div>
         )}
+
+        {isGroup && g && <GroupTopUp members={g.members} stock={stock} onDone={() => pick(picked)} />}
 
         {isBusiness && (
           <div className="panel" style={{ padding: 18, marginBottom: 14 }}>
@@ -614,6 +793,21 @@ function RequisitionForm({ kind }) {
                           : verif.pan.verified ? <span className="badge green">Verified</span>
                             : verif.pan.formatOk ? <span className="badge grey">Format valid · holder check not done (PAN service not connected)</span>
                               : <span className="badge danger">PAN is not valid</span>}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td>Aadhaar number</td>
+                      <td>
+                        <input aria-label="Aadhaar number" inputMode="numeric" maxLength={12} placeholder="12-digit Aadhaar number" value={biz.aadhaarNumber}
+                          onChange={(e) => { setBiz((x) => ({ ...x, aadhaarNumber: e.target.value.replace(/\D/g, '').slice(0, 12) })); setErrors((er) => ({ ...er, 'business.aadhaarNumber': undefined })); }} />
+                        {errors['business.aadhaarNumber'] && <div className="field-error" role="alert">{errors['business.aadhaarNumber']}</div>}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td>OTP to registered mobile</td>
+                      <td>
+                        <BorrowerOtp member={picked.id} verified={Boolean(otpId)} onVerified={setOtpId} onReset={() => setOtpId('')} />
+                        {errors['business.otp'] && <div className="field-error" role="alert">{errors['business.otp']}</div>}
                       </td>
                     </tr>
                     <tr>
@@ -651,6 +845,12 @@ function RequisitionForm({ kind }) {
                 onChange={(v) => { setBiz((x) => ({ ...x, shopPhoto: v })); setErrors((er) => ({ ...er, 'business.shopPhoto': undefined })); }} />
               <DocumentField id="bankStatement" label="Bank statement" required value={biz.bankStatement} name={biz.bankStatementName} error={errors['business.bankStatement']}
                 onChange={(v, n) => { setBiz((x) => ({ ...x, bankStatement: v, bankStatementName: n })); setErrors((er) => ({ ...er, 'business.bankStatement': undefined })); }} />
+              <DocumentField id="itr" label="ITR (income tax return)" value={biz.itr} name={biz.itrName} error={errors['business.itr']}
+                onChange={(v, n) => { setBiz((x) => ({ ...x, itr: v, itrName: n })); setErrors((er) => ({ ...er, 'business.itr': undefined })); }} />
+              <DocumentField id="agreement" label="Shop / business agreement" value={biz.agreement} name={biz.agreementName} error={errors['business.agreement']}
+                onChange={(v, n) => { setBiz((x) => ({ ...x, agreement: v, agreementName: n })); setErrors((er) => ({ ...er, 'business.agreement': undefined })); }} />
+              <DocumentField id="udyamCertificate" label="Udyam certificate" required={biz.loanType === 'msme'} value={biz.udyamCertificate} name={biz.udyamCertificateName} error={errors['business.udyamCertificate']}
+                onChange={(v, n) => { setBiz((x) => ({ ...x, udyamCertificate: v, udyamCertificateName: n })); setErrors((er) => ({ ...er, 'business.udyamCertificate': undefined })); }} />
             </div>
           </div>
         )}
