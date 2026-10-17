@@ -413,6 +413,12 @@ const present = (r, user, { detail = false } = {}) => {
     status: r.status,
     employeeCode: r.employeeCode,
     createdAt: r.createdAt,
+    schemeId: r.scheme?._id || r.scheme,
+    rate: r.annualRateBp / 100,
+    requestedAmount: r.requestedAmountPaise ? rupees(r.requestedAmountPaise) : null,
+    decidedAt: r.decidedAt || null,
+    decidedByCode: r.decidedByCode || '',
+    rejectReason: r.rejectReason || '',
   };
   if (detail) {
     Object.assign(out, {
@@ -832,6 +838,7 @@ export async function listRequisitions(req, res) {
   if (mongoose.isValidObjectId(req.query.branch)) filter.branch = req.query.branch;
   const status = asString(req.query.status);
   if (['pending', 'approved', 'rejected', 'cancelled'].includes(status)) filter.status = status;
+  if (mongoose.isValidObjectId(req.query.group)) filter.group = req.query.group;
   const kind = asString(req.query.kind);
   if (kind === 'personal') filter.kind = { $in: ['personal', null] };
   else if (REQUISITION_KINDS.includes(kind)) filter.kind = kind;
@@ -865,8 +872,8 @@ export async function deleteRequisition(req, res) {
   r.isDeleted = true;
   r.updatedBy = req.user._id;
   await r.save();
-  // The sale is undone, so the units go back into stock.
-  const back = [
+  // The sale is undone, so the units go back into stock (a rejected requisition has already returned them).
+  const back = r.status !== 'pending' ? [] : [
     ...(r.product?.code ? [{ code: r.product.code, qty: r.product.quantity }] : []),
     ...(r.additionalProducts || []).map((a) => ({ code: a.product?.code, qty: a.product?.quantity })),
   ].filter((x) => x.code && x.qty > 0);
@@ -972,4 +979,90 @@ export async function addGroupTopUp(req, res) {
   });
   await r.populate(POPULATE);
   res.status(201).json({ requisition: present(r, req.user, { detail: true }) });
+}
+
+// ---- loan approval (branch manager / admin) --------------------------------------------------------------------
+async function loadForDecision(req) {
+  if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Requisition not found');
+  const r = await LoanRequisition.findOne({ _id: req.params.id, isDeleted: false, ...branchFilter(req.user) });
+  if (!r) throw new HttpError(404, 'Requisition not found');
+  if (r.status !== 'pending') throw new HttpError(409, `This requisition is already ${r.status}`);
+  return r;
+}
+
+/**
+ * Approves a pending requisition. The loan amount can be edited first (not for a product loan, whose amount is the
+ * value of the goods): the EMI, charges and cash are worked out again with the scheme's rules.
+ */
+export async function approveRequisition(req, res) {
+  const r = await loadForDecision(req);
+  const kind = r.kind || 'personal';
+  const given = req.body?.amount;
+  const edited = given !== undefined && given !== null && String(given).trim() !== '';
+  if (edited) {
+    const target = Math.round(Number(given) * 100);
+    if (!Number.isFinite(target) || target < 100) throw invalid({ amount: 'Enter a valid loan amount' });
+    if (target !== r.amountPaise) {
+      if (kind === 'product') throw invalid({ amount: 'The amount of a product loan is the value of the goods and cannot be edited' });
+      const ev = await evaluateLoan({
+        schemeId: String(r.scheme), amount: String(target / 100), rate: String(r.annualRateBp / 100), mode: r.mode, term: r.term, startDate: dateOnly(r.loanDate),
+      });
+      const cash = cashAfterCharges(target, ev.charges);
+      if (cash <= 0) throw invalid({ amount: 'The security, processing fee and insurance fee are more than the loan amount' });
+      // A product taken on top of a group loan stays within 25% of the (new) loan.
+      if (kind === 'group') {
+        const cap = Math.floor((target * ADDITIONAL_PRODUCT_PERCENT) / 100);
+        const over = (r.additionalProducts || []).filter((a) => (r.additionalProducts || []).filter((x) => String(x.member) === String(a.member)).reduce((sum, x) => sum + x.valuePaise, 0) > cap);
+        if (over.length) {
+          throw invalid({ amount: `With this amount a member's product (${over[0].memberCode}) is more than ${ADDITIONAL_PRODUCT_PERCENT}% of the loan (₹${cap / 100}). Use a higher amount.` });
+        }
+      }
+      if (!r.requestedAmountPaise) r.requestedAmountPaise = r.amountPaise;
+      r.amountPaise = target;
+      r.installmentPaise = Math.round(ev.summary.installmentAmount * 100);
+      r.totalInterestPaise = Math.round(ev.summary.totalInterest * 100);
+      r.totalPayablePaise = Math.round(ev.summary.totalPayable * 100);
+      r.processingFeePaise = ev.charges ? Math.round(ev.charges.processingFee * 100) : 0;
+      r.insuranceFeePaise = ev.charges ? Math.round(ev.charges.cost * 100) : 0;
+      r.securityAmountPaise = ev.charges ? Math.round(ev.charges.securityAmount * 100) : 0;
+      r.cashPaise = cash;
+      if (kind === 'group') r.totalAmountPaise = target * (r.memberCount || r.members.length);
+    }
+  }
+  r.status = 'approved';
+  r.decidedAt = new Date();
+  r.decidedBy = req.user._id;
+  r.decidedByCode = req.user.employeeCode || '';
+  r.updatedBy = req.user._id;
+  await r.save();
+  await r.populate(POPULATE);
+  await audit(req, {
+    action: 'loanRequisition.approve',
+    entity: 'LoanRequisition',
+    entityId: r._id,
+    after: { formId: r.formId, amount: r.amountPaise / 100, ...(r.requestedAmountPaise ? { requestedAmount: r.requestedAmountPaise / 100 } : {}) },
+  });
+  res.json({ requisition: present(r, req.user, { detail: true }) });
+}
+
+/** Rejects a pending requisition (a reason is required). Goods of a product loan go back into stock. */
+export async function rejectRequisition(req, res) {
+  const r = await loadForDecision(req);
+  const reason = asString(req.body?.reason);
+  if (reason.length < 3 || reason.length > 200) throw invalid({ reason: 'Enter the reason for rejection (3–200 characters)' });
+  r.status = 'rejected';
+  r.rejectReason = reason;
+  r.decidedAt = new Date();
+  r.decidedBy = req.user._id;
+  r.decidedByCode = req.user.employeeCode || '';
+  r.updatedBy = req.user._id;
+  await r.save();
+  const back = [
+    ...(r.product?.code ? [{ code: r.product.code, qty: r.product.quantity }] : []),
+    ...(r.additionalProducts || []).map((a) => ({ code: a.product?.code, qty: a.product?.quantity })),
+  ].filter((x) => x.code && x.qty > 0);
+  await Promise.all(back.map((x) => StockProduct.updateOne({ code: x.code }, { $inc: { stockQty: x.qty } })));
+  await r.populate(POPULATE);
+  await audit(req, { action: 'loanRequisition.reject', entity: 'LoanRequisition', entityId: r._id, after: { formId: r.formId, reason } });
+  res.json({ requisition: present(r, req.user, { detail: true }) });
 }

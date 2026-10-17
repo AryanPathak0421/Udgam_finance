@@ -135,6 +135,13 @@ const loanRequisitionSchema = new mongoose.Schema(
     securityType: String,
 
     employeeCode: { type: String, required: true },
+    // Loan approval (branch manager / admin): who decided and when, the amount first asked for when it was edited,
+    // and the reason of a rejection.
+    requestedAmountPaise: Number,
+    decidedAt: Date,
+    decidedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    decidedByCode: String,
+    rejectReason: String,
     status: { type: String, enum: REQUISITION_STATUS, default: 'pending' },
 
     isDeleted: { type: Boolean, default: false },

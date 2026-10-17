@@ -16,7 +16,7 @@ const inr = (n) => (n === null || n === undefined ? '—' : `₹${Number(n).toLo
 const TONE = { pending: 'grey', approved: 'green', rejected: 'danger', cancelled: 'grey' };
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : '');
 
-function Detail({ id, onClose }) {
+export function Detail({ id, onClose }) {
   const [r, setR] = useState(null);
   const [error, setError] = useState('');
   useEffect(() => {
@@ -30,7 +30,10 @@ function Detail({ id, onClose }) {
         <>
           <DetailList
             items={[
-              ['Form ID', r.formId], ['Type', r.kindLabel], ['Status', cap(r.status)], ['Branch', r.branch?.name], ['Loan date', r.loanDate],
+              ['Form ID', r.formId], ['Type', r.kindLabel], ['Status', cap(r.status)],
+              ...(r.decidedAt ? [[`${cap(r.status)} on`, `${new Date(r.decidedAt).toLocaleString('en-IN')}${r.decidedByCode ? ` by ${r.decidedByCode}` : ''}`]] : []),
+              ...(r.rejectReason ? [['Reason for rejection', r.rejectReason]] : []),
+              ...(r.requestedAmount ? [['Amount asked (before edit)', inr(r.requestedAmount)]] : []), ['Branch', r.branch?.name], ['Loan date', r.loanDate],
               [r.group ? 'Group' : 'Borrower', who(r)],
               ...(r.borrower
                 ? [

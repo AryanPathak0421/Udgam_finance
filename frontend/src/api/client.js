@@ -98,6 +98,8 @@ export const api = {
     list: (params) => request(`/loan-requisitions${qs(params)}`),
     get: (id) => request(`/loan-requisitions/${id}`),
     remove: (id) => request(`/loan-requisitions/${id}`, { method: 'DELETE' }),
+    approve: (id, amount) => request(`/loan-requisitions/${id}/approve`, { method: 'POST', body: { amount } }),
+    reject: (id, reason) => request(`/loan-requisitions/${id}/reject`, { method: 'POST', body: { reason } }),
   },
   civilChecks: {
     member: (memberId) => request(`/civil-checks/member/${memberId}`),

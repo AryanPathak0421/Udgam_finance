@@ -32,6 +32,7 @@ import StockProductMaster from './pages/adminMaster/StockProductMaster.jsx';
 import ProductOrders from './pages/ProductOrders.jsx';
 import { PersonalLoanRequisition, GroupLoanRequisition, BusinessLoanRequisition, ProductLoanRequisition } from './pages/PersonalLoanRequisition.jsx';
 import RequisitionList from './pages/RequisitionList.jsx';
+import { PendingLoans, ApprovedLoans, RejectedLoans } from './pages/LoanApproval.jsx';
 import GroupMembers from './pages/GroupMembers.jsx';
 import GroupLeaderCommission from './pages/GroupLeaderCommission.jsx';
 import Layout from './components/Layout.jsx';
@@ -54,6 +55,9 @@ const PAGES = {
   '/loan-requisition/business': BusinessLoanRequisition,
   '/loan-requisition/product': ProductLoanRequisition,
   '/loan-requisition/list': RequisitionList,
+  '/loan-approval/pending': PendingLoans,
+  '/loan-approval/approved': ApprovedLoans,
+  '/loan-approval/rejected': RejectedLoans,
   '/group-master/create': GroupCreate,
   '/group-master/list': Groups,
   '/group-master/members': GroupMembers,

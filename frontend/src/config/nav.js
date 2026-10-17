@@ -100,6 +100,22 @@ export const NAV_SECTIONS = [
     ],
   },
   {
+    title: 'Loan Approval',
+    items: [
+      {
+        label: 'Loan Approval',
+        path: '/loan-approval',
+        icon: 'check',
+        roles: [...MGMT, 'loan_officer', 'field_officer', 'accountant', 'viewer'],
+        children: [
+          { label: 'Pending Loans', path: '/loan-approval/pending', icon: 'calendar', roles: MGMT },
+          { label: 'Approved Loans', path: '/loan-approval/approved', icon: 'check', roles: [...MGMT, 'loan_officer', 'field_officer', 'accountant', 'viewer'] },
+          { label: 'Rejected Loans', path: '/loan-approval/rejected', icon: 'alert', roles: [...MGMT, 'loan_officer', 'field_officer', 'accountant', 'viewer'] },
+        ],
+      },
+    ],
+  },
+  {
     title: 'Organisation',
     items: [
       { label: 'Employees', path: '/employees', icon: 'users', roles: [...MGMT, 'accountant', 'viewer'] },
