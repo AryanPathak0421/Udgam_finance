@@ -117,6 +117,16 @@ function ReviewDialog({ id, onClose, onDone }) {
               ]}
             />
 
+            {r.batchId && r.batchCount > 1 && (
+              <div className="notice" style={{ marginTop: 10 }}>
+                This loan is one of the {r.batchCount} member loans of requisition <strong>{r.batchFormId}</strong>. Each member has her own scheme and amount.
+                {!rejecting && (
+                  <div style={{ marginTop: 6 }}>
+                    <button className="btn sm primary" disabled={busy} onClick={() => act(async () => { const x = await api.loanRequisitions.approveBatch(r.batchId); toast.info?.(`${x.approved} approved`); }, 'All pending loans of this requisition approved')}>Approve all pending loans of {r.batchFormId}</button>
+                  </div>
+                )}
+              </div>
+            )}
             <h3 className="section-title" style={{ marginTop: 14 }}>Offline application form</h3>
             {forms.map((x) => (
               <div key={x.label} style={{ marginBottom: 10 }}>
@@ -287,7 +297,7 @@ function LoanApproval({ status, fixedKind = '' }) {
                 <tbody>
                   {data.items.map((r) => (
                     <tr key={r.id}>
-                      <td data-label="Form ID"><strong>{r.formId}</strong></td>
+                      <td data-label="Form ID"><strong>{r.formId}</strong>{r.batchCount > 1 && <div className="muted small">Batch {r.batchFormId} · {r.batchCount} members</div>}</td>
                       <td data-label="Loan date">{r.loanDate}</td>
                       <td data-label="Type">{r.kindLabel}</td>
                       <td data-label="Borrower">{r.subjectCode} — {r.subjectName}</td>
@@ -295,7 +305,7 @@ function LoanApproval({ status, fixedKind = '' }) {
                       <td data-label="Scheme">{r.schemeName}</td>
                       <td data-label="Amount" className="num">
                         {inr(r.amount)}
-                        {r.kind === 'group' && <div className="muted small">× {r.memberCount} = {inr(r.totalAmount)}</div>}
+                        {r.kind === 'group' && r.memberCount > 1 && <div className="muted small">× {r.memberCount} = {inr(r.totalAmount)}</div>}
                         {r.requestedAmount && <div className="muted small">asked {inr(r.requestedAmount)}</div>}
                       </td>
                       <td data-label="EMI" className="num">{inr(r.emi)}</td>

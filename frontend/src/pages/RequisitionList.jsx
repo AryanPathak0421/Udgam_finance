@@ -225,7 +225,7 @@ export default function RequisitionList() {
                       <td data-label="Scheme">{r.schemeName}</td>
                       <td data-label="Amount" className="num">
                         {inr(r.amount)}
-                        {r.kind === 'group' && <div className="muted small">× {r.memberCount} = {inr(r.totalAmount)}</div>}
+                        {r.kind === 'group' && r.memberCount > 1 && <div className="muted small">× {r.memberCount} = {inr(r.totalAmount)}</div>}
                       </td>
                       <td data-label="Cash" className="num">{r.totalCash === null || r.totalCash === undefined ? '—' : inr(r.totalCash)}</td>
                       <td data-label="EMI" className="num">{inr(r.emi)}</td>

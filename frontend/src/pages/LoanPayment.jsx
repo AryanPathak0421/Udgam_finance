@@ -323,7 +323,7 @@ export function PendingPayments() {
                       <td data-label="Borrower">{r.subjectCode} — {r.subjectName}</td>
                       <td data-label="Branch">{r.branch?.name || '—'}</td>
                       <td data-label="Scheme">{r.schemeName}</td>
-                      <td data-label="Amount" className="num">{inr(r.amount)}{r.kind === 'group' && <div className="muted small">× {r.memberCount} = {inr(r.totalAmount)}</div>}</td>
+                      <td data-label="Amount" className="num">{inr(r.amount)}{r.kind === 'group' && r.memberCount > 1 && <div className="muted small">× {r.memberCount} = {inr(r.totalAmount)}</div>}</td>
                       <td data-label="Cash" className="num">{r.kind === 'product' ? '—' : inr(r.totalCash)}</td>
                       <td data-label="Actions" className="actions-col">{canPay ? <button className="btn sm primary" onClick={() => setPayId(r.id)}>Pay</button> : <span className="muted">Waiting</span>}</td>
                     </tr>

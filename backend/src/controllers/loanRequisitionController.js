@@ -157,7 +157,7 @@ export async function borrowerDetail(req, res) {
 
   const issues = [];
   if (m.isBlocked) issues.push('This borrower is blocked');
-  if (!m.guarantor?.name) issues.push('Add the guarantor first (Member Details → Guarantor Detail)');
+  issues.push(...notReady(m));
   // Schemes this borrower already has an unfinished loan in are not offered again.
   const running = (await runningSchemes([m._id])).get(String(m._id));
 
@@ -208,9 +208,26 @@ export async function groups(req, res) {
   });
 }
 
+// What a member needs before a loan can be asked for.
+const MEMBER_PICK = 'code name isBlocked kycKeys kycDocs nominee.name nominee.sameAsGuarantor guarantor.name';
+export function notReady(m) {
+  const out = [];
+  if (!m.guarantor?.name) out.push('Add the guarantor first (Member Details → Guarantor & Nominee)');
+  if (!m.nominee?.name) out.push('Add the nominee first (Member Details → Guarantor & Nominee)');
+  // every uploaded document has to be approved (a nominee copied from the guarantor is covered by the guarantor's documents)
+  const keys = (m.kycKeys || []).filter((k) => !(k.startsWith('nominee.') && m.nominee?.sameAsGuarantor));
+  const state = new Map((m.kycDocs || []).map((d) => [d.key, d.status]));
+  const rejected = keys.filter((k) => state.get(k) === 'rejected').length;
+  const pending = keys.filter((k) => !state.get(k) || state.get(k) === 'pending').length;
+  if (rejected || pending) {
+    out.push(`Documents are not verified (${[rejected ? `${rejected} rejected` : '', pending ? `${pending} pending approval` : ''].filter(Boolean).join(', ')}). They must be approved under KYC Approval; rejected ones are uploaded again under KYC Re-upload`);
+  }
+  return out;
+}
+
 async function loadGroup(req, id) {
   if (!mongoose.isValidObjectId(id)) throw new HttpError(404, 'Group not found');
-  const g = await Group.findOne({ _id: id, isDeleted: false, ...branchFilter(req.user) }).populate('members.member', 'code name isBlocked');
+  const g = await Group.findOne({ _id: id, isDeleted: false, ...branchFilter(req.user) }).populate('members.member', MEMBER_PICK);
   if (!g) throw new HttpError(404, 'Group not found');
   return g;
 }
@@ -249,6 +266,8 @@ export async function groupDetail(req, res) {
         code: m.code,
         name: m.name,
         isBlocked: Boolean(m.isBlocked),
+        // why this member cannot be given a loan yet (documents, guarantor, nominee)
+        issues: notReady(m),
         // schemes in which this member still has an unfinished loan
         runningSchemeIds: [...(running.get(String(m._id)) || [])],
         // the loan this member has running in this group (one per member); more is only a product top-up
@@ -394,6 +413,9 @@ const present = (r, user, { detail = false } = {}) => {
     id: r._id,
     kind,
     kindLabel: KIND_LABEL[kind],
+    batchId: r.batchId || null,
+    batchFormId: r.batchFormId || '',
+    batchCount: r.batchCount || 0,
     formId: r.formId,
     branch: r.branch?._id ? { id: r.branch._id, code: r.branch.code, name: r.branch.name } : null,
     loanDate: dateOnly(r.loanDate),
@@ -617,7 +639,8 @@ export function createRequisition(kind) {
       m = await Member.findOne({ _id: b.member, isDeleted: false, branch: branchId });
       if (!m) throw invalid({ member: 'Borrower not found in this branch' });
       if (m.isBlocked) throw new HttpError(409, 'This borrower is blocked', { member: 'This borrower is blocked' });
-      if (!m.guarantor?.name) throw new HttpError(409, 'The borrower has no guarantor yet', { member: 'Add the guarantor first' });
+      const reasons = notReady(m);
+      if (reasons.length) throw new HttpError(409, `${m.code} is not ready for a loan: ${reasons.join('; ')}`, { member: reasons[0] });
     }
 
     // The application form, front and back.
@@ -998,10 +1021,8 @@ async function loadForDecision(req) {
  * Approves a pending requisition. The loan amount can be edited first (not for a product loan, whose amount is the
  * value of the goods): the EMI, charges and cash are worked out again with the scheme's rules.
  */
-export async function approveRequisition(req, res) {
-  const r = await loadForDecision(req);
+async function applyApproval(req, r, b) {
   const kind = r.kind || 'personal';
-  const b = req.body || {};
   const has = (v) => v !== undefined && v !== null && String(v).trim() !== '';
   // What the branch manager may change before approving: the scheme and, with it, amount, mode, installments and rate.
   const schemeId = has(b.schemeId) ? String(b.schemeId) : String(r.scheme);
@@ -1082,14 +1103,16 @@ export async function approveRequisition(req, res) {
     entityId: r._id,
     after: { formId: r.formId, amount: r.amountPaise / 100, scheme: r.schemeCode, ...(r.requestedAmountPaise ? { requestedAmount: r.requestedAmountPaise / 100 } : {}), ...(r.requestedSchemeName ? { requestedScheme: r.requestedSchemeName } : {}) },
   });
+  return r;
+}
+
+export async function approveRequisition(req, res) {
+  const r = await loadForDecision(req);
+  await applyApproval(req, r, req.body || {});
   res.json({ requisition: present(r, req.user, { detail: true }) });
 }
 
-/** Rejects a pending requisition (a reason is required). Goods of a product loan go back into stock. */
-export async function rejectRequisition(req, res) {
-  const r = await loadForDecision(req);
-  const reason = asString(req.body?.reason);
-  if (reason.length < 3 || reason.length > 200) throw invalid({ reason: 'Enter the reason for rejection (3–200 characters)' });
+async function applyRejection(req, r, reason) {
   r.status = 'rejected';
   r.rejectReason = reason;
   r.decidedAt = new Date();
@@ -1104,5 +1127,198 @@ export async function rejectRequisition(req, res) {
   await Promise.all(back.map((x) => StockProduct.updateOne({ code: x.code }, { $inc: { stockQty: x.qty } })));
   await r.populate(POPULATE);
   await audit(req, { action: 'loanRequisition.reject', entity: 'LoanRequisition', entityId: r._id, after: { formId: r.formId, reason } });
+  return r;
+}
+const readReason = (req) => {
+  const reason = asString(req.body?.reason);
+  if (reason.length < 3 || reason.length > 200) throw invalid({ reason: 'Enter the reason for rejection (3–200 characters)' });
+  return reason;
+};
+
+/** Rejects a pending requisition (a reason is required). Goods of a product loan go back into stock. */
+export async function rejectRequisition(req, res) {
+  const r = await loadForDecision(req);
+  await applyRejection(req, r, readReason(req));
   res.json({ requisition: present(r, req.user, { detail: true }) });
+}
+
+// A group requisition is one submission with a loan for each member (a batch). The approver can decide the whole batch at once.
+async function pendingOfBatch(req) {
+  if (!mongoose.isValidObjectId(req.params.batchId)) throw new HttpError(404, 'Batch not found');
+  const docs = await LoanRequisition.find({ batchId: req.params.batchId, isDeleted: false, status: 'pending', ...branchFilter(req.user) }).sort({ formId: 1 });
+  if (!docs.length) throw new HttpError(404, 'No pending loan in this batch');
+  return docs;
+}
+export async function approveBatch(req, res) {
+  const docs = await pendingOfBatch(req);
+  const results = [];
+  for (const d of docs) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await applyApproval(req, d, {});
+      results.push({ formId: d.formId, ok: true });
+    } catch (err) {
+      results.push({ formId: d.formId, ok: false, message: err.message });
+    }
+  }
+  res.json({ results, approved: results.filter((x) => x.ok).length, failed: results.filter((x) => !x.ok).length });
+}
+export async function rejectBatch(req, res) {
+  const reason = readReason(req);
+  const docs = await pendingOfBatch(req);
+  for (const d of docs) {
+    // eslint-disable-next-line no-await-in-loop
+    await applyRejection(req, d, reason);
+  }
+  res.json({ rejected: docs.length });
+}
+
+/**
+ * Group loan requisition: one submission, but every member has her own loan: scheme, amount (mode, installments, rate)
+ * and application form photos. Each member's loan is its own requisition record (form ID LRQ000123-1, -2 ...) in one batch.
+ * Made for today only (no back date).
+ */
+export async function createGroupRequisition(req, res) {
+  const b = req.body || {};
+  const branchId = String(b.branch || '');
+  if (!mongoose.isValidObjectId(branchId)) throw invalid({ branch: 'Select a branch' });
+  if (!isAdmin(req.user) && !(req.user.branches || []).some((x) => String(x) === branchId)) throw new HttpError(403, 'You can only use branches assigned to you');
+
+  const today = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
+  if (b.loanDate !== undefined && b.loanDate !== null && String(b.loanDate).trim() !== '') {
+    const d = parseDateOnly(asString(b.loanDate));
+    if (!d || d.getTime() !== today.getTime()) throw invalid({ loanDate: 'A group loan requisition is made for today only (no back date)' });
+  }
+  const loanDate = today;
+
+  if (!mongoose.isValidObjectId(String(b.group || ''))) throw invalid({ group: 'Select the group' });
+  const g = await Group.findOne({ _id: b.group, isDeleted: false, branch: branchId }).populate('members.member', MEMBER_PICK);
+  if (!g) throw invalid({ group: 'Group not found in this branch' });
+  if (!g.isActive) throw new HttpError(409, 'This group is inactive', { group: 'This group is inactive' });
+  const groupMembers = g.members.filter((x) => x.member).map((x) => x.member);
+  if (!groupMembers.length) throw new HttpError(409, 'The group has no members', { group: 'The group has no members' });
+
+  // One entry per member. (Older clients send ticked members with one scheme and amount for all; that is turned into entries.)
+  let entries = Array.isArray(b.entries) ? b.entries : null;
+  if (!entries) {
+    const ids = [...new Set((Array.isArray(b.memberIds) ? b.memberIds : []).map(String))];
+    entries = ids.map((id) => {
+      const f = (Array.isArray(b.memberForms) ? b.memberForms : []).find((x) => String(x?.member) === id) || {};
+      const a = (Array.isArray(b.additional) ? b.additional : []).find((x) => String(x?.member) === id);
+      return { member: id, schemeId: b.schemeId, amount: b.amount, mode: b.mode, term: b.term, rate: b.rate, front: f.front, back: f.back, additional: a ? { stockProduct: a.stockProduct, quantity: a.quantity } : undefined };
+    });
+  }
+  if (!entries.length) throw invalid({ entries: 'Select the members who get a loan' });
+  if (entries.length > 100) throw invalid({ entries: 'A requisition can have up to 100 members' });
+
+  const memberIds = entries.map((e) => String(e?.member || ''));
+  const busy = await runningSchemes(memberIds.filter((id) => mongoose.isValidObjectId(id)));
+  const inGroup = await LoanRequisition.find({ isDeleted: false, kind: 'group', group: g._id, status: { $in: RUNNING }, members: { $in: memberIds.filter((id) => mongoose.isValidObjectId(id)) } }).select('formId members');
+  const errors = {};
+  const prepared = [];
+  const seen = new Set();
+  for (const e of entries) {
+    const mid = String(e?.member || '');
+    const key = (f) => `entries.${mid}.${f}`;
+    const m = groupMembers.find((x) => String(x._id) === mid);
+    if (!m) throw invalid({ entries: 'A selected member is not in this group' });
+    if (seen.has(mid)) throw invalid({ entries: `${m.code} is selected twice` });
+    seen.add(mid);
+    if (m.isBlocked) { errors[key('member')] = `${m.code} is blocked`; continue; }
+    const reasons = notReady(m);
+    if (reasons.length) { errors[key('member')] = `${m.code} is not ready for a loan: ${reasons.join('; ')}`; continue; }
+    if (inGroup.some((l) => l.members.some((id) => String(id) === mid))) { errors[key('member')] = `${m.code} already has a running loan in this group. A member can take only one loan in a group; use the product loan (up to ${ADDITIONAL_PRODUCT_PERCENT}%) for more.`; continue; }
+
+    // the application form of this member's loan
+    const fe = {};
+    const front = checkFormPhoto(e.front, 'front', `Form front photo of ${m.code}`, fe);
+    const back = checkFormPhoto(e.back, 'back', `Form back photo of ${m.code}`, fe);
+    Object.entries(fe).forEach(([k, v]) => { errors[key(k)] = v; });
+
+    // the loan: scheme, amount, mode, installments, rate
+    if (!mongoose.isValidObjectId(String(e.schemeId || ''))) { errors[key('schemeId')] = `Select the loan scheme of ${m.code}`; continue; }
+    let ev;
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      ev = await evaluateLoan(calcInput({ schemeId: e.schemeId, amount: e.amount, rate: e.rate, mode: e.mode, term: e.term }, loanDate));
+    } catch (err) {
+      if (err.errors) { Object.entries(err.errors).forEach(([k, v]) => { errors[key(k)] = v; }); continue; }
+      throw err;
+    }
+    // eslint-disable-next-line no-await-in-loop
+    const scheme = await LoanScheme.findById(ev.input.scheme.id);
+    if (!SCHEME_TYPES.group.includes(scheme.loanType)) { errors[key('schemeId')] = 'Select a group loan scheme'; continue; }
+    if (busy.get(mid)?.has(String(scheme._id))) { errors[key('schemeId')] = `${m.code} already has an unfinished loan under ${scheme.name}`; continue; }
+    const amountPaise = Math.round(ev.input.amount * 100);
+    const cashPaise = cashAfterCharges(amountPaise, ev.charges);
+    if (cashPaise <= 0) { errors[key('amount')] = 'The security, processing fee and insurance fee are more than the loan amount'; continue; }
+    // an optional product on top of the loan, up to 25% of this member's loan
+    let additional = [];
+    if (e.additional?.stockProduct) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        additional = await buildAdditional({ items: [{ member: mid, stockProduct: e.additional.stockProduct, quantity: e.additional.quantity }], members: [m], capFor: () => Math.floor((amountPaise * ADDITIONAL_PRODUCT_PERCENT) / 100), scheme, input: ev.input, loanDate, branchId });
+      } catch (err) {
+        if (err.errors) { errors[key('additional')] = Object.values(err.errors)[0]; continue; }
+        throw err;
+      }
+    }
+    prepared.push({ m, ev, scheme, amountPaise, cashPaise, additional, front, back });
+  }
+  if (Object.keys(errors).length) throw new HttpError(422, 'Please correct the highlighted fields', errors);
+
+  // Employee: chosen on the form, otherwise the signed-in employee.
+  let employeeCode = asString(b.employeeCode).toUpperCase();
+  if (employeeCode) {
+    const emp = await User.findOne({ employeeCode, isActive: true }).select('role branches');
+    const ok = emp && (['super_admin', 'admin'].includes(emp.role) || (emp.branches || []).some((x) => String(x) === branchId));
+    if (!ok) throw invalid({ employeeCode: 'Select a valid employee of this branch' });
+  } else {
+    employeeCode = req.user.employeeCode;
+    if (!employeeCode) {
+      employeeCode = await generateCode('employee');
+      await User.updateOne({ _id: req.user._id, employeeCode: { $exists: false } }, { $set: { employeeCode } });
+    }
+  }
+
+  // The products sold with the loans leave the stock now; if anything fails nothing is kept.
+  const reserved = await reserveStock(prepared.flatMap((p) => p.additional.map((a) => ({ id: a.productId, qty: a.product.quantity, name: a.product.name }))));
+  const base = await generateCode('loanRequisition');
+  const batchId = new mongoose.Types.ObjectId();
+  const created = [];
+  try {
+    for (let i = 0; i < prepared.length; i += 1) {
+      const p = prepared[i];
+      const { ev } = p;
+      // eslint-disable-next-line no-await-in-loop
+      const doc = await LoanRequisition.create({
+        kind: 'group', formId: `${base}-${i + 1}`, batchId, batchFormId: base, batchCount: prepared.length, branch: branchId, loanDate,
+        group: g._id,
+        groupInfo: { code: g.code, name: g.name, leaderName: g.leaderName, employeeCode: g.employeeCode, members: [{ code: p.m.code, name: p.m.name }] },
+        members: [p.m._id], memberCount: 1, totalAmountPaise: p.amountPaise,
+        ...(p.additional.length ? { additionalProducts: p.additional } : {}),
+        memberForms: [{ member: p.m._id, memberCode: p.m.code, front: p.front, back: p.back }],
+        scheme: p.scheme._id, schemeCode: p.scheme.code, schemeName: p.scheme.name, amountPaise: p.amountPaise, mode: ev.input.mode, term: ev.input.term,
+        annualRateBp: Math.round(ev.input.rate * 100), calculationType: ev.input.calculationType, emiType: ev.input.emiType,
+        installmentPaise: Math.round(ev.summary.installmentAmount * 100), totalInterestPaise: Math.round(ev.summary.totalInterest * 100), totalPayablePaise: Math.round(ev.summary.totalPayable * 100),
+        processingFeePaise: ev.charges ? Math.round(ev.charges.processingFee * 100) : 0, insuranceFeePaise: ev.charges ? Math.round(ev.charges.cost * 100) : 0,
+        securityAmountPaise: ev.charges ? Math.round(ev.charges.securityAmount * 100) : 0, cashPaise: p.cashPaise, securityType: ev.charges?.securityType || 'none',
+        employeeCode, createdBy: req.user._id, updatedBy: req.user._id,
+      });
+      created.push(doc);
+    }
+  } catch (err) {
+    await LoanRequisition.deleteMany({ _id: { $in: created.map((d) => d._id) } });
+    await releaseStock(reserved);
+    throw err;
+  }
+  for (const d of created) {
+    // eslint-disable-next-line no-await-in-loop
+    await d.populate(POPULATE);
+  }
+  await audit(req, {
+    action: 'loanRequisition.create', entity: 'LoanRequisition', entityId: created[0]._id,
+    after: { formId: base, kind: 'group', for: g.code, members: created.length, total: created.reduce((t, d) => t + d.amountPaise, 0) / 100 },
+  });
+  res.status(201).json({ requisitions: created.map((d) => present(d, req.user, { detail: true })), requisition: present(created[0], req.user, { detail: true }), batch: { formId: base, count: created.length } });
 }

@@ -99,6 +99,11 @@ const loanRequisitionSchema = new mongoose.Schema(
       otpVerifiedAt: Date, // OTP sent to the borrower's registered mobile was confirmed
     },
 
+    // a group requisition is one submission with a loan for every member (a batch)
+    batchId: { type: mongoose.Schema.Types.ObjectId },
+    batchFormId: String,
+    batchCount: Number,
+
     // group loan: the filled-in application form of each member, front and back
     memberForms: [
       {
@@ -157,6 +162,7 @@ loanRequisitionSchema.index({ formId: 1 }, { unique: true, partialFilterExpressi
 loanRequisitionSchema.index({ member: 1, createdAt: -1 });
 loanRequisitionSchema.index({ group: 1, createdAt: -1 });
 loanRequisitionSchema.index({ members: 1 });
+loanRequisitionSchema.index({ batchId: 1 });
 loanRequisitionSchema.index({ branch: 1, createdAt: -1 });
 
 export const LoanRequisition = mongoose.model('LoanRequisition', loanRequisitionSchema);

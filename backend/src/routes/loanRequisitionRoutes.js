@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler as h } from '../utils/http.js';
 import {
-  schemes, borrowers, borrowerDetail, groups, groupDetail, preview, createRequisition, listRequisitions, getRequisition, deleteRequisition, gstCheck, stockProducts, verificationStatus, borrowerOtp, addGroupTopUp, approveRequisition, rejectRequisition,
+  schemes, borrowers, borrowerDetail, groups, groupDetail, preview, createRequisition, listRequisitions, getRequisition, deleteRequisition, gstCheck, stockProducts, verificationStatus, borrowerOtp, addGroupTopUp, approveRequisition, rejectRequisition, createGroupRequisition, approveBatch, rejectBatch,
 } from '../controllers/loanRequisitionController.js';
 
 const router = Router();
@@ -25,11 +25,13 @@ router.get('/loan-requisitions', requireAuth, requireRole(...READ), h(listRequis
 
 // One endpoint per kind of requisition.
 router.post('/loan-requisitions', requireAuth, requireRole(...CREATE), h(createRequisition('personal')));
-router.post('/loan-requisitions/group', requireAuth, requireRole(...CREATE), h(createRequisition('group')));
+router.post('/loan-requisitions/group', requireAuth, requireRole(...CREATE), h(createGroupRequisition));
 router.post('/loan-requisitions/business', requireAuth, requireRole(...CREATE), h(createRequisition('business')));
 router.post('/loan-requisitions/product', requireAuth, requireRole(...CREATE), h(createRequisition('product')));
 
 router.post('/loan-requisitions/:id/top-up', requireAuth, requireRole(...CREATE), h(addGroupTopUp));
+router.post('/loan-requisitions/batch/:batchId/approve', requireAuth, requireRole(...APPROVE), h(approveBatch));
+router.post('/loan-requisitions/batch/:batchId/reject', requireAuth, requireRole(...APPROVE), h(rejectBatch));
 router.post('/loan-requisitions/:id/approve', requireAuth, requireRole(...APPROVE), h(approveRequisition));
 router.post('/loan-requisitions/:id/reject', requireAuth, requireRole(...APPROVE), h(rejectRequisition));
 router.get('/loan-requisitions/:id', requireAuth, requireRole(...READ), h(getRequisition));

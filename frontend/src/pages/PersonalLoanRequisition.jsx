@@ -28,7 +28,7 @@ const KINDS = {
 };
 
 // ---- pickers --------------------------------------------------------------------------------------------------
-function Search({ id, label, required, error, hint, placeholder, branch, value, display, fetchItems, render, onPick, disabled }) {
+export function Search({ id, label, required, error, hint, placeholder, branch, value, display, fetchItems, render, onPick, disabled }) {
   const [search, setSearch] = useState('');
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
@@ -181,7 +181,7 @@ function BorrowerOtp({ member, verified, onVerified, onReset }) {
 }
 
 // A member who already has a loan in the group takes a product loan on it: up to 25% of the running loan.
-function GroupTopUp({ members, stock, onDone }) {
+export function GroupTopUp({ members, stock, onDone }) {
   const toast = useToast();
   const [row, setRow] = useState({}); // { memberId: { id, qty, front, back } }
   const [busy, setBusy] = useState('');
@@ -1040,7 +1040,6 @@ function RequisitionForm({ kind }) {
 }
 
 export const PersonalLoanRequisition = () => <RequisitionForm kind="personal" />;
-export const GroupLoanRequisition = () => <RequisitionForm kind="group" />;
 export const BusinessLoanRequisition = () => <RequisitionForm kind="business" />;
 export const ProductLoanRequisition = () => <RequisitionForm kind="product" />;
 export default PersonalLoanRequisition;
