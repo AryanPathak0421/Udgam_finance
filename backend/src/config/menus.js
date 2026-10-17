@@ -18,6 +18,7 @@ export const MENU_CATALOGUE = [
   { key: '/admin-master/ledgers', label: 'Ledger Master', group: 'Admin Master', adminOnly: true },
   { key: '/members/new-borrower', label: 'New Borrower', group: 'Member Details' },
   { key: '/members/kyc-approval', label: 'KYC Approval', group: 'Member Details' },
+  { key: '/members/kyc-reupload', label: 'KYC Re-upload', group: 'Member Details' },
   { key: '/members/guarantor-change', label: 'Guarantor Change', group: 'Member Details' },
   { key: '/members/borrower-synopsis', label: 'Borrower Synopsis', group: 'Member Details' },
   { key: '/members/block-unblock', label: 'Borrower Block & Unblock', group: 'Member Details' },
