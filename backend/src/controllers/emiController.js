@@ -156,7 +156,7 @@ function readPaidOn(req, p, input) {
  * part paid). The receipt is "regular" when only installments that are due were paid, "advance" when it reached
  * installments that are not due yet.
  */
-async function receive(req, p, line, { amountPaise, count, type, paidOn, payMode, reference }) {
+export async function receive(req, p, line, { amountPaise, count, type, paidOn, payMode, reference }) {
   const st = await borrowerState(p, line, paidOn);
   if (st.settled) throw new HttpError(409, `This loan has been settled (${st.settled.kind === 'death' ? 'death settlement' : 'loan settlement'} ${st.settled.receiptNo}). No EMI is due.`);
   if (!st.left.length) throw new HttpError(409, 'All installments of this loan are already paid');
@@ -355,7 +355,7 @@ export async function listEmiPayments(req, res) {
   const q = asString(req.query.q);
   if (q) {
     const rx = new RegExp(escapeRegex(q), 'i');
-    filter.$or = [{ receiptNo: rx }, { loanId: rx }, { formId: rx }, { memberCode: rx }, { memberName: rx }, { group: rx }];
+    filter.$or = [{ receiptNo: rx }, { loanId: rx }, { formId: rx }, { memberCode: rx }, { memberName: rx }, { group: rx }, { reference: rx }];
   }
   const [items, total, sum] = await Promise.all([
     EmiPayment.find(filter).populate(POPULATE).sort({ createdAt: -1 }).skip(skip).limit(limit),

@@ -10,7 +10,8 @@ import useDebounce from '../hooks/useDebounce.js';
 
 const LIMIT = 25;
 const COLLECTORS = ['super_admin', 'admin', 'branch_manager', 'accountant', 'collection_officer', 'field_officer'];
-const MODE_LABEL = { cash: 'Cash', bank: 'Bank transfer', upi: 'UPI', cheque: 'Cheque' };
+const MODE_LABEL = { cash: 'Cash', bank: 'Bank transfer', upi: 'UPI', cheque: 'Cheque', security: 'Security amount' };
+const PAY_CHOICES = Object.entries(MODE_LABEL).filter(([k]) => k !== 'security');
 const inr = (n) => (n === null || n === undefined || Number.isNaN(n) ? '—' : `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const dmy = (s) => (s ? new Date(`${s}T00:00:00`).toLocaleDateString('en-IN') : '—');
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
@@ -171,7 +172,7 @@ function LoanView({ id, advance, canCollect, onBack }) {
               </FormField>
               <FormField id="emode" label="Paid by" required error={errors.payMode}>
                 <select id="emode" value={payMode} onChange={(e) => setPayMode(e.target.value)}>
-                  {Object.entries(MODE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                  {PAY_CHOICES.map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                 </select>
               </FormField>
               <FormField id="eref" label="Reference no." hint="Optional">

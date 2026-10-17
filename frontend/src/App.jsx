@@ -37,6 +37,7 @@ import { PendingPayments, PaidLoans } from './pages/LoanPayment.jsx';
 import { RegularEmi, AdvanceEmi, EmiReceipts } from './pages/EmiPayment.jsx';
 import { SingleLoanEmi, GroupLoanEmi } from './pages/EmiCollection.jsx';
 import { LoanSettlement, DeathSettlement } from './pages/Settlement.jsx';
+import { SecurityDeposits, SecurityWithdrawals, SecurityWithdraw } from './pages/Savings.jsx';
 import GroupMembers from './pages/GroupMembers.jsx';
 import GroupLeaderCommission from './pages/GroupLeaderCommission.jsx';
 import Layout from './components/Layout.jsx';
@@ -64,6 +65,9 @@ const PAGES = {
   '/emi/payment': RegularEmi,
   '/emi/advance': AdvanceEmi,
   '/emi/receipts': EmiReceipts,
+  '/savings/deposits': SecurityDeposits,
+  '/savings/withdrawals': SecurityWithdrawals,
+  '/savings/withdraw': SecurityWithdraw,
   '/emi/settlement': LoanSettlement,
   '/emi/death-settlement': DeathSettlement,
   '/loan-payment/pending': PendingPayments,

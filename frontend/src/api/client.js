@@ -106,6 +106,14 @@ export const api = {
     add: (data) => request('/civil-checks', { method: 'POST', body: data }),
     remove: (id) => request(`/civil-checks/${id}`, { method: 'DELETE' }),
   },
+  savings: {
+    deposits: (params) => request(`/savings/deposits${qs(params)}`),
+    member: (id) => request(`/savings/members/${id}`),
+    withdrawals: (params) => request(`/savings/withdrawals${qs(params)}`),
+    request: (data) => request('/savings/withdrawals', { method: 'POST', body: data }),
+    approve: (id) => request(`/savings/withdrawals/${id}/approve`, { method: 'POST' }),
+    reject: (id, reason) => request(`/savings/withdrawals/${id}/reject`, { method: 'POST', body: { reason } }),
+  },
   settlements: {
     preview: (params) => request(`/settlements/preview${qs(params)}`),
     settleLoan: (data) => request('/settlements/loan', { method: 'POST', body: data }),

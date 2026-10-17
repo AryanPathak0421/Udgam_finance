@@ -19,7 +19,7 @@ const emiPaymentSchema = new mongoose.Schema(
     items: [{ _id: false, no: Number, dueDate: Date, amountPaise: Number }],
     amountPaise: { type: Number, required: true, min: 1 },
     paidOn: { type: Date, required: true },
-    payMode: { type: String, enum: ['cash', 'bank', 'upi', 'cheque'], required: true },
+    payMode: { type: String, enum: ['cash', 'bank', 'upi', 'cheque', 'security'], required: true }, // security = the borrower's security amount put against the EMI
     reference: String,
     status: { type: String, enum: ['paid', 'cancelled'], default: 'paid' },
     cancelReason: String,

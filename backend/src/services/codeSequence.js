@@ -11,6 +11,7 @@ export const SYSTEM_SEQUENCES = {
   loanReceipt: { label: 'Loan Payment Receipt No', prefix: 'RCP', padding: 6, nextNumber: 1 },
   emiReceipt: { label: 'EMI Receipt No', prefix: 'EMR', padding: 6, nextNumber: 1 },
   settlementReceipt: { label: 'Settlement Receipt No', prefix: 'STL', padding: 6, nextNumber: 1 },
+  securityWithdrawal: { label: 'Security Withdrawal No', prefix: 'SWD', padding: 6, nextNumber: 1 },
   productOrder: { label: 'Product Order No', prefix: 'ORD', padding: 5, nextNumber: 1 },
 };
 
