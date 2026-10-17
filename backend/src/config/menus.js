@@ -42,6 +42,8 @@ export const MENU_CATALOGUE = [
   { key: '/emi/single', label: 'Single Loan EMI', group: 'EMI Payment' },
   { key: '/emi/group', label: 'Group Loan EMI', group: 'EMI Payment' },
   { key: '/emi/payment', label: 'EMI Payment (by Loan ID)', group: 'EMI Payment' },
+  { key: '/emi/settlement', label: 'Loan Settlement', group: 'EMI Payment' },
+  { key: '/emi/death-settlement', label: 'Death Settlement', group: 'EMI Payment' },
   { key: '/emi/advance', label: 'Advance EMI Payment', group: 'EMI Payment' },
   { key: '/emi/receipts', label: 'EMI Receipts', group: 'EMI Payment' },
   { key: '/employees', label: 'Employees', group: 'Organisation' },

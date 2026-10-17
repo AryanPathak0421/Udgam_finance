@@ -14,8 +14,8 @@ const MODE_LABEL = { cash: 'Cash', bank: 'Bank transfer', upi: 'UPI', cheque: 'C
 const inr = (n) => (n === null || n === undefined || Number.isNaN(n) ? '—' : `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const dmy = (s) => (s ? new Date(`${s}T00:00:00`).toLocaleDateString('en-IN') : '—');
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
-const TONE = { paid: 'green', due: 'danger', upcoming: 'grey' };
-const LABEL = { paid: 'Paid', due: 'Due', upcoming: 'Upcoming' };
+const TONE = { paid: 'green', due: 'danger', upcoming: 'grey', settled: 'grey' };
+const LABEL = { paid: 'Paid', due: 'Due', upcoming: 'Upcoming', settled: 'Settled' };
 
 // Opens the EMI receipt in its own window and prints it.
 function printReceipt(p) {
@@ -157,7 +157,7 @@ function LoanView({ id, advance, canCollect, onBack }) {
           <span className="badge grey">Outstanding {inr(b.outstanding)}</span>
           {b.next && <span className="badge grey">Next: installment {b.next.no} on {dmy(b.next.dueDate)} — {inr(b.next.amount)}</span>}
         </div>
-        {b.closed ? <div className="notice">All installments of this loan are paid.</div> : !canCollect ? (
+        {b.settled ? <div className="notice">This loan has been settled ({b.settled.kind === 'death' ? 'death settlement' : 'loan settlement'} {b.settled.receiptNo} on {dmy(b.settled.on)}). No EMI is due.</div> : b.closed ? <div className="notice">All installments of this loan are paid.</div> : !canCollect ? (
           <div className="muted">You can view the loan but not collect EMI.</div>
         ) : blockedAdvance ? (
           <div className="notice warn">{b.dueCount} installment{b.dueCount === 1 ? ' is' : 's are'} due ({inr(b.dueAmount)}). Collect the due EMI under EMI Payment first, then pay in advance.</div>

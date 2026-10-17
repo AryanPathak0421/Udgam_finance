@@ -106,6 +106,14 @@ export const api = {
     add: (data) => request('/civil-checks', { method: 'POST', body: data }),
     remove: (id) => request(`/civil-checks/${id}`, { method: 'DELETE' }),
   },
+  settlements: {
+    preview: (params) => request(`/settlements/preview${qs(params)}`),
+    settleLoan: (data) => request('/settlements/loan', { method: 'POST', body: data }),
+    settleDeath: (data) => request('/settlements/death', { method: 'POST', body: data }),
+    list: (params) => request(`/settlements${qs(params)}`),
+    get: (id) => request(`/settlements/${id}`),
+    cancel: (id, reason) => request(`/settlements/${id}/cancel`, { method: 'POST', body: { reason } }),
+  },
   emi: {
     search: (q) => request(`/emi/search${qs({ q })}`),
     loan: (id) => request(`/emi/loans/${id}`),

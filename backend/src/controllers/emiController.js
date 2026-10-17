@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import { LoanPayment } from '../models/LoanPayment.js';
 import { EmiPayment } from '../models/EmiPayment.js';
 import { User } from '../models/User.js';
+import { LoanSettlement } from '../models/LoanSettlement.js';
 import { generateCode } from '../services/codeSequence.js';
 import { asString, escapeRegex, parseDateOnly, parsePaging, HttpError } from '../utils/http.js';
 import { toMinor } from '../utils/money.js';
@@ -83,10 +84,22 @@ function receivedMap(pays) {
   return map;
 }
 
-async function borrowerState(p, line, asOf) {
-  const pays = await EmiPayment.find({ loanPayment: p._id, memberCode: line.code, status: 'paid' }).select('items receiptNo paidOn type');
-  return stateFrom(p, line, receivedMap(pays), asOf);
+// A settled borrower (loan or death settlement) has nothing more to pay: the unpaid installments are closed.
+function applySettled(st, settled) {
+  if (!settled) return st;
+  const schedule = st.schedule.map((s) => (s.remainingPaise > 0 ? { ...s, status: 'settled', overdueDays: 0 } : s));
+  return { schedule, left: [], due: [], totals: { ...st.totals, due: 0, outstanding: 0 }, settled };
 }
+
+export async function borrowerState(p, line, asOf) {
+  const [pays, settled] = await Promise.all([
+    EmiPayment.find({ loanPayment: p._id, memberCode: line.code, status: 'paid' }).select('items receiptNo paidOn type'),
+    LoanSettlement.findOne({ loanPayment: p._id, memberCode: line.code, status: 'active' }).select('kind receiptNo settledOn'),
+  ]);
+  return applySettled(stateFrom(p, line, receivedMap(pays), asOf), settled ? { kind: settled.kind, receiptNo: settled.receiptNo, on: iso(settled.settledOn) } : null);
+}
+
+export { stateFrom, receivedMap, loadLoan, startOfToday };
 
 const scheduleOut = (s) => ({
   no: s.no, dueDate: s.dueDate, amount: money(s.amountPaise), paid: money(s.paidPaise), remaining: money(s.remainingPaise), status: s.status, partial: s.paidPaise > 0 && s.remainingPaise > 0,
@@ -106,7 +119,7 @@ export async function loanDetail(req, res) {
       member: line.member, code: line.code, name: line.name, emi: money((p.schedule[0]?.installmentPaise || 0) + (line.extraEmiPaise || 0)),
       paidCount: st.schedule.filter((s) => s.status === 'paid').length, paidAmount: money(st.totals.paid), dueCount: st.due.length, dueAmount: money(st.totals.due),
       overdueCount: st.schedule.filter((s) => s.overdueDays > 0).length, outstanding: money(st.totals.outstanding), remaining: st.left.length,
-      next: next ? { no: next.no, dueDate: next.dueDate, amount: money(next.remainingPaise) } : null, closed: st.left.length === 0, schedule: st.schedule.map(scheduleOut),
+      next: next ? { no: next.no, dueDate: next.dueDate, amount: money(next.remainingPaise) } : null, closed: st.left.length === 0, settled: st.settled || null, schedule: st.schedule.map(scheduleOut),
     });
   }
   res.json({
@@ -145,6 +158,7 @@ function readPaidOn(req, p, input) {
  */
 async function receive(req, p, line, { amountPaise, count, type, paidOn, payMode, reference }) {
   const st = await borrowerState(p, line, paidOn);
+  if (st.settled) throw new HttpError(409, `This loan has been settled (${st.settled.kind === 'death' ? 'death settlement' : 'loan settlement'} ${st.settled.receiptNo}). No EMI is due.`);
   if (!st.left.length) throw new HttpError(409, 'All installments of this loan are already paid');
   let pay = amountPaise;
   let kind = type;
@@ -267,6 +281,7 @@ export async function collectionList(req, res) {
   const pick = loans.filter((l) => (!wantStaff || l.employeeCode === wantStaff) && (!wantMode || modeOf(l) === wantMode) && (kindScope === 'group' || !wantType || loanTypeOf(l) === wantType));
 
   // what has been received on each installment, for all picked loans at once
+  const settledSet = new Set((await LoanSettlement.find({ loanPayment: { $in: pick.map((l) => l._id) }, status: 'active' }).select('loanPayment memberCode')).map((x) => `${x.loanPayment}|${x.memberCode}`));
   const recv = await EmiPayment.aggregate([
     { $match: { loanPayment: { $in: pick.map((l) => l._id) }, status: 'paid' } },
     { $unwind: '$items' },
@@ -282,6 +297,7 @@ export async function collectionList(req, res) {
   const rows = [];
   for (const l of pick) {
     for (const line of l.lines) {
+      if (settledSet.has(`${l._id}|${line.code}`)) continue;
       const st = stateFrom(l, line, byKey.get(`${l._id}|${line.code}`) || new Map(), asOf);
       if (!st.due.length) continue;
       const text = `${l.loanId} ${l.formId} ${line.code} ${line.name} ${l.group?.code || ''} ${l.group?.name || ''}`.toLowerCase();
