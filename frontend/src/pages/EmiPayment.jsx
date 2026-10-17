@@ -101,7 +101,7 @@ function LoanView({ id, advance, canCollect, onBack }) {
     setErrors({});
     try {
       const r = await api.emi.pay({ loan: id, member: b.member, type: advance ? 'advance' : 'regular', count: Number(count), payMode, reference });
-      toast.success(`${advance ? 'Advance EMI' : 'EMI'} received — receipt ${r.payment.receiptNo}`);
+      toast.success(advance ? `Advance EMI received — receipt ${r.payment.receiptNo}. Installment${r.payment.installments.length === 1 ? '' : 's'} ${r.payment.installments.join(', ')} ${r.payment.installments.length === 1 ? 'is' : 'are'} marked paid and will not be asked for again on the due date.` : `EMI received — receipt ${r.payment.receiptNo}`);
       setReceipt(r.payment);
       await load();
     } catch (err) {

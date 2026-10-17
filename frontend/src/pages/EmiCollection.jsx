@@ -96,6 +96,7 @@ export function SingleLoanEmi() {
   async function pay(r) {
     const amount = amounts[key(r)] ?? String(r.dueAmount);
     if (!(Number(amount) >= 1)) return toast.error('Enter the amount received');
+    if (Number(amount) > r.dueAmount) return toast.error(`Only the due EMI (${inr(r.dueAmount)}) can be collected here. Use Advance EMI Payment for later installments.`);
     setBusy(key(r));
     try {
       const res = await api.emi.collect({ items: [{ loan: r.loan, member: r.member, amount }], payMode });
@@ -185,6 +186,7 @@ function GroupCollect({ group, canCollect, onClose, onDone }) {
 
   async function collect() {
     if (chosen.some((m) => !(Number(amountOf(m)) >= 1))) return toast.error('Enter the amount for every ticked member');
+    if (chosen.some((m) => Number(amountOf(m)) > m.dueAmount)) return toast.error('A member cannot pay more than the EMI due today. Use Advance EMI Payment for later installments.');
     setBusy(true);
     try {
       const r = await api.emi.collect({ items: chosen.map((m) => ({ loan: m.loan, member: m.member, amount: amountOf(m) })), payMode });

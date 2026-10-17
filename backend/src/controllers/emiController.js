@@ -32,7 +32,9 @@ export async function searchLoans(req, res) {
   res.json({
     items: items.map((p) => ({
       id: p._id, loanId: p.loanId || '', formId: p.formId, kind: p.kind, branch: p.branch ? `${p.branch.code} — ${p.branch.name}` : '',
-      who: p.group?.code ? `${p.group.code} — ${p.group.name} (${p.lines.length} members)` : `${p.lines[0]?.code} — ${p.lines[0]?.name}`,
+      who: p.group?.code
+        ? (p.lines.length === 1 ? `${p.lines[0].code} — ${p.lines[0].name} (group ${p.group.code} — ${p.group.name})` : `${p.group.code} — ${p.group.name} (${p.lines.length} members)`)
+        : `${p.lines[0]?.code} — ${p.lines[0]?.name}`,
       schemeName: p.schemeName, paidOn: iso(p.paidOn), installments: p.installments, amount: money(p.totalAmountPaise),
     })),
   });
@@ -156,7 +158,7 @@ function readPaidOn(req, p, input) {
  * part paid). The receipt is "regular" when only installments that are due were paid, "advance" when it reached
  * installments that are not due yet.
  */
-export async function receive(req, p, line, { amountPaise, count, type, paidOn, payMode, reference }) {
+export async function receive(req, p, line, { amountPaise, count, type, paidOn, payMode, reference, dueOnly = false }) {
   const st = await borrowerState(p, line, paidOn);
   if (st.settled) throw new HttpError(409, `This loan has been settled (${st.settled.kind === 'death' ? 'death settlement' : 'loan settlement'} ${st.settled.receiptNo}). No EMI is due.`);
   if (!st.left.length) throw new HttpError(409, 'All installments of this loan are already paid');
@@ -176,6 +178,9 @@ export async function receive(req, p, line, { amountPaise, count, type, paidOn, 
     }
   }
   if (!Number.isInteger(pay) || pay < 100) throw invalid({ amount: 'Enter the amount received (₹1 or more, up to 2 decimals)' });
+  if (dueOnly && pay > st.totals.due) {
+    throw invalid({ amount: st.totals.due > 0 ? `Only the EMI that is due (${money(st.totals.due)}) can be collected here. The next installments are paid under Advance EMI Payment.` : 'No EMI is due on this date. The next installments are paid under Advance EMI Payment.' });
+  }
   if (pay > st.totals.outstanding) throw invalid({ amount: `The borrower owes only ${money(st.totals.outstanding)}. The amount cannot be more than that.` });
 
   // allocate to the earliest unpaid installments
@@ -251,7 +256,7 @@ export async function collectEmi(req, res) {
       const amountPaise = readAmount(it.amount);
       if (amountPaise === undefined) throw invalid({ amount: 'Enter the amount' });
       // eslint-disable-next-line no-await-in-loop
-      const doc = await receive(req, p, line, { amountPaise, paidOn: readPaidOn(req, p, b.paidOn), payMode, reference: b.reference });
+      const doc = await receive(req, p, line, { amountPaise, paidOn: readPaidOn(req, p, b.paidOn), payMode, reference: b.reference, dueOnly: true });
       results.push({ loan: it.loan, member: it.member, ok: true, payment: present(doc) });
     } catch (err) {
       results.push({ loan: it.loan, member: it.member, ok: false, message: err.errors?.amount || err.errors?.paidOn || err.message });
