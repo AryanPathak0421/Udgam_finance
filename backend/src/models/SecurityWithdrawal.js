@@ -14,6 +14,8 @@ const securityWithdrawalSchema = new mongoose.Schema(
     branch: { type: mongoose.Schema.Types.ObjectId, ref: 'Branch', required: true },
     kind: { type: String, enum: WITHDRAWAL_KINDS, required: true },
     amountPaise: { type: Number, required: true, min: 100 },
+    // withdraw: the interest earned on that security (10% a year, after each full year). The member gets amount + interest.
+    interestPaise: { type: Number, default: 0 },
     // adjust: the loan whose EMI the security is put against
     loanPayment: { type: mongoose.Schema.Types.ObjectId, ref: 'LoanPayment' },
     loanId: String,

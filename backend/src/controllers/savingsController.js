@@ -71,30 +71,52 @@ async function balanceOf(req, memberId) {
   return { deposits, depositedPaise: dep, withdrawnPaise: approved, pendingPaise: pending, availablePaise: dep - approved - pending };
 }
 
+// The security amount earns 10% a year, given after each full year from the day the loan was paid out
+// (loan paid on 1 Jan 2026: on 1 Jan 2027 the interest is 10% of that security amount, a year later 20%).
+export const SECURITY_INTEREST_PERCENT = 10;
+function fullYears(from, to) {
+  let y = to.getUTCFullYear() - from.getUTCFullYear();
+  if (to.getUTCMonth() < from.getUTCMonth() || (to.getUTCMonth() === from.getUTCMonth() && to.getUTCDate() < from.getUTCDate())) y -= 1;
+  return Math.max(y, 0);
+}
+
 /**
- * Security kept from loans that are closed (fully repaid or settled): only this can be withdrawn. The security of a running loan
- * can only be adjusted against an EMI.
+ * Where the security of a member stands. Security of a loan that is closed (fully repaid or settled) can be withdrawn; the security
+ * of a running loan can only be adjusted against an EMI. Each loan's security earns interest (see above).
  */
-async function closedSecurityPaise(req, memberId) {
+async function securityPosition(req, memberId) {
   const loans = await LoanPayment.find({ status: 'paid', 'lines.member': memberId, ...branchFilter(req.user) });
   const asOf = startOfToday();
-  let closed = 0;
+  const pos = { closed: 0, running: 0, interestClosed: 0, interestAll: 0, byLoan: new Map() };
   for (const l of loans) {
     const line = l.lines.find((x) => String(x.member) === String(memberId));
     if (!(line?.securityPaise > 0)) continue;
     // eslint-disable-next-line no-await-in-loop
     const st = await borrowerState(l, line, asOf);
-    if (st.settled || !st.left.length) closed += line.securityPaise;
+    const closed = Boolean(st.settled) || !st.left.length;
+    const years = fullYears(new Date(l.paidOn), asOf);
+    const interest = Math.round((line.securityPaise * years * SECURITY_INTEREST_PERCENT) / 100);
+    if (closed) { pos.closed += line.securityPaise; pos.interestClosed += interest; } else pos.running += line.securityPaise;
+    pos.interestAll += interest;
+    pos.byLoan.set(String(l._id), { closed, years, interestPaise: interest });
   }
-  return closed;
+  return pos;
 }
 
-// What can be withdrawn now: the security of closed loans that is not already withdrawn or waiting, never more than what is available.
-async function withdrawablePaise(req, memberId, bal) {
-  const closed = await closedSecurityPaise(req, memberId);
-  const rows = await SecurityWithdrawal.find({ member: memberId, kind: 'withdraw', status: { $in: ['pending', 'approved'] } }).select('amountPaise');
+/**
+ * What can be withdrawn now: the security of closed loans that is not already withdrawn or waiting (never more than what is
+ * available), and the interest that goes with it. Interest is paid in proportion to the security withdrawn.
+ */
+async function withdrawInfo(req, memberId, bal) {
+  const pos = await securityPosition(req, memberId);
+  const rows = await SecurityWithdrawal.find({ member: memberId, kind: 'withdraw', status: { $in: ['pending', 'approved'] } }).select('amountPaise interestPaise');
   const used = rows.reduce((s, x) => s + x.amountPaise, 0);
-  return Math.max(Math.min(bal.availablePaise, closed - used), 0);
+  const usedInterest = rows.reduce((s, x) => s + (x.interestPaise || 0), 0);
+  const closedRemaining = Math.max(pos.closed - used, 0);
+  const interestRemaining = Math.max(pos.interestClosed - usedInterest, 0);
+  const withdrawable = Math.max(Math.min(bal.availablePaise, closedRemaining), 0);
+  const interestFor = (amountPaise) => (closedRemaining <= 0 ? 0 : amountPaise >= closedRemaining ? interestRemaining : Math.round((interestRemaining * amountPaise) / closedRemaining));
+  return { pos, withdrawable, closedRemaining, interestRemaining, interestFor };
 }
 
 // where a request stands: waiting for the admin, approved and waiting for the member's OTP, done, or rejected
@@ -108,7 +130,7 @@ const presentWithdrawal = (w, info) => ({
   ...(info ? { info } : {}),
   id: w._id, receiptNo: w.receiptNo, memberCode: w.memberCode, memberName: w.memberName, branch: w.branch?._id ? { id: w.branch._id, code: w.branch.code, name: w.branch.name } : null,
   stage: stageOf(w), otpVerifiedAt: w.otpVerifiedAt || null, completedByCode: w.completedByCode || '',
-  kind: w.kind, amount: money(w.amountPaise), loanId: w.loanId || '', payMode: w.payMode || '', reference: w.reference || '', remark: w.remark || '', status: w.status, rejectReason: w.rejectReason || '',
+  kind: w.kind, amount: money(w.amountPaise), interest: money(w.interestPaise || 0), total: money(w.amountPaise + (w.interestPaise || 0)), loanId: w.loanId || '', payMode: w.payMode || '', reference: w.reference || '', remark: w.remark || '', status: w.status, rejectReason: w.rejectReason || '',
   requestedOn: iso(w.createdAt), requestedByCode: w.requestedByCode || '', decidedAt: w.decidedAt || null, decidedByCode: w.decidedByCode || '', emiReceiptNo: w.emiReceiptNo || '',
 });
 
@@ -123,6 +145,7 @@ async function findMember(req, id) {
 export async function memberSavings(req, res) {
   const m = await findMember(req, req.params.id);
   const b = await balanceOf(req, m._id);
+  const depositInfo = (await securityPosition(req, m._id)).byLoan;
   const withdrawals = await SecurityWithdrawal.find({ member: m._id }).populate(POPULATE).sort({ createdAt: -1 }).limit(50);
   // loans of this member with EMI still to pay (an EMI can be adjusted against them)
   const asOf = startOfToday();
@@ -141,8 +164,11 @@ export async function memberSavings(req, res) {
   }
   res.json({
     member: { id: m._id, code: m.code, name: m.name, mobile: m.mobile, isBlocked: Boolean(m.isBlocked), branch: m.branch ? { id: m.branch._id, code: m.branch.code, name: m.branch.name } : null },
-    deposited: money(b.depositedPaise), withdrawn: money(b.withdrawnPaise), pending: money(b.pendingPaise), available: money(b.availablePaise), withdrawable: money(await withdrawablePaise(req, m._id, b)),
-    deposits: b.deposits.map(({ amountPaise, ...r }) => r), withdrawals: withdrawals.map(presentWithdrawal), loans,
+    deposited: money(b.depositedPaise), withdrawn: money(b.withdrawnPaise), pending: money(b.pendingPaise), available: money(b.availablePaise), ...(await (async () => {
+      const wi = await withdrawInfo(req, m._id, b);
+      return { withdrawable: money(wi.withdrawable), runningSecurity: money(wi.pos.running), closedSecurity: money(wi.closedRemaining), interestRate: SECURITY_INTEREST_PERCENT, interestEarned: money(wi.pos.interestAll), interestWithdrawable: money(wi.interestRemaining) };
+    })()),
+    deposits: b.deposits.map(({ amountPaise, ...r }) => ({ ...r, closed: Boolean(depositInfo.get(String(r.loanPaymentId))?.closed), years: depositInfo.get(String(r.loanPaymentId))?.years || 0, interest: money(depositInfo.get(String(r.loanPaymentId))?.interestPaise || 0) })), withdrawals: withdrawals.map(presentWithdrawal), loans,
   });
 }
 
@@ -157,12 +183,14 @@ export async function requestWithdrawal(req, res) {
   if (amountPaise === null || amountPaise < 100) throw invalid({ amount: 'Enter the amount (₹1 or more, up to 2 decimals)' });
   const bal = await balanceOf(req, m._id);
   if (amountPaise > bal.availablePaise) throw invalid({ amount: `Only ${money(bal.availablePaise)} of the security is available${bal.pendingPaise ? ` (${money(bal.pendingPaise)} is waiting for approval)` : ''}` });
+  const data = {};
   if (kind === 'withdraw') {
-    const can = await withdrawablePaise(req, m._id, bal);
+    const wi = await withdrawInfo(req, m._id, bal);
+    const can = wi.withdrawable;
     if (amountPaise > can) throw invalid({ amount: can > 0 ? `Only ${money(can)} can be withdrawn: the security of a running loan can only be adjusted against its EMI` : 'The security of a running loan cannot be withdrawn. It can only be adjusted against an EMI.' });
+    data.interestPaise = wi.interestFor(amountPaise);
   }
 
-  const data = {};
   if (kind === 'adjust') {
     if (!mongoose.isValidObjectId(String(b.loan || ''))) throw invalid({ loan: 'Select the loan whose EMI is adjusted' });
     const l = await LoanPayment.findOne({ _id: b.loan, status: 'paid', 'lines.member': m._id, ...branchFilter(req.user) });
@@ -260,7 +288,8 @@ async function sendOtpFor(req, w) {
   if (!m?.mobile) throw new HttpError(409, 'This member has no mobile number to send the OTP to');
   const { challenge, otp } = await issueOtp({ user: req.user, purpose: 'security_withdrawal', subject: w.receiptNo, sentTo: m.mobile });
   const what = w.kind === 'adjust' ? 'adjust your security against your EMI' : 'withdraw your security';
-  const sms = await sendSms({ to: m.mobile, text: `Udgam Microfinance: OTP ${otp} to ${what} (${w.amountPaise / 100} Rs). Valid for 5 minutes. Do not share this OTP.` });
+  const total = (w.amountPaise + (w.interestPaise || 0)) / 100;
+  const sms = await sendSms({ to: m.mobile, text: `Udgam Microfinance: OTP ${otp} to ${what} (${total} Rs${w.interestPaise ? ', security + interest' : ''}). Valid for 5 minutes. Do not share this OTP.` });
   w.otpChallenge = challenge._id;
   w.otpSentAt = new Date();
   await w.save();

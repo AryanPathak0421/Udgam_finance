@@ -176,7 +176,7 @@ function WithdrawalTable({ approval }) {
     setBusy(otpFor.id);
     try {
       const r = await api.savings.verifyOtp(otpFor.id, otpValue);
-      toast.success(r.withdrawal.kind === 'adjust' ? `OTP verified — EMI receipt ${r.withdrawal.emiReceiptNo}` : 'OTP verified — pay the amount back to the member');
+      toast.success(r.withdrawal.kind === 'adjust' ? `OTP verified — EMI receipt ${r.withdrawal.emiReceiptNo}` : `OTP verified — pay ${inr(r.withdrawal.total)} back to the member`);
       setOtpFor(null);
       load();
     } catch (err) {
@@ -241,14 +241,17 @@ function WithdrawalTable({ approval }) {
                         {w.remark && <div className="muted small">{w.remark}</div>}
                         {w.status === 'pending' && w.info && (
                           <div className="small" style={{ marginTop: 4 }}>
-                            Request {inr(w.info.requested)} of the security {inr(w.info.securityLeft)} ({inr(w.info.staysAfter)} stays)
+                            Request {inr(w.info.requested)} of the security {inr(w.info.securityLeft)} ({inr(w.info.staysAfter)} stays){w.kind === 'withdraw' && w.interest > 0 ? ` · interest ${inr(w.interest)} → total ${inr(w.total)}` : ''}
                             {w.kind === 'adjust' && w.info.emiDue !== undefined && (
                               <> · EMI due {inr(w.info.emiDue)} (left {inr(w.info.emiLeft)}){w.info.emiDue > 0 ? " → " + inr(Math.min(w.amount, w.info.emiDue)) + " of the due EMI is covered" + (w.info.emiDue - w.amount > 0 ? ", " + inr(w.info.emiDue - w.amount) + " stays due" : "") : ""}</>
                             )}
                           </div>
                         )}
                       </td>
-                      <td data-label="Amount" className="num"><strong>{inr(w.amount)}</strong></td>
+                      <td data-label="Amount" className="num">
+                        <strong>{inr(w.kind === 'withdraw' && w.interest > 0 ? w.total : w.amount)}</strong>
+                        {w.kind === 'withdraw' && w.interest > 0 && <div className="muted small">security {inr(w.amount)} + interest {inr(w.interest)}</div>}
+                      </td>
                       <td data-label="Status">
                         <span className={`badge ${TONE[w.stage]}`}>{STAGE_LABEL[w.stage]}</span>
                         {w.status === 'rejected' && <div className="muted small">{w.rejectReason}</div>}
@@ -280,7 +283,7 @@ function WithdrawalTable({ approval }) {
       {otpFor && (
         <Modal open title={`Verify OTP — ${otpFor.receiptNo}`} onClose={() => setOtpFor(null)} busy={Boolean(busy)}
           footer={<><button className="btn" onClick={() => setOtpFor(null)}>Close</button><button className="btn primary" onClick={verifyOtp} disabled={Boolean(busy)}>{otpFor.kind === 'adjust' ? 'Verify and adjust the EMI' : 'Verify and release the security'}</button></>}>
-          <p style={{ marginTop: 0 }}>{otpFor.memberCode} {otpFor.memberName} · {KIND_LABEL[otpFor.kind]} · <strong>{inr(otpFor.amount)}</strong>. Ask the member for the 6-digit OTP sent to the registered phone.</p>
+          <p style={{ marginTop: 0 }}>{otpFor.memberCode} {otpFor.memberName} · {KIND_LABEL[otpFor.kind]} · {otpFor.kind === 'withdraw' && otpFor.interest > 0 ? <>security {inr(otpFor.amount)} + interest {inr(otpFor.interest)} = <strong>{inr(otpFor.total)}</strong></> : <strong>{inr(otpFor.amount)}</strong>}. Ask the member for the 6-digit OTP sent to the registered phone.</p>
           <FormField id="otpv" label="OTP" required error={otpError}>
             <input id="otpv" inputMode="numeric" maxLength={6} autoFocus value={otpValue} onChange={(e) => { setOtpValue(e.target.value.replace(/\D/g, '')); setOtpError(''); }} />
           </FormField>
@@ -410,16 +413,21 @@ export function SecurityWithdraw() {
               <span className="badge grey">Withdrawn / adjusted {inr(member.withdrawn)}</span>
               {member.pending > 0 && <span className="badge grey">Waiting for approval {inr(member.pending)}</span>}
               <span className="badge green">Available {inr(member.available)}</span>
+              <span className="badge grey">In running loans (adjust only) {inr(member.runningSecurity)}</span>
+              <span className="badge green">Withdraw balance {inr(member.withdrawable)}</span>
+              <span className="badge grey">Interest on it ({member.interestRate}% a year) {inr(member.interestWithdrawable)}</span>
             </div>
             {member.deposits.length === 0 ? <span className="muted">No security amount has been kept from this member's loans.</span> : (
               <div className="table-wrap">
                 <table className="data-table">
-                  <thead><tr><th>Date</th><th>Loan ID</th><th>Scheme</th><th className="num">Loan amount</th><th className="num">Security</th></tr></thead>
+                  <thead><tr><th>Date</th><th>Loan ID</th><th>Scheme</th><th className="num">Loan amount</th><th className="num">Security</th><th>Loan</th><th className="num">Interest ({member.interestRate}% a year)</th></tr></thead>
                   <tbody>
                     {member.deposits.map((d) => (
                       <tr key={d.loanPaymentId}>
                         <td data-label="Date">{dmy(d.date)}</td><td data-label="Loan ID">{d.loanId || d.formId}</td><td data-label="Scheme">{d.schemeName}</td>
                         <td data-label="Loan amount" className="num">{inr(d.loanAmount)}</td><td data-label="Security" className="num"><strong>{inr(d.amount)}</strong></td>
+                        <td data-label="Loan">{d.closed ? <span className="badge green">Closed</span> : <span className="badge grey">Running</span>}</td>
+                        <td data-label="Interest" className="num">{inr(d.interest)}<div className="muted small">{d.years} full year{d.years === 1 ? '' : 's'}</div></td>
                       </tr>
                     ))}
                   </tbody>
@@ -446,7 +454,7 @@ export function SecurityWithdraw() {
                       </select>
                     </FormField>
                   )}
-                  <FormField id="wamount" label="Amount (₹)" required error={errors.amount} hint={kind === 'adjust' ? `Security ${inr(member.available)}, EMI ${chosenLoan?.due > 0 ? 'due' : 'left'} ${inr(emiDue)} → up to ${inr(adjustable)} can be adjusted` : `Up to ${inr(member.withdrawable)} (security of closed loans)`}>
+                  <FormField id="wamount" label="Amount (₹)" required error={errors.amount} hint={kind === 'adjust' ? `Security ${inr(member.available)}, EMI ${chosenLoan?.due > 0 ? 'due' : 'left'} ${inr(emiDue)} → up to ${inr(adjustable)} can be adjusted` : `Up to ${inr(member.withdrawable)} (security of closed loans). Interest is added: security + interest = total`}>
                     <input id="wamount" inputMode="decimal" value={form.amount} onChange={(e) => { setForm((f) => ({ ...f, amount: e.target.value.replace(/[^\d.]/g, '') })); setErrors((x) => ({ ...x, amount: undefined })); }} />
                   </FormField>
                   {kind === 'withdraw' && (
@@ -461,6 +469,10 @@ export function SecurityWithdraw() {
                   )}
                   <FormField id="wremark" label="Remark" className="span-2"><input id="wremark" value={form.remark} maxLength={300} onChange={set('remark')} /></FormField>
                 </div>
+                {kind === 'withdraw' && typed > 0 && typed <= member.withdrawable && member.closedSecurity > 0 && (() => {
+                  const interest = typed >= member.closedSecurity ? member.interestWithdrawable : Math.round((member.interestWithdrawable * typed) / member.closedSecurity * 100) / 100;
+                  return <div className="notice" style={{ margin: '10px 0' }}>Security {inr(typed)} + interest {inr(interest)} = <strong>total {inr(typed + interest)}</strong> (confirmed with the member's OTP).</div>;
+                })()}
                 {kind === 'adjust' && chosenLoan && (
                   <div style={{ margin: '10px 0' }}>
                     <div className="notice">
@@ -489,7 +501,7 @@ export function SecurityWithdraw() {
                       <tr key={w.id}>
                         <td data-label="Request"><strong>{w.receiptNo}</strong></td><td data-label="Date">{dmy(w.requestedOn)}</td>
                         <td data-label="Type">{KIND_LABEL[w.kind]}{w.kind === 'adjust' && <div className="muted small">Loan {w.loanId}</div>}</td>
-                        <td data-label="Amount" className="num">{inr(w.amount)}</td>
+                        <td data-label="Amount" className="num">{inr(w.kind === 'withdraw' && w.interest > 0 ? w.total : w.amount)}{w.kind === 'withdraw' && w.interest > 0 && <div className="muted small">incl. interest {inr(w.interest)}</div>}</td>
                         <td data-label="Status"><span className={`badge ${TONE[w.stage]}`}>{STAGE_LABEL[w.stage]}</span>{w.status === 'rejected' && <div className="muted small">{w.rejectReason}</div>}</td>
                       </tr>
                     ))}

@@ -81,8 +81,8 @@ export async function cashbook(req, res) {
     // security is paid back once the member's OTP is verified (requests made before that step were paid on approval)
     const oldSec = await SecurityWithdrawal.find({ ...scope, kind: 'withdraw', status: 'approved', otpRequired: { $ne: true }, ...modeFilter('payMode'), ...stampRange('decidedAt', before) }).limit(20000);
     const newSec = await SecurityWithdrawal.find({ ...scope, kind: 'withdraw', status: 'approved', otpRequired: true, ...modeFilter('payMode'), ...stampRange('otpVerifiedAt', before) }).limit(20000);
-    oldSec.forEach((w) => payments.push({ date: iso(w.decidedAt), particulars: `Security paid back — ${w.memberCode} ${w.memberName || ''}`.trim(), ref: w.receiptNo, mode: w.payMode, amount: w.amountPaise, branchId: w.branch }));
-    newSec.filter((w) => w.otpVerifiedAt).forEach((w) => payments.push({ date: iso(w.otpVerifiedAt), particulars: `Security paid back — ${w.memberCode} ${w.memberName || ''}`.trim(), ref: w.receiptNo, mode: w.payMode, amount: w.amountPaise, branchId: w.branch }));
+    oldSec.forEach((w) => payments.push({ date: iso(w.decidedAt), particulars: `Security paid back — ${w.memberCode} ${w.memberName || ''}`.trim(), ref: w.receiptNo, mode: w.payMode, amount: w.amountPaise + (w.interestPaise || 0), branchId: w.branch }));
+    newSec.filter((w) => w.otpVerifiedAt).forEach((w) => payments.push({ date: iso(w.otpVerifiedAt), particulars: `Security paid back${w.interestPaise ? ' with interest' : ''} — ${w.memberCode} ${w.memberName || ''}`.trim(), ref: w.receiptNo, mode: w.payMode, amount: w.amountPaise + (w.interestPaise || 0), branchId: w.branch }));
     const pays = await ProductPayment.find({ ...scope, isDeleted: false, status: { $ne: 'rejected' }, ...modeFilter('mode'), ...r }).limit(20000);
     pays.forEach((p) => payments.push({ date: iso(p.paidOn), particulars: 'Product payment to head office', ref: p.reference || '', mode: p.mode, amount: p.amountPaise, branchId: p.branch }));
     // head office receipts: product payments the admin has received
