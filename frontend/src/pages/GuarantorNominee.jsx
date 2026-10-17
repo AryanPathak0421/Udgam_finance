@@ -63,6 +63,8 @@ function PartySection({ kind, member, onSaved }) {
   // The saved number stays verified as long as it is not changed.
   const mobileVerified = Boolean(challenge) || Boolean(existing?.mobileVerified && form.mobile && form.mobile === existing.mobile);
   const noGuarantor = kind === 'nominee' && !member.guarantor;
+  // The guarantor can be added by the branch; after that only an admin edits it.
+  const lockedGuarantor = kind === 'guarantor' && Boolean(existing?.name) && !['super_admin', 'admin'].includes(user?.role);
   const blocked = Boolean(member.isBlocked);
 
   async function submit(e) {
@@ -125,6 +127,8 @@ function PartySection({ kind, member, onSaved }) {
           </div>
         )}
 
+        {lockedGuarantor && <div className="notice warn" style={{ marginBottom: 12 }}>The guarantor is saved. Only an admin can edit or change the guarantor.</div>}
+        <fieldset disabled={lockedGuarantor} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         <div className="form-grid">
           <EmployeeSelect
             id={`${kind}-employee`}
@@ -174,8 +178,10 @@ function PartySection({ kind, member, onSaved }) {
           </>
         )}
 
+        </fieldset>
+
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
-          <button type="submit" className="btn primary" disabled={saving || noGuarantor || blocked}>
+          <button type="submit" className="btn primary" disabled={saving || noGuarantor || blocked || lockedGuarantor}>
             {saving ? 'Saving…' : same ? 'Save nominee (same as guarantor)' : `Save ${label.toLowerCase()}`}
           </button>
         </div>

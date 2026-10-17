@@ -10,7 +10,7 @@ import useDebounce from '../hooks/useDebounce.js';
 import { compressImage } from '../utils/image.js';
 
 const LIMIT = 25;
-const APPROVERS = ['super_admin', 'admin', 'branch_manager'];
+const APPROVERS = ['super_admin', 'admin']; // only an admin approves or rejects
 const UPLOADERS = ['super_admin', 'admin', 'branch_manager', 'loan_officer', 'field_officer'];
 const ADMINS = ['super_admin', 'admin'];
 const TONE = { pending: 'grey', approved: 'green', rejected: 'danger' };
@@ -36,7 +36,7 @@ function PartyBadge({ p }) {
   );
 }
 
-function ReviewDialog({ memberId, canApprove, canUpload, isAdmin, onClose, onChanged }) {
+function ReviewDialog({ memberId, canApprove, canUpload, isAdmin, onClose, onChanged, onlyRejected = false }) {
   const toast = useToast();
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
@@ -111,11 +111,12 @@ function ReviewDialog({ memberId, canApprove, canUpload, isAdmin, onClose, onCha
             Form ID {m.formId} · {m.branch?.name || '—'} · Submitted {fmtDate(m.submittedAt)} · <Badge status={m.status} />
             {m.guarantorChangedAt && <> · Guarantor changed {fmtDate(m.guarantorChangedAt)}</>}
           </p>
-          {data.documents.length === 0 ? (
-            <EmptyState title="No documents uploaded" />
+          {onlyRejected && <p className="muted small">Only rejected documents can be uploaded again. Approved documents cannot be changed.</p>}
+          {data.documents.filter((d) => !onlyRejected || d.status === 'rejected').length === 0 ? (
+            <EmptyState title={onlyRejected ? 'No rejected documents' : 'No documents uploaded'} />
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 12 }}>
-              {data.documents.map((d) => (
+              {data.documents.filter((d) => !onlyRejected || d.status === 'rejected').map((d) => (
                 <div key={d.key} className="panel" style={{ padding: 12 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
                     <strong>{d.who} — {d.label}</strong>
@@ -153,7 +154,7 @@ function ReviewDialog({ memberId, canApprove, canUpload, isAdmin, onClose, onCha
                           Re-upload
                         </button>
                       )}
-                      {isAdmin && d.status !== 'rejected' && (
+                      {isAdmin && d.status === 'pending' && !onlyRejected && (
                         <button className="btn sm" disabled={busy} onClick={() => { reuploadKey.current = d.key; fileRef.current?.click(); }}>
                           Replace photo
                         </button>
@@ -175,7 +176,12 @@ function ReviewDialog({ memberId, canApprove, canUpload, isAdmin, onClose, onCha
   );
 }
 
-export default function KycApproval() {
+export function KycReupload() {
+  return <KycApproval mode="reupload" />;
+}
+
+export default function KycApproval({ mode = 'approval' } = {}) {
+  const reupload = mode === 'reupload';
   const { user } = useAuth();
   const canApprove = APPROVERS.includes(user?.role);
   const canUpload = UPLOADERS.includes(user?.role);
@@ -186,7 +192,7 @@ export default function KycApproval() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [page, setPage] = useState(1);
-  const [status, setStatus] = useState('pending');
+  const [status, setStatus] = useState(reupload ? 'rejected' : 'pending');
   const [branch, setBranch] = useState('');
   const [party, setParty] = useState('');
   const [from, setFrom] = useState('');
@@ -224,15 +230,20 @@ export default function KycApproval() {
 
   return (
     <>
-      <PageHeader title="KYC Approval" description="Approve or reject member documents, date-wise. Rejected documents are uploaded again by the branch." />
+      <PageHeader
+        title={reupload ? 'KYC Re-upload' : 'KYC Approval'}
+        description={reupload ? 'Documents rejected by the admin are listed here. Upload them again; approved documents cannot be changed.' : 'Only an admin approves or rejects documents, date-wise. Rejected documents are uploaded again by the branch under KYC Re-upload.'}
+      />
       <div className="panel">
         <div className="toolbar" style={{ flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', gap: 6 }}>
-            {tab('pending', 'Pending')}
-            {tab('rejected', 'Rejected')}
-            {tab('approved', 'Approved')}
-            {tab('', 'All')}
-          </div>
+          {!reupload && (
+            <div style={{ display: 'flex', gap: 6 }}>
+              {tab('pending', 'Pending')}
+              {tab('rejected', 'Rejected')}
+              {tab('approved', 'Approved')}
+              {tab('', 'All')}
+            </div>
+          )}
           <select value={party} onChange={(e) => setParty(e.target.value)} aria-label="Person">
             <option value="">Borrower, guarantor & nominee</option>
             <option value="member">Borrower only</option>
@@ -287,7 +298,7 @@ export default function KycApproval() {
                       </td>
                       <td data-label="Actions" className="actions-col">
                         <button className="btn sm" onClick={() => setOpenId(r.id)}>
-                          {canApprove && r.status === 'pending' ? 'Review' : 'View'}
+                          {reupload ? 'Upload again' : canApprove && r.status === 'pending' ? 'Review' : 'View'}
                         </button>
                       </td>
                     </tr>
@@ -299,7 +310,7 @@ export default function KycApproval() {
           </>
         )}
       </div>
-      {openId && <ReviewDialog memberId={openId} canApprove={canApprove} canUpload={canUpload} isAdmin={isAdmin} onClose={() => setOpenId(null)} onChanged={load} />}
+      {openId && <ReviewDialog memberId={openId} canApprove={canApprove} canUpload={canUpload} isAdmin={isAdmin} onlyRejected={reupload} onClose={() => setOpenId(null)} onChanged={load} />}
     </>
   );
 }

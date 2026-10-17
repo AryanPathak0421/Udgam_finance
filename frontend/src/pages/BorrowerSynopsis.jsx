@@ -126,7 +126,9 @@ export default function BorrowerSynopsis() {
     );
   }
 
-  const { member: m, kyc, blockHistory, timeline, editHistory = [], groups = [] } = data;
+  const { member: m, kyc, blockHistory, timeline, editHistory = [], groups = [], loans = [], civilChecks = [] } = data;
+  const inr = (n) => (n === null || n === undefined ? '—' : `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+  const KIND = { personal: 'Personal', group: 'Group', business: 'Business / MSME', product: 'Product' };
 
   async function startEdit() {
     try {
@@ -250,6 +252,52 @@ export default function BorrowerSynopsis() {
                   </tr>
                 ))}
               </tbody>
+            </table>
+          </div>
+        )}
+      </Section>
+
+      <Section title={`Loan record (${loans.length})`}>
+        {loans.length === 0 ? (
+          <span className="muted">No loan requisition for this member yet</span>
+        ) : (
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead><tr><th>Form ID</th><th>Date</th><th>Type</th><th>Scheme</th><th className="num">Amount</th><th className="num">Cash in hand</th><th className="num">EMI</th><th>Term</th><th>Status</th><th>Details</th></tr></thead>
+              <tbody>
+                {loans.map((l) => (
+                  <tr key={l.id}>
+                    <td data-label="Form ID"><strong>{l.formId}</strong></td>
+                    <td data-label="Date">{fmtDate(l.loanDate)}</td>
+                    <td data-label="Type">{KIND[l.kind] || l.kind}</td>
+                    <td data-label="Scheme">{l.scheme}</td>
+                    <td data-label="Amount" className="num">{inr(l.amount)}</td>
+                    <td data-label="Cash" className="num">{inr(l.cash)}</td>
+                    <td data-label="EMI" className="num">{inr(l.emi)}</td>
+                    <td data-label="Term">{l.term} installments ({l.mode})</td>
+                    <td data-label="Status"><span className={`badge ${l.status === 'approved' ? 'green' : l.status === 'pending' ? 'grey' : 'danger'}`}>{cap(l.status)}</span></td>
+                    <td data-label="Details">
+                      {l.group && <div>Group {l.group}</div>}
+                      {l.product && <div>Product {l.product}</div>}
+                      {l.productLoans.map((p, i) => <div key={i}>Product loan: {p.product} = {inr(p.value)} (EMI {inr(p.emi)})</div>)}
+                      <div className="muted small">Employee {l.employeeCode}</div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Section>
+
+      <Section title={`Civil checks (${civilChecks.length})`}>
+        {civilChecks.length === 0 ? (
+          <span className="muted">No civil check recorded</span>
+        ) : (
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead><tr><th>Report date</th><th>Bureau</th><th className="num">Score</th></tr></thead>
+              <tbody>{civilChecks.map((c, i) => <tr key={i}><td data-label="Date">{fmtDate(c.reportDate)}</td><td data-label="Bureau">{c.bureau}</td><td data-label="Score" className="num">{c.score}</td></tr>)}</tbody>
             </table>
           </div>
         )}

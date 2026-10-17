@@ -15,6 +15,8 @@ import { takeVerified } from '../services/otpChallenges.js';
 import { checkPanFormat, verifyPan, verifyBankAccount } from '../services/kycVerify.js';
 import { AuditLog } from '../models/AuditLog.js';
 import { Group } from '../models/Group.js';
+import { LoanRequisition } from '../models/LoanRequisition.js';
+import { CivilCheck } from '../models/CivilCheck.js';
 
 export const GENDERS = ['male', 'female', 'other'];
 export const OCCUPATIONS = ['Farmer', 'Agricultural labour', 'Dairy / animal husbandry', 'Small shop / trader', 'Tailoring / handicraft', 'Daily wage labour', 'Salaried', 'Self employed', 'Homemaker', 'Other'];
@@ -635,6 +637,10 @@ export function savePerson(kind) {
     // Photos are loaded so approved documents can be told apart from changed ones.
     const m = await loadMemberFor(req, { photos: true });
     assertNotBlocked(m);
+    // The guarantor can be added by the branch, but once saved only an admin may edit it.
+    if (kind === 'guarantor' && m.guarantor?.name && !isAdmin(req.user)) {
+      throw new HttpError(403, 'Only an admin can edit the guarantor.');
+    }
     const old = m[kind]?.name ? m[kind].toObject() : null;
     let person;
     if (same) {
@@ -683,6 +689,7 @@ export function savePerson(kind) {
  * so the change history can always be shown.
  */
 export async function changeGuarantor(req, res) {
+  if (!isAdmin(req.user)) throw new HttpError(403, 'Only an admin can change the guarantor.');
   const m = await loadMemberFor(req, { photos: true });
   assertNotBlocked(m);
   if (!m.guarantor?.name) {
@@ -902,6 +909,8 @@ export async function reuploadKyc(req, res) {
   if (!KYC_KEYS.has(key)) throw new HttpError(422, 'Unknown document');
   if (!(m.kycKeys || []).includes(key)) throw new HttpError(409, 'This document has not been uploaded');
   const rec = (m.kycDocs || []).find((x) => x.key === key);
+  // An approved document is final: it is never uploaded again. Only rejected documents are re-uploaded.
+  if (rec?.status === 'approved') throw new HttpError(409, 'This document is already approved and cannot be uploaded again.');
   // The branch can only upload a document again after it was rejected. Replacing a document that is
   // pending or approved is for an admin only.
   if (rec?.status !== 'rejected' && !isAdmin(req.user)) {
@@ -958,6 +967,8 @@ const TIMELINE_LABELS = {
   'kyc.approve': 'Document approved',
   'kyc.reject': 'Document rejected',
   'kyc.reupload': 'Document uploaded again',
+  'loanRequisition.create': 'Loan requisition made',
+  'loanRequisition.topUp': 'Product loan added to a group loan',
 };
 
 async function memberGroups(memberId) {
@@ -991,12 +1002,17 @@ export async function synopsis(req, res) {
   const kyc = kycSummary(m, keys);
 
   const logs = await AuditLog.find({ entity: 'Member', entityId: String(m._id) }).sort({ createdAt: -1 }).limit(100);
-  const timeline = logs
+  // Loan requisitions of the member are part of the activity too.
+  const loanIds = (await LoanRequisition.find({ isDeleted: false, $or: [{ member: m._id }, { members: m._id }] }).select('_id')).map((x) => String(x._id));
+  const loanLogs = loanIds.length ? await AuditLog.find({ entity: 'LoanRequisition', entityId: { $in: loanIds } }).sort({ createdAt: -1 }).limit(100) : [];
+  const timeline = [...logs, ...loanLogs]
+    .sort((x, y) => y.createdAt - x.createdAt)
     .filter((l) => TIMELINE_LABELS[l.action])
     .map((l) => {
       const a = l.after || {};
       const detail = [
         a.document ? `Document: ${a.document}` : '',
+        a.formId ? `Form ${a.formId}${a.scheme ? ` · ${a.scheme}` : ''}${a.amount ? ` · ₹${a.amount}` : ''}` : '',
         a.reason ? `Reason: ${a.reason}` : '',
         Array.isArray(a.changed) && a.changed.length ? `Changed: ${a.changed.join(', ')}` : '',
       ].filter(Boolean).join(' · ');
@@ -1004,8 +1020,38 @@ export async function synopsis(req, res) {
     });
 
   const base = present(m, req.user, { detail: true });
+  // Every loan requisition of the member (own loans, product loans, and the group loans the member is part of).
+  const reqs = await LoanRequisition.find({ isDeleted: false, $or: [{ member: m._id }, { members: m._id }] }).sort({ createdAt: -1 });
+  const loans = reqs.map((r) => {
+    const mine = (r.additionalProducts || []).filter((a) => String(a.member) === String(m._id));
+    return {
+      id: r._id,
+      formId: r.formId,
+      kind: r.kind || 'personal',
+      loanDate: r.loanDate,
+      group: r.groupInfo?.code ? `${r.groupInfo.code} — ${r.groupInfo.name}` : '',
+      scheme: `${r.schemeCode || ''} ${r.schemeName || ''}`.trim(),
+      amount: r.amountPaise / 100,
+      cash: r.cashPaise === undefined || r.cashPaise === null ? null : r.cashPaise / 100,
+      mode: r.mode,
+      term: r.term,
+      emi: r.installmentPaise / 100,
+      totalPayable: r.totalPayablePaise === undefined ? null : r.totalPayablePaise / 100,
+      product: r.product?.name ? `${r.product.name} × ${r.product.quantity}` : '',
+      productLoans: mine.map((a) => ({ product: `${a.product?.name} × ${a.product?.quantity}`, value: a.valuePaise / 100, emi: a.installmentPaise / 100 })),
+      status: r.status,
+      employeeCode: r.employeeCode,
+    };
+  });
+  const civilChecks = (await CivilCheck.find({ member: m._id, isDeleted: false }).sort({ reportDate: -1, createdAt: -1 })).map((c) => ({
+    score: c.score,
+    bureau: c.bureau,
+    reportDate: c.reportDate,
+  }));
   res.json({
     member: base,
+    loans,
+    civilChecks,
     kyc: { status: kyc.status, total: kyc.total, approved: kyc.approved, rejected: kyc.rejected, pending: kyc.pending, documents: docs },
     blockHistory: (m.blockHistory || [])
       .map((b) => ({ action: b.action, reason: b.reason, at: b.at, byCode: b.byCode || '' }))

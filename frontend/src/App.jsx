@@ -21,7 +21,7 @@ import AccountGroupMaster from './pages/adminMaster/AccountGroupMaster.jsx';
 import LedgerMaster from './pages/adminMaster/LedgerMaster.jsx';
 import NewBorrower from './pages/NewBorrower.jsx';
 import GuarantorNominee from './pages/GuarantorNominee.jsx';
-import KycApproval from './pages/KycApproval.jsx';
+import KycApproval, { KycReupload } from './pages/KycApproval.jsx';
 import GuarantorChange from './pages/GuarantorChange.jsx';
 import BorrowerSynopsis from './pages/BorrowerSynopsis.jsx';
 import BorrowerBlock from './pages/BorrowerBlock.jsx';
@@ -41,6 +41,7 @@ const PAGES = {
   '/members/new-borrower': NewBorrower,
   '/members/guarantor-detail': GuarantorNominee,
   '/members/kyc-approval': KycApproval,
+  '/members/kyc-reupload': KycReupload,
   '/members/guarantor-change': GuarantorChange,
   '/members/borrower-synopsis': BorrowerSynopsis,
   '/members/block-unblock': BorrowerBlock,
