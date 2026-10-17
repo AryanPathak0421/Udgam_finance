@@ -107,12 +107,13 @@ export function SecurityDeposits() {
 }
 
 // ---- Security Withdrawal List: the same filters; the admin approves or rejects here ---------------------------------------
-export function SecurityWithdrawals() {
+function WithdrawalTable({ approval }) {
   const { user } = useAuth();
   const toast = useToast();
   const isAdmin = ['super_admin', 'admin'].includes(user?.role);
   const { f, set, branches } = useFilters();
-  const [status, setStatus] = useState(isAdmin ? 'pending' : '');
+  const canDecide = approval && isAdmin;
+  const [status, setStatus] = useState(approval ? 'pending' : '');
   const [kind, setKind] = useState('');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -170,7 +171,10 @@ export function SecurityWithdrawals() {
   const tab = (key, label) => <button key={key} className={`btn sm${status === key ? ' primary' : ''}`} onClick={() => setStatus(key)}>{label}{key === 'pending' && data ? ` (${data.pending})` : ''}</button>;
   return (
     <>
-      <PageHeader title="Security Withdrawal List" description={isAdmin ? 'Requests to withdraw the security or adjust it against an EMI. Approve or reject them here.' : 'Your requests to withdraw the security or adjust it against an EMI. The admin approves them.'} />
+      <PageHeader
+        title={approval ? 'Security Approval' : 'Security Withdrawal List'}
+        description={approval ? 'Requests to withdraw the security or adjust it against an EMI. Check the security left and the EMI due, then approve or reject.' : 'Requests to withdraw the security or adjust it against an EMI, with their status. The admin approves them under Security Approval.'}
+      />
       <div className="panel">
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
           {tab('pending', 'Pending')}{tab('approved', 'Approved')}{tab('rejected', 'Rejected')}{tab('', 'All')}
@@ -202,6 +206,14 @@ export function SecurityWithdrawals() {
                         {w.kind === 'adjust' && <div className="muted small">Loan {w.loanId}{w.emiReceiptNo ? ` · ${w.emiReceiptNo}` : ''}</div>}
                         {w.kind === 'withdraw' && w.payMode && <div className="muted small">{MODE_LABEL[w.payMode]}{w.reference ? ` · ${w.reference}` : ''}</div>}
                         {w.remark && <div className="muted small">{w.remark}</div>}
+                        {w.status === 'pending' && w.info && (
+                          <div className="small" style={{ marginTop: 4 }}>
+                            Security left {inr(w.info.securityLeft)}
+                            {w.kind === 'adjust' && w.info.emiDue !== undefined && (
+                              <> · EMI due {inr(w.info.emiDue)} (left {inr(w.info.emiLeft)}){w.info.emiDue > 0 ? " → " + inr(Math.min(w.amount, w.info.emiDue)) + " of the due EMI is covered" + (w.info.emiDue - w.amount > 0 ? ", " + inr(w.info.emiDue - w.amount) + " stays due" : "") : ""}</>
+                            )}
+                          </div>
+                        )}
                       </td>
                       <td data-label="Amount" className="num"><strong>{inr(w.amount)}</strong></td>
                       <td data-label="Status">
@@ -210,7 +222,7 @@ export function SecurityWithdrawals() {
                         {w.decidedByCode && <div className="muted small">by {w.decidedByCode}</div>}
                       </td>
                       <td data-label="Actions" className="actions-col">
-                        {isAdmin && w.status === 'pending' ? (
+                        {canDecide && w.status === 'pending' ? (
                           <div className="row-actions">
                             <button className="btn sm primary" disabled={busy === w.id} onClick={() => approve(w)}>Approve</button>
                             <button className="btn sm danger-outline" disabled={busy === w.id} onClick={() => { setRejecting(w); setReason(''); setReasonError(''); }}>Reject</button>
@@ -237,6 +249,9 @@ export function SecurityWithdrawals() {
     </>
   );
 }
+
+export const SecurityWithdrawals = () => <WithdrawalTable approval={false} />;
+export const SecurityApproval = () => <WithdrawalTable approval />;
 
 // ---- Security Withdrawal: search the member code, choose one (adjust the EMI / withdraw), send for admin approval -----------
 export function SecurityWithdraw() {
@@ -300,6 +315,10 @@ export function SecurityWithdraw() {
   const set = (k) => (e) => { setForm((f) => ({ ...f, [k]: e.target.value })); setErrors((x) => ({ ...x, [k]: undefined })); };
   const openLoans = member ? member.loans.filter((l) => l.open && !l.settled) : [];
   const chosenLoan = openLoans.find((l) => l.id === form.loan);
+  // Adjust EMI: what the security can cover = the smaller of the security left and the EMI due (or the EMI left when nothing is due).
+  const emiDue = chosenLoan ? (chosenLoan.due > 0 ? chosenLoan.due : chosenLoan.outstanding) : 0;
+  const adjustable = member ? Math.round(Math.min(member.available, emiDue) * 100) / 100 : 0;
+  const typed = Number(form.amount) || 0;
 
   return (
     <>
@@ -371,13 +390,13 @@ export function SecurityWithdraw() {
                 </div>
                 <div className="form-grid">
                   {kind === 'adjust' && (
-                    <FormField id="wloan" label="Loan whose EMI is adjusted" required error={errors.loan} hint={chosenLoan ? `EMI left ${inr(chosenLoan.outstanding)}${chosenLoan.due > 0 ? ` · due now ${inr(chosenLoan.due)}` : ''}` : undefined}>
+                    <FormField id="wloan" label="Loan whose EMI is adjusted" required error={errors.loan} hint={chosenLoan ? `EMI due now ${inr(chosenLoan.due)} · EMI left ${inr(chosenLoan.outstanding)}` : undefined}>
                       <select id="wloan" value={form.loan} onChange={set('loan')}>
                         {openLoans.map((l) => <option key={l.id} value={l.id}>{l.loanId || l.formId} — {l.schemeName}</option>)}
                       </select>
                     </FormField>
                   )}
-                  <FormField id="wamount" label="Amount (₹)" required error={errors.amount} hint={`Up to ${inr(member.available)}`}>
+                  <FormField id="wamount" label="Amount (₹)" required error={errors.amount} hint={kind === 'adjust' ? `Security ${inr(member.available)}, EMI ${chosenLoan?.due > 0 ? 'due' : 'left'} ${inr(emiDue)} → up to ${inr(adjustable)} can be adjusted` : `Up to ${inr(member.available)}`}>
                     <input id="wamount" inputMode="decimal" value={form.amount} onChange={(e) => { setForm((f) => ({ ...f, amount: e.target.value.replace(/[^\d.]/g, '') })); setErrors((x) => ({ ...x, amount: undefined })); }} />
                   </FormField>
                   {kind === 'withdraw' && (
@@ -392,6 +411,16 @@ export function SecurityWithdraw() {
                   )}
                   <FormField id="wremark" label="Remark" className="span-2"><input id="wremark" value={form.remark} maxLength={300} onChange={set('remark')} /></FormField>
                 </div>
+                {kind === 'adjust' && chosenLoan && (
+                  <div style={{ margin: '10px 0' }}>
+                    <div className="notice">
+                      Security available {inr(member.available)} · EMI {chosenLoan.due > 0 ? 'due' : 'left'} {inr(emiDue)}. <strong>{inr(adjustable)}</strong> can be adjusted
+                      {emiDue - adjustable > 0 ? <>, and {inr(emiDue - adjustable)} will still be due.</> : '.'}{' '}
+                      <button type="button" className="link-btn" onClick={() => setForm((f) => ({ ...f, amount: String(adjustable) }))}>Fill in {inr(adjustable)}</button>
+                    </div>
+                    {typed > 0 && typed <= adjustable && <div className="muted small" style={{ marginTop: 4 }}>Adjusting {inr(typed)}: EMI {chosenLoan.due > 0 ? 'due' : 'left'} becomes {inr(Math.max(emiDue - typed, 0))}.</div>}
+                  </div>
+                )}
                 <div className="notice" style={{ margin: '10px 0' }}>The request goes to the admin. Nothing is paid or adjusted until the admin approves it.</div>
                 <button className="btn primary" disabled={busy} onClick={send}>{busy ? 'Sending…' : 'Send for admin approval'}</button>
               </>

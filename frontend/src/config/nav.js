@@ -162,6 +162,7 @@ export const NAV_SECTIONS = [
           { label: 'Security Deposit List', path: '/savings/deposits', icon: 'ledger', roles: [...MGMT, 'accountant', 'loan_officer', 'field_officer', 'collection_officer', 'viewer'] },
           { label: 'Security Withdrawal List', path: '/savings/withdrawals', icon: 'file', roles: [...MGMT, 'accountant', 'loan_officer', 'field_officer', 'collection_officer', 'viewer'] },
           { label: 'Security Withdrawal', path: '/savings/withdraw', icon: 'cash', roles: [...MGMT, 'accountant'] },
+          { label: 'Security Approval', path: '/savings/approval', icon: 'check', roles: ALL_ADMIN },
         ],
       },
     ],

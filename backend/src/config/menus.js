@@ -49,6 +49,7 @@ export const MENU_CATALOGUE = [
   { key: '/savings/deposits', label: 'Security Deposit List', group: 'Borrower Savings' },
   { key: '/savings/withdrawals', label: 'Security Withdrawal List', group: 'Borrower Savings' },
   { key: '/savings/withdraw', label: 'Security Withdrawal', group: 'Borrower Savings' },
+  { key: '/savings/approval', label: 'Security Approval', group: 'Borrower Savings', adminOnly: true },
   { key: '/employees', label: 'Employees', group: 'Organisation' },
   { key: '/customers', label: 'Customers', group: 'Customers' },
   { key: '/kyc', label: 'KYC', group: 'Customers' },

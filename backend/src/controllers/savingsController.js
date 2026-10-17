@@ -66,7 +66,8 @@ async function balanceOf(req, memberId) {
   return { deposits, depositedPaise: dep, withdrawnPaise: approved, pendingPaise: pending, availablePaise: dep - approved - pending };
 }
 
-const presentWithdrawal = (w) => ({
+const presentWithdrawal = (w, info) => ({
+  ...(info ? { info } : {}),
   id: w._id, receiptNo: w.receiptNo, memberCode: w.memberCode, memberName: w.memberName, branch: w.branch?._id ? { id: w.branch._id, code: w.branch.code, name: w.branch.name } : null,
   kind: w.kind, amount: money(w.amountPaise), loanId: w.loanId || '', payMode: w.payMode || '', reference: w.reference || '', remark: w.remark || '', status: w.status, rejectReason: w.rejectReason || '',
   requestedOn: iso(w.createdAt), requestedByCode: w.requestedByCode || '', decidedAt: w.decidedAt || null, decidedByCode: w.decidedByCode || '', emiReceiptNo: w.emiReceiptNo || '',
@@ -168,7 +169,33 @@ export async function withdrawalList(req, res) {
     SecurityWithdrawal.countDocuments({ ...branchFilter(req.user), status: 'pending' }),
     SecurityWithdrawal.find(filter).select('amountPaise'),
   ]);
-  res.json({ items: items.map(presentWithdrawal), page, limit, total, totalPages: Math.max(Math.ceil(total / limit), 1), pending, totalAmount: money(sum.reduce((s, x) => s + x.amountPaise, 0)) });
+  // For requests waiting for a decision: the member's security and, for an adjustment, the EMI due on the loan.
+  const infoOf = new Map();
+  const waiting = items.filter((w) => w.status === 'pending');
+  if (waiting.length) {
+    const asOf = startOfToday();
+    const loans = await LoanPayment.find({ _id: { $in: waiting.filter((w) => w.kind === 'adjust').map((w) => w.loanPayment) } });
+    const balances = new Map();
+    for (const w of waiting) {
+      const key = String(w.member);
+      // eslint-disable-next-line no-await-in-loop
+      if (!balances.has(key)) balances.set(key, await balanceOf(req, w.member));
+      const b = balances.get(key);
+      const info = { deposited: money(b.depositedPaise), withdrawn: money(b.withdrawnPaise), securityLeft: money(b.depositedPaise - b.withdrawnPaise) };
+      if (w.kind === 'adjust') {
+        const l = loans.find((x) => String(x._id) === String(w.loanPayment));
+        const line = l?.lines.find((x) => String(x.member) === String(w.member));
+        if (l && line) {
+          // eslint-disable-next-line no-await-in-loop
+          const st = await borrowerState(l, line, asOf);
+          info.emiDue = money(st.totals.due);
+          info.emiLeft = money(st.totals.outstanding);
+        }
+      }
+      infoOf.set(String(w._id), info);
+    }
+  }
+  res.json({ items: items.map((w) => presentWithdrawal(w, infoOf.get(String(w._id)))), page, limit, total, totalPages: Math.max(Math.ceil(total / limit), 1), pending, totalAmount: money(sum.reduce((s, x) => s + x.amountPaise, 0)) });
 }
 
 async function loadPending(req) {
