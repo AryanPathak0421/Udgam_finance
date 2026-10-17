@@ -26,7 +26,14 @@ const securityWithdrawalSchema = new mongoose.Schema(
     decidedAt: Date,
     decidedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     decidedByCode: String,
-    emiReceiptNo: String, // adjust: the EMI receipt that was made on approval
+    // After the admin approves, an OTP goes to the member's phone; the security is paid back / put against the EMI only once it is
+    // verified. (Requests made before this step have otpRequired unset and were done on approval.)
+    otpRequired: { type: Boolean, default: false },
+    otpChallenge: { type: mongoose.Schema.Types.ObjectId, ref: 'OtpChallenge' },
+    otpSentAt: Date,
+    otpVerifiedAt: Date,
+    completedByCode: String,
+    emiReceiptNo: String, // adjust: the EMI receipt that was made when the OTP was verified
     requestedByCode: String,
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   },

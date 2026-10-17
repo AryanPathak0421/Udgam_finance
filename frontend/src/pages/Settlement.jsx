@@ -286,7 +286,7 @@ function DeathSettleForm({ loanId, member, canSettle, onDone }) {
     if (Object.keys(found).length) return;
     setBusy(true);
     try {
-      const r = await api.settlements.settleDeath({ loan: loanId, member, ...form });
+      const r = await api.settlements.settleDeath({ loan: loanId, member, ...form, settledOn: undefined });
       toast.success(`Death settlement saved — ${r.settlement.receiptNo}${r.memberBlocked ? '. The member is blocked.' : ''}`);
       onDone(r.settlement);
     } catch (err) {
@@ -310,8 +310,8 @@ function DeathSettleForm({ loanId, member, canSettle, onDone }) {
             <FormField id="ddeath" label="Date of death" required error={errors.deathDate}>
               <input id="ddeath" type="date" max={todayISO()} min={d.loan.paidOn} value={form.deathDate} onChange={set('deathDate')} />
             </FormField>
-            <FormField id="dsettle" label="Settlement date" required error={errors.settledOn}>
-              <input id="dsettle" type="date" max={todayISO()} min={form.deathDate || undefined} value={form.settledOn} onChange={set('settledOn')} />
+            <FormField id="dsettle" label="Settlement date" hint="Today. It cannot be changed" error={errors.settledOn}>
+              <input id="dsettle" type="date" value={todayISO()} disabled readOnly />
             </FormField>
             <FormField id="dclaim" label="Insurance claim reference" hint="Optional" error={errors.claimRef}>
               <input id="dclaim" value={form.claimRef} maxLength={60} onChange={set('claimRef')} />
@@ -339,6 +339,123 @@ function DeathSettleForm({ loanId, member, canSettle, onDone }) {
         </div>
       )}
     </>
+  );
+}
+
+// ---- guarantor death: the loan carries on, the guarantor has to be changed before the next loan -------------------------------------
+function GuarantorDeathForm({ loanId, member, canSettle, onDone }) {
+  const toast = useToast();
+  const { data: d, error, load } = usePreview(loanId, member);
+  const [form, setForm] = useState({ deathDate: '', remark: '', certificate: '', certificateName: '' });
+  const [errors, setErrors] = useState({});
+  const [busy, setBusy] = useState(false);
+  const fileRef = useRef(null);
+  if (error) return <ErrorState message={error} onRetry={load} />;
+  if (!d) return <Spinner label="Loading…" />;
+
+  async function pick(e) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      let data;
+      if (file.type === 'application/pdf') {
+        if (file.size > MAX_DOC_BYTES) throw new Error('The PDF must be 800 KB or smaller');
+        data = await new Promise((resolve, reject) => { const fr = new FileReader(); fr.onload = () => resolve(fr.result); fr.onerror = () => reject(new Error('Could not read the file')); fr.readAsDataURL(file); });
+      } else data = await compressImage(file, { maxSide: 1600, quality: 0.75 });
+      setForm((f) => ({ ...f, certificate: data, certificateName: file.name }));
+      setErrors((x) => ({ ...x, certificate: undefined }));
+    } catch (ex) {
+      setErrors((x) => ({ ...x, certificate: ex.message }));
+    }
+  }
+
+  async function save() {
+    const found = {};
+    if (!form.deathDate) found.deathDate = 'Enter the date of death';
+    if (!form.certificate) found.certificate = 'Upload the death certificate';
+    setErrors(found);
+    if (Object.keys(found).length) return;
+    setBusy(true);
+    try {
+      const r = await api.settlements.recordGuarantorDeath({ loan: loanId, member, ...form });
+      toast.success(`${r.message}. ${d.borrower.name} needs a new guarantor before the next loan.`);
+      onDone(null);
+    } catch (err) {
+      setErrors(err.errors || {});
+      toast.error(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const g = d.guarantor;
+  return (
+    <>
+      <LoanSummary d={d} />
+      {!g ? <div className="notice">This member has no guarantor.</div> : g.deceasedOn ? (
+        <div className="notice">The death of the guarantor {g.name} is already recorded ({dmy(g.deceasedOn)}). Change the guarantor under Member Details → Guarantor &amp; Nominee.</div>
+      ) : !canSettle ? <div className="muted">You can view the loan but not record a death.</div> : (
+        <div className="panel" style={{ padding: 16 }}>
+          <h3 className="section-title">Guarantor death — {g.name} (guarantor of {d.borrower.code} {d.borrower.name})</h3>
+          <div className="form-grid">
+            <FormField id="gname" label="Guarantor"><input id="gname" value={g.name} disabled /></FormField>
+            <FormField id="gdeath" label="Date of death" required error={errors.deathDate}>
+              <input id="gdeath" type="date" max={todayISO()} value={form.deathDate} onChange={(e) => { setForm((f) => ({ ...f, deathDate: e.target.value })); setErrors((x) => ({ ...x, deathDate: undefined })); }} />
+            </FormField>
+            <FormField id="gver-code" label="Verifier employee code" hint="Taken from your login"><input id="gver-code" value={d.verifier.code} disabled /></FormField>
+            <FormField id="gver-name" label="Verifier name" hint="Taken from your login"><input id="gver-name" value={d.verifier.name} disabled /></FormField>
+            <FormField id="gcert" label="Death certificate" required error={errors.certificate} className="span-2" hint="PDF or image, up to 800 KB">
+              <div className="stamp-upload">
+                {form.certificate ? <div className="muted">{form.certificateName || 'Certificate attached'}</div> : <div className="stamp-empty">No file</div>}
+                <div className="stamp-actions">
+                  <input id="gcert" ref={fileRef} type="file" accept="application/pdf,image/png,image/jpeg" onChange={pick} hidden />
+                  <button type="button" className="btn sm" onClick={() => fileRef.current?.click()}>{form.certificate ? 'Change' : 'Upload'}</button>
+                  {form.certificate && <button type="button" className="btn sm danger-outline" onClick={() => setForm((f) => ({ ...f, certificate: '', certificateName: '' }))}>Remove</button>}
+                </div>
+              </div>
+            </FormField>
+            <FormField id="gremark" label="Remark" error={errors.remark} className="span-2">
+              <input id="gremark" value={form.remark} maxLength={300} onChange={(e) => setForm((f) => ({ ...f, remark: e.target.value }))} />
+            </FormField>
+          </div>
+          <div className="notice warn" style={{ margin: '10px 0' }}>
+            The loan is <strong>not</strong> settled and {d.borrower.name} keeps paying the EMI. Before a new loan requisition can be made for {d.borrower.name}, an admin has to change the guarantor.
+          </div>
+          <button className="btn primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Record guarantor death'}</button>
+        </div>
+      )}
+    </>
+  );
+}
+
+function GuarantorDeaths({ reloadKey }) {
+  const [items, setItems] = useState(null);
+  useEffect(() => {
+    api.settlements.guarantorDeaths({}).then((r) => setItems(r.items)).catch(() => setItems([]));
+  }, [reloadKey]);
+  return (
+    <div className="panel" style={{ marginTop: 18 }}>
+      <h3 className="section-title">Guarantor deaths</h3>
+      {!items ? <Spinner label="Loading…" /> : items.length === 0 ? <EmptyState title="No guarantor death recorded" description="Members whose guarantor has died and still have to change the guarantor appear here." /> : (
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead><tr><th>Member</th><th>Branch</th><th>Guarantor</th><th>Died on</th><th>Recorded</th></tr></thead>
+            <tbody>
+              {items.map((x) => (
+                <tr key={x.memberId}>
+                  <td data-label="Member"><strong>{x.code}</strong> {x.name}</td>
+                  <td data-label="Branch">{x.branch?.name || '—'}</td>
+                  <td data-label="Guarantor">{x.guarantor}{x.guarantorMobile && <div className="muted small">{x.guarantorMobile}</div>}</td>
+                  <td data-label="Died on">{dmy(x.diedOn)}</td>
+                  <td data-label="Recorded">{dmy(x.recordedOn)}{x.recordedBy && <div className="muted small">by {x.recordedBy}</div>}{x.remark && <div className="muted small">{x.remark}</div>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -477,20 +594,32 @@ function SettlementPage({ kind }) {
   const [loan, setLoan] = useState(null);
   const [done, setDone] = useState(null);
   const [reloadKey, setReloadKey] = useState(0);
-  const Form = death ? DeathSettleForm : LoanSettleForm;
+  const [who, setWho] = useState('member'); // death settlement: member death or guarantor death
+  const guarantorCase = death && who === 'guarantor';
+  const Form = guarantorCase ? GuarantorDeathForm : death ? DeathSettleForm : LoanSettleForm;
 
   return (
     <>
       <PageHeader
         title={death ? 'Death Settlement' : 'Loan Settlement'}
-        description={death ? 'Search the Loan ID of the borrower who has died. Enter the date of death, upload the death certificate and save. The loan is settled and the member is blocked.' : 'Search the Loan ID to see the outstanding and settle the loan in one go.'}
+        description={guarantorCase ? 'Search the Loan ID of the member whose guarantor has died. Enter the date of death and upload the death certificate. The loan carries on; the guarantor has to be changed before the next loan.' : death ? 'Search the Loan ID of the borrower who has died. Enter the date of death, upload the death certificate and save. The loan is settled and the member is blocked.' : 'Search the Loan ID to see the outstanding and settle the loan in one go.'}
       />
+      {death && (
+        <div className="panel" style={{ marginBottom: 14, padding: 12 }}>
+          <FormField id="who" label="Who has died" required>
+            <select id="who" value={who} onChange={(e) => { setWho(e.target.value); setLoan(null); }}>
+              <option value="member">Member death</option>
+              <option value="guarantor">Guarantor death</option>
+            </select>
+          </FormField>
+        </div>
+      )}
       {loan ? (
         <BorrowerStep key={loan.id} loan={loan} onBack={() => setLoan(null)}>
-          {(member) => <Form key={`${loan.id}-${member}-${reloadKey}`} loanId={loan.id} member={member} canSettle={canSettle} onDone={(s) => { setDone(s); setReloadKey((k) => k + 1); }} />}
+          {(member) => <Form key={`${loan.id}-${member}-${reloadKey}`} loanId={loan.id} member={member} canSettle={canSettle} onDone={(s) => { if (s) setDone(s); setReloadKey((k) => k + 1); }} />}
         </BorrowerStep>
       ) : <LoanFinder onPick={setLoan} />}
-      <History kind={kind} reloadKey={reloadKey} />
+      {guarantorCase ? <GuarantorDeaths reloadKey={reloadKey} /> : <History kind={kind} reloadKey={reloadKey} />}
       {done && <SettlementDialog settlement={done} onClose={() => setDone(null)} />}
     </>
   );

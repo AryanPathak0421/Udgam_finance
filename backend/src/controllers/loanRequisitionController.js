@@ -210,10 +210,11 @@ export async function groups(req, res) {
 }
 
 // What a member needs before a loan can be asked for.
-const MEMBER_PICK = 'code name isBlocked kycKeys kycDocs nominee.name nominee.sameAsGuarantor guarantor.name';
+const MEMBER_PICK = 'code name isBlocked kycKeys kycDocs nominee.name nominee.sameAsGuarantor guarantor.name guarantor.deceasedOn';
 export function notReady(m) {
   const out = [];
   if (!m.guarantor?.name) out.push('Add the guarantor first (Member Details → Guarantor & Nominee)');
+  else if (m.guarantor.deceasedOn) out.push('The guarantor has died. Change the guarantor first (Member Details → Guarantor & Nominee) before a new loan requisition');
   if (!m.nominee?.name) out.push('Add the nominee first (Member Details → Guarantor & Nominee)');
   // every uploaded document has to be approved (a nominee copied from the guarantor is covered by the guarantor's documents)
   const keys = (m.kycKeys || []).filter((k) => !(k.startsWith('nominee.') && m.nominee?.sameAsGuarantor));

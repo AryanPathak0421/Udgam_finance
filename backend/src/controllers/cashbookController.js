@@ -43,6 +43,14 @@ export async function cashbook(req, res) {
     if (to) r.$lte = to;
     return Object.keys(r).length ? { [field]: r } : {};
   };
+  // for a field that holds a time of day (not just a date): the to date is included until the end of that day
+  const stampRange = (field, before) => {
+    if (before) return from ? { [field]: { $lt: from } } : null;
+    const r = {};
+    if (from) r.$gte = from;
+    if (to) r.$lt = new Date(to.getTime() + 24 * 3600 * 1000);
+    return Object.keys(r).length ? { [field]: r } : {};
+  };
   const modeFilter = (field) => (mode ? { [field]: mode } : {});
   const ids = {}; // branch names for the particulars
   const nameOf = async (id) => {
@@ -58,7 +66,6 @@ export async function cashbook(req, res) {
   async function collect(before) {
     const r = range('paidOn', before);
     const s = range('settledOn', before);
-    const d = range('decidedAt', before);
     const rv = range('receivedOn', before);
     if (before && !r) return { receipts: [], payments: [] };
     const receipts = [];
@@ -71,8 +78,11 @@ export async function cashbook(req, res) {
     // payments: loans paid out, security paid back, product payments to head office
     const loans = await LoanPayment.find({ ...scope, status: 'paid', totalCashPaise: { $gt: 0 }, ...modeFilter('payMode'), ...r }).limit(20000);
     loans.forEach((l) => payments.push({ date: iso(l.paidOn), particulars: `Loan paid — ${l.group?.code ? `${l.group.code} ${l.group.name}` : `${l.lines[0]?.code} ${l.lines[0]?.name || ''}`}`.trim(), ref: `${l.receiptNo} · ${l.loanId || l.formId}`, mode: l.payMode, amount: l.totalCashPaise, branchId: l.branch }));
-    const sec = await SecurityWithdrawal.find({ ...scope, kind: 'withdraw', status: 'approved', ...modeFilter('payMode'), ...d }).limit(20000);
-    sec.forEach((w) => payments.push({ date: iso(w.decidedAt), particulars: `Security paid back — ${w.memberCode} ${w.memberName || ''}`.trim(), ref: w.receiptNo, mode: w.payMode, amount: w.amountPaise, branchId: w.branch }));
+    // security is paid back once the member's OTP is verified (requests made before that step were paid on approval)
+    const oldSec = await SecurityWithdrawal.find({ ...scope, kind: 'withdraw', status: 'approved', otpRequired: { $ne: true }, ...modeFilter('payMode'), ...stampRange('decidedAt', before) }).limit(20000);
+    const newSec = await SecurityWithdrawal.find({ ...scope, kind: 'withdraw', status: 'approved', otpRequired: true, ...modeFilter('payMode'), ...stampRange('otpVerifiedAt', before) }).limit(20000);
+    oldSec.forEach((w) => payments.push({ date: iso(w.decidedAt), particulars: `Security paid back — ${w.memberCode} ${w.memberName || ''}`.trim(), ref: w.receiptNo, mode: w.payMode, amount: w.amountPaise, branchId: w.branch }));
+    newSec.filter((w) => w.otpVerifiedAt).forEach((w) => payments.push({ date: iso(w.otpVerifiedAt), particulars: `Security paid back — ${w.memberCode} ${w.memberName || ''}`.trim(), ref: w.receiptNo, mode: w.payMode, amount: w.amountPaise, branchId: w.branch }));
     const pays = await ProductPayment.find({ ...scope, isDeleted: false, status: { $ne: 'rejected' }, ...modeFilter('mode'), ...r }).limit(20000);
     pays.forEach((p) => payments.push({ date: iso(p.paidOn), particulars: 'Product payment to head office', ref: p.reference || '', mode: p.mode, amount: p.amountPaise, branchId: p.branch }));
     // head office receipts: product payments the admin has received

@@ -8,6 +8,11 @@ import { toMinor } from '../utils/money.js';
 import { audit } from '../utils/audit.js';
 import { branchFilter } from './groupController.js';
 import { borrowerState, receive, startOfToday } from './emiController.js';
+import { OtpChallenge } from '../models/OtpChallenge.js';
+import { issueOtp, hashOtp } from '../services/otpChallenges.js';
+import { sendSms } from '../services/sms.js';
+import { maskMobile } from './groupController.js';
+import crypto from 'crypto';
 
 const invalid = (errors) => new HttpError(422, 'Please correct the highlighted fields', errors);
 const POPULATE = [{ path: 'branch', select: 'code name' }];
@@ -66,9 +71,43 @@ async function balanceOf(req, memberId) {
   return { deposits, depositedPaise: dep, withdrawnPaise: approved, pendingPaise: pending, availablePaise: dep - approved - pending };
 }
 
+/**
+ * Security kept from loans that are closed (fully repaid or settled): only this can be withdrawn. The security of a running loan
+ * can only be adjusted against an EMI.
+ */
+async function closedSecurityPaise(req, memberId) {
+  const loans = await LoanPayment.find({ status: 'paid', 'lines.member': memberId, ...branchFilter(req.user) });
+  const asOf = startOfToday();
+  let closed = 0;
+  for (const l of loans) {
+    const line = l.lines.find((x) => String(x.member) === String(memberId));
+    if (!(line?.securityPaise > 0)) continue;
+    // eslint-disable-next-line no-await-in-loop
+    const st = await borrowerState(l, line, asOf);
+    if (st.settled || !st.left.length) closed += line.securityPaise;
+  }
+  return closed;
+}
+
+// What can be withdrawn now: the security of closed loans that is not already withdrawn or waiting, never more than what is available.
+async function withdrawablePaise(req, memberId, bal) {
+  const closed = await closedSecurityPaise(req, memberId);
+  const rows = await SecurityWithdrawal.find({ member: memberId, kind: 'withdraw', status: { $in: ['pending', 'approved'] } }).select('amountPaise');
+  const used = rows.reduce((s, x) => s + x.amountPaise, 0);
+  return Math.max(Math.min(bal.availablePaise, closed - used), 0);
+}
+
+// where a request stands: waiting for the admin, approved and waiting for the member's OTP, done, or rejected
+const stageOf = (w) => {
+  if (w.status === 'pending') return 'pending';
+  if (w.status === 'rejected') return 'rejected';
+  return w.otpRequired && !w.otpVerifiedAt ? 'awaiting_otp' : 'completed';
+};
+
 const presentWithdrawal = (w, info) => ({
   ...(info ? { info } : {}),
   id: w._id, receiptNo: w.receiptNo, memberCode: w.memberCode, memberName: w.memberName, branch: w.branch?._id ? { id: w.branch._id, code: w.branch.code, name: w.branch.name } : null,
+  stage: stageOf(w), otpVerifiedAt: w.otpVerifiedAt || null, completedByCode: w.completedByCode || '',
   kind: w.kind, amount: money(w.amountPaise), loanId: w.loanId || '', payMode: w.payMode || '', reference: w.reference || '', remark: w.remark || '', status: w.status, rejectReason: w.rejectReason || '',
   requestedOn: iso(w.createdAt), requestedByCode: w.requestedByCode || '', decidedAt: w.decidedAt || null, decidedByCode: w.decidedByCode || '', emiReceiptNo: w.emiReceiptNo || '',
 });
@@ -102,7 +141,7 @@ export async function memberSavings(req, res) {
   }
   res.json({
     member: { id: m._id, code: m.code, name: m.name, mobile: m.mobile, isBlocked: Boolean(m.isBlocked), branch: m.branch ? { id: m.branch._id, code: m.branch.code, name: m.branch.name } : null },
-    deposited: money(b.depositedPaise), withdrawn: money(b.withdrawnPaise), pending: money(b.pendingPaise), available: money(b.availablePaise),
+    deposited: money(b.depositedPaise), withdrawn: money(b.withdrawnPaise), pending: money(b.pendingPaise), available: money(b.availablePaise), withdrawable: money(await withdrawablePaise(req, m._id, b)),
     deposits: b.deposits.map(({ amountPaise, ...r }) => r), withdrawals: withdrawals.map(presentWithdrawal), loans,
   });
 }
@@ -118,6 +157,10 @@ export async function requestWithdrawal(req, res) {
   if (amountPaise === null || amountPaise < 100) throw invalid({ amount: 'Enter the amount (₹1 or more, up to 2 decimals)' });
   const bal = await balanceOf(req, m._id);
   if (amountPaise > bal.availablePaise) throw invalid({ amount: `Only ${money(bal.availablePaise)} of the security is available${bal.pendingPaise ? ` (${money(bal.pendingPaise)} is waiting for approval)` : ''}` });
+  if (kind === 'withdraw') {
+    const can = await withdrawablePaise(req, m._id, bal);
+    if (amountPaise > can) throw invalid({ amount: can > 0 ? `Only ${money(can)} can be withdrawn: the security of a running loan can only be adjusted against its EMI` : 'The security of a running loan cannot be withdrawn. It can only be adjusted against an EMI.' });
+  }
 
   const data = {};
   if (kind === 'adjust') {
@@ -149,6 +192,9 @@ export async function withdrawalList(req, res) {
   const { page, limit, skip } = parsePaging(req.query, { defaultLimit: 25 });
   const filter = { ...branchFilter(req.user) };
   if (['pending', 'approved', 'rejected'].includes(asString(req.query.status))) filter.status = req.query.status;
+  // stage: approved and waiting for the member's OTP, or completed (OTP verified, or done before the OTP step existed)
+  if (asString(req.query.stage) === 'awaiting_otp') Object.assign(filter, { status: 'approved', otpRequired: true, otpVerifiedAt: { $exists: false } });
+  if (asString(req.query.stage) === 'completed') Object.assign(filter, { status: 'approved', $and: [{ $or: [{ otpRequired: { $ne: true } }, { otpVerifiedAt: { $exists: true } }] }] });
   if (['withdraw', 'adjust'].includes(asString(req.query.kind))) filter.kind = req.query.kind;
   if (mongoose.isValidObjectId(req.query.branch)) filter.branch = req.query.branch;
   const from = parseDateOnly(asString(req.query.from));
@@ -161,8 +207,10 @@ export async function withdrawalList(req, res) {
   const q = asString(req.query.q);
   if (q) {
     const rx = new RegExp(escapeRegex(q), 'i');
-    filter.$or = [{ receiptNo: rx }, { memberCode: rx }, { memberName: rx }, { loanId: rx }];
+    const search = [{ receiptNo: rx }, { memberCode: rx }, { memberName: rx }, { loanId: rx }];
+    filter.$and = [...(filter.$and || []), { $or: search }];
   }
+  const awaitingOtp = await SecurityWithdrawal.countDocuments({ ...branchFilter(req.user), status: 'approved', otpRequired: true, otpVerifiedAt: { $exists: false } });
   const [items, total, pending, sum] = await Promise.all([
     SecurityWithdrawal.find(filter).populate(POPULATE).sort({ createdAt: -1 }).skip(skip).limit(limit),
     SecurityWithdrawal.countDocuments(filter),
@@ -181,7 +229,7 @@ export async function withdrawalList(req, res) {
       // eslint-disable-next-line no-await-in-loop
       if (!balances.has(key)) balances.set(key, await balanceOf(req, w.member));
       const b = balances.get(key);
-      const info = { deposited: money(b.depositedPaise), withdrawn: money(b.withdrawnPaise), securityLeft: money(b.depositedPaise - b.withdrawnPaise) };
+      const info = { deposited: money(b.depositedPaise), withdrawn: money(b.withdrawnPaise), securityLeft: money(b.depositedPaise - b.withdrawnPaise), requested: money(w.amountPaise), staysAfter: money(b.depositedPaise - b.withdrawnPaise - w.amountPaise) };
       if (w.kind === 'adjust') {
         const l = loans.find((x) => String(x._id) === String(w.loanPayment));
         const line = l?.lines.find((x) => String(x.member) === String(w.member));
@@ -195,7 +243,7 @@ export async function withdrawalList(req, res) {
       infoOf.set(String(w._id), info);
     }
   }
-  res.json({ items: items.map((w) => presentWithdrawal(w, infoOf.get(String(w._id)))), page, limit, total, totalPages: Math.max(Math.ceil(total / limit), 1), pending, totalAmount: money(sum.reduce((s, x) => s + x.amountPaise, 0)) });
+  res.json({ items: items.map((w) => presentWithdrawal(w, infoOf.get(String(w._id)))), page, limit, total, totalPages: Math.max(Math.ceil(total / limit), 1), pending, awaitingOtp, totalAmount: money(sum.reduce((s, x) => s + x.amountPaise, 0)) });
 }
 
 async function loadPending(req) {
@@ -206,14 +254,92 @@ async function loadPending(req) {
   return w;
 }
 
-/** Admin approves: a withdrawal is paid back; an adjustment is received as an EMI (paid by "security"). */
+// Sends the OTP of a request to the phone of the member.
+async function sendOtpFor(req, w) {
+  const m = await Member.findById(w.member).select('mobile');
+  if (!m?.mobile) throw new HttpError(409, 'This member has no mobile number to send the OTP to');
+  const { challenge, otp } = await issueOtp({ user: req.user, purpose: 'security_withdrawal', subject: w.receiptNo, sentTo: m.mobile });
+  const what = w.kind === 'adjust' ? 'adjust your security against your EMI' : 'withdraw your security';
+  const sms = await sendSms({ to: m.mobile, text: `Udgam Microfinance: OTP ${otp} to ${what} (${w.amountPaise / 100} Rs). Valid for 5 minutes. Do not share this OTP.` });
+  w.otpChallenge = challenge._id;
+  w.otpSentAt = new Date();
+  await w.save();
+  return { sentTo: maskMobile(m.mobile), expiresAt: challenge.expiresAt, ...(sms.dev && process.env.NODE_ENV !== 'production' ? { devOtp: otp } : {}) };
+}
+
+/**
+ * Admin approves. Nothing is paid yet: an OTP goes to the member's phone and the security is paid back (or put against the EMI)
+ * once that OTP is verified.
+ */
 export async function approveWithdrawal(req, res) {
   const w = await loadPending(req);
-  const m = await Member.findById(w.member).select('isBlocked');
+  const m = await Member.findById(w.member).select('isBlocked mobile');
   if (m?.isBlocked) throw new HttpError(409, 'This member is blocked. Unblock the member first.');
+  if (!m?.mobile) throw new HttpError(409, 'This member has no mobile number to send the OTP to');
   // the balance still has to cover it (this request is counted in "pending")
   const bal = await balanceOf(req, w.member);
   if (bal.availablePaise + w.amountPaise < w.amountPaise) throw new HttpError(409, 'The security left is less than this request');
+  w.status = 'approved';
+  w.otpRequired = true;
+  w.decidedAt = new Date();
+  w.decidedBy = req.user._id;
+  w.decidedByCode = req.user.employeeCode || '';
+  await w.save();
+  let otp = null;
+  try {
+    otp = await sendOtpFor(req, w);
+  } catch (err) {
+    // the approval stands; the OTP can be sent again from the Security Withdrawal List
+    otp = { error: err.message };
+  }
+  await w.populate(POPULATE);
+  await audit(req, { action: 'securityWithdrawal.approve', entity: 'SecurityWithdrawal', entityId: w._id, after: { receiptNo: w.receiptNo, member: w.memberCode, kind: w.kind, amount: w.amountPaise / 100 } });
+  res.json({ withdrawal: presentWithdrawal(w), otp });
+}
+
+function openForOtp(w) {
+  if (w.status !== 'approved' || !w.otpRequired) throw new HttpError(409, w.status === 'approved' ? 'This request needs no OTP' : `This request is ${w.status}`);
+  if (w.otpVerifiedAt) throw new HttpError(409, 'This request is already completed');
+}
+
+async function loadRequest(req) {
+  if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Request not found');
+  const w = await SecurityWithdrawal.findOne({ _id: req.params.id, ...branchFilter(req.user) });
+  if (!w) throw new HttpError(404, 'Request not found');
+  return w;
+}
+
+/** Sends the OTP of an approved request to the member again. */
+export async function sendWithdrawalOtp(req, res) {
+  const w = await loadRequest(req);
+  openForOtp(w);
+  const otp = await sendOtpFor(req, w);
+  res.json({ otp });
+}
+
+/** The member tells the OTP: the security is paid back / put against the EMI now. */
+export async function verifyWithdrawalOtp(req, res) {
+  const w = await loadRequest(req);
+  openForOtp(w);
+  const otp = asString(req.body?.otp);
+  if (!/^\d{6}$/.test(otp)) throw invalid({ otp: 'Enter the 6-digit OTP' });
+  if (!w.otpChallenge) throw new HttpError(409, 'No OTP has been sent yet. Send the OTP first.');
+  const ch = await OtpChallenge.findById(w.otpChallenge).select('+hash');
+  if (!ch) throw new HttpError(409, 'No OTP has been sent yet. Send the OTP first.');
+  if (ch.consumedAt) throw new HttpError(409, 'This OTP has already been used. Send a new OTP.');
+  if (ch.expiresAt.getTime() < Date.now()) throw new HttpError(410, 'The OTP has expired. Send a new OTP.');
+  if (ch.attempts >= 3) throw new HttpError(429, 'Too many wrong attempts. Send a new OTP.');
+  const given = Buffer.from(hashOtp(ch._id, otp), 'hex');
+  const stored = Buffer.from(ch.hash, 'hex');
+  if (!(given.length === stored.length && crypto.timingSafeEqual(given, stored))) {
+    ch.attempts += 1;
+    await ch.save();
+    const left = 3 - ch.attempts;
+    throw invalid({ otp: left > 0 ? `Incorrect OTP. ${left} attempt${left > 1 ? 's' : ''} left.` : 'Incorrect OTP. Send a new OTP.' });
+  }
+  const m = await Member.findById(w.member).select('isBlocked');
+  if (m?.isBlocked) throw new HttpError(409, 'This member is blocked. Unblock the member first.');
+  // the OTP is right: do what was approved. An adjustment is received as an EMI (paid by "security").
   if (w.kind === 'adjust') {
     const l = await LoanPayment.findOne({ _id: w.loanPayment, status: 'paid' }).populate(POPULATE);
     if (!l) throw new HttpError(409, 'The loan is no longer open');
@@ -221,18 +347,22 @@ export async function approveWithdrawal(req, res) {
     const doc = await receive(req, l, line, { amountPaise: w.amountPaise, paidOn: startOfToday(), payMode: 'security', reference: `Security ${w.receiptNo}` });
     w.emiReceiptNo = doc.receiptNo;
   }
-  w.status = 'approved';
-  w.decidedAt = new Date();
-  w.decidedBy = req.user._id;
-  w.decidedByCode = req.user.employeeCode || '';
+  ch.verifiedAt = new Date();
+  ch.consumedAt = new Date();
+  await ch.save();
+  w.otpVerifiedAt = new Date();
+  w.completedByCode = req.user.employeeCode || '';
   await w.save();
   await w.populate(POPULATE);
-  await audit(req, { action: 'securityWithdrawal.approve', entity: 'SecurityWithdrawal', entityId: w._id, after: { receiptNo: w.receiptNo, member: w.memberCode, kind: w.kind, amount: w.amountPaise / 100, emiReceipt: w.emiReceiptNo } });
+  await audit(req, { action: 'securityWithdrawal.complete', entity: 'SecurityWithdrawal', entityId: w._id, after: { receiptNo: w.receiptNo, member: w.memberCode, kind: w.kind, amount: w.amountPaise / 100, emiReceipt: w.emiReceiptNo } });
   res.json({ withdrawal: presentWithdrawal(w) });
 }
 
 export async function rejectWithdrawal(req, res) {
-  const w = await loadPending(req);
+  if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Request not found');
+  const w = await SecurityWithdrawal.findOne({ _id: req.params.id, ...branchFilter(req.user) });
+  if (!w) throw new HttpError(404, 'Request not found');
+  if (!(w.status === 'pending' || (w.status === 'approved' && w.otpRequired && !w.otpVerifiedAt))) throw new HttpError(409, `This request is already ${w.status === 'approved' ? 'completed' : w.status}`);
   const reason = asString(req.body?.reason);
   if (reason.length < 3 || reason.length > 200) throw invalid({ reason: 'Enter the reason (3–200 characters)' });
   w.status = 'rejected';

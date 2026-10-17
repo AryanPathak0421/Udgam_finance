@@ -38,6 +38,7 @@ export async function preview(req, res) {
   const asOf = startOfToday();
   const st = await borrowerState(p, line, asOf);
   const nextDue = st.left[0];
+  const guarantor = line.member ? (await Member.findById(line.member).select('guarantor.name guarantor.mobile guarantor.deceasedOn guarantor.deathRecordedByCode'))?.guarantor : null;
   res.json({
     loan: { id: p._id, loanId: p.loanId || '', formId: p.formId, kind: p.kind, branch: p.branch ? `${p.branch.code} — ${p.branch.name}` : '', group: p.group?.code ? `${p.group.code} — ${p.group.name}` : '', schemeName: p.schemeName, modeLabel: p.modeLabel, installments: p.installments, paidOn: iso(p.paidOn), amount: money(line.amountPaise) },
     borrower: { member: line.member, code: line.code, name: line.name },
@@ -46,6 +47,7 @@ export async function preview(req, res) {
       paid: money(st.totals.paid), outstanding: money(st.totals.outstanding), due: money(st.totals.due), remainingInstallments: st.left.length, paidInstallments: st.schedule.filter((s) => s.status === 'paid').length,
       nextDue: nextDue ? { no: nextDue.no, dueDate: nextDue.dueDate, amount: money(nextDue.remainingPaise) } : null,
     },
+    guarantor: guarantor?.name ? { name: guarantor.name, mobile: guarantor.mobile || '', deceasedOn: iso(guarantor.deceasedOn), recordedBy: guarantor.deathRecordedByCode || '' } : null,
     verifier: { code: req.user.employeeCode || '', name: req.user.name || '' },
     today: iso(asOf),
     canWaive: false,
@@ -107,9 +109,14 @@ export async function settleLoan(req, res) {
  * employee and the death certificate are kept, and the member is blocked automatically.
  */
 export async function settleDeath(req, res) {
-  const b = req.body || {};
+  const b = { ...(req.body || {}) };
+  // the settlement date is not editable: a death settlement is made on the day it is recorded
+  if (b.settledOn && iso(parseDateOnly(asString(b.settledOn))) !== iso(startOfToday())) throw invalid({ settledOn: 'The settlement date is today and cannot be changed' });
+  delete b.settledOn;
   const { p, line, settledOn, outstandingPaise } = await prepare(req, b);
   const today = startOfToday();
+  // the settlement date is always today: only the date of death is entered
+  if (settledOn.getTime() !== today.getTime()) throw invalid({ settledOn: 'The settlement date is today and cannot be changed' });
   const deathDate = parseDateOnly(asString(b.deathDate));
   if (!deathDate) throw invalid({ deathDate: 'Enter the date of death' });
   if (deathDate > today) throw invalid({ deathDate: 'The date of death cannot be in the future' });
@@ -138,6 +145,51 @@ export async function settleDeath(req, res) {
   await s.populate(POPULATE);
   await audit(req, { action: 'settlement.death', entity: 'LoanSettlement', entityId: s._id, after: { receiptNo: s.receiptNo, loanId: p.loanId, member: line.code, deathDate: iso(deathDate), outstanding: outstandingPaise / 100, blocked } });
   res.status(201).json({ settlement: present(s), memberBlocked: blocked });
+}
+
+/**
+ * Guarantor death: the guarantor of a member has died. The loan itself carries on (the member keeps paying), but before the member
+ * can have a new loan requisition the guarantor has to be changed (an admin does that under Member Details → Guarantor & Nominee).
+ */
+export async function recordGuarantorDeath(req, res) {
+  const b = req.body || {};
+  const p = await loadLoan(req, b.loan);
+  const line = findLine(p, b.member);
+  const m = await Member.findOne({ _id: line.member, isDeleted: false }).select('code name guarantor.name guarantor.deceasedOn');
+  if (!m || !m.guarantor?.name) throw new HttpError(409, 'This member has no guarantor');
+  if (m.guarantor.deceasedOn) throw new HttpError(409, `The death of the guarantor ${m.guarantor.name} is already recorded (${iso(m.guarantor.deceasedOn)})`);
+  const today = startOfToday();
+  const deathDate = parseDateOnly(asString(b.deathDate));
+  if (!deathDate) throw invalid({ deathDate: 'Enter the date of death' });
+  if (deathDate > today) throw invalid({ deathDate: 'The date of death cannot be in the future' });
+  const certificate = typeof b.certificate === 'string' ? b.certificate : '';
+  if (!certificate) throw invalid({ certificate: 'Upload the death certificate' });
+  if (!DOC_RE.test(certificate)) throw invalid({ certificate: 'The death certificate must be a PDF or an image' });
+  if (certificate.length > MAX_DOC_CHARS) throw invalid({ certificate: 'The death certificate must be 800 KB or smaller' });
+  await Member.updateOne({ _id: m._id }, { $set: {
+    'guarantor.deceasedOn': deathDate, 'guarantor.deathCertificate': certificate, 'guarantor.deathRemark': asString(b.remark).slice(0, 300),
+    'guarantor.deathRecordedAt': new Date(), 'guarantor.deathRecordedByCode': req.user.employeeCode || '',
+  } });
+  await audit(req, { action: 'settlement.guarantorDeath', entity: 'Member', entityId: m._id, after: { member: m.code, guarantor: m.guarantor.name, deathDate: iso(deathDate), loanId: p.loanId } });
+  res.status(201).json({ message: 'The death of the guarantor is recorded', member: { code: m.code, name: m.name }, guarantor: m.guarantor.name, deathDate: iso(deathDate) });
+}
+
+/** Members whose guarantor has died and who still have to change the guarantor. */
+export async function guarantorDeathList(req, res) {
+  const filter = { isDeleted: false, 'guarantor.deceasedOn': { $exists: true }, ...branchFilter(req.user) };
+  if (mongoose.isValidObjectId(req.query.branch)) filter.branch = req.query.branch;
+  const q = asString(req.query.q);
+  if (q) {
+    const rx = new RegExp(escapeRegex(q), 'i');
+    filter.$or = [{ code: rx }, { name: rx }, { 'guarantor.name': rx }];
+  }
+  const items = await Member.find(filter).select('code name branch guarantor.name guarantor.mobile guarantor.deceasedOn guarantor.deathRemark guarantor.deathRecordedAt guarantor.deathRecordedByCode').populate('branch', 'code name').sort({ 'guarantor.deceasedOn': -1 }).limit(200);
+  res.json({
+    items: items.map((m) => ({
+      memberId: m._id, code: m.code, name: m.name, branch: m.branch ? { code: m.branch.code, name: m.branch.name } : null, guarantor: m.guarantor.name, guarantorMobile: m.guarantor.mobile || '',
+      diedOn: iso(m.guarantor.deceasedOn), recordedOn: iso(m.guarantor.deathRecordedAt), recordedBy: m.guarantor.deathRecordedByCode || '', remark: m.guarantor.deathRemark || '',
+    })),
+  });
 }
 
 export async function listSettlements(req, res) {

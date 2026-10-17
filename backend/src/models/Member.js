@@ -21,6 +21,12 @@ const personSchema = new mongoose.Schema(
     employeeCode: { type: String },
     savedAt: { type: Date, default: Date.now },
     savedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    // Guarantor only: recorded under Death Settlement. A member whose guarantor has died needs a new guarantor before a new loan.
+    deceasedOn: { type: Date },
+    deathCertificate: { type: String, select: false },
+    deathRemark: { type: String },
+    deathRecordedAt: { type: Date },
+    deathRecordedByCode: { type: String },
   },
   { _id: false }
 );

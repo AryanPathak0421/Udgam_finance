@@ -12,7 +12,8 @@ const LIMIT = 25;
 const REQUESTERS = ['super_admin', 'admin', 'branch_manager', 'accountant'];
 const MODE_LABEL = { cash: 'Cash', bank: 'Bank transfer', upi: 'UPI', cheque: 'Cheque' };
 const KIND_LABEL = { withdraw: 'Withdrawal', adjust: 'Adjusted against EMI' };
-const TONE = { pending: 'grey', approved: 'green', rejected: 'danger' };
+const TONE = { pending: 'grey', awaiting_otp: 'grey', completed: 'green', rejected: 'danger' };
+const STAGE_LABEL = { pending: 'Pending admin approval', awaiting_otp: 'Approved — OTP pending', completed: 'Completed', rejected: 'Rejected' };
 const inr = (n) => (n === null || n === undefined || Number.isNaN(n) ? '—' : `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const dmy = (s) => (s ? new Date(s.length === 10 ? `${s}T00:00:00` : s).toLocaleDateString('en-IN') : '—');
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : '');
@@ -113,7 +114,7 @@ function WithdrawalTable({ approval }) {
   const isAdmin = ['super_admin', 'admin'].includes(user?.role);
   const { f, set, branches } = useFilters();
   const canDecide = approval && isAdmin;
-  const [status, setStatus] = useState(approval ? 'pending' : '');
+  const [status, setStatus] = useState('pending'); // pending | awaiting_otp | completed | rejected | '' (all)
   const [kind, setKind] = useState('');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -123,12 +124,17 @@ function WithdrawalTable({ approval }) {
   const [reason, setReason] = useState('');
   const [reasonError, setReasonError] = useState('');
   const [busy, setBusy] = useState('');
+  const [otpFor, setOtpFor] = useState(null);
+  const [otpValue, setOtpValue] = useState('');
+  const [otpError, setOtpError] = useState('');
+  const [otpNote, setOtpNote] = useState('');
   const q = useDebounce(f.search);
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      setData(await api.savings.withdrawals({ page, limit: LIMIT, status, kind, branch: f.branch, from: f.from, to: f.to, q }));
+      const stage = status === 'awaiting_otp' || status === 'completed' ? status : undefined;
+      setData(await api.savings.withdrawals({ page, limit: LIMIT, status: stage ? undefined : status, stage, kind, branch: f.branch, from: f.from, to: f.to, q }));
     } catch (err) {
       setError(err.message);
     } finally {
@@ -144,10 +150,37 @@ function WithdrawalTable({ approval }) {
     setBusy(w.id);
     try {
       const r = await api.savings.approve(w.id);
-      toast.success(w.kind === 'adjust' ? `Approved — EMI receipt ${r.withdrawal.emiReceiptNo}` : 'Approved — pay the amount back to the member');
+      toast.success(r.otp?.error ? `Approved, but the OTP could not be sent: ${r.otp.error}. Send it again from the Security Withdrawal List.` : `Approved — an OTP was sent to the member's phone (${r.otp?.sentTo}). The security is released when the OTP is verified.${r.otp?.devOtp ? ` [dev OTP ${r.otp.devOtp}]` : ''}`);
       load();
     } catch (err) {
       toast.error(err.message);
+    } finally {
+      setBusy('');
+    }
+  }
+  function openOtp(w) { setOtpFor(w); setOtpValue(''); setOtpError(''); setOtpNote(''); }
+  async function resendOtp() {
+    setBusy(otpFor.id);
+    setOtpError('');
+    try {
+      const r = await api.savings.sendOtp(otpFor.id);
+      setOtpNote(`OTP sent to ${r.otp.sentTo}.${r.otp.devOtp ? ` [dev OTP ${r.otp.devOtp}]` : ''}`);
+    } catch (err) {
+      setOtpError(err.message);
+    } finally {
+      setBusy('');
+    }
+  }
+  async function verifyOtp() {
+    if (!/^\d{6}$/.test(otpValue)) return setOtpError('Enter the 6-digit OTP');
+    setBusy(otpFor.id);
+    try {
+      const r = await api.savings.verifyOtp(otpFor.id, otpValue);
+      toast.success(r.withdrawal.kind === 'adjust' ? `OTP verified — EMI receipt ${r.withdrawal.emiReceiptNo}` : 'OTP verified — pay the amount back to the member');
+      setOtpFor(null);
+      load();
+    } catch (err) {
+      setOtpError(err.errors?.otp || err.message);
     } finally {
       setBusy('');
     }
@@ -168,16 +201,16 @@ function WithdrawalTable({ approval }) {
     }
   }
 
-  const tab = (key, label) => <button key={key} className={`btn sm${status === key ? ' primary' : ''}`} onClick={() => setStatus(key)}>{label}{key === 'pending' && data ? ` (${data.pending})` : ''}</button>;
+  const tab = (key, label) => <button key={key} className={`btn sm${status === key ? ' primary' : ''}`} onClick={() => setStatus(key)}>{label}{key === 'pending' && data ? ` (${data.pending})` : ''}{key === 'awaiting_otp' && data?.awaitingOtp ? ` (${data.awaitingOtp})` : ''}</button>;
   return (
     <>
       <PageHeader
         title={approval ? 'Security Approval' : 'Security Withdrawal List'}
-        description={approval ? 'Requests to withdraw the security or adjust it against an EMI. Check the security left and the EMI due, then approve or reject.' : 'Requests to withdraw the security or adjust it against an EMI, with their status. The admin approves them under Security Approval.'}
+        description={approval ? 'Requests to withdraw the security or adjust it against an EMI. Check the request, the security left and the EMI due, then approve or reject. After you approve, an OTP goes to the member and the security is released when the OTP is verified.' : 'Requests to withdraw the security or adjust it against an EMI, with their status. The admin approves them under Security Approval; then the member\'s OTP is verified here and the security is released.'}
       />
       <div className="panel">
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
-          {tab('pending', 'Pending')}{tab('approved', 'Approved')}{tab('rejected', 'Rejected')}{tab('', 'All')}
+          {tab('pending', approval ? 'Pending approval' : 'Pending admin approval')}{tab('awaiting_otp', 'Approved — OTP pending')}{tab('completed', 'Completed')}{tab('rejected', 'Rejected')}{tab('', 'All')}
         </div>
         <FilterBar f={f} set={set} branches={branches}>
           <select value={kind} onChange={(e) => setKind(e.target.value)} aria-label="Type">
@@ -188,7 +221,7 @@ function WithdrawalTable({ approval }) {
         </FilterBar>
         {data && <div className="muted small" style={{ margin: '6px 0' }}>{data.total} request{data.total === 1 ? '' : 's'} · total {inr(data.totalAmount)}</div>}
         {loading && !data ? <Spinner label="Loading…" /> : error ? <ErrorState message={error} onRetry={load} /> : data.items.length === 0 ? (
-          <EmptyState title="No security withdrawal" description={status === 'pending' ? 'Nothing is waiting for approval.' : 'No request matches these filters.'} />
+          <EmptyState title="No security withdrawal" description={status === 'pending' ? 'Nothing is waiting for approval.' : status === 'awaiting_otp' ? 'No approved request is waiting for the member\'s OTP.' : 'No request matches these filters.'} />
         ) : (
           <>
             <div className={`table-wrap${loading ? ' dim' : ''}`}>
@@ -208,7 +241,7 @@ function WithdrawalTable({ approval }) {
                         {w.remark && <div className="muted small">{w.remark}</div>}
                         {w.status === 'pending' && w.info && (
                           <div className="small" style={{ marginTop: 4 }}>
-                            Security left {inr(w.info.securityLeft)}
+                            Request {inr(w.info.requested)} of the security {inr(w.info.securityLeft)} ({inr(w.info.staysAfter)} stays)
                             {w.kind === 'adjust' && w.info.emiDue !== undefined && (
                               <> · EMI due {inr(w.info.emiDue)} (left {inr(w.info.emiLeft)}){w.info.emiDue > 0 ? " → " + inr(Math.min(w.amount, w.info.emiDue)) + " of the due EMI is covered" + (w.info.emiDue - w.amount > 0 ? ", " + inr(w.info.emiDue - w.amount) + " stays due" : "") : ""}</>
                             )}
@@ -217,9 +250,10 @@ function WithdrawalTable({ approval }) {
                       </td>
                       <td data-label="Amount" className="num"><strong>{inr(w.amount)}</strong></td>
                       <td data-label="Status">
-                        <span className={`badge ${TONE[w.status]}`}>{cap(w.status)}</span>
+                        <span className={`badge ${TONE[w.stage]}`}>{STAGE_LABEL[w.stage]}</span>
                         {w.status === 'rejected' && <div className="muted small">{w.rejectReason}</div>}
-                        {w.decidedByCode && <div className="muted small">by {w.decidedByCode}</div>}
+                        {w.decidedByCode && <div className="muted small">approved/decided by {w.decidedByCode}</div>}
+                        {w.stage === 'completed' && w.completedByCode && <div className="muted small">OTP verified · {w.completedByCode}</div>}
                       </td>
                       <td data-label="Actions" className="actions-col">
                         {canDecide && w.status === 'pending' ? (
@@ -227,7 +261,12 @@ function WithdrawalTable({ approval }) {
                             <button className="btn sm primary" disabled={busy === w.id} onClick={() => approve(w)}>Approve</button>
                             <button className="btn sm danger-outline" disabled={busy === w.id} onClick={() => { setRejecting(w); setReason(''); setReasonError(''); }}>Reject</button>
                           </div>
-                        ) : <span className="muted">{w.status === 'pending' ? 'Waiting for admin' : '—'}</span>}
+                        ) : w.stage === 'awaiting_otp' && !approval && REQUESTERS.includes(user?.role) ? (
+                          <div className="row-actions">
+                            <button className="btn sm primary" onClick={() => openOtp(w)}>Verify OTP</button>
+                            {isAdmin && <button className="btn sm danger-outline" disabled={busy === w.id} onClick={() => { setRejecting(w); setReason(''); setReasonError(''); }}>Reject</button>}
+                          </div>
+                        ) : <span className="muted">{w.stage === 'pending' ? 'Waiting for admin' : w.stage === 'awaiting_otp' ? 'Waiting for the member\'s OTP' : '—'}</span>}
                       </td>
                     </tr>
                   ))}
@@ -238,6 +277,17 @@ function WithdrawalTable({ approval }) {
           </>
         )}
       </div>
+      {otpFor && (
+        <Modal open title={`Verify OTP — ${otpFor.receiptNo}`} onClose={() => setOtpFor(null)} busy={Boolean(busy)}
+          footer={<><button className="btn" onClick={() => setOtpFor(null)}>Close</button><button className="btn primary" onClick={verifyOtp} disabled={Boolean(busy)}>{otpFor.kind === 'adjust' ? 'Verify and adjust the EMI' : 'Verify and release the security'}</button></>}>
+          <p style={{ marginTop: 0 }}>{otpFor.memberCode} {otpFor.memberName} · {KIND_LABEL[otpFor.kind]} · <strong>{inr(otpFor.amount)}</strong>. Ask the member for the 6-digit OTP sent to the registered phone.</p>
+          <FormField id="otpv" label="OTP" required error={otpError}>
+            <input id="otpv" inputMode="numeric" maxLength={6} autoFocus value={otpValue} onChange={(e) => { setOtpValue(e.target.value.replace(/\D/g, '')); setOtpError(''); }} />
+          </FormField>
+          <button type="button" className="link-btn" disabled={Boolean(busy)} onClick={resendOtp}>Send the OTP again</button>
+          {otpNote && <div className="muted small" style={{ marginTop: 6 }}>{otpNote}</div>}
+        </Modal>
+      )}
       {rejecting && (
         <Modal open title={`Reject ${rejecting.receiptNo}?`} onClose={() => setRejecting(null)} busy={Boolean(busy)}
           footer={<><button className="btn" onClick={() => setRejecting(null)}>Keep</button><button className="btn danger-outline" onClick={reject} disabled={Boolean(busy)}>Reject request</button></>}>
@@ -289,7 +339,7 @@ export function SecurityWithdraw() {
       setMember(d);
       const open = d.loans.filter((l) => l.open && !l.settled);
       setForm({ amount: '', loan: open[0]?.id || '', payMode: 'cash', reference: '', remark: '' });
-      setKind(open.length ? 'adjust' : 'withdraw');
+      setKind(open.length ? 'adjust' : d.withdrawable >= 1 ? 'withdraw' : 'adjust');
       setErrors({});
     } catch (err) {
       setError(err.message);
@@ -302,7 +352,7 @@ export function SecurityWithdraw() {
     setErrors({});
     try {
       const r = await api.savings.request({ member: member.member.id, kind, amount: form.amount, loan: kind === 'adjust' ? form.loan : undefined, payMode: kind === 'withdraw' ? form.payMode : undefined, reference: form.reference, remark: form.remark });
-      toast.success(`Request ${r.withdrawal.receiptNo} sent to the admin for approval`);
+      toast.success(`Request ${r.withdrawal.receiptNo} for ${inr(r.withdrawal.amount)} sent to the admin for approval`);
       await open(member.member.id);
     } catch (err) {
       setErrors(err.errors || {});
@@ -386,7 +436,7 @@ export function SecurityWithdraw() {
               <>
                 <div style={{ display: 'flex', gap: 18, marginBottom: 10, flexWrap: 'wrap' }} role="radiogroup" aria-label="Choose one">
                   <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}><input type="radio" name="kind" checked={kind === 'adjust'} onChange={() => setKind('adjust')} disabled={!openLoans.length} /> Adjust EMI</label>
-                  <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}><input type="radio" name="kind" checked={kind === 'withdraw'} onChange={() => setKind('withdraw')} /> Withdrawal</label>
+                  <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}><input type="radio" name="kind" checked={kind === 'withdraw'} onChange={() => setKind('withdraw')} disabled={member.withdrawable < 1} /> Withdrawal</label>
                 </div>
                 <div className="form-grid">
                   {kind === 'adjust' && (
@@ -396,7 +446,7 @@ export function SecurityWithdraw() {
                       </select>
                     </FormField>
                   )}
-                  <FormField id="wamount" label="Amount (₹)" required error={errors.amount} hint={kind === 'adjust' ? `Security ${inr(member.available)}, EMI ${chosenLoan?.due > 0 ? 'due' : 'left'} ${inr(emiDue)} → up to ${inr(adjustable)} can be adjusted` : `Up to ${inr(member.available)}`}>
+                  <FormField id="wamount" label="Amount (₹)" required error={errors.amount} hint={kind === 'adjust' ? `Security ${inr(member.available)}, EMI ${chosenLoan?.due > 0 ? 'due' : 'left'} ${inr(emiDue)} → up to ${inr(adjustable)} can be adjusted` : `Up to ${inr(member.withdrawable)} (security of closed loans)`}>
                     <input id="wamount" inputMode="decimal" value={form.amount} onChange={(e) => { setForm((f) => ({ ...f, amount: e.target.value.replace(/[^\d.]/g, '') })); setErrors((x) => ({ ...x, amount: undefined })); }} />
                   </FormField>
                   {kind === 'withdraw' && (
@@ -421,7 +471,8 @@ export function SecurityWithdraw() {
                     {typed > 0 && typed <= adjustable && <div className="muted small" style={{ marginTop: 4 }}>Adjusting {inr(typed)}: EMI {chosenLoan.due > 0 ? 'due' : 'left'} becomes {inr(Math.max(emiDue - typed, 0))}.</div>}
                   </div>
                 )}
-                <div className="notice" style={{ margin: '10px 0' }}>The request goes to the admin. Nothing is paid or adjusted until the admin approves it.</div>
+                {member.withdrawable < 1 && <div className="notice" style={{ margin: '10px 0' }}>The security of a running loan cannot be withdrawn. It can only be adjusted against an EMI. Withdrawal is possible once the loan is closed.</div>}
+                <div className="notice" style={{ margin: '10px 0' }}>The request goes to the admin. After the admin approves it, an OTP goes to the member's phone; nothing is paid or adjusted until that OTP is verified.</div>
                 <button className="btn primary" disabled={busy} onClick={send}>{busy ? 'Sending…' : 'Send for admin approval'}</button>
               </>
             )}
@@ -439,7 +490,7 @@ export function SecurityWithdraw() {
                         <td data-label="Request"><strong>{w.receiptNo}</strong></td><td data-label="Date">{dmy(w.requestedOn)}</td>
                         <td data-label="Type">{KIND_LABEL[w.kind]}{w.kind === 'adjust' && <div className="muted small">Loan {w.loanId}</div>}</td>
                         <td data-label="Amount" className="num">{inr(w.amount)}</td>
-                        <td data-label="Status"><span className={`badge ${TONE[w.status]}`}>{cap(w.status)}</span>{w.status === 'rejected' && <div className="muted small">{w.rejectReason}</div>}</td>
+                        <td data-label="Status"><span className={`badge ${TONE[w.stage]}`}>{STAGE_LABEL[w.stage]}</span>{w.status === 'rejected' && <div className="muted small">{w.rejectReason}</div>}</td>
                       </tr>
                     ))}
                   </tbody>
