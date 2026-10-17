@@ -573,8 +573,8 @@ function RequisitionForm({ kind }) {
                 {branches.map((x) => <option key={x.id} value={x.id}>{x.code} — {x.name}</option>)}
               </select>
             </FormField>
-            <FormField id="loanDate" label="Loan date" error={errors.loanDate} hint={isAdmin ? undefined : 'Today, or up to 30 days back'}>
-              <input id="loanDate" type="date" max={todayISO()} value={form.loanDate} onChange={setF('loanDate')} />
+            <FormField id="loanDate" label="Loan date" error={errors.loanDate} hint="Today only (no back date)">
+              <input id="loanDate" type="date" min={todayISO()} max={todayISO()} value={form.loanDate} readOnly disabled />
             </FormField>
             {isGroup && (
               <EmployeeSelect

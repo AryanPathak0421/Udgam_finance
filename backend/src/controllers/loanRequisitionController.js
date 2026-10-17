@@ -614,17 +614,12 @@ export function createRequisition(kind) {
       throw new HttpError(403, 'You can only use branches assigned to you');
     }
 
-    // Loan date: today by default; not in the future; staff can go back at most 30 days.
+    // Loan date: every loan requisition (personal, product, business / MSME, group) is made for today only (no back date).
     const today = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
-    let loanDate = today;
+    const loanDate = today;
     if (b.loanDate !== undefined && b.loanDate !== null && String(b.loanDate).trim() !== '') {
       const d = parseDateOnly(asString(b.loanDate));
-      if (!d) throw invalid({ loanDate: 'Enter a valid date' });
-      if (d > today) throw invalid({ loanDate: 'Loan date cannot be in the future' });
-      if (!isAdmin(req.user) && today.getTime() - d.getTime() > 30 * 24 * 3600 * 1000) {
-        throw invalid({ loanDate: 'Loan date cannot be older than 30 days' });
-      }
-      loanDate = d;
+      if (!d || d.getTime() !== today.getTime()) throw invalid({ loanDate: 'A loan requisition is made for today only (no back date)' });
     }
 
     // Who the loan is for
