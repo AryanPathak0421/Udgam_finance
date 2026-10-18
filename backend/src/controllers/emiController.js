@@ -291,7 +291,7 @@ export async function collectionList(req, res) {
   if (!asOf) throw invalid({ date: 'Enter a valid date' });
   const filter = { status: 'paid', ...branchFilter(req.user), kind: kindScope === 'group' ? 'group' : { $in: ['personal', 'business', 'product'] } };
   if (mongoose.isValidObjectId(req.query.branch)) filter.branch = req.query.branch;
-  const loans = await LoanPayment.find(filter).populate(POPULATE).sort({ createdAt: -1 }).limit(2000);
+  const loans = await LoanPayment.find(filter).populate(POPULATE).sort({ createdAt: -1 }).limit(20000).lean();
 
   const staffAll = [...new Set(loans.map((l) => l.employeeCode).filter(Boolean))].sort();
   const wantStaff = asString(req.query.staff).toUpperCase();

@@ -24,6 +24,7 @@ async function migrate() {
   if (oldProducts.length) console.log(`Updated ${oldProducts.length} stock product(s) to the new product fields`);
   await StockProduct.syncIndexes();
   await EmiPayment.syncIndexes();
+  await Member.syncIndexes();
 
   // Every user gets a staff ID (oldest first).
   const users = await User.find({ employeeCode: { $exists: false } }).sort({ createdAt: 1 }).select('_id');

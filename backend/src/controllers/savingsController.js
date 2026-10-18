@@ -32,7 +32,7 @@ async function depositRows(req, { memberId } = {}) {
     if (from) filter.paidOn.$gte = from;
     if (to) filter.paidOn.$lte = to;
   }
-  const loans = await LoanPayment.find(filter).populate(POPULATE).sort({ paidOn: -1, createdAt: -1 }).limit(5000);
+  const loans = await LoanPayment.find(filter).populate(POPULATE).sort({ paidOn: -1, createdAt: -1 }).limit(20000).lean();
   const q = asString(req.query.q).toLowerCase();
   const rows = [];
   for (const l of loans) {

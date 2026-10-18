@@ -138,7 +138,8 @@ const memberSchema = new mongoose.Schema(
 const live = { isDeleted: false };
 memberSchema.index({ code: 1 }, { unique: true, partialFilterExpression: live });
 memberSchema.index({ formId: 1 }, { unique: true, partialFilterExpression: live });
-memberSchema.index({ aadhaar: 1 }, { unique: true, partialFilterExpression: live });
+// (a member of the old system may have no Aadhaar number yet: only a number that is there has to be unique)
+memberSchema.index({ aadhaar: 1 }, { unique: true, partialFilterExpression: { isDeleted: false, aadhaar: { $type: 'string' } } });
 memberSchema.index({ pan: 1 }, { unique: true, partialFilterExpression: { isDeleted: false, pan: { $type: 'string' } } });
 memberSchema.index({ branch: 1, createdAt: -1 });
 

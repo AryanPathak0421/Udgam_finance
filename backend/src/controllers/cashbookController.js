@@ -139,7 +139,7 @@ export async function cashbook(req, res) {
     const nameOfMember = (x) => `${x.memberCode} ${x.memberName || ''}`.trim();
 
     // what kind of loan each EMI / settlement belongs to
-    const emis = await EmiPayment.find({ ...scope, status: 'paid', ...(mode ? { payMode: mode } : {}), ...r }).limit(20000);
+    const emis = await EmiPayment.find({ ...scope, status: 'paid', legacy: { $ne: true }, ...(mode ? { payMode: mode } : {}), ...r }).limit(20000);
     const sets = await LoanSettlement.find({ ...scope, kind: 'loan', status: 'active', amountPaise: { $gt: 0 }, ...modeFilter('payMode'), ...s }).limit(20000);
     const loanIds = [...new Set([...emis.map((e) => String(e.loanPayment)), ...sets.map((x) => String(x.loanPayment))])];
     const loanInfo = new Map((await LoanPayment.find({ _id: { $in: loanIds } }).select('kind loanType mode')).map((l) => [String(l._id), l]));
@@ -157,7 +157,7 @@ export async function cashbook(req, res) {
     });
 
     // loans paid out: the loan amount is paid; the fees and the security kept from it come back on the receive side, goods are given in kind
-    const loans = await LoanPayment.find({ ...scope, status: 'paid', ...modeFilter('payMode'), ...r }).limit(20000);
+    const loans = await LoanPayment.find({ ...scope, status: 'paid', ...modeFilter('payMode'), ...r }).limit(20000).lean();
     loans.forEach((l) => {
       const who = l.group?.code ? `${l.group.code} ${l.group.name}` : `${l.lines[0]?.code} ${l.lines[0]?.name || ''}`.trim();
       const base = { date: iso(l.paidOn), ref: `${l.receiptNo} · ${l.loanId || l.formId}`, mode: l.payMode, branchId: l.branch };
@@ -200,7 +200,7 @@ export async function cashbook(req, res) {
 
   // today due: the EMI still to be collected up to the end date (information, not cash)
   const asOf = to || new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
-  const dueLoans = await LoanPayment.find({ ...scope, status: 'paid' }).limit(3000);
+  const dueLoans = await LoanPayment.find({ ...scope, status: 'paid' }).limit(20000).lean();
   if (dueLoans.length) {
     const settledSet = new Set((await LoanSettlement.find({ loanPayment: { $in: dueLoans.map((l) => l._id) }, status: 'active' }).select('loanPayment memberCode')).map((x) => `${x.loanPayment}|${x.memberCode}`));
     const recv = await EmiPayment.aggregate([
