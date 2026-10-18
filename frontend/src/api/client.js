@@ -147,6 +147,8 @@ export const api = {
     cancel: (id, reason) => request(`/loan-payments/${id}/cancel`, { method: 'POST', body: { reason } }),
   },
   cashbook: (params) => request(`/cashbook${qs(params)}`),
+  cashbookEntry: (data) => request('/cashbook/entries', { method: 'POST', body: data }),
+  cashbookEntryDelete: (id) => request(`/cashbook/entries/${id}`, { method: 'DELETE' }),
   stockTransfers: {
     stock: (from) => request(`/stock-transfers/stock${qs({ from })}`),
     list: (params) => request(`/stock-transfers${qs(params)}`),

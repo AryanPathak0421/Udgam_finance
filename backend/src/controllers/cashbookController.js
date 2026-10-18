@@ -4,17 +4,81 @@ import { LoanSettlement } from '../models/LoanSettlement.js';
 import { LoanPayment } from '../models/LoanPayment.js';
 import { SecurityWithdrawal } from '../models/SecurityWithdrawal.js';
 import { ProductPayment } from '../models/ProductPayment.js';
+import { CashEntry, ENTRY_CATEGORIES, ENTRY_MODES } from '../models/CashEntry.js';
 import { Branch } from '../models/Branch.js';
 import { asString, parseDateOnly, HttpError } from '../utils/http.js';
+import { toMinor } from '../utils/money.js';
+import { audit } from '../utils/audit.js';
 import { isAdmin } from './groupController.js';
+import { stateFrom } from './emiController.js';
 
 const iso = (d) => (d ? new Date(d).toISOString().slice(0, 10) : null);
 const MODES = ['cash', 'bank', 'upi', 'cheque'];
+const invalid = (errors) => new HttpError(422, 'Please correct the highlighted fields', errors);
+const DAY = 24 * 3600 * 1000;
+
+// The lines of the cashbook, in the order of the paper cashbook. `optional` lines are shown only when they have an amount;
+// `memo` lines are figures for information and are not part of the totals.
+const RECEIVE = [
+  { key: 'daily_collection', label: 'Daily collection amount' },
+  { key: 'weekly_collection', label: 'Weekly collection amount' },
+  { key: 'group_other_collection', label: 'Monthly / other group collection', optional: true },
+  { key: 'product_collection', label: 'Product loan collection' },
+  { key: 'personal_collection', label: 'Personal loan collection' },
+  { key: 'business_collection', label: 'Business loan collection' },
+  { key: 'msme_collection', label: 'MSME loan collection' },
+  { key: 'processing_fee', label: 'Processing fee' },
+  { key: 'insurance_fee', label: 'Insurance fee' },
+  { key: 'security_amount', label: 'Security amount' },
+  { key: 'goods_in_kind', label: 'Goods given with loans (in kind, not cash)', optional: true },
+  { key: 'daily_settlement', label: 'Daily settlement amount' },
+  { key: 'weekly_settlement', label: 'Weekly settlement amount' },
+  { key: 'group_other_settlement', label: 'Monthly / other group settlement', optional: true },
+  { key: 'personal_settlement', label: 'Personal loan settlement' },
+  { key: 'product_settlement', label: 'Product loan settlement' },
+  { key: 'bm_settlement', label: 'Business / MSME settlement' },
+  { key: 'cash_fund', label: 'Cash fund receive and Bank withdrawal fund' },
+  { key: 'npa_receive', label: 'NPA receive' },
+  { key: 'security_adjust', label: 'Security adjust (against EMI, not cash)', memo: true },
+  { key: 'voucher_receive', label: 'Voucher entry' },
+  { key: 'product_received', label: 'Product payment received from branches (head office)', optional: true },
+];
+const PAYMENT = [
+  { key: 'daily_disbursement', label: 'Daily disbursement' },
+  { key: 'weekly_disbursement', label: 'Weekly disbursement' },
+  { key: 'group_other_disbursement', label: 'Monthly / other group disbursement', optional: true },
+  { key: 'product_disbursement', label: 'Product loan disbursement' },
+  { key: 'personal_disbursement', label: 'Personal loan disbursement' },
+  { key: 'msme_disbursement', label: 'MSME loan disbursement' },
+  { key: 'business_disbursement', label: 'Business loan disbursement' },
+  { key: 'daily_due', label: 'Daily today due', memo: true },
+  { key: 'weekly_due', label: 'Weekly today due', memo: true },
+  { key: 'product_due', label: 'Product today due', memo: true },
+  { key: 'personal_due', label: 'Personal today due', memo: true },
+  { key: 'bm_due', label: 'MSME / Business today due', memo: true },
+  { key: 'leader_commission', label: 'Group leader commission' },
+  { key: 'security_return', label: 'Security return' },
+  { key: 'bank_deposit', label: 'Bank deposit' },
+  { key: 'cash_deposit', label: 'Cash deposit' },
+  { key: 'product_balance_deposit', label: 'Product balance deposit' },
+  { key: 'fund_transfer', label: 'Fund transfer to' },
+  { key: 'staff_salary', label: 'Staff salary paid' },
+  { key: 'other_payment', label: 'Other' },
+];
+const KNOWN = new Set([...RECEIVE, ...PAYMENT].map((x) => x.key));
+
+// Which cashbook line a loan belongs to: group loans by how they are collected (daily / weekly), the others by their type.
+const groupMode = (l) => (l.mode === 'daily' ? 'daily' : l.mode === 'weekly' ? 'weekly' : 'group_other');
+const typeOf = (l) => l.loanType || l.kind || 'personal';
+const collectionKey = (l) => (l.kind === 'group' ? `${groupMode(l)}_collection` : typeOf(l) === 'business' ? 'business_collection' : typeOf(l) === 'msme' ? 'msme_collection' : `${typeOf(l)}_collection`);
+const settlementKey = (l) => (l.kind === 'group' ? `${groupMode(l)}_settlement` : ['business', 'msme'].includes(typeOf(l)) ? 'bm_settlement' : `${typeOf(l)}_settlement`);
+const disbursementKey = (l) => (l.kind === 'group' ? `${groupMode(l)}_disbursement` : `${typeOf(l)}_disbursement`);
+const dueKey = (l) => (l.kind === 'group' ? (l.mode === 'weekly' ? 'weekly_due' : 'daily_due') : ['business', 'msme'].includes(typeOf(l)) ? 'bm_due' : `${typeOf(l)}_due`);
 
 /**
- * Cashbook: money received (receipts side) and money paid (payments side) of one branch, of head office, or of everything
- * (admin). Product payments a branch makes show on its payments side; once the admin receives them they show on the
- * head-office receipts side.
+ * Cashbook of one branch, of head office, or of everything (admin): the receive side and the payment side, line by line, with the
+ * opening balance, the totals and the closing balance. Product payments a branch makes show on its payment side; once the admin
+ * receives them they show on the head-office receive side. Entries typed in by hand (cash fund, NPA, voucher, deposits, salary ...) are included.
  */
 export async function cashbook(req, res) {
   const admin = isAdmin(req.user);
@@ -48,7 +112,7 @@ export async function cashbook(req, res) {
     if (before) return from ? { [field]: { $lt: from } } : null;
     const r = {};
     if (from) r.$gte = from;
-    if (to) r.$lt = new Date(to.getTime() + 24 * 3600 * 1000);
+    if (to) r.$lt = new Date(to.getTime() + DAY);
     return Object.keys(r).length ? { [field]: r } : {};
   };
   const modeFilter = (field) => (mode ? { [field]: mode } : {});
@@ -62,41 +126,116 @@ export async function cashbook(req, res) {
     }
     return ids[k];
   };
+  // hand-made entries of head office are included whenever head-office entries are
+  const entryScope = head ? { $or: [scope, { branch: null }] } : scope;
 
   async function collect(before) {
     const r = range('paidOn', before);
     const s = range('settledOn', before);
     const rv = range('receivedOn', before);
-    if (before && !r) return { receipts: [], payments: [] };
-    const receipts = [];
-    const payments = [];
-    // receipts: EMI collected (not the security amount put against it) and loan settlements
-    const emis = await EmiPayment.find({ ...scope, status: 'paid', payMode: mode ? mode : { $ne: 'security' }, ...r }).limit(20000);
-    emis.forEach((e) => receipts.push({ date: iso(e.paidOn), particulars: `${e.type === 'advance' ? 'Advance EMI' : 'EMI'} — ${e.memberCode} ${e.memberName || ''}`.trim(), ref: `${e.receiptNo} · ${e.loanId || e.formId}`, mode: e.payMode, amount: e.amountPaise, branchId: e.branch }));
+    if (before && !r) return [];
+    const rows = []; // { side, cat, date, particulars, ref, mode, amount (paise), branchId, memo? }
+    const add = (side, cat, row) => rows.push({ side, cat, ...row });
+    const nameOfMember = (x) => `${x.memberCode} ${x.memberName || ''}`.trim();
+
+    // what kind of loan each EMI / settlement belongs to
+    const emis = await EmiPayment.find({ ...scope, status: 'paid', ...(mode ? { payMode: mode } : {}), ...r }).limit(20000);
     const sets = await LoanSettlement.find({ ...scope, kind: 'loan', status: 'active', amountPaise: { $gt: 0 }, ...modeFilter('payMode'), ...s }).limit(20000);
-    sets.forEach((x) => receipts.push({ date: iso(x.settledOn), particulars: `Loan settlement — ${x.memberCode} ${x.memberName || ''}`.trim(), ref: `${x.receiptNo} · ${x.loanId || x.formId}`, mode: x.payMode, amount: x.amountPaise, branchId: x.branch }));
-    // payments: loans paid out, security paid back, product payments to head office
-    const loans = await LoanPayment.find({ ...scope, status: 'paid', totalCashPaise: { $gt: 0 }, ...modeFilter('payMode'), ...r }).limit(20000);
-    loans.forEach((l) => payments.push({ date: iso(l.paidOn), particulars: `Loan paid — ${l.group?.code ? `${l.group.code} ${l.group.name}` : `${l.lines[0]?.code} ${l.lines[0]?.name || ''}`}`.trim(), ref: `${l.receiptNo} · ${l.loanId || l.formId}`, mode: l.payMode, amount: l.totalCashPaise, branchId: l.branch }));
-    // security is paid back once the member's OTP is verified (requests made before that step were paid on approval)
+    const loanIds = [...new Set([...emis.map((e) => String(e.loanPayment)), ...sets.map((x) => String(x.loanPayment))])];
+    const loanInfo = new Map((await LoanPayment.find({ _id: { $in: loanIds } }).select('kind loanType mode')).map((l) => [String(l._id), l]));
+    // EMI collected; the security amount put against an EMI is not cash (shown for information)
+    emis.forEach((e) => {
+      const l = loanInfo.get(String(e.loanPayment));
+      if (!l) return;
+      const memo = e.payMode === 'security';
+      add('receive', memo ? 'security_adjust' : collectionKey(l), { date: iso(e.paidOn), particulars: `${e.type === 'advance' ? 'Advance EMI' : 'EMI'} — ${nameOfMember(e)}`, ref: `${e.receiptNo} · ${e.loanId || e.formId}`, mode: e.payMode, amount: e.amountPaise, branchId: e.branch, memo });
+    });
+    sets.forEach((x) => {
+      const l = loanInfo.get(String(x.loanPayment));
+      if (!l) return;
+      add('receive', settlementKey(l), { date: iso(x.settledOn), particulars: `Loan settlement — ${nameOfMember(x)}`, ref: `${x.receiptNo} · ${x.loanId || x.formId}`, mode: x.payMode, amount: x.amountPaise, branchId: x.branch });
+    });
+
+    // loans paid out: the loan amount is paid; the fees and the security kept from it come back on the receive side, goods are given in kind
+    const loans = await LoanPayment.find({ ...scope, status: 'paid', ...modeFilter('payMode'), ...r }).limit(20000);
+    loans.forEach((l) => {
+      const who = l.group?.code ? `${l.group.code} ${l.group.name}` : `${l.lines[0]?.code} ${l.lines[0]?.name || ''}`.trim();
+      const base = { date: iso(l.paidOn), ref: `${l.receiptNo} · ${l.loanId || l.formId}`, mode: l.payMode, branchId: l.branch };
+      const sum = (f) => l.lines.reduce((t, x) => t + (x[f] || 0), 0);
+      const amount = l.totalAmountPaise || sum('amountPaise');
+      add('payment', disbursementKey(l), { ...base, particulars: `Loan paid — ${who}`, amount });
+      if (sum('processingFeePaise') > 0) add('receive', 'processing_fee', { ...base, particulars: `Processing fee — ${who}`, amount: sum('processingFeePaise') });
+      if (sum('insuranceFeePaise') > 0) add('receive', 'insurance_fee', { ...base, particulars: `Insurance fee — ${who}`, amount: sum('insuranceFeePaise') });
+      if (sum('securityPaise') > 0) add('receive', 'security_amount', { ...base, particulars: `Security amount — ${who}`, amount: sum('securityPaise') });
+      // a product loan is all goods; for other loans it is the goods taken at payment time
+      const goods = l.kind === 'product' ? amount : sum('productPaise');
+      if (goods > 0) add('receive', 'goods_in_kind', { ...base, particulars: `Goods given — ${who}`, amount: goods });
+    });
+
+    // security paid back once the member's OTP is verified (requests made before that step were paid on approval)
     const oldSec = await SecurityWithdrawal.find({ ...scope, kind: 'withdraw', status: 'approved', otpRequired: { $ne: true }, ...modeFilter('payMode'), ...stampRange('decidedAt', before) }).limit(20000);
     const newSec = await SecurityWithdrawal.find({ ...scope, kind: 'withdraw', status: 'approved', otpRequired: true, ...modeFilter('payMode'), ...stampRange('otpVerifiedAt', before) }).limit(20000);
-    oldSec.forEach((w) => payments.push({ date: iso(w.decidedAt), particulars: `Security paid back — ${w.memberCode} ${w.memberName || ''}`.trim(), ref: w.receiptNo, mode: w.payMode, amount: w.amountPaise + (w.interestPaise || 0), branchId: w.branch }));
-    newSec.filter((w) => w.otpVerifiedAt).forEach((w) => payments.push({ date: iso(w.otpVerifiedAt), particulars: `Security paid back${w.interestPaise ? ' with interest' : ''} — ${w.memberCode} ${w.memberName || ''}`.trim(), ref: w.receiptNo, mode: w.payMode, amount: w.amountPaise + (w.interestPaise || 0), branchId: w.branch }));
+    oldSec.forEach((w) => add('payment', 'security_return', { date: iso(w.decidedAt), particulars: `Security paid back — ${w.memberCode} ${w.memberName || ''}`.trim(), ref: w.receiptNo, mode: w.payMode, amount: w.amountPaise + (w.interestPaise || 0), branchId: w.branch }));
+    newSec.filter((w) => w.otpVerifiedAt).forEach((w) => add('payment', 'security_return', { date: iso(w.otpVerifiedAt), particulars: `Security paid back${w.interestPaise ? ' with interest' : ''} — ${w.memberCode} ${w.memberName || ''}`.trim(), ref: w.receiptNo, mode: w.payMode, amount: w.amountPaise + (w.interestPaise || 0), branchId: w.branch }));
+
+    // product payments: a branch pays head office (payment side); the admin receiving it is a head-office receipt
     const pays = await ProductPayment.find({ ...scope, isDeleted: false, status: { $ne: 'rejected' }, ...modeFilter('mode'), ...r }).limit(20000);
-    pays.forEach((p) => payments.push({ date: iso(p.paidOn), particulars: 'Product payment to head office', ref: p.reference || '', mode: p.mode, amount: p.amountPaise, branchId: p.branch }));
-    // head office receipts: product payments the admin has received
+    pays.forEach((p) => add('payment', 'product_balance_deposit', { date: iso(p.paidOn), particulars: 'Product balance deposit to head office', ref: p.reference || '', mode: p.mode, amount: p.amountPaise, branchId: p.branch }));
     if (head) {
-      const got = await ProductPayment.find({ isDeleted: false, status: { $nin: ['paid', 'rejected'] }, ...(wanted === 'ho' || !scope.branch ? {} : {}), ...modeFilter('mode'), ...rv }).limit(20000);
-      got.forEach((p) => receipts.push({ date: iso(p.receivedOn || p.paidOn), particulars: 'Product payment received from branch', ref: p.reference || '', mode: p.mode, amount: p.amountPaise, branchId: p.branch, head: true }));
+      const got = await ProductPayment.find({ isDeleted: false, status: { $nin: ['paid', 'rejected'] }, ...modeFilter('mode'), ...rv }).limit(20000);
+      got.forEach((p) => add('receive', 'product_received', { date: iso(p.receivedOn || p.paidOn), particulars: 'Product payment received from branch', ref: p.reference || '', mode: p.mode, amount: p.amountPaise, branchId: p.branch, head: true }));
     }
-    return { receipts, payments };
+
+    // entries typed in by hand
+    const entries = await CashEntry.find({ isDeleted: false, ...entryScope, ...modeFilter('mode'), ...range('date', before) }).limit(20000);
+    entries.forEach((e) => add(e.side, e.category, { date: iso(e.date), particulars: e.remark || '', ref: e.enteredByCode ? `by ${e.enteredByCode}` : '', mode: e.mode, amount: e.amountPaise, branchId: e.branch, entryId: e._id, manual: true }));
+    return rows;
   }
 
   const cur = await collect(false);
-  const open = from ? await collect(true) : { receipts: [], payments: [] };
+  const open = from ? await collect(true) : [];
+  const counted = (rows, side) => rows.filter((r) => r.side === side && !r.memo);
   const sum = (rows) => rows.reduce((t, r) => t + r.amount, 0);
-  const label = async (rows) => {
+  const openingPaise = sum(counted(open, 'receive')) - sum(counted(open, 'payment'));
+
+  // today due: the EMI still to be collected up to the end date (information, not cash)
+  const asOf = to || new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
+  const dueLoans = await LoanPayment.find({ ...scope, status: 'paid' }).limit(3000);
+  if (dueLoans.length) {
+    const settledSet = new Set((await LoanSettlement.find({ loanPayment: { $in: dueLoans.map((l) => l._id) }, status: 'active' }).select('loanPayment memberCode')).map((x) => `${x.loanPayment}|${x.memberCode}`));
+    const recv = await EmiPayment.aggregate([
+      { $match: { loanPayment: { $in: dueLoans.map((l) => l._id) }, status: 'paid' } },
+      { $unwind: '$items' },
+      { $group: { _id: { lp: '$loanPayment', code: '$memberCode', no: '$items.no' }, paid: { $sum: '$items.amountPaise' } } },
+    ]);
+    const byKey = new Map();
+    recv.forEach((x) => {
+      const k = `${x._id.lp}|${x._id.code}`;
+      if (!byKey.has(k)) byKey.set(k, new Map());
+      byKey.get(k).set(x._id.no, { paid: x.paid, receipts: [] });
+    });
+    const dueBy = new Map();
+    dueLoans.forEach((l) => l.lines.forEach((line) => {
+      if (settledSet.has(`${l._id}|${line.code}`)) return;
+      const st = stateFrom(l, line, byKey.get(`${l._id}|${line.code}`) || new Map(), asOf);
+      if (st.totals.due > 0) dueBy.set(dueKey(l), (dueBy.get(dueKey(l)) || 0) + st.totals.due);
+    }));
+    dueBy.forEach((amount, cat) => cur.push({ side: 'payment', cat, date: iso(asOf), particulars: 'EMI due up to this date', ref: '', mode: '', amount, branchId: null, memo: true }));
+  }
+
+  const lineOf = (def, rows) => {
+    const mine = rows.filter((r) => r.cat === def.key);
+    return { key: def.key, label: def.label, amount: sum(mine) / 100, count: mine.length, memo: Boolean(def.memo), optional: Boolean(def.optional) };
+  };
+  const recRows = cur.filter((r) => r.side === 'receive');
+  const payRows = cur.filter((r) => r.side === 'payment');
+  const receiveLines = RECEIVE.map((d) => lineOf(d, recRows)).filter((l) => !l.optional || l.amount > 0);
+  const paymentLines = PAYMENT.map((d) => lineOf(d, payRows)).filter((l) => !l.optional || l.amount > 0);
+  const recP = sum(counted(cur, 'receive'));
+  const payP = sum(counted(cur, 'payment'));
+  const totals = { receipts: recP / 100, payments: payP / 100, grand: (openingPaise + recP) / 100 };
+
+  const detail = async (rows) => {
     for (const r of rows) {
       // eslint-disable-next-line no-await-in-loop
       r.branch = await nameOf(r.branchId);
@@ -107,13 +246,56 @@ export async function cashbook(req, res) {
     }
     return rows.sort((a, b) => a.date.localeCompare(b.date));
   };
-  const openingPaise = sum(open.receipts) - sum(open.payments);
-  const recP = sum(cur.receipts);
-  const payP = sum(cur.payments);
-  const totals = { receipts: recP / 100, payments: payP / 100 };
-  const receipts = await label(cur.receipts);
-  const payments = await label(cur.payments);
   res.json({
-    from: iso(from), to: iso(to), opening: openingPaise / 100, receipts, payments, totals, closing: (openingPaise + recP - payP) / 100,
+    from: iso(from), to: iso(to), asOf: iso(asOf), opening: openingPaise / 100, receiveLines, paymentLines, totals, closing: (openingPaise + recP - payP) / 100,
+    receipts: await detail(recRows), payments: await detail(payRows),
+    entryCategories: { receive: RECEIVE.filter((d) => ENTRY_CATEGORIES.receive.includes(d.key)).map(({ key, label }) => ({ key, label })), payment: PAYMENT.filter((d) => ENTRY_CATEGORIES.payment.includes(d.key)).map(({ key, label }) => ({ key, label })) },
   });
+}
+
+/** A cashbook line typed in by hand (cash fund, NPA, voucher, bank / cash deposit, fund transfer, staff salary, other ...). */
+export async function addEntry(req, res) {
+  const b = req.body || {};
+  const side = asString(b.side);
+  if (!['receive', 'payment'].includes(side)) throw invalid({ side: 'Choose receive or payment' });
+  const category = asString(b.category);
+  if (!ENTRY_CATEGORIES[side].includes(category) || !KNOWN.has(category)) throw invalid({ category: 'Choose what this entry is for' });
+  const amountPaise = toMinor(typeof b.amount === 'number' ? String(b.amount) : asString(b.amount));
+  if (amountPaise === null || amountPaise < 100) throw invalid({ amount: 'Enter the amount (₹1 or more, up to 2 decimals)' });
+  const mode = asString(b.mode) || 'cash';
+  if (!ENTRY_MODES.includes(mode)) throw invalid({ mode: 'Select cash, bank, UPI or cheque' });
+  const today = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
+  let date = today;
+  if (b.date) {
+    date = parseDateOnly(asString(b.date));
+    if (!date) throw invalid({ date: 'Enter a valid date' });
+    if (date > today) throw invalid({ date: 'The date cannot be in the future' });
+    if (!isAdmin(req.user) && today.getTime() - date.getTime() > 30 * DAY) throw invalid({ date: 'The date cannot be older than 30 days' });
+  }
+  // which cashbook: a branch, or head office (admin only)
+  let branch = null;
+  const wanted = asString(b.branch);
+  if (wanted === 'ho') {
+    if (!isAdmin(req.user)) throw new HttpError(403, 'Only the admin can make an entry in the head-office cashbook');
+  } else {
+    const id = mongoose.isValidObjectId(wanted) ? wanted : (req.user.branches || []).length === 1 ? String((req.user.branches || [])[0]) : '';
+    if (!id) throw invalid({ branch: 'Select the branch' });
+    if (!isAdmin(req.user) && !(req.user.branches || []).some((x) => String(x) === id)) throw new HttpError(403, 'You can only use your own branches');
+    if (!(await Branch.exists({ _id: id }))) throw invalid({ branch: 'Branch not found' });
+    branch = id;
+  }
+  const e = await CashEntry.create({ branch, date, side, category, amountPaise, mode, remark: asString(b.remark).slice(0, 200), enteredByCode: req.user.employeeCode || '', createdBy: req.user._id });
+  await audit(req, { action: 'cashbook.entry', entity: 'CashEntry', entityId: e._id, after: { side, category, amount: amountPaise / 100, date: iso(date), branch: branch ? String(branch) : 'head office' } });
+  res.status(201).json({ entry: { id: e._id, side, category, amount: amountPaise / 100, date: iso(date), mode, remark: e.remark || '' } });
+}
+
+/** Removes a hand-made entry (admin). */
+export async function deleteEntry(req, res) {
+  if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Entry not found');
+  const e = await CashEntry.findOne({ _id: req.params.id, isDeleted: false });
+  if (!e) throw new HttpError(404, 'Entry not found');
+  e.isDeleted = true;
+  await e.save();
+  await audit(req, { action: 'cashbook.entryDeleted', entity: 'CashEntry', entityId: e._id, after: { side: e.side, category: e.category, amount: e.amountPaise / 100 } });
+  res.json({ message: 'Entry removed' });
 }
