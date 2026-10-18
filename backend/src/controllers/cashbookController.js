@@ -139,8 +139,8 @@ export async function cashbook(req, res) {
     const nameOfMember = (x) => `${x.memberCode} ${x.memberName || ''}`.trim();
 
     // what kind of loan each EMI / settlement belongs to
-    const emis = await EmiPayment.find({ ...scope, status: 'paid', legacy: { $ne: true }, ...(mode ? { payMode: mode } : {}), ...r }).limit(20000);
-    const sets = await LoanSettlement.find({ ...scope, kind: 'loan', status: 'active', amountPaise: { $gt: 0 }, ...modeFilter('payMode'), ...s }).limit(20000);
+    const emis = await EmiPayment.find({ ...scope, status: 'paid', legacy: { $ne: true }, ...(mode ? { payMode: mode } : {}), ...r }).limit(20000).lean();
+    const sets = await LoanSettlement.find({ ...scope, kind: 'loan', status: 'active', amountPaise: { $gt: 0 }, ...modeFilter('payMode'), ...s }).limit(20000).lean();
     const loanIds = [...new Set([...emis.map((e) => String(e.loanPayment)), ...sets.map((x) => String(x.loanPayment))])];
     const loanInfo = new Map((await LoanPayment.find({ _id: { $in: loanIds } }).select('kind loanType mode')).map((l) => [String(l._id), l]));
     // EMI collected; the security amount put against an EMI is not cash (shown for information)
@@ -157,8 +157,8 @@ export async function cashbook(req, res) {
     });
 
     // loans paid out: the loan amount is paid; the fees and the security kept from it come back on the receive side, goods are given in kind
-    const loans = await LoanPayment.find({ ...scope, status: 'paid', ...modeFilter('payMode'), ...r }).limit(20000).lean();
-    loans.forEach((l) => {
+    const loans = LoanPayment.find({ ...scope, status: 'paid', ...modeFilter('payMode'), ...r }).select('-schedule').limit(20000).lean().cursor({ batchSize: 200 });
+    for await (const l of loans) {
       const who = l.group?.code ? `${l.group.code} ${l.group.name}` : `${l.lines[0]?.code} ${l.lines[0]?.name || ''}`.trim();
       const base = { date: iso(l.paidOn), ref: `${l.receiptNo} · ${l.loanId || l.formId}`, mode: l.payMode, branchId: l.branch };
       const sum = (f) => l.lines.reduce((t, x) => t + (x[f] || 0), 0);
@@ -170,7 +170,7 @@ export async function cashbook(req, res) {
       // a product loan is all goods; for other loans it is the goods taken at payment time
       const goods = l.kind === 'product' ? amount : sum('productPaise');
       if (goods > 0) add('receive', 'goods_in_kind', { ...base, particulars: `Goods given — ${who}`, amount: goods });
-    });
+    }
 
     // security paid back once the member's OTP is verified (requests made before that step were paid on approval)
     const oldSec = await SecurityWithdrawal.find({ ...scope, kind: 'withdraw', status: 'approved', otpRequired: { $ne: true }, ...modeFilter('payMode'), ...stampRange('decidedAt', before) }).limit(20000);
@@ -200,11 +200,17 @@ export async function cashbook(req, res) {
 
   // today due: the EMI still to be collected up to the end date (information, not cash)
   const asOf = to || new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
-  const dueLoans = await LoanPayment.find({ ...scope, status: 'paid' }).limit(20000).lean();
-  if (dueLoans.length) {
-    const settledSet = new Set((await LoanSettlement.find({ loanPayment: { $in: dueLoans.map((l) => l._id) }, status: 'active' }).select('loanPayment memberCode')).map((x) => `${x.loanPayment}|${x.memberCode}`));
+  const dueIds = (await LoanPayment.find({ ...scope, status: 'paid' }).select('_id').limit(20000).lean()).map((x) => x._id);
+  const dueBy = new Map();
+  for (let at = 0; at < dueIds.length; at += 250) {
+    const idsNow = dueIds.slice(at, at + 250);
+    // eslint-disable-next-line no-await-in-loop
+    const dueLoans = await LoanPayment.find({ _id: { $in: idsNow } }).lean();
+    // eslint-disable-next-line no-await-in-loop
+    const settledSet = new Set((await LoanSettlement.find({ loanPayment: { $in: idsNow }, status: 'active' }).select('loanPayment memberCode').lean()).map((x) => `${x.loanPayment}|${x.memberCode}`));
+    // eslint-disable-next-line no-await-in-loop
     const recv = await EmiPayment.aggregate([
-      { $match: { loanPayment: { $in: dueLoans.map((l) => l._id) }, status: 'paid' } },
+      { $match: { loanPayment: { $in: idsNow }, status: 'paid' } },
       { $unwind: '$items' },
       { $group: { _id: { lp: '$loanPayment', code: '$memberCode', no: '$items.no' }, paid: { $sum: '$items.amountPaise' } } },
     ]);
@@ -214,14 +220,13 @@ export async function cashbook(req, res) {
       if (!byKey.has(k)) byKey.set(k, new Map());
       byKey.get(k).set(x._id.no, { paid: x.paid, receipts: [] });
     });
-    const dueBy = new Map();
     dueLoans.forEach((l) => l.lines.forEach((line) => {
       if (settledSet.has(`${l._id}|${line.code}`)) return;
       const st = stateFrom(l, line, byKey.get(`${l._id}|${line.code}`) || new Map(), asOf);
       if (st.totals.due > 0) dueBy.set(dueKey(l), (dueBy.get(dueKey(l)) || 0) + st.totals.due);
     }));
-    dueBy.forEach((amount, cat) => cur.push({ side: 'payment', cat, date: iso(asOf), particulars: 'EMI due up to this date', ref: '', mode: '', amount, branchId: null, memo: true }));
   }
+  dueBy.forEach((amount, cat) => cur.push({ side: 'payment', cat, date: iso(asOf), particulars: 'EMI due up to this date', ref: '', mode: '', amount, branchId: null, memo: true }));
 
   const lineOf = (def, rows) => {
     const mine = rows.filter((r) => r.cat === def.key);

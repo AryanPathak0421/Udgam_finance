@@ -291,52 +291,62 @@ export async function collectionList(req, res) {
   if (!asOf) throw invalid({ date: 'Enter a valid date' });
   const filter = { status: 'paid', ...branchFilter(req.user), kind: kindScope === 'group' ? 'group' : { $in: ['personal', 'business', 'product'] } };
   if (mongoose.isValidObjectId(req.query.branch)) filter.branch = req.query.branch;
-  const loans = await LoanPayment.find(filter).populate(POPULATE).sort({ createdAt: -1 }).limit(20000).lean();
-
-  const staffAll = [...new Set(loans.map((l) => l.employeeCode).filter(Boolean))].sort();
+  // The loans are worked through in batches of 250, so thousands of loans (each with its whole schedule) are never in memory together.
+  const loanIds = (await LoanPayment.find(filter).sort({ createdAt: -1 }).select('_id').limit(20000).lean()).map((x) => x._id);
+  const staffSet = new Set();
+  const modeSet = new Set();
   const wantStaff = asString(req.query.staff).toUpperCase();
   const wantMode = asString(req.query.mode);
   const wantType = asString(req.query.loanType);
   const q = asString(req.query.q).toLowerCase();
-  const pick = loans.filter((l) => (!wantStaff || l.employeeCode === wantStaff) && (!wantMode || modeOf(l) === wantMode) && (kindScope === 'group' || !wantType || loanTypeOf(l) === wantType));
-
-  // what has been received on each installment, for all picked loans at once
-  const settledSet = new Set((await LoanSettlement.find({ loanPayment: { $in: pick.map((l) => l._id) }, status: 'active' }).select('loanPayment memberCode')).map((x) => `${x.loanPayment}|${x.memberCode}`));
-  const recv = await EmiPayment.aggregate([
-    { $match: { loanPayment: { $in: pick.map((l) => l._id) }, status: 'paid' } },
-    { $unwind: '$items' },
-    { $group: { _id: { lp: '$loanPayment', code: '$memberCode', no: '$items.no' }, paid: { $sum: '$items.amountPaise' } } },
-  ]);
-  const byKey = new Map();
-  recv.forEach((r) => {
-    const k = `${r._id.lp}|${r._id.code}`;
-    if (!byKey.has(k)) byKey.set(k, new Map());
-    byKey.get(k).set(r._id.no, { paid: r.paid, receipts: [] });
-  });
-
   const rows = [];
-  for (const l of pick) {
-    for (const line of l.lines) {
-      if (settledSet.has(`${l._id}|${line.code}`)) continue;
-      const st = stateFrom(l, line, byKey.get(`${l._id}|${line.code}`) || new Map(), asOf);
-      // group screen: every member of the group is listed, one who owes nothing is shown as paid
-      if (!st.due.length && kindScope !== 'group') continue;
-      if (!st.left.length && kindScope === 'group') continue; // the loan is fully repaid
-      const text = `${l.loanId} ${l.formId} ${line.code} ${line.name} ${l.group?.code || ''} ${l.group?.name || ''}`.toLowerCase();
-      if (q && !text.includes(q)) continue;
-      const onDate = st.schedule.filter((x) => x.dueDate === iso(asOf));
-      rows.push({
-        loan: l._id, loanId: l.loanId || '', formId: l.formId, kind: l.kind, loanType: loanTypeOf(l), loanTypeLabel: KIND_LABEL[loanTypeOf(l)] || loanTypeOf(l), member: line.member, code: line.code, name: line.name,
-        group: l.group?.code ? { code: l.group.code, name: l.group.name } : null, branch: l.branch ? { id: l.branch._id, code: l.branch.code, name: l.branch.name } : null, employeeCode: l.employeeCode || '',
-        mode: modeOf(l), modeLabel: l.modeLabel, emi: money((l.schedule[0]?.installmentPaise || 0) + (line.extraEmiPaise || 0)), dueCount: st.due.length, dueAmount: money(st.totals.due),
-        overdueDays: st.due.length ? Math.max(...st.due.map((d) => d.overdueDays)) : 0, nextDueDate: st.due[0]?.dueDate || st.left[0]?.dueDate || '', outstanding: money(st.totals.outstanding),
-        status: st.due.length ? 'due' : 'paid', dueOnDate: onDate.length > 0, emiOnDate: money(onDate.reduce((t, x) => t + x.amountPaise, 0)),
-      });
+  for (let at = 0; at < loanIds.length; at += 250) {
+    // eslint-disable-next-line no-await-in-loop
+    const batch = await LoanPayment.find({ _id: { $in: loanIds.slice(at, at + 250) } }).populate(POPULATE).lean();
+    batch.forEach((l) => { if (l.employeeCode) staffSet.add(l.employeeCode); if (modeOf(l)) modeSet.add(modeOf(l)); });
+    const pick = batch.filter((l) => (!wantStaff || l.employeeCode === wantStaff) && (!wantMode || modeOf(l) === wantMode) && (kindScope === 'group' || !wantType || loanTypeOf(l) === wantType));
+    if (!pick.length) continue;
+
+    // what has been received on each installment, for the loans of this batch
+    // eslint-disable-next-line no-await-in-loop
+    const settledSet = new Set((await LoanSettlement.find({ loanPayment: { $in: pick.map((l) => l._id) }, status: 'active' }).select('loanPayment memberCode').lean()).map((x) => `${x.loanPayment}|${x.memberCode}`));
+    // eslint-disable-next-line no-await-in-loop
+    const recv = await EmiPayment.aggregate([
+      { $match: { loanPayment: { $in: pick.map((l) => l._id) }, status: 'paid' } },
+      { $unwind: '$items' },
+      { $group: { _id: { lp: '$loanPayment', code: '$memberCode', no: '$items.no' }, paid: { $sum: '$items.amountPaise' } } },
+    ]);
+    const byKey = new Map();
+    recv.forEach((r) => {
+      const k = `${r._id.lp}|${r._id.code}`;
+      if (!byKey.has(k)) byKey.set(k, new Map());
+      byKey.get(k).set(r._id.no, { paid: r.paid, receipts: [] });
+    });
+
+    for (const l of pick) {
+      for (const line of l.lines) {
+        if (settledSet.has(`${l._id}|${line.code}`)) continue;
+        const st = stateFrom(l, line, byKey.get(`${l._id}|${line.code}`) || new Map(), asOf);
+        // group screen: every member of the group is listed, one who owes nothing is shown as paid
+        if (!st.due.length && kindScope !== 'group') continue;
+        if (!st.left.length && kindScope === 'group') continue; // the loan is fully repaid
+        const text = `${l.loanId} ${l.formId} ${line.code} ${line.name} ${l.group?.code || ''} ${l.group?.name || ''}`.toLowerCase();
+        if (q && !text.includes(q)) continue;
+        const onDate = st.schedule.filter((x) => x.dueDate === iso(asOf));
+        rows.push({
+          loan: l._id, loanId: l.loanId || '', formId: l.formId, kind: l.kind, loanType: loanTypeOf(l), loanTypeLabel: KIND_LABEL[loanTypeOf(l)] || loanTypeOf(l), member: line.member, code: line.code, name: line.name,
+          group: l.group?.code ? { code: l.group.code, name: l.group.name } : null, branch: l.branch ? { id: l.branch._id, code: l.branch.code, name: l.branch.name } : null, employeeCode: l.employeeCode || '',
+          mode: modeOf(l), modeLabel: l.modeLabel, emi: money((l.schedule[0]?.installmentPaise || 0) + (line.extraEmiPaise || 0)), dueCount: st.due.length, dueAmount: money(st.totals.due),
+          overdueDays: st.due.length ? Math.max(...st.due.map((d) => d.overdueDays)) : 0, nextDueDate: st.due[0]?.dueDate || st.left[0]?.dueDate || '', outstanding: money(st.totals.outstanding),
+          status: st.due.length ? 'due' : 'paid', dueOnDate: onDate.length > 0, emiOnDate: money(onDate.reduce((t, x) => t + x.amountPaise, 0)),
+        });
+      }
     }
   }
+  const staffAll = [...staffSet].sort();
   const staffNames = await User.find({ employeeCode: { $in: staffAll } }).select('name employeeCode');
   const staff = staffAll.map((c) => ({ code: c, name: staffNames.find((u) => u.employeeCode === c)?.name || '' }));
-  const modes = [...new Set(loans.map(modeOf).filter(Boolean))];
+  const modes = [...modeSet];
 
   if (kindScope === 'group') {
     const groups = new Map();

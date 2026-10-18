@@ -35,16 +35,27 @@ async function migrate() {
   if (users.length) console.log(`Assigned employee codes to ${users.length} user(s)`);
 
   // Members registered before KYC approval existed: record which documents they have.
-  const legacy = await Member.find({ $or: [{ kycKeys: { $exists: false } }, { kycKeys: { $size: 0 } }] }).select('+memberPhoto +signaturePhoto +aadhaarPhoto +panPhoto +guarantor.photo +guarantor.signature +guarantor.aadhaarPhoto +guarantor.panPhoto +nominee.photo +nominee.signature +nominee.aadhaarPhoto +nominee.panPhoto');
-  for (const m of legacy) {
+  // (Streamed one by one with only the photo fields, and written only when a document is found: thousands of members must not be
+  // loaded into memory at start-up, and members without any document are left as they are.)
+  const photoFields = ['memberPhoto', 'signaturePhoto', 'aadhaarPhoto', 'panPhoto'];
+  const personFields = ['photo', 'signature', 'aadhaarPhoto', 'panPhoto'];
+  const projection = { _id: 1 };
+  photoFields.forEach((k) => { projection[k] = 1; });
+  ['guarantor', 'nominee'].forEach((w) => personFields.forEach((f) => { projection[`${w}.${f}`] = 1; }));
+  const cursor = Member.collection.find({ $or: [{ kycKeys: { $exists: false } }, { kycKeys: { $size: 0 } }] }, { projection }).batchSize(50);
+  let indexed = 0;
+  for await (const m of cursor) {
     const keys = [
-      ...['memberPhoto', 'signaturePhoto', 'aadhaarPhoto', 'panPhoto'].filter((k) => m[k]),
-      ...['guarantor', 'nominee'].flatMap((w) => ['photo', 'signature', 'aadhaarPhoto', 'panPhoto'].filter((f) => m[w]?.[f]).map((f) => `${w}.${f}`)),
+      ...photoFields.filter((k) => m[k]),
+      ...['guarantor', 'nominee'].flatMap((w) => personFields.filter((f) => m[w]?.[f]).map((f) => `${w}.${f}`)),
     ];
-    // eslint-disable-next-line no-await-in-loop
-    await Member.updateOne({ _id: m._id }, { $set: { kycKeys: keys } });
+    if (keys.length) {
+      // eslint-disable-next-line no-await-in-loop
+      await Member.collection.updateOne({ _id: m._id }, { $set: { kycKeys: keys } });
+      indexed += 1;
+    }
   }
-  if (legacy.length) console.log(`Indexed KYC documents of ${legacy.length} member(s)`);
+  if (indexed) console.log(`Indexed KYC documents of ${indexed} member(s)`);
 }
 
 connectDB()

@@ -32,10 +32,11 @@ async function depositRows(req, { memberId } = {}) {
     if (from) filter.paidOn.$gte = from;
     if (to) filter.paidOn.$lte = to;
   }
-  const loans = await LoanPayment.find(filter).populate(POPULATE).sort({ paidOn: -1, createdAt: -1 }).limit(20000).lean();
+  // (read one loan at a time: only the rows are kept, never all the loans with their schedules)
+  const loans = LoanPayment.find(filter).populate(POPULATE).sort({ paidOn: -1, createdAt: -1 }).limit(20000).lean().cursor({ batchSize: 100 });
   const q = asString(req.query.q).toLowerCase();
   const rows = [];
-  for (const l of loans) {
+  for await (const l of loans) {
     for (const line of l.lines) {
       if (!(line.securityPaise > 0)) continue;
       if (memberId && String(line.member) !== String(memberId)) continue;
