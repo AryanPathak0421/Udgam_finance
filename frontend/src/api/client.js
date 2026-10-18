@@ -130,7 +130,7 @@ export const api = {
     cancel: (id, reason) => request(`/settlements/${id}/cancel`, { method: 'POST', body: { reason } }),
   },
   emi: {
-    search: (q) => request(`/emi/search${qs({ q })}`),
+    search: (q, open) => request(`/emi/search${qs({ q, open: open ? '1' : undefined })}`),
     loan: (id) => request(`/emi/loans/${id}`),
     pay: (data) => request('/emi/pay', { method: 'POST', body: data }),
     collection: (params) => request(`/emi/collection${qs(params)}`),

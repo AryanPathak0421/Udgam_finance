@@ -84,7 +84,7 @@ function LoanFinder({ onPick }) {
     }
     let live = true;
     setSearching(true);
-    api.emi.search(q.trim()).then((r) => live && setResults(r.items)).catch(() => live && setResults([])).finally(() => live && setSearching(false));
+    api.emi.search(q.trim(), true).then((r) => live && setResults(r.items)).catch(() => live && setResults([])).finally(() => live && setSearching(false));
     return () => {
       live = false;
     };
@@ -95,7 +95,7 @@ function LoanFinder({ onPick }) {
         <input type="search" className="toolbar-search" placeholder="Search by Loan ID, form ID, borrower or group code / name" value={search} onChange={(e) => setSearch(e.target.value)} autoFocus aria-label="Search loan" />
       </div>
       {q.trim().length < 2 ? <EmptyState title="Search a loan" description="Type at least 2 letters of the Loan ID (for example LN00000001), borrower or group." /> : searching && !results.length ? <Spinner label="Searching…" /> : results.length === 0 ? (
-        <EmptyState title="No loan found" description="Only loans that have been paid out can be settled." />
+        <EmptyState title="No loan found" description="Only open loans can be found here: paid out and not yet settled or fully repaid." />
       ) : (
         <div className="table-wrap">
           <table className="data-table">
@@ -204,7 +204,7 @@ function LoanSettleForm({ loanId, member, canSettle, onDone }) {
     setBusy(true);
     setErrors({});
     try {
-      const r = await api.settlements.settleLoan({ loan: loanId, member, ...form });
+      const r = await api.settlements.settleLoan({ loan: loanId, member, ...form, settledOn: undefined });
       toast.success(`Loan settled — ${r.settlement.receiptNo}`);
       onDone(r.settlement);
     } catch (err) {
@@ -224,8 +224,8 @@ function LoanSettleForm({ loanId, member, canSettle, onDone }) {
         <div className="panel" style={{ padding: 16 }}>
           <h3 className="section-title">Settle the loan</h3>
           <div className="form-grid">
-            <FormField id="sdate" label="Settlement date" required error={errors.settledOn}>
-              <input id="sdate" type="date" max={todayISO()} value={form.settledOn} onChange={set('settledOn')} />
+            <FormField id="sdate" label="Settlement date" hint="Today. It cannot be changed" error={errors.settledOn}>
+              <input id="sdate" type="date" value={todayISO()} disabled readOnly />
             </FormField>
             <FormField id="samount" label="Settlement amount received (₹)" required error={errors.amount} hint={`Must be exactly the outstanding ${inr(d.state.outstanding)}; a lower amount does not settle the loan`}>
               <input id="samount" inputMode="decimal" value={form.amount} onChange={(e) => { setForm((f) => ({ ...f, amount: e.target.value.replace(/[^\d.]/g, '') })); setErrors((x) => ({ ...x, amount: undefined })); }} />
@@ -460,7 +460,7 @@ function GuarantorDeaths({ reloadKey }) {
 }
 
 // ---- history of settlements --------------------------------------------------------------------------------------------
-function History({ kind, reloadKey }) {
+function History({ kind, reloadKey, onCancelled }) {
   const { user } = useAuth();
   const toast = useToast();
   const isAdmin = ['super_admin', 'admin'].includes(user?.role);
@@ -509,6 +509,7 @@ function History({ kind, reloadKey }) {
       setCancelling(null);
       setReason('');
       load();
+      if (onCancelled) onCancelled(); // the loan that is open on this page is open again
     } catch (err) {
       setReasonError(err.errors?.reason || err.message);
     } finally {
@@ -602,24 +603,29 @@ function SettlementPage({ kind }) {
     <>
       <PageHeader
         title={death ? 'Death Settlement' : 'Loan Settlement'}
-        description={guarantorCase ? 'Search the Loan ID of the member whose guarantor has died. Enter the date of death and upload the death certificate. The loan carries on; the guarantor has to be changed before the next loan.' : death ? 'Search the Loan ID of the borrower who has died. Enter the date of death, upload the death certificate and save. The loan is settled and the member is blocked.' : 'Search the Loan ID to see the outstanding and settle the loan in one go.'}
+        description={death ? 'Search the Loan ID and open it, then choose who has died: the member (the loan is settled and the member is blocked) or the guarantor (the loan carries on; the guarantor has to be changed before the next loan). Enter the date of death and upload the death certificate.' : 'Search the Loan ID to see the outstanding and settle the loan in one go.'}
       />
-      {death && (
-        <div className="panel" style={{ marginBottom: 14, padding: 12 }}>
-          <FormField id="who" label="Who has died" required>
-            <select id="who" value={who} onChange={(e) => { setWho(e.target.value); setLoan(null); }}>
-              <option value="member">Member death</option>
-              <option value="guarantor">Guarantor death</option>
-            </select>
-          </FormField>
-        </div>
-      )}
       {loan ? (
-        <BorrowerStep key={loan.id} loan={loan} onBack={() => setLoan(null)}>
-          {(member) => <Form key={`${loan.id}-${member}-${reloadKey}`} loanId={loan.id} member={member} canSettle={canSettle} onDone={(s) => { if (s) setDone(s); setReloadKey((k) => k + 1); }} />}
+        <BorrowerStep key={`${loan.id}-${reloadKey}`} loan={loan} onBack={() => { setLoan(null); setWho('member'); }}>
+          {(member) => (
+            <>
+              {death && (
+                <div className="panel" style={{ marginBottom: 14, padding: 12 }}>
+                  <FormField id="who" label="Who has died" required>
+                    <select id="who" value={who} onChange={(e) => setWho(e.target.value)}>
+                      <option value="member">Member death</option>
+                      <option value="guarantor">Guarantor death</option>
+                    </select>
+                  </FormField>
+                </div>
+              )}
+              <Form key={`${loan.id}-${member}-${who}-${reloadKey}`} loanId={loan.id} member={member} canSettle={canSettle} onDone={(s) => { if (s) setDone(s); setReloadKey((k) => k + 1); }} />
+            </>
+          )}
         </BorrowerStep>
       ) : <LoanFinder onPick={setLoan} />}
-      {guarantorCase ? <GuarantorDeaths reloadKey={reloadKey} /> : <History kind={kind} reloadKey={reloadKey} />}
+      <History kind={kind} reloadKey={reloadKey} onCancelled={() => setReloadKey((k) => k + 1)} />
+      {death && <GuarantorDeaths reloadKey={reloadKey} />}
       {done && <SettlementDialog settlement={done} onClose={() => setDone(null)} />}
     </>
   );

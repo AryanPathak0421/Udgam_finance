@@ -232,7 +232,7 @@ function EmiPaymentPage({ advance }) {
     }
     let live = true;
     setSearching(true);
-    api.emi.search(q.trim()).then((r) => live && setResults(r.items)).catch(() => live && setResults([])).finally(() => live && setSearching(false));
+    api.emi.search(q.trim(), true).then((r) => live && setResults(r.items)).catch(() => live && setResults([])).finally(() => live && setSearching(false));
     return () => {
       live = false;
     };

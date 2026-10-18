@@ -58,13 +58,10 @@ async function prepare(req, b) {
   const p = await loadLoan(req, b.loan);
   const line = findLine(p, b.member);
   const today = startOfToday();
-  let settledOn = today;
-  if (b.settledOn) {
-    settledOn = parseDateOnly(asString(b.settledOn));
-    if (!settledOn) throw invalid({ settledOn: 'Enter a valid date' });
-    if (settledOn > today) throw invalid({ settledOn: 'The settlement date cannot be in the future' });
-    if (settledOn < p.paidOn) throw invalid({ settledOn: 'The settlement cannot be before the loan was paid out' });
-  }
+  // a settlement is made today: there is no back date (and no future date)
+  const settledOn = today;
+  if (b.settledOn && iso(parseDateOnly(asString(b.settledOn))) !== iso(today)) throw invalid({ settledOn: 'The settlement date is today and cannot be changed' });
+  if (settledOn < p.paidOn) throw invalid({ settledOn: 'The settlement cannot be before the loan was paid out' });
   const st = await borrowerState(p, line, settledOn);
   if (st.settled) throw new HttpError(409, `This loan is already settled (${st.settled.receiptNo})`);
   if (!st.left.length) throw new HttpError(409, 'All installments of this loan are already paid, so there is nothing to settle');

@@ -8,6 +8,7 @@ import { User } from '../models/User.js';
 import { generateCode } from '../services/codeSequence.js';
 import { MODES, calculateLoan } from '../services/loanCalculator.js';
 import { evaluateLoan } from './loanCalculatorController.js';
+import { borrowerState } from './emiController.js';
 import { branchFilter, isAdmin, maskMobile } from './groupController.js';
 import { asString, escapeRegex, parseDateOnly, parsePaging, HttpError } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
@@ -118,12 +119,47 @@ export async function borrowers(req, res) {
 const RUNNING = ['pending', 'approved'];
 
 /** member id -> ids of the schemes the member has a loan in that is not finished. */
+/**
+ * Of these requisitions, the loans that are still unfinished. An approved loan that was paid out is finished for a member once it is
+ * settled (loan or death settlement) or all its installments are paid; that member then no longer counts as having a running loan.
+ * Returns plain copies whose member list holds only the members whose loan is still open.
+ */
+async function unfinishedRows(rows) {
+  const paid = rows.filter((r) => r.status === 'approved' && r.disbursedAt);
+  const closed = new Map();
+  if (paid.length) {
+    const pays = await LoanPayment.find({ requisition: { $in: paid.map((r) => r._id) }, status: 'paid' });
+    const asOf = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
+    for (const p of pays) {
+      const done = new Set();
+      for (const line of p.lines) {
+        // eslint-disable-next-line no-await-in-loop
+        const st = await borrowerState(p, line, asOf);
+        if (st.settled || !st.left.length) done.add(String(line.member));
+      }
+      closed.set(String(p.requisition), done);
+    }
+  }
+  const out = [];
+  for (const r of rows) {
+    const done = closed.get(String(r._id));
+    const o = typeof r.toObject === 'function' ? r.toObject() : { ...r };
+    if (done) {
+      if (o.member && done.has(String(o.member))) o.member = undefined;
+      o.members = (o.members || []).filter((id) => !done.has(String(id)));
+      if (!o.member && !(o.members || []).length) continue; // every borrower of this loan is done
+    }
+    out.push(o);
+  }
+  return out;
+}
+
 async function runningSchemes(memberIds) {
-  const rows = await LoanRequisition.find({
+  const rows = await unfinishedRows(await LoanRequisition.find({
     isDeleted: false,
     status: { $in: RUNNING },
     $or: [{ member: { $in: memberIds } }, { members: { $in: memberIds } }],
-  }).select('member members scheme');
+  }).select('member members scheme status disbursedAt'));
   const map = new Map(memberIds.map((id) => [String(id), new Set()]));
   rows.forEach((r) => {
     const ids = [r.member, ...(r.members || [])].filter(Boolean).map(String);
@@ -250,8 +286,8 @@ export async function groupDetail(req, res) {
     const cs = await civilSnapshot(m._id);
     if (cs) civil.set(String(m._id), cs.score);
   }));
-  const groupLoans = await LoanRequisition.find({ isDeleted: false, kind: 'group', group: g._id, status: { $in: RUNNING }, members: { $in: ids } })
-    .select('formId members amountPaise additionalProducts schemeName mode term annualRateBp');
+  const groupLoans = await unfinishedRows(await LoanRequisition.find({ isDeleted: false, kind: 'group', group: g._id, status: { $in: RUNNING }, members: { $in: ids } })
+    .select('formId members amountPaise additionalProducts schemeName mode term annualRateBp status disbursedAt'));
   const loanOf = (mid) => {
     const l = groupLoans.find((x) => x.members.some((id) => String(id) === String(mid)));
     if (!l) return null;
@@ -736,7 +772,7 @@ export function createRequisition(kind) {
     // The same scheme is not offered again to a member until that loan is finished.
     const sameScheme = { isDeleted: false, scheme: scheme._id, status: { $in: RUNNING } };
     if (m) {
-      const running = await LoanRequisition.findOne({ ...sameScheme, $or: [{ member: m._id }, { members: m._id }] }).select('formId');
+      const running = (await unfinishedRows(await LoanRequisition.find({ ...sameScheme, $or: [{ member: m._id }, { members: m._id }] }).select('formId member members status disbursedAt')))[0];
       if (running) {
         throw new HttpError(409, `This borrower already has a loan under ${scheme.name} (requisition ${running.formId}) which is not finished yet`, {
           schemeId: 'A loan under this scheme is not finished yet',
@@ -746,7 +782,7 @@ export function createRequisition(kind) {
     if (g) {
       const ids = groupMembers.map((x) => x._id);
       // Within one group a member can have only one loan at a time; a further loan is a product top-up (up to 25%).
-      const inGroup = await LoanRequisition.find({ isDeleted: false, kind: 'group', group: g._id, status: { $in: RUNNING }, members: { $in: ids } }).select('formId members');
+      const inGroup = await unfinishedRows(await LoanRequisition.find({ isDeleted: false, kind: 'group', group: g._id, status: { $in: RUNNING }, members: { $in: ids } }).select('formId members status disbursedAt'));
       const taken = groupMembers.filter((x) => inGroup.some((l) => l.members.some((id) => String(id) === String(x._id))));
       if (taken.length) {
         throw new HttpError(409, `${taken.map((x) => x.code).join(', ')} already ha${taken.length > 1 ? 've' : 's'} a running loan in this group. A member can take only one loan in a group; use "Add product loan" for up to ${ADDITIONAL_PRODUCT_PERCENT}% of that loan.`, {
@@ -998,7 +1034,7 @@ export async function addGroupTopUp(req, res) {
   if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Requisition not found');
   const r = await LoanRequisition.findOne({ _id: req.params.id, isDeleted: false, kind: 'group', ...branchFilter(req.user) });
   if (!r) throw new HttpError(404, 'Group loan not found');
-  if (!RUNNING.includes(r.status)) throw new HttpError(409, 'This loan is not running');
+  if (!RUNNING.includes(r.status) || !(await unfinishedRows([r])).length) throw new HttpError(409, 'This loan is not running');
   const b = req.body || {};
   const items = Array.isArray(b.additional) ? b.additional : [];
   if (!items.length) throw invalid({ additional: 'Choose a product for at least one member' });
@@ -1087,9 +1123,9 @@ async function applyApproval(req, r, b) {
     }
     if (schemeChanged) {
       // The borrower(s) must not already have an unfinished loan in the new scheme.
-      const clash = await LoanRequisition.findOne({
+      const clash = (await unfinishedRows(await LoanRequisition.find({
         isDeleted: false, scheme: scheme._id, status: { $in: RUNNING }, _id: { $ne: r._id }, $or: [{ member: { $in: [r.member, ...(r.members || [])].filter(Boolean) } }, { members: { $in: [r.member, ...(r.members || [])].filter(Boolean) } }],
-      }).select('formId');
+      }).select('formId member members status disbursedAt')))[0];
       if (clash) throw new HttpError(409, `The borrower already has a loan under ${scheme.name} (requisition ${clash.formId}) which is not finished yet`, { schemeId: 'A loan under this scheme is not finished yet' });
       if (r.member && r.borrower?.dob) {
         const age = ageOn(new Date(r.borrower.dob), new Date(r.loanDate));
@@ -1288,7 +1324,7 @@ export async function createGroupRequisition(req, res) {
 
   const memberIds = entries.map((e) => String(e?.member || ''));
   const busy = await runningSchemes(memberIds.filter((id) => mongoose.isValidObjectId(id)));
-  const inGroup = await LoanRequisition.find({ isDeleted: false, kind: 'group', group: g._id, status: { $in: RUNNING }, members: { $in: memberIds.filter((id) => mongoose.isValidObjectId(id)) } }).select('formId members');
+  const inGroup = await unfinishedRows(await LoanRequisition.find({ isDeleted: false, kind: 'group', group: g._id, status: { $in: RUNNING }, members: { $in: memberIds.filter((id) => mongoose.isValidObjectId(id)) } }).select('formId members status disbursedAt'));
   const errors = {};
   const prepared = [];
   const seen = new Set();

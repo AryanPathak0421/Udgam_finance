@@ -24,13 +24,28 @@ const modeOf = (p) => p.mode || String(p.modeLabel || '').toLowerCase().replace(
 /** Loans that were paid out (and not cancelled) matching a Loan ID, form ID, receipt, borrower or group. */
 export async function searchLoans(req, res) {
   const q = asString(req.query.q);
+  const onlyOpen = req.query.open === '1' || req.query.open === 'true';
   if (q.length < 2) return res.json({ items: [] });
   const rx = new RegExp(escapeRegex(q), 'i');
   const filter = { status: 'paid', ...branchFilter(req.user), $or: [{ loanId: rx }, { formId: rx }, { receiptNo: rx }, { 'lines.code': rx }, { 'lines.name': rx }, { 'group.code': rx }, { 'group.name': rx }] };
   if (mongoose.isValidObjectId(req.query.branch)) filter.branch = req.query.branch;
-  const items = await LoanPayment.find(filter).populate(POPULATE).sort({ createdAt: -1 }).limit(20);
+  let items = await LoanPayment.find(filter).populate(POPULATE).sort({ createdAt: -1 }).limit(onlyOpen ? 60 : 20);
+  // a loan is open while some borrower of it still owes EMI (not settled, not fully paid)
+  const asOf = startOfToday();
+  const openOf = new Map();
+  for (const p of items) {
+    let open = false;
+    for (const line of p.lines) {
+      // eslint-disable-next-line no-await-in-loop
+      const st = await borrowerState(p, line, asOf);
+      if (!st.settled && st.left.length) { open = true; break; }
+    }
+    openOf.set(String(p._id), open);
+  }
+  if (onlyOpen) items = items.filter((p) => openOf.get(String(p._id))).slice(0, 20);
   res.json({
     items: items.map((p) => ({
+      open: openOf.get(String(p._id)),
       id: p._id, loanId: p.loanId || '', formId: p.formId, kind: p.kind, branch: p.branch ? `${p.branch.code} — ${p.branch.name}` : '',
       who: p.group?.code
         ? (p.lines.length === 1 ? `${p.lines[0].code} — ${p.lines[0].name} (group ${p.group.code} — ${p.group.name})` : `${p.group.code} — ${p.group.name} (${p.lines.length} members)`)
