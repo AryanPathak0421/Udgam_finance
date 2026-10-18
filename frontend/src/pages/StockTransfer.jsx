@@ -5,6 +5,7 @@ import Pagination from '../components/ui/Pagination.jsx';
 import { EmptyState, ErrorState, PageHeader, Spinner } from '../components/ui/Feedback.jsx';
 import { useToast } from '../components/ui/Toast.jsx';
 import useDebounce from '../hooks/useDebounce.js';
+import { OrderDialog } from './ProductOrders.jsx';
 
 const LIMIT = 25;
 const inr = (n) => `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -24,6 +25,14 @@ export default function StockTransfer() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const q = useDebounce(search);
+  // orders sent by the branches: the admin clicks Transfer and the stock moves to the branch
+  const [orderTab, setOrderTab] = useState('pending');
+  const [orders, setOrders] = useState(null);
+  const [openOrder, setOpenOrder] = useState(null);
+  const loadOrders = useCallback(() => api.productOrders.list({ status: orderTab, limit: 50 }).then(setOrders).catch(() => setOrders({ items: [], pending: 0 })), [orderTab]);
+  useEffect(() => {
+    loadOrders();
+  }, [loadOrders]);
 
   useEffect(() => {
     api.groups.branchOptions().then((r) => setBranches(r.items)).catch(() => {});
@@ -77,7 +86,40 @@ export default function StockTransfer() {
 
   return (
     <>
-      <PageHeader title="Stock Transfer" description="Move stock from one place to another, for example from branch BR01 to BR02, or between head office and a branch. Only the admin can do this." />
+      <PageHeader title="Stock Transfer" description="Orders from the branches are listed first: click Transfer to move the stock. You can also move stock by hand, for example from branch BR01 to BR02, or between head office and a branch. Only the admin can do this." />
+      <div className="panel" style={{ marginBottom: 14 }}>
+        <h3 className="section-title">Orders from the branches</h3>
+        <p className="muted small" style={{ marginTop: 0 }}>Click Transfer on an order to move its stock from head office (or another branch) to the branch that ordered it. The order is then done.</p>
+        <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+          <button className={`btn sm${orderTab === 'pending' ? ' primary' : ''}`} onClick={() => setOrderTab('pending')}>Waiting for transfer{orders && orderTab === 'pending' ? ` (${orders.total})` : orders?.pending ? ` (${orders.pending})` : ''}</button>
+          <button className={`btn sm${orderTab === 'approved' ? ' primary' : ''}`} onClick={() => setOrderTab('approved')}>Done</button>
+        </div>
+        {!orders ? <Spinner label="Loading…" /> : orders.items.length === 0 ? (
+          <EmptyState title={orderTab === 'pending' ? 'No order is waiting' : 'No order is done yet'} description={orderTab === 'pending' ? 'Orders sent by the branches appear here.' : 'Orders whose stock has been transferred appear here.'} />
+        ) : (
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead><tr><th>Order</th><th>Date</th><th>Branch</th><th>Products</th><th className="num">Units</th><th className="actions-col">Actions</th></tr></thead>
+              <tbody>
+                {orders.items.map((o) => (
+                  <tr key={o.id}>
+                    <td data-label="Order"><strong>{o.code}</strong>{orderTab === 'approved' && <div><span className="badge green">Transferred</span></div>}</td>
+                    <td data-label="Date">{fmt(orderTab === 'approved' ? o.decidedAt : o.createdAt)}{orderTab === 'approved' && o.decidedByCode && <div className="muted small">by {o.decidedByCode}</div>}</td>
+                    <td data-label="Branch">{o.branch ? `${o.branch.code} — ${o.branch.name}` : '—'}</td>
+                    <td data-label="Products">{o.items.map((i) => `${i.name} × ${orderTab === 'approved' ? i.approvedQty : i.requestedQty}`).join(', ')}</td>
+                    <td data-label="Units" className="num">{orderTab === 'approved' ? o.totalApproved : o.totalRequested}</td>
+                    <td data-label="Actions" className="actions-col">
+                      <button className={`btn sm${orderTab === 'pending' ? ' primary' : ''}`} onClick={() => setOpenOrder(o.id)}>{orderTab === 'pending' ? 'Transfer' : 'View'}</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+      {openOrder && <OrderDialog id={openOrder} isAdmin transferView onClose={() => setOpenOrder(null)} onChanged={() => { loadOrders(); load(); api.stockTransfers.stock(form.from).then((x) => setStock(x.items)).catch(() => {}); }} />}
+
       <form className="panel" style={{ padding: 16, marginBottom: 14 }} onSubmit={submit} noValidate>
         <div className="form-grid">
           <FormField id="tfrom" label="Move from" required>
@@ -106,7 +148,7 @@ export default function StockTransfer() {
       </form>
 
       <div className="panel">
-        <h3 className="section-title">Transfers</h3>
+        <h3 className="section-title">Transfers made by hand</h3>
         <div className="toolbar"><input type="search" className="toolbar-search" placeholder="Search transfer no or product" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search transfers" /></div>
         {loading && !data ? <Spinner label="Loading…" /> : error ? <ErrorState message={error} onRetry={load} /> : data.items.length === 0 ? (
           <EmptyState title="No transfer yet" description="Stock moved between places appears here." />

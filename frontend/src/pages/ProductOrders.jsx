@@ -260,7 +260,7 @@ function PaymentsDialog({ row, isAdmin, canPay, onClose, onChanged }) {
 }
 
 // Order detail. The admin can change the quantities and approve, or reject with a reason.
-function OrderDialog({ id, isAdmin, canCancel, onClose, onChanged }) {
+export function OrderDialog({ id, isAdmin, canCancel, onClose, onChanged, transferView = false }) {
   const toast = useToast();
   const [order, setOrder] = useState(null);
   const [error, setError] = useState('');
@@ -311,7 +311,7 @@ function OrderDialog({ id, isAdmin, canCancel, onClose, onChanged }) {
           {errors.items && <div className="field-error" role="alert">{errors.items}</div>}
           <div className="table-wrap">
             <table className="data-table">
-              <thead><tr><th>Category</th><th>Product</th><th className="num">Price</th><th className="num">Ordered</th>{pending && isAdmin && <th>Take from</th>}<th className="num">{pending && isAdmin ? 'Approve quantity' : 'Approved'}</th></tr></thead>
+              <thead><tr><th>Category</th><th>Product</th><th className="num">Price</th><th className="num">Ordered</th>{pending && isAdmin && <th>Take from</th>}<th className="num">{pending && isAdmin ? (transferView ? 'Units to transfer' : 'Approve quantity') : (transferView ? 'Transferred' : 'Approved')}</th></tr></thead>
               <tbody>
                 {order.items.map((i) => (
                   <tr key={i.id}>
@@ -342,7 +342,7 @@ function OrderDialog({ id, isAdmin, canCancel, onClose, onChanged }) {
 
           {pending && isAdmin && !rejecting && (
             <div className="row-actions" style={{ marginTop: 12 }}>
-              <button className="btn primary" disabled={busy} onClick={() => act(() => api.productOrders.approve(id, order.items.map((i) => ({ id: i.id, quantity: Number(qty[i.id]) || 0, source: src[i.id] || undefined }))), 'Order approved — stock moved to the branch')}>Approve order</button>
+              <button className="btn primary" disabled={busy} onClick={() => act(() => api.productOrders.approve(id, order.items.map((i) => ({ id: i.id, quantity: Number(qty[i.id]) || 0, source: src[i.id] || undefined }))), transferView ? 'Stock transferred to the branch' : 'Order approved — stock moved to the branch')}>{transferView ? 'Transfer stock' : 'Approve order'}</button>
               <button className="btn danger-outline" disabled={busy} onClick={() => setRejecting(true)}>Reject</button>
             </div>
           )}

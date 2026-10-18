@@ -7,6 +7,7 @@ import { DetailList, PageHeader } from '../components/ui/Feedback.jsx';
 import { useToast } from '../components/ui/Toast.jsx';
 import useDebounce from '../hooks/useDebounce.js';
 import { EmployeeSelect, PhotoField } from './NewBorrower.jsx';
+import { ProductSchemeField } from './ProductSchemeField.jsx';
 import { Search, GroupTopUp } from './PersonalLoanRequisition.jsx';
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -16,11 +17,11 @@ const EXTRA_PERCENT = 25;
 const UNIT_DAYS = { days: 1, weeks: 7, months: 30 };
 const MODE_DAYS = { daily: 1, weekly: 7, biweekly: 14, monthly: 30, quarterly: 90, halfyearly: 180, yearly: 360 };
 const installmentsFor = (s, mode) => Math.max(1, Math.round((s.termMin * UNIT_DAYS[s.termUnit]) / MODE_DAYS[mode]));
-const blank = { schemeId: '', amount: '', mode: '', term: '', rate: '', front: '', back: '', extraId: '', extraQty: '1' };
+const blank = { schemeId: '', amount: '', mode: '', term: '', rate: '', front: '', back: '', extraId: '', extraQty: '1', extraScheme: '' };
 const eligible = (m) => !m.isBlocked && !m.runningInGroup && !(m.issues && m.issues.length);
 
 // One member's loan: her own scheme, amount, mode, installments and rate, application form photos and an optional product.
-function MemberLoan({ index, m, e, schemes, stock, errors, onChange, onPreview }) {
+function MemberLoan({ index, m, e, schemes, productSchemes, stock, errors, onChange, onPreview }) {
   const scheme = schemes.find((s) => s.id === e.schemeId);
   const [preview, setPreview] = useState(null);
   const [previewError, setPreviewError] = useState('');
@@ -94,13 +95,16 @@ function MemberLoan({ index, m, e, schemes, stock, errors, onChange, onPreview }
         <div style={{ marginTop: 10 }}>
           <div className="muted small" style={{ marginBottom: 4 }}>Optional: a product on top of this loan, up to {EXTRA_PERCENT}% of it{extraMax ? ` (${inr(extraMax)})` : ''}. Its EMI is worked out on its own value.</div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <select aria-label={`Additional product for ${m.code}`} value={e.extraId} onChange={(ev) => onChange({ extraId: ev.target.value })}>
+            <select aria-label={`Additional product for ${m.code}`} value={e.extraId} onChange={(ev) => onChange({ extraId: ev.target.value, extraScheme: ev.target.value ? e.extraScheme : '' })}>
               <option value="">{stock.length ? 'No product' : 'No product in stock'}</option>
               {stock.map((p) => <option key={p.id} value={p.id}>{p.name} · {inr(p.unitPrice)}</option>)}
             </select>
             {e.extraId && <input aria-label={`Units for ${m.code}`} inputMode="numeric" style={{ width: 70 }} value={e.extraQty} onChange={(ev) => onChange({ extraQty: ev.target.value.replace(/\D/g, '').slice(0, 4) })} />}
             {extraProduct && <span className={extraValue > extraMax ? 'field-error' : 'muted small'}>{inr(extraValue)}{extraValue > extraMax ? ` is more than ${inr(extraMax)}` : ''}</span>}
           </div>
+          {e.extraId && extraProduct && (
+            <ProductSchemeField id={`psch-${m.id}`} code={m.code} schemes={productSchemes} mode={e.mode} term={e.term} rate={e.rate} value={extraValue} schemeId={e.extraScheme} onChange={(v) => onChange({ extraScheme: v })} error={err('extraScheme')} />
+          )}
           {err('additional') && <div className="field-error" role="alert">{err('additional')}</div>}
         </div>
       )}
@@ -115,6 +119,7 @@ export default function GroupLoanRequisition() {
   const [branches, setBranches] = useState([]);
   const [form, setForm] = useState({ branch: '', employeeCode: '', filterEmployee: '' });
   const [schemes, setSchemes] = useState([]);
+  const [productSchemes, setProductSchemes] = useState([]);
   const [stock, setStock] = useState([]);
   const [picked, setPicked] = useState(null);
   const [detail, setDetail] = useState(null);
@@ -124,6 +129,9 @@ export default function GroupLoanRequisition() {
   const [errors, setErrors] = useState({});
   const [confirm, setConfirm] = useState(false);
   const [saving, setSaving] = useState(false);
+  // a daily group has daily schemes only, a weekly group weekly, a monthly group monthly
+  const meeting = detail?.group?.meetingType || '';
+  const usable = meeting ? schemes.filter((s) => s.modes.some((x) => x.value === meeting)).map((s) => ({ ...s, modes: s.modes.filter((x) => x.value === meeting) })) : schemes;
 
   useEffect(() => {
     api.groups.branchOptions().then((r) => {
@@ -131,6 +139,7 @@ export default function GroupLoanRequisition() {
       if (r.items.length === 1) setForm((f) => ({ ...f, branch: r.items[0].id }));
     }).catch(() => {});
     api.loanRequisitions.schemes({ kind: 'group' }).then((r) => setSchemes(r.items)).catch(() => setSchemes([]));
+    api.loanRequisitions.schemes({ kind: 'product' }).then((r) => setProductSchemes(r.items)).catch(() => setProductSchemes([]));
   }, []);
   useEffect(() => {
     if (form.branch) api.loanRequisitions.stockProducts(form.branch).then((r) => setStock(r.items)).catch(() => setStock([]));
@@ -204,6 +213,7 @@ export default function GroupLoanRequisition() {
         const val = p ? p.unitPrice * (Number(x.extraQty) || 0) : 0;
         if (val > Math.floor((Number(x.amount) || 0) * EXTRA_PERCENT) / 100) found[k('additional')] = `The product is more than ${EXTRA_PERCENT}% of the loan`;
         else if (p && Number(x.extraQty) > p.stockQty) found[k('additional')] = `Only ${p.stockQty} in stock`;
+        if (!x.extraScheme) found[k('extraScheme')] = `Select the product loan scheme of ${m.code}`;
       }
     });
     setErrors(found);
@@ -221,7 +231,7 @@ export default function GroupLoanRequisition() {
         group: picked.id,
         entries: members.map((m) => {
           const x = entries[m.id];
-          return { member: m.id, schemeId: x.schemeId, amount: x.amount, mode: x.mode, term: Number(x.term), rate: x.rate, front: x.front, back: x.back, additional: x.extraId ? { stockProduct: x.extraId, quantity: Number(x.extraQty) || 1 } : undefined };
+          return { member: m.id, schemeId: x.schemeId, amount: x.amount, mode: x.mode, term: Number(x.term), rate: x.rate, front: x.front, back: x.back, additional: x.extraId ? { stockProduct: x.extraId, quantity: Number(x.extraQty) || 1, schemeId: x.extraScheme } : undefined };
         }),
       };
       const r = await api.loanRequisitions.create('group', payload);
@@ -311,7 +321,7 @@ export default function GroupLoanRequisition() {
           <div style={{ marginBottom: 10 }}><button type="button" className="btn sm" onClick={copyFirst}>Use the first member's scheme and amount for all members</button></div>
         )}
         {members.map((m, i) => (
-          <MemberLoan key={m.id} index={i} m={m} e={entries[m.id] || blank} schemes={schemes} stock={stock} errors={errors} onChange={(p) => patch(m.id, p)}
+          <MemberLoan key={m.id} index={i} m={m} e={entries[m.id] || blank} schemes={usable} productSchemes={productSchemes} stock={stock} errors={errors} onChange={(p) => patch(m.id, p)}
             onPreview={(res) => setPreviews((x) => (x[m.id] === res || (x[m.id] && res && JSON.stringify(x[m.id]) === JSON.stringify(res)) ? x : { ...x, [m.id]: res }))} />
         ))}
 
@@ -334,7 +344,7 @@ export default function GroupLoanRequisition() {
                 <tbody>
                   {members.map((m) => {
                     const x = entries[m.id];
-                    const s = schemes.find((y) => y.id === x.schemeId);
+                    const s = usable.find((y) => y.id === x.schemeId);
                     const pv = previews[m.id];
                     const p = stock.find((y) => y.id === x.extraId);
                     return (
@@ -345,7 +355,7 @@ export default function GroupLoanRequisition() {
                         <td data-label="Installments">{x.term} ({s?.modes.find((y) => y.value === x.mode)?.label}) at {x.rate}%</td>
                         <td data-label="EMI" className="num">{pv ? inr(pv.summary.installmentAmount) : '—'}</td>
                         <td data-label="Cash" className="num">{pv ? inr(pv.cash) : '—'}</td>
-                        <td data-label="Product">{p ? `${p.name} × ${x.extraQty}` : '—'}</td>
+                        <td data-label="Product">{p ? `${p.name} × ${x.extraQty}` : '—'}{p && <div className="muted small">{productSchemes.find((y) => y.id === x.extraScheme)?.name || ''}</div>}</td>
                       </tr>
                     );
                   })}

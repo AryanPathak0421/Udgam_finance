@@ -106,12 +106,13 @@ export function Detail({ id, onClose, onChanged }) {
           {r.additionalProducts?.length > 0 && (
             <div className="table-wrap" style={{ marginTop: 12 }}>
               <table className="data-table">
-                <thead><tr><th>Additional product of</th><th>Product</th><th className="num">Units × price</th><th className="num">Value</th><th className="num">EMI</th></tr></thead>
+                <thead><tr><th>Additional product of</th><th>Product</th><th>Product loan scheme</th><th className="num">Units × price</th><th className="num">Value</th><th className="num">EMI</th></tr></thead>
                 <tbody>
                   {r.additionalProducts.map((a, i) => (
                     <tr key={`${a.memberCode}-${i}`}>
                       <td data-label="Member"><strong>{a.memberCode}</strong> {a.memberName}</td>
                       <td data-label="Product">{a.product.name}</td>
+                      <td data-label="Scheme">{a.schemeName ? `${a.schemeName}${a.rate ? ` · ${a.rate}%` : ""}` : "—"}</td>
                       <td data-label="Units" className="num">{a.product.quantity} × {inr(a.product.unitPrice)}</td>
                       <td data-label="Value" className="num">{inr(a.value)}</td>
                       <td data-label="EMI" className="num">{inr(a.emi)}</td>

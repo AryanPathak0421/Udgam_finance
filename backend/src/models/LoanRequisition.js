@@ -55,6 +55,7 @@ const loanRequisitionSchema = new mongoose.Schema(
       name: String,
       leaderName: String,
       employeeCode: String,
+      meetingType: String, // daily / weekly / monthly: the loans of the group are made in that mode
       members: [{ _id: false, code: String, name: String }],
     },
     members: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Member' }], // group loan: the members who get the loan
@@ -72,6 +73,10 @@ const loanRequisitionSchema = new mongoose.Schema(
         memberName: String,
         product: { code: String, name: String, unitPricePaise: Number, quantity: Number },
         valuePaise: Number,
+        // the product loan scheme the product is financed under (its calculation, rate range and limits)
+        scheme: { type: mongoose.Schema.Types.ObjectId, ref: 'LoanScheme' },
+        schemeName: String,
+        annualRateBp: Number,
         installmentPaise: Number,
         totalInterestPaise: Number,
         totalPayablePaise: Number,

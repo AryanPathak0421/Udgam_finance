@@ -251,13 +251,13 @@ export async function groupDetail(req, res) {
     if (cs) civil.set(String(m._id), cs.score);
   }));
   const groupLoans = await LoanRequisition.find({ isDeleted: false, kind: 'group', group: g._id, status: { $in: RUNNING }, members: { $in: ids } })
-    .select('formId members amountPaise additionalProducts schemeName');
+    .select('formId members amountPaise additionalProducts schemeName mode term annualRateBp');
   const loanOf = (mid) => {
     const l = groupLoans.find((x) => x.members.some((id) => String(id) === String(mid)));
     if (!l) return null;
     const used = (l.additionalProducts || []).filter((a) => String(a.member) === String(mid)).reduce((s, a) => s + a.valuePaise, 0);
     const max = Math.floor((l.amountPaise * ADDITIONAL_PRODUCT_PERCENT) / 100);
-    return { requisitionId: l._id, formId: l.formId, schemeName: l.schemeName, amount: l.amountPaise / 100, topUpUsed: used / 100, topUpMax: max / 100, topUpLeft: Math.max(max - used, 0) / 100 };
+    return { requisitionId: l._id, formId: l.formId, schemeName: l.schemeName, mode: l.mode, term: l.term, rate: l.annualRateBp / 100, amount: l.amountPaise / 100, topUpUsed: used / 100, topUpMax: max / 100, topUpLeft: Math.max(max - used, 0) / 100 };
   };
 
   const emp = g.employeeCode ? await User.findOne({ employeeCode: g.employeeCode }).select('name') : null;
@@ -305,6 +305,10 @@ const calcInput = (b, loanDate) => ({
 // A member of a group loan may take a product (goods) on top of the loan, up to this share of the loan.
 export const ADDITIONAL_PRODUCT_PERCENT = 25;
 
+// A daily group has daily loans, a weekly group weekly loans and a monthly group monthly loans.
+const MODE_NAME = { daily: 'daily', weekly: 'weekly', monthly: 'monthly' };
+const groupModeError = (meetingType, mode) => (MODE_NAME[meetingType] && mode !== meetingType ? `This is a ${meetingType} group: its loans are ${meetingType} only` : '');
+
 // EMI of the additional product: the same scheme rules, mode, term and rate, on the value of the goods only.
 function additionalEmi(scheme, input, valuePaise, startDate) {
   return calculateLoan({
@@ -317,6 +321,30 @@ function additionalEmi(scheme, input, valuePaise, startDate) {
     startDate,
     roundingPaise: (scheme.installmentRounding ?? 1) * 100,
   });
+}
+
+/**
+ * The product a member takes on top of a group loan is financed under a product loan scheme the user chooses. It is repaid with the
+ * installments of the loan, so it uses the loan's mode and number of installments; the rate is the loan's, kept within the scheme's range.
+ */
+async function productLoanEmi({ schemeId, valuePaise, mode, term, rate, loanDate, code }) {
+  if (!mongoose.isValidObjectId(String(schemeId || ''))) throw invalid({ additional: `Select the product loan scheme for ${code}` });
+  const scheme = await LoanScheme.findOne({ _id: schemeId, isDeleted: false });
+  if (!scheme || !scheme.isActive || !SCHEME_TYPES.product.includes(scheme.loanType)) throw invalid({ additional: `${code}: select an active product loan scheme` });
+  const rateBp = Math.min(Math.max(Math.round(Number(rate) * 100), scheme.roiMinBp), scheme.roiMaxBp);
+  let ev;
+  try {
+    ev = await evaluateLoan({ schemeId: String(scheme._id), amount: String(valuePaise / 100), rate: String(rateBp / 100), mode, term: Number(term), startDate: dateOnly(loanDate) });
+  } catch (err) {
+    if (err.errors) throw invalid({ additional: `${code}: ${Object.values(err.errors)[0]}` });
+    throw err;
+  }
+  return {
+    scheme, rateBp,
+    installmentPaise: Math.round(ev.summary.installmentAmount * 100),
+    totalInterestPaise: Math.round(ev.summary.totalInterest * 100),
+    totalPayablePaise: Math.round(ev.summary.totalPayable * 100),
+  };
 }
 
 // Cash in hand = loan amount - security - processing fee - insurance fee.
@@ -350,12 +378,7 @@ async function buildAdditional({ items, members, capFor, scheme, input, loanDate
     if (valuePaise > maxPaise) {
       throw invalid({ additional: `${gm.code}: the product (₹${valuePaise / 100}) is more than the ${ADDITIONAL_PRODUCT_PERCENT}% of the loan that is allowed (₹${maxPaise / 100})` });
     }
-    let e;
-    try {
-      e = additionalEmi(scheme, input, valuePaise, loanDate);
-    } catch (err) {
-      throw invalid({ additional: `${gm.code}: ${err.message}` });
-    }
+    const e = await productLoanEmi({ schemeId: a.schemeId, valuePaise, mode: input.mode, term: input.term, rate: input.rate, loanDate, code: gm.code });
     out.push({
       productId: p._id,
       member: gm._id,
@@ -363,9 +386,12 @@ async function buildAdditional({ items, members, capFor, scheme, input, loanDate
       memberName: gm.name,
       product: { code: p.code, name: p.name, unitPricePaise: p.unitPricePaise, quantity: qty },
       valuePaise,
-      installmentPaise: e.installmentAmount,
-      totalInterestPaise: e.totalInterest,
-      totalPayablePaise: e.totalPayable,
+      scheme: e.scheme._id,
+      schemeName: e.scheme.name,
+      annualRateBp: e.rateBp,
+      installmentPaise: e.installmentPaise,
+      totalInterestPaise: e.totalInterestPaise,
+      totalPayablePaise: e.totalPayablePaise,
     });
   }
   return out;
@@ -489,6 +515,8 @@ const present = (r, user, { detail = false } = {}) => {
         memberName: a.memberName,
         product: { code: a.product?.code, name: a.product?.name, unitPrice: rupees(a.product?.unitPricePaise), quantity: a.product?.quantity },
         value: rupees(a.valuePaise),
+        schemeName: a.schemeName || '',
+        rate: a.annualRateBp ? a.annualRateBp / 100 : null,
         emi: rupees(a.installmentPaise),
         totalPayable: rupees(a.totalPayablePaise),
       })),
@@ -1037,6 +1065,10 @@ async function applyApproval(req, r, b) {
   // What the branch manager may change before approving: the scheme and, with it, amount, mode, installments and rate.
   const schemeId = has(b.schemeId) ? String(b.schemeId) : String(r.scheme);
   const mode = has(b.mode) ? String(b.mode) : r.mode;
+  if (kind === 'group') {
+    const modeError = groupModeError(r.groupInfo?.meetingType, mode);
+    if (modeError) throw invalid({ mode: modeError });
+  }
   const term = has(b.term) ? Number(b.term) : r.term;
   const rateStr = has(b.rate) ? String(b.rate) : String(r.annualRateBp / 100);
   const target = has(b.amount) ? Math.round(Number(b.amount) * 100) : r.amountPaise;
@@ -1094,10 +1126,19 @@ async function applyApproval(req, r, b) {
     if (kind === 'group') r.totalAmountPaise = target * (r.memberCount || r.members.length);
     // The EMI of a product on top of a group loan follows the scheme, mode, installments and rate of the loan.
     for (const x of r.additionalProducts || []) {
-      const e = additionalEmi(scheme, ev.input, x.valuePaise, new Date(r.loanDate));
-      x.installmentPaise = e.installmentAmount;
-      x.totalInterestPaise = e.totalInterest;
-      x.totalPayablePaise = e.totalPayable;
+      if (x.scheme) {
+        // eslint-disable-next-line no-await-in-loop
+        const e = await productLoanEmi({ schemeId: x.scheme, valuePaise: x.valuePaise, mode: ev.input.mode, term: ev.input.term, rate: (x.annualRateBp || 0) / 100, loanDate: r.loanDate, code: x.memberCode });
+        x.annualRateBp = e.rateBp;
+        x.installmentPaise = e.installmentPaise;
+        x.totalInterestPaise = e.totalInterestPaise;
+        x.totalPayablePaise = e.totalPayablePaise;
+      } else {
+        const e = additionalEmi(scheme, ev.input, x.valuePaise, new Date(r.loanDate));
+        x.installmentPaise = e.installmentAmount;
+        x.totalInterestPaise = e.totalInterest;
+        x.totalPayablePaise = e.totalPayable;
+      }
     }
   }
   r.status = 'approved';
@@ -1162,7 +1203,7 @@ export async function unapproveRequisition(req, res) {
   const r = await LoanRequisition.findOne({ _id: req.params.id, isDeleted: false, ...branchFilter(req.user) });
   if (!r) throw new HttpError(404, 'Requisition not found');
   if (r.status !== 'approved') throw new HttpError(409, `Only an approved loan can be taken back (this one is ${r.status})`);
-  if (r.disbursedAt || (await LoanPayment.exists({ requisition: r._id }))) throw new HttpError(409, 'This loan is already paid and its approval cannot be taken back');
+  if (r.disbursedAt || (await LoanPayment.exists({ requisition: r._id, status: 'paid' }))) throw new HttpError(409, 'This loan is already paid and its approval cannot be taken back');
   const reason = asString(req.body?.reason);
   if (reason.length < 3 || reason.length > 200) throw invalid({ reason: 'Enter why the approval is taken back (3–200 characters)' });
   r.status = 'pending';
@@ -1239,7 +1280,7 @@ export async function createGroupRequisition(req, res) {
     entries = ids.map((id) => {
       const f = (Array.isArray(b.memberForms) ? b.memberForms : []).find((x) => String(x?.member) === id) || {};
       const a = (Array.isArray(b.additional) ? b.additional : []).find((x) => String(x?.member) === id);
-      return { member: id, schemeId: b.schemeId, amount: b.amount, mode: b.mode, term: b.term, rate: b.rate, front: f.front, back: f.back, additional: a ? { stockProduct: a.stockProduct, quantity: a.quantity } : undefined };
+      return { member: id, schemeId: b.schemeId, amount: b.amount, mode: b.mode, term: b.term, rate: b.rate, front: f.front, back: f.back, additional: a ? { stockProduct: a.stockProduct, quantity: a.quantity, schemeId: a.schemeId } : undefined };
     });
   }
   if (!entries.length) throw invalid({ entries: 'Select the members who get a loan' });
@@ -1283,6 +1324,8 @@ export async function createGroupRequisition(req, res) {
     const scheme = await LoanScheme.findById(ev.input.scheme.id);
     if (!SCHEME_TYPES.group.includes(scheme.loanType)) { errors[key('schemeId')] = 'Select a group loan scheme'; continue; }
     if (busy.get(mid)?.has(String(scheme._id))) { errors[key('schemeId')] = `${m.code} already has an unfinished loan under ${scheme.name}`; continue; }
+    const modeError = groupModeError(g.meetingType, ev.input.mode);
+    if (modeError) { errors[key('mode')] = modeError; continue; }
     const amountPaise = Math.round(ev.input.amount * 100);
     const cashPaise = cashAfterCharges(amountPaise, ev.charges);
     if (cashPaise <= 0) { errors[key('amount')] = 'The security, processing fee and insurance fee are more than the loan amount'; continue; }
@@ -1291,7 +1334,7 @@ export async function createGroupRequisition(req, res) {
     if (e.additional?.stockProduct) {
       try {
         // eslint-disable-next-line no-await-in-loop
-        additional = await buildAdditional({ items: [{ member: mid, stockProduct: e.additional.stockProduct, quantity: e.additional.quantity }], members: [m], capFor: () => Math.floor((amountPaise * ADDITIONAL_PRODUCT_PERCENT) / 100), scheme, input: ev.input, loanDate, branchId });
+        additional = await buildAdditional({ items: [{ member: mid, stockProduct: e.additional.stockProduct, quantity: e.additional.quantity, schemeId: e.additional.schemeId }], members: [m], capFor: () => Math.floor((amountPaise * ADDITIONAL_PRODUCT_PERCENT) / 100), scheme, input: ev.input, loanDate, branchId });
       } catch (err) {
         if (err.errors) { errors[key('additional')] = Object.values(err.errors)[0]; continue; }
         throw err;
@@ -1328,7 +1371,7 @@ export async function createGroupRequisition(req, res) {
       const doc = await LoanRequisition.create({
         kind: 'group', formId: `${base}-${i + 1}`, batchId, batchFormId: base, batchCount: prepared.length, branch: branchId, loanDate,
         group: g._id,
-        groupInfo: { code: g.code, name: g.name, leaderName: g.leaderName, employeeCode: g.employeeCode, members: [{ code: p.m.code, name: p.m.name }] },
+        groupInfo: { code: g.code, name: g.name, leaderName: g.leaderName, employeeCode: g.employeeCode, meetingType: g.meetingType || '', members: [{ code: p.m.code, name: p.m.name }] },
         members: [p.m._id], memberCount: 1, totalAmountPaise: p.amountPaise,
         ...(p.additional.length ? { additionalProducts: p.additional } : {}),
         memberForms: [{ member: p.m._id, memberCode: p.m.code, front: p.front, back: p.back }],

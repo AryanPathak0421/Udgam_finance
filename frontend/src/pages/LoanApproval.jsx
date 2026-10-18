@@ -51,7 +51,11 @@ function ReviewDialog({ id, onClose, onDone }) {
       setR(q);
       setF({ schemeId: String(q.schemeId), amount: String(q.amount), mode: q.mode, term: String(q.term), rate: String(q.rate) });
       // the schemes this kind of loan can be moved to (a business / MSME loan stays in its own type)
-      api.loanRequisitions.schemes({ kind: q.kind, type: q.kind === 'business' ? q.business?.loanType : undefined }).then((res) => setSchemes(res.items)).catch(() => setSchemes([]));
+      api.loanRequisitions.schemes({ kind: q.kind, type: q.kind === 'business' ? q.business?.loanType : undefined }).then((res) => {
+        // a group takes loans in the mode it meets in (daily / weekly / monthly)
+        const meeting = q.kind === 'group' ? q.group?.meetingType : '';
+        setSchemes(meeting ? res.items.filter((s) => s.modes.some((m) => m.value === meeting)).map((s) => ({ ...s, modes: s.modes.filter((m) => m.value === meeting) })) : res.items);
+      }).catch(() => setSchemes([]));
     }).catch((e) => setError(e.message));
   }, [id]);
 

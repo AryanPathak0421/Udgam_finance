@@ -9,6 +9,7 @@ import { useToast } from '../components/ui/Toast.jsx';
 import useDebounce from '../hooks/useDebounce.js';
 import { compressImage } from '../utils/image.js';
 import { EmployeeSelect, PhotoField } from './NewBorrower.jsx';
+import { ProductSchemeField } from './ProductSchemeField.jsx';
 
 const ADMINS = ['super_admin', 'admin'];
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -183,17 +184,22 @@ function BorrowerOtp({ member, verified, onVerified, onReset }) {
 // A member who already has a loan in the group takes a product loan on it: up to 25% of the running loan.
 export function GroupTopUp({ members, stock, onDone }) {
   const toast = useToast();
-  const [row, setRow] = useState({}); // { memberId: { id, qty, front, back } }
+  const [row, setRow] = useState({}); // { memberId: { id, qty, scheme, front, back } }
+  const [productSchemes, setProductSchemes] = useState([]);
+  useEffect(() => {
+    api.loanRequisitions.schemes({ kind: 'product' }).then((r) => setProductSchemes(r.items)).catch(() => setProductSchemes([]));
+  }, []);
   const [busy, setBusy] = useState('');
   const [errors, setErrors] = useState({});
   const eligible = members.filter((m) => m.runningInGroup && !m.isBlocked);
   if (!eligible.length) return null;
-  const set = (mid, patch) => setRow((r) => ({ ...r, [mid]: { id: '', qty: '1', front: '', back: '', ...r[mid], ...patch } }));
+  const set = (mid, patch) => setRow((r) => ({ ...r, [mid]: { id: '', qty: '1', scheme: '', front: '', back: '', ...r[mid], ...patch } }));
 
   async function add(m) {
     const e = row[m.id] || {};
     const found = {};
     if (!e.id) found.additional = 'Select the product';
+    if (e.id && !e.scheme) found.scheme = 'Select the product loan scheme';
     if (!e.front) found.front = 'Upload the front photo of the form';
     if (!e.back) found.back = 'Upload the back photo of the form';
     const p = stock.find((x) => x.id === e.id);
@@ -203,14 +209,14 @@ export function GroupTopUp({ members, stock, onDone }) {
     setBusy(m.id);
     try {
       await api.loanRequisitions.topUp(m.runningInGroup.requisitionId, {
-        additional: [{ member: m.id, stockProduct: e.id, quantity: Number(e.qty) || 1 }],
+        additional: [{ member: m.id, stockProduct: e.id, quantity: Number(e.qty) || 1, schemeId: e.scheme }],
         memberForms: [{ member: m.id, front: e.front, back: e.back }],
       });
       toast.success(`Product loan added for ${m.code}`);
       setRow((r) => ({ ...r, [m.id]: undefined }));
       onDone();
     } catch (err) {
-      setErrors((x) => ({ ...x, [m.id]: { additional: err.errors?.additional || err.message, front: err.errors?.[`memberForms.${m.id}.front`], back: err.errors?.[`memberForms.${m.id}.back`] } }));
+      setErrors((x) => ({ ...x, [m.id]: { additional: err.errors?.additional || err.message, scheme: err.errors?.schemeId, front: err.errors?.[`memberForms.${m.id}.front`], back: err.errors?.[`memberForms.${m.id}.back`] } }));
     } finally {
       setBusy('');
     }
@@ -221,11 +227,11 @@ export function GroupTopUp({ members, stock, onDone }) {
       <h3 className="section-title">Product loan on a running group loan</h3>
       <div className="muted small" style={{ marginBottom: 8 }}>
         A member can have only one loan in a group. If a member needs more, only a product loan up to {EXTRA_PERCENT_TOPUP}% of the running loan is allowed (for example ₹10,000 → ₹2,500).
-        The loan scheme is not chosen again (it is the scheme of the running loan); only the product is added, and the request amount is filled in from the product. Upload this loan's own form photos for the member.
+        Choose the product and the <strong>product loan scheme</strong>; the request amount is filled in from the product. The product loan is repaid with the installments of the running loan (same mode and number of installments). Upload this loan's own form photos for the member.
       </div>
       {eligible.map((m) => {
         const l = m.runningInGroup;
-        const e = row[m.id] || { id: '', qty: '1', front: '', back: '' };
+        const e = row[m.id] || { id: '', qty: '1', scheme: '', front: '', back: '' };
         const er = errors[m.id] || {};
         const p = stock.find((x) => x.id === e.id);
         const value = p ? Math.round(p.unitPrice * (Number(e.qty) || 0) * 100) / 100 : 0;
@@ -247,6 +253,11 @@ export function GroupTopUp({ members, stock, onDone }) {
                 <FormField id={`tpa-${m.id}`} label="Request amount (25% product amount)" hint={`Filled in from the product, up to ${inr(l.topUpLeft)}`}>
                   <input id={`tpa-${m.id}`} value={p ? String(value) : ''} placeholder="Choose the product" disabled />
                 </FormField>
+                {e.id && (
+                  <div className="span-2">
+                    <ProductSchemeField id={`tps-${m.id}`} code={m.code} schemes={productSchemes} mode={l.mode} term={l.term} rate={l.rate} value={value} schemeId={e.scheme} onChange={(v) => set(m.id, { scheme: v })} error={er.scheme} />
+                  </div>
+                )}
                 <PhotoField id={`tpf-${m.id}`} label="Form front photo" required value={e.front} error={er.front} onChange={(v) => set(m.id, { front: v })} />
                 <PhotoField id={`tpb-${m.id}`} label="Form back photo" required value={e.back} error={er.back} onChange={(v) => set(m.id, { back: v })} />
                 <div><button type="button" className="btn primary" disabled={busy === m.id} onClick={() => add(m)}>{busy === m.id ? 'Adding…' : 'Add product loan'}</button></div>
