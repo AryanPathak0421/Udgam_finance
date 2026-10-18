@@ -297,17 +297,35 @@ async function sendOtpFor(req, w) {
 }
 
 /**
- * Admin approves. Nothing is paid yet: an OTP goes to the member's phone and the security is paid back (or put against the EMI)
- * once that OTP is verified.
+ * Admin approves. An adjustment against an EMI is done at once (no OTP). A withdrawal is not paid yet: an OTP goes to the member's
+ * phone and the security is paid back once that OTP is verified.
  */
 export async function approveWithdrawal(req, res) {
   const w = await loadPending(req);
   const m = await Member.findById(w.member).select('isBlocked mobile');
   if (m?.isBlocked) throw new HttpError(409, 'This member is blocked. Unblock the member first.');
-  if (!m?.mobile) throw new HttpError(409, 'This member has no mobile number to send the OTP to');
+  if (w.kind === 'withdraw' && !m?.mobile) throw new HttpError(409, 'This member has no mobile number to send the OTP to');
   // the balance still has to cover it (this request is counted in "pending")
   const bal = await balanceOf(req, w.member);
   if (bal.availablePaise + w.amountPaise < w.amountPaise) throw new HttpError(409, 'The security left is less than this request');
+  if (w.kind === 'adjust') {
+    // the security is put against the EMI now: no OTP for an adjustment
+    const l = await LoanPayment.findOne({ _id: w.loanPayment, status: 'paid' }).populate(POPULATE);
+    if (!l) throw new HttpError(409, 'The loan is no longer open');
+    const line = l.lines.find((x) => String(x.member) === String(w.member));
+    const doc = await receive(req, l, line, { amountPaise: w.amountPaise, paidOn: startOfToday(), payMode: 'security', reference: `Security ${w.receiptNo}` });
+    w.emiReceiptNo = doc.receiptNo;
+    w.status = 'approved';
+    w.otpRequired = false;
+    w.decidedAt = new Date();
+    w.decidedBy = req.user._id;
+    w.decidedByCode = req.user.employeeCode || '';
+    w.completedByCode = req.user.employeeCode || '';
+    await w.save();
+    await w.populate(POPULATE);
+    await audit(req, { action: 'securityWithdrawal.approve', entity: 'SecurityWithdrawal', entityId: w._id, after: { receiptNo: w.receiptNo, member: w.memberCode, kind: w.kind, amount: w.amountPaise / 100, emiReceipt: w.emiReceiptNo } });
+    return res.json({ withdrawal: presentWithdrawal(w), otp: null });
+  }
   w.status = 'approved';
   w.otpRequired = true;
   w.decidedAt = new Date();

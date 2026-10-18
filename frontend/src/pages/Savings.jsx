@@ -150,7 +150,8 @@ function WithdrawalTable({ approval }) {
     setBusy(w.id);
     try {
       const r = await api.savings.approve(w.id);
-      toast.success(r.otp?.error ? `Approved, but the OTP could not be sent: ${r.otp.error}. Send it again from the Security Withdrawal List.` : `Approved — an OTP was sent to the member's phone (${r.otp?.sentTo}). The security is released when the OTP is verified.${r.otp?.devOtp ? ` [dev OTP ${r.otp.devOtp}]` : ''}`);
+      if (w.kind === 'adjust') toast.success(`Approved — the security is adjusted against the EMI (receipt ${r.withdrawal.emiReceiptNo}). No OTP is needed.`);
+      else toast.success(r.otp?.error ? `Approved, but the OTP could not be sent: ${r.otp.error}. Send it again from the Security Withdrawal List.` : `Approved — an OTP was sent to the member's phone (${r.otp?.sentTo}). The security is released when the OTP is verified.${r.otp?.devOtp ? ` [dev OTP ${r.otp.devOtp}]` : ''}`);
       load();
     } catch (err) {
       toast.error(err.message);
@@ -206,7 +207,7 @@ function WithdrawalTable({ approval }) {
     <>
       <PageHeader
         title={approval ? 'Security Approval' : 'Security Withdrawal List'}
-        description={approval ? 'Requests to withdraw the security or adjust it against an EMI. Check the request, the security left and the EMI due, then approve or reject. After you approve, an OTP goes to the member and the security is released when the OTP is verified.' : 'Requests to withdraw the security or adjust it against an EMI, with their status. The admin approves them under Security Approval; then the member\'s OTP is verified here and the security is released.'}
+        description={approval ? 'Requests to withdraw the security or adjust it against an EMI. Check the request, the security left and the EMI due, then approve or reject. An adjustment against an EMI is done as soon as you approve (no OTP). For a withdrawal an OTP goes to the member and the security is released when the OTP is verified.' : 'Requests to withdraw the security or adjust it against an EMI, with their status. The admin approves them under Security Approval. An adjustment is done at once; for a withdrawal the member\'s OTP is verified here and then the security is released.'}
       />
       <div className="panel">
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
@@ -484,7 +485,7 @@ export function SecurityWithdraw() {
                   </div>
                 )}
                 {member.withdrawable < 1 && <div className="notice" style={{ margin: '10px 0' }}>The security of a running loan cannot be withdrawn. It can only be adjusted against an EMI. Withdrawal is possible once the loan is closed.</div>}
-                <div className="notice" style={{ margin: '10px 0' }}>The request goes to the admin. After the admin approves it, an OTP goes to the member's phone; nothing is paid or adjusted until that OTP is verified.</div>
+                <div className="notice" style={{ margin: '10px 0' }}>{kind === 'adjust' ? 'The request goes to the admin. When the admin approves it, the security is put against the EMI at once (no OTP).' : "The request goes to the admin. After the admin approves it, an OTP goes to the member's phone; nothing is paid until that OTP is verified."}</div>
                 <button className="btn primary" disabled={busy} onClick={send}>{busy ? 'Sending…' : 'Send for admin approval'}</button>
               </>
             )}
