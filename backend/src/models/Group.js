@@ -12,9 +12,11 @@ const groupSchema = new mongoose.Schema(
     openingDate: { type: Date },
     // Staff ID of the employee who looks after the group (name is looked up from it).
     employeeCode: { type: String, trim: true, uppercase: true },
-    leaderName: { type: String, required: true, trim: true },
+    leaderName: { type: String, required: function needed() { return !this.legacyImport; }, trim: true },
+    // Imported from the old system: the leader is not known yet, so it is not required until it is filled in.
+    legacyImport: { type: Boolean, default: false },
     // OTPs go here. After a group is created only an Admin may change it (enforced in the API).
-    leaderMobile: { type: String, required: true, trim: true },
+    leaderMobile: { type: String, required: function needed() { return !this.legacyImport; }, trim: true },
     // Set when the number was verified with an OTP (groups made before that have none).
     leaderMobileVerifiedAt: { type: Date },
     // How often the group meets / collects. weekly: 1 (Mon) – 7 (Sun); monthly: day of month 1–28; daily: none.

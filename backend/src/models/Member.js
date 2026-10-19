@@ -1,5 +1,11 @@
 import mongoose from 'mongoose';
 
+// A member imported from the old system (legacyImport) comes without details the app asks for on a new member (mobile, bank, documents ...).
+// Those details are not "required" for such a record, so it can still be edited and saved (nominee, mobile, KYC ...) while the details are filled in;
+// the forms of the app check them as before.
+const needed = function needed() { return !this.legacyImport; };
+const neededInPerson = function neededInPerson() { return !this.ownerDocument().legacyImport; };
+
 // Guarantor / nominee of a member. Photos are small PNG/JPEG data URLs.
 const personSchema = new mongoose.Schema(
   {
@@ -7,16 +13,16 @@ const personSchema = new mongoose.Schema(
     // The phone number is optional; when given it has to be verified with an OTP.
     mobile: { type: String, trim: true },
     mobileVerifiedAt: { type: Date },
-    aadhaar: { type: String, required: true },
+    aadhaar: { type: String, required: neededInPerson },
     pan: { type: String, uppercase: true, trim: true },
     panVerifiedAt: { type: Date },
     // Nominee only: ticked when the nominee is the guarantor (details are copied from the guarantor).
     sameAsGuarantor: { type: Boolean, default: false },
     // Photo of the member together with the guarantor / nominee (optional).
     jointPhoto: { type: String, select: false },
-    photo: { type: String, required: true, select: false },
-    signature: { type: String, required: true, select: false },
-    aadhaarPhoto: { type: String, required: true, select: false },
+    photo: { type: String, required: neededInPerson, select: false },
+    signature: { type: String, required: neededInPerson, select: false },
+    aadhaarPhoto: { type: String, required: neededInPerson, select: false },
     panPhoto: { type: String, select: false },
     employeeCode: { type: String },
     savedAt: { type: Date, default: Date.now },
@@ -92,30 +98,30 @@ const memberSchema = new mongoose.Schema(
     name: { type: String, required: true, trim: true },
     dob: { type: Date, required: true },
     gender: { type: String, enum: ['male', 'female', 'other'], required: true },
-    mobile: { type: String, required: true, trim: true },
+    mobile: { type: String, required: needed, trim: true },
     mobileVerifiedAt: { type: Date },
     email: { type: String, trim: true, lowercase: true },
     husbandName: { type: String, trim: true },
-    occupation: { type: String, required: true, trim: true },
-    education: { type: String, required: true, trim: true },
-    address: { type: String, required: true, trim: true },
-    pincode: { type: String, required: true },
-    state: { type: String, required: true },
-    district: { type: String, required: true },
+    occupation: { type: String, required: needed, trim: true },
+    education: { type: String, required: needed, trim: true },
+    address: { type: String, required: needed, trim: true },
+    pincode: { type: String, required: needed },
+    state: { type: String, required: needed },
+    district: { type: String, required: needed },
     area: { type: String, trim: true }, // post office / locality, filled in from the pincode
-    aadhaar: { type: String, required: true },
+    aadhaar: { type: String, required: needed },
     pan: { type: String, uppercase: true, trim: true },
     panVerifiedAt: { type: Date },
     pincodeVerified: { type: Boolean, default: false },
     ifscVerified: { type: Boolean, default: false },
     accountVerifiedAt: { type: Date },
-    bankName: { type: String, required: true, trim: true },
-    ifsc: { type: String, required: true, uppercase: true, trim: true },
-    accountNumber: { type: String, required: true, trim: true },
-    aadhaarPhoto: { type: String, required: true, select: false },
+    bankName: { type: String, required: needed, trim: true },
+    ifsc: { type: String, required: needed, uppercase: true, trim: true },
+    accountNumber: { type: String, required: needed, trim: true },
+    aadhaarPhoto: { type: String, required: needed, select: false },
     panPhoto: { type: String, select: false },
-    memberPhoto: { type: String, required: true, select: false },
-    signaturePhoto: { type: String, required: true, select: false },
+    memberPhoto: { type: String, required: needed, select: false },
+    signaturePhoto: { type: String, required: needed, select: false },
     // Staff ID of the user who registered the member.
     employeeCode: { type: String },
     guarantor: { type: personSchema },
@@ -125,6 +131,8 @@ const memberSchema = new mongoose.Schema(
     kycDocs: { type: [kycDocSchema], default: [] },
     nominee: { type: personSchema },
     // A blocked borrower is kept on record but must not be given new loans or services.
+    // Imported from the old system (see above).
+    legacyImport: { type: Boolean, default: false },
     isBlocked: { type: Boolean, default: false },
     blockHistory: { type: [blockSchema], default: [] },
     isActive: { type: Boolean, default: true },
