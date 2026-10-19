@@ -6,6 +6,7 @@ import useDebounce from '../hooks/useDebounce.js';
 import { downloadMemberPdf } from '../utils/memberPdf.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { BorrowerForm } from './NewBorrower.jsx';
+import CompleteDetails from './CompleteDetails.jsx';
 
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : '');
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-IN') : '—');
@@ -53,6 +54,7 @@ export default function BorrowerSynopsis() {
   const { user } = useAuth();
   const isAdmin = ['super_admin', 'admin'].includes(user?.role);
   const [editing, setEditing] = useState(null); // { branches, options } while the admin edits
+  const [completing, setCompleting] = useState(null); // form options while the branch completes an imported member's details
   const [search, setSearch] = useState('');
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
@@ -139,6 +141,14 @@ export default function BorrowerSynopsis() {
     }
   }
 
+  async function startComplete() {
+    try {
+      setCompleting(await api.members.options());
+    } catch (err) {
+      toast.error(err.message);
+    }
+  }
+
   if (editing) {
     return (
       <>
@@ -164,6 +174,7 @@ export default function BorrowerSynopsis() {
         description={`Form ID ${m.formId} · ${m.branch ? m.branch.name : ''} · Joined ${fmtDate(m.joiningDate)}`}
         actions={
           <>
+            {m.missingDetails?.length > 0 && <button className="btn primary" onClick={startComplete}>Complete details</button>}
             {isAdmin && <button className="btn primary" onClick={startEdit}>Edit details</button>}
             <button className="btn" onClick={() => downloadMemberPdf(m)}>Download PDF</button>
             <button className="btn" onClick={() => setData(null)}>Search another</button>
@@ -171,6 +182,12 @@ export default function BorrowerSynopsis() {
         }
       />
 
+      {completing && <CompleteDetails member={m} options={completing} onClose={() => setCompleting(null)} onSaved={async () => { setCompleting(null); setData(await api.members.synopsis(m.id)); }} />}
+      {m.missingDetails?.length > 0 && (
+        <div className="notice warn" style={{ marginBottom: 14 }}>
+          Details still missing (imported from the old system): <strong>{m.missingDetails.map((d) => d.label).join(', ')}</strong>. The member cannot get a new loan until they are filled in.
+        </div>
+      )}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
         <span className={`badge ${m.isBlocked ? 'danger' : 'green'}`}>{m.isBlocked ? 'Blocked' : 'Active'}</span>
         <span className={`badge ${TONE[kyc.status]}`}>KYC {LABEL[kyc.status]}</span>

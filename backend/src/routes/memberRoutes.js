@@ -2,7 +2,7 @@ import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler as h } from '../utils/http.js';
-import { memberOptions, districts, sendOtp, verifyOtp, createMember, listMembers, getMember, savePerson, employeeOptions, changeGuarantor, setBlocked, synopsis, updateMember, pincodeInfo, ifscInfo, listKyc, getKyc, reviewKyc, reuploadKyc } from '../controllers/memberController.js';
+import { memberOptions, districts, sendOtp, verifyOtp, createMember, listMembers, getMember, savePerson, employeeOptions, changeGuarantor, setBlocked, synopsis, updateMember, completeMember, pincodeInfo, ifscInfo, listKyc, getKyc, reviewKyc, reuploadKyc } from '../controllers/memberController.js';
 
 const router = Router();
 
@@ -32,6 +32,7 @@ router.post('/members/:id/kyc/reupload', requireAuth, requireRole(...CREATE), h(
 router.put('/members/:id/guarantor/change', requireAuth, requireRole(...CHANGERS), h(changeGuarantor));
 router.get('/members/:id/synopsis', requireAuth, requireRole(...READ), h(synopsis));
 router.post('/members/:id/block', requireAuth, requireRole(...APPROVERS), h(setBlocked));
+router.put('/members/:id/complete', requireAuth, requireRole(...CREATE), h(completeMember));
 router.put('/members/:id', requireAuth, requireRole('super_admin', 'admin'), h(updateMember));
 router.get('/members/:id', requireAuth, requireRole(...READ), h(getMember));
 

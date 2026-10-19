@@ -17,6 +17,7 @@ import { AuditLog } from '../models/AuditLog.js';
 import { Group } from '../models/Group.js';
 import { LoanRequisition } from '../models/LoanRequisition.js';
 import { CivilCheck } from '../models/CivilCheck.js';
+import { missingDetails } from '../utils/memberDetails.js';
 
 export const GENDERS = ['male', 'female', 'other'];
 export const OCCUPATIONS = ['Farmer', 'Agricultural labour', 'Dairy / animal husbandry', 'Small shop / trader', 'Tailoring / handicraft', 'Daily wage labour', 'Salaried', 'Self employed', 'Homemaker', 'Other'];
@@ -87,6 +88,7 @@ const present = (m, user, { detail = false } = {}) => {
     employeeCode: m.employeeCode || '',
     hasGuarantor: Boolean(m.guarantor?.name),
     hasNominee: Boolean(m.nominee?.name),
+    legacyImport: Boolean(m.legacyImport),
     isActive: m.isActive,
     isBlocked: Boolean(m.isBlocked),
     blockReason: m.isBlocked ? (m.blockHistory || []).filter((b) => b.action === 'block').slice(-1)[0]?.reason || '' : '',
@@ -94,6 +96,8 @@ const present = (m, user, { detail = false } = {}) => {
   };
   if (detail) {
     Object.assign(out, {
+      // details a member imported from the old system still has to complete (they stay required)
+      missingDetails: missingDetails(m).map(({ key, label }) => ({ key, label })),
       dob: dateOnly(m.dob),
       email: m.email || '',
       husbandName: m.husbandName || '',
@@ -106,7 +110,7 @@ const present = (m, user, { detail = false } = {}) => {
       accountVerified: Boolean(m.accountVerifiedAt),
       bankName: m.bankName,
       ifsc: m.ifsc,
-      accountNumber: full ? m.accountNumber : `XXXXX${m.accountNumber.slice(-4)}`,
+      accountNumber: full ? m.accountNumber : m.accountNumber ? `XXXXX${m.accountNumber.slice(-4)}` : '',
       aadhaarPhoto: m.aadhaarPhoto || null,
       panPhoto: m.panPhoto || null,
       memberPhoto: m.memberPhoto || null,
@@ -1259,4 +1263,124 @@ export async function updateMember(req, res) {
   });
   await m.populate(POPULATE);
   res.json({ member: present(m, req.user), changed: [...changedFields, ...changedPhotos] });
+}
+
+/**
+ * A member imported from the old system comes without some details. The branch (staff) can fill in the ones that are missing; once a detail
+ * is filled in only an admin can change it, and the rest can still be added later. The mobile number must be verified with an OTP, and after
+ * that only an admin can change it. Until every required detail is there the member cannot be given a new loan.
+ */
+export async function completeMember(req, res) {
+  if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Member not found');
+  const m = await Member.findOne({ _id: req.params.id, isDeleted: false, ...branchFilter(req.user) }).select(KYC_PROJECTION);
+  if (!m) throw new HttpError(404, 'Member not found');
+  if (!m.legacyImport) throw new HttpError(409, 'Only a member imported from the old system is completed here. Other details are edited by an admin under Edit details.');
+  assertNotBlocked(m);
+  const b = req.body || {};
+  const admin = isAdmin(req.user);
+  const v = createValidator();
+  const set = {};
+  const given = (f) => asString(b[f]) !== '';
+  const lockedErr = (label) => new HttpError(403, `${label} is already filled in. Only an admin can change it.`, { [label]: 'Only an admin can change it' });
+  // a filled detail is changed only by an admin; the same value is just left as it is
+  const take = (field, label, value) => {
+    const had = String(m[field] ?? '').trim();
+    if (had && had === String(value)) return;
+    if (had && !admin) throw lockedErr(label);
+    set[field] = value;
+  };
+
+  if (given('occupation')) { const x = asString(b.occupation); if (!OCCUPATIONS.includes(x)) v.add('occupation', 'Select occupation'); else take('occupation', 'Occupation', x); }
+  if (given('education')) { const x = asString(b.education); if (!EDUCATIONS.includes(x)) v.add('education', 'Select education'); else take('education', 'Education', x); }
+  if (given('address')) { const x = asString(b.address); if (x.length < 5 || x.length > 300) v.add('address', 'Address must be 5–300 characters'); else take('address', 'Address', x); }
+  if (given('pincode')) { const x = asString(b.pincode); if (!PINCODE_RE.test(x)) v.add('pincode', 'Enter a valid 6-digit pincode'); else take('pincode', 'Pincode', x); }
+  if (given('state')) { const x = asString(b.state); if (!INDIA_LOCATIONS[x]) v.add('state', 'Select a valid state'); else take('state', 'State', x); }
+  if (given('district')) { const x = asString(b.district); if (!x || x.length > 60) v.add('district', 'Select the district'); else take('district', 'District', x); }
+  if (given('area')) set.area = asString(b.area).slice(0, 80);
+  if (given('aadhaar')) {
+    const x = asString(b.aadhaar).replace(/\s/g, '');
+    if (!AADHAAR_RE.test(x) || !verhoeff(x)) v.add('aadhaar', 'Enter a valid 12-digit Aadhaar number');
+    else if (m.guarantor?.aadhaar === x) v.add('aadhaar', 'This Aadhaar number belongs to the guarantor');
+    else {
+      if (x !== m.aadhaar && (await Member.exists({ aadhaar: x, isDeleted: false, _id: { $ne: m._id } }))) throw new HttpError(409, 'A member with this Aadhaar number already exists', { aadhaar: 'This Aadhaar number is already registered' });
+      take('aadhaar', 'Aadhaar number', x);
+    }
+  }
+  if (given('bankName')) { const x = asString(b.bankName); if (x.length < 2 || x.length > 80) v.add('bankName', 'Enter the bank name'); else take('bankName', 'Bank name', x); }
+  if (given('ifsc')) { const x = asString(b.ifsc).toUpperCase(); if (!IFSC_RE.test(x)) v.add('ifsc', 'Enter a valid IFSC code (e.g. SBIN0001234)'); else take('ifsc', 'IFSC code', x); }
+  if (given('accountNumber')) { const x = asString(b.accountNumber); if (!ACCOUNT_RE.test(x)) v.add('accountNumber', 'Account number must be 9–18 digits'); else take('accountNumber', 'Account number', x); }
+
+  // photos
+  const photoSet = {};
+  for (const [key, label] of MEMBER_PHOTOS) {
+    if (!given(key)) continue;
+    const img = readImage(b[key], key, label, v, { required: false });
+    if (!img) continue;
+    if (m[key] && m[key] !== img && !admin) throw lockedErr(label);
+    photoSet[key] = img;
+  }
+
+  // the mobile number: verified with an OTP; once verified only an admin changes it
+  let mobileCh = null;
+  if (given('mobile')) {
+    const x = asString(b.mobile);
+    if (!MOBILE_RE.test(x)) v.add('mobile', 'Enter a valid 10-digit mobile number');
+    else {
+      const verified = Boolean(m.mobile && m.mobileVerifiedAt);
+      if (verified && x !== m.mobile && !admin) throw lockedErr('Mobile number');
+      if (!(verified && x === m.mobile)) {
+        await assertMobileFree(x, m._id, v);
+        if (!v.has()) {
+          mobileCh = await takeVerified(b.mobileChallengeId, req.user, 'member_mobile', x);
+          if (!mobileCh) v.add('mobile', 'Verify the mobile number with an OTP');
+        }
+        if (mobileCh) set.mobile = x;
+      }
+    }
+  }
+  v.throwIfAny();
+  if (!Object.keys(set).length && !Object.keys(photoSet).length) throw new HttpError(422, 'Nothing to save: fill in at least one of the missing details', { form: 'Nothing to save' });
+
+  // the pincode, state and district have to agree
+  if (set.pincode || set.state || set.district) {
+    const d = { pincode: set.pincode || m.pincode, state: set.state || m.state, district: set.district || m.district };
+    if (d.pincode && d.district) {
+      const pin = await lookupPincode(d.pincode);
+      if (pin.status === 'invalid') v.add('pincode', 'This pincode does not exist');
+      else if (pin.status === 'ok' && pin.stateKnown && pin.state !== d.state) v.add('state', `Pincode ${d.pincode} belongs to ${pin.state}`);
+      checkDistrict(d, pin, v);
+      v.throwIfAny();
+      m.pincodeVerified = pin.status === 'ok';
+    }
+  }
+  if (set.ifsc || set.accountNumber) {
+    const ifsc = set.ifsc || m.ifsc; const acc = set.accountNumber || m.accountNumber;
+    if (set.ifsc) {
+      const bank = await lookupIfsc(ifsc);
+      if (bank.status === 'invalid') throw new HttpError(422, 'Please correct the highlighted fields', { ifsc: 'This IFSC code does not exist' });
+      m.ifscVerified = bank.status === 'ok';
+    }
+    if (ifsc && acc) {
+      const ac = await verifyBankAccount(acc, ifsc, m.name);
+      if (ac.status === 'mismatch') throw new HttpError(422, 'Please correct the highlighted fields', { accountNumber: 'The account does not match this person' });
+      m.accountVerifiedAt = ac.status === 'verified' ? new Date() : undefined;
+    }
+  }
+
+  const changed = [...Object.keys(set), ...Object.keys(photoSet)];
+  Object.assign(m, set, photoSet);
+  if (mobileCh) m.mobileVerifiedAt = mobileCh.verifiedAt;
+  // new or replaced photos go to KYC approval
+  const photoKeys = Object.keys(photoSet);
+  if (photoKeys.length) {
+    const memberKeys = MEMBER_PHOTOS.map(([k]) => k);
+    m.kycDocs = (m.kycDocs || []).filter((x) => !photoKeys.includes(x.key));
+    m.kycKeys = [...new Set([...(m.kycKeys || []).filter((k) => !memberKeys.includes(k) || photoKeys.includes(k) || m[k]), ...photoKeys])];
+  }
+  m.updatedBy = req.user._id;
+  await m.save();
+  if (mobileCh) await OtpChallenge.updateOne({ _id: mobileCh._id }, { $set: { consumedAt: new Date() } });
+  await audit(req, { action: 'member.complete', entity: 'Member', entityId: m._id, after: { code: m.code, filled: changed, by: admin ? 'admin' : 'branch' } });
+  const full = await Member.findById(m._id).select('+aadhaarPhoto +panPhoto +memberPhoto +signaturePhoto').populate(POPULATE);
+  res.json({ member: present(full, req.user, { detail: true }), filled: changed });
 }
