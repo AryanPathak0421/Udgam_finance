@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { requireAuth, requireMenu, requireRole } from '../middleware/auth.js';
 import { asyncHandler as h } from '../utils/http.js';
 import { listProducts, createProduct, updateProduct, setProductStatus, deleteProduct, productOptions, stockReport } from '../controllers/stockProductController.js';
-import { stockAt, createTransfer, listTransfers } from '../controllers/stockTransferController.js';
+import { stockAt, productsWithPlaces, createTransfer, listTransfers } from '../controllers/stockTransferController.js';
 import { orderableProducts, listOrders, getOrder, createOrder, approveOrder, rejectOrder, cancelOrder, purchaseBalance, listPayments, addPayment, voidPayment, payToHeadOffice, receivePayment, rejectPayment } from '../controllers/stockOrderController.js';
 
 const router = Router();
@@ -38,6 +38,7 @@ router.post('/stock-orders/:id/cancel', requireAuth, requireMenu(ORDERS, 'delete
 
 // Moving stock between head office and branches (BR01 -> BR02): admin only.
 router.get('/stock-transfers/stock', requireAuth, requireRole(...ADMIN), h(stockAt));
+router.get('/stock-transfers/products', requireAuth, requireRole(...ADMIN), h(productsWithPlaces));
 router.get('/stock-transfers', requireAuth, requireRole(...ADMIN), h(listTransfers));
 router.post('/stock-transfers', requireAuth, requireRole(...ADMIN), h(createTransfer));
 

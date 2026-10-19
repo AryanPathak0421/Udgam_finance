@@ -19,6 +19,7 @@ const productOrderSchema = new mongoose.Schema(
         unitPricePaise: Number,
         requestedQty: { type: Number, required: true, min: 1 },
         approvedQty: Number, // set by the admin when approving
+        sourceBranch: { type: mongoose.Schema.Types.ObjectId, ref: 'Branch' }, // the branch the goods were taken from (none = head office)
       },
     ],
     note: String,

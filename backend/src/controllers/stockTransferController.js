@@ -25,6 +25,22 @@ export async function stockAt(req, res) {
   res.json({ items: items.map((p) => ({ id: p._id, code: p.code, category: p.category, name: p.name, unitPrice: p.unitPricePaise / 100, stockQty: p.stockQty })) });
 }
 
+/**
+ * Every product that is in stock somewhere, with the places (head office / branches) that have it: choosing a product shows only the places
+ * that can give it.
+ */
+export async function productsWithPlaces(req, res) {
+  const stock = await StockProduct.find({ isDeleted: false, isActive: true, stockQty: { $gt: 0 } }).populate('branch', 'code name').sort({ category: 1, name: 1 });
+  const groups = new Map();
+  for (const p of stock) {
+    const key = [p.category, p.brand, p.model, p.variant || ''].map((x) => String(x || '').trim().toLowerCase()).join('|');
+    if (!groups.has(key)) groups.set(key, { key, category: p.category, name: p.name, places: [] });
+    groups.get(key).places.push({ place: p.branch ? String(p.branch._id) : 'ho', label: p.branch ? `${p.branch.code} — ${p.branch.name}` : 'Head office', stockId: p._id, stockQty: p.stockQty, unitPrice: p.unitPricePaise / 100 });
+  }
+  const items = [...groups.values()].map((g) => ({ ...g, places: g.places.sort((a, b) => (a.place === 'ho' ? -1 : b.place === 'ho' ? 1 : b.stockQty - a.stockQty)) }));
+  res.json({ items });
+}
+
 const present = (t) => ({
   id: t._id, code: t.code, date: t.createdAt, from: t.fromBranch ? `${t.fromBranch.code} — ${t.fromBranch.name}` : 'Head office', to: t.toBranch ? `${t.toBranch.code} — ${t.toBranch.name}` : 'Head office',
   category: t.category, name: t.name, quantity: t.quantity, unitPrice: (t.unitPricePaise || 0) / 100, value: ((t.unitPricePaise || 0) * t.quantity) / 100, remark: t.remark || '', byCode: t.byCode || '',

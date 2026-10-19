@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { StockTransfer } from '../models/StockTransfer.js';
 import { ProductOrder } from '../models/ProductOrder.js';
 import { StockProduct } from '../models/StockProduct.js';
 import { Branch } from '../models/Branch.js';
@@ -194,6 +195,7 @@ export async function approveOrder(req, res) {
         if (!source) throw new HttpError(409, `${it.name} is no longer in stock`, { items: `${it.name} is no longer available` });
         await transfer(source, o.branch, qty, req.user._id);
         it.unitPricePaise = source.unitPricePaise; // the price of the stock it came from
+        it.sourceBranch = wanted.key === 'ho' ? undefined : wanted.key; // goods taken from another branch move that branch's due to the one that ordered
         done.push({ source, qty });
       }
     }
@@ -244,6 +246,8 @@ export async function cancelOrder(req, res) {
 }
 
 // ---- purchase balance: what each branch bought, paid (received by the admin) and still owes ------------------------------
+// The due to head office follows the goods: what a branch ordered from head office is its due; goods it passes on to another branch (a transfer,
+// or an order of that branch filled from this one) are taken off its due and added to the due of the branch that gets them.
 async function purchased(branchIds) {
   const rows = await ProductOrder.aggregate([
     { $match: { isDeleted: false, status: 'approved', ...(branchIds ? { branch: { $in: branchIds } } : {}) } },
@@ -251,6 +255,34 @@ async function purchased(branchIds) {
     { $group: { _id: '$branch', orders: { $addToSet: '$_id' }, amountPaise: { $sum: { $multiply: [{ $ifNull: ['$items.approvedQty', 0] }, { $ifNull: ['$items.unitPricePaise', 0] }] } } } },
   ]);
   return new Map(rows.map((r) => [String(r._id), { orders: r.orders.length, amountPaise: r.amountPaise }]));
+}
+/** Goods moved between places: value a branch got (in) and value it gave away (out). */
+async function movedGoods(branchIds) {
+  const only = branchIds ? new Set(branchIds.map(String)) : null;
+  const map = new Map();
+  const add = (id, field, v) => {
+    if (!id || !v) return;
+    const k = String(id);
+    if (only && !only.has(k)) return;
+    const cur = map.get(k) || { inPaise: 0, outPaise: 0 };
+    cur[field] += v;
+    map.set(k, cur);
+  };
+  const transfers = await StockTransfer.find({}).select('fromBranch toBranch quantity unitPricePaise').lean();
+  transfers.forEach((t) => {
+    const v = (t.unitPricePaise || 0) * t.quantity;
+    add(t.toBranch, 'inPaise', v);
+    add(t.fromBranch, 'outPaise', v);
+  });
+  // an order filled from another branch: the ordering branch's due is in its orders already, the giving branch's due goes down
+  const filled = await ProductOrder.aggregate([
+    { $match: { isDeleted: false, status: 'approved' } },
+    { $unwind: '$items' },
+    { $match: { 'items.sourceBranch': { $exists: true, $ne: null } } },
+    { $group: { _id: '$items.sourceBranch', amountPaise: { $sum: { $multiply: [{ $ifNull: ['$items.approvedQty', 0] }, { $ifNull: ['$items.unitPricePaise', 0] }] } } } },
+  ]);
+  filled.forEach((r) => add(r._id, 'outPaise', r.amountPaise));
+  return map;
 }
 // Payments by status: 'received' counts (older records without a status were recorded as received), 'paid' waits for the admin.
 async function paidBy(branchIds, waiting) {
@@ -262,8 +294,9 @@ async function paidBy(branchIds, waiting) {
 }
 async function balanceOf(branchId) {
   const ids = [new mongoose.Types.ObjectId(String(branchId))];
-  const [p, q, w] = await Promise.all([purchased(ids), paidBy(ids, false), paidBy(ids, true)]);
-  const bought = p.get(String(branchId))?.amountPaise || 0;
+  const [p, q, w, mv] = await Promise.all([purchased(ids), paidBy(ids, false), paidBy(ids, true), movedGoods(ids)]);
+  const moved = mv.get(String(branchId)) || { inPaise: 0, outPaise: 0 };
+  const bought = (p.get(String(branchId))?.amountPaise || 0) + moved.inPaise - moved.outPaise;
   const received = q.get(String(branchId))?.amountPaise || 0;
   const waiting = w.get(String(branchId))?.amountPaise || 0;
   return { balance: bought - received, waiting, free: bought - received - waiting };
@@ -271,21 +304,26 @@ async function balanceOf(branchId) {
 
 export async function purchaseBalance(req, res) {
   const ids = isAdmin(req.user) ? null : (req.user.branches || []).map((b) => new mongoose.Types.ObjectId(String(b)));
-  const [p, q, w] = await Promise.all([purchased(ids), paidBy(ids, false), paidBy(ids, true)]);
-  const keys = [...new Set([...p.keys(), ...q.keys(), ...w.keys()])];
+  const [p, q, w, mv] = await Promise.all([purchased(ids), paidBy(ids, false), paidBy(ids, true), movedGoods(ids)]);
+  const keys = [...new Set([...p.keys(), ...q.keys(), ...w.keys(), ...mv.keys()])];
   const branches = await Branch.find({ _id: { $in: keys } }).select('code name');
   const rows = keys
     .map((k) => {
       const b = branches.find((x) => String(x._id) === k);
-      const bought = p.get(k)?.amountPaise || 0;
+      const ordered = p.get(k)?.amountPaise || 0;
+      const moved = mv.get(k) || { inPaise: 0, outPaise: 0 };
+      const bought = ordered + moved.inPaise - moved.outPaise;
       const received = q.get(k)?.amountPaise || 0;
       const waiting = w.get(k)?.amountPaise || 0;
-      return { branchId: k, branch: b ? { id: b._id, code: b.code, name: b.name } : null, orders: p.get(k)?.orders || 0, purchased: bought / 100, paid: received / 100, waiting: waiting / 100, balance: (bought - received) / 100 };
+      return {
+        branchId: k, branch: b ? { id: b._id, code: b.code, name: b.name } : null, orders: p.get(k)?.orders || 0, purchased: ordered / 100, transferredIn: moved.inPaise / 100, transferredOut: moved.outPaise / 100,
+        net: bought / 100, paid: received / 100, waiting: waiting / 100, balance: (bought - received) / 100,
+      };
     })
     .sort((a, b) => (a.branch?.code || '').localeCompare(b.branch?.code || ''));
   res.json({
     rows,
-    total: { purchased: rows.reduce((s, r) => s + r.purchased, 0), paid: rows.reduce((s, r) => s + r.paid, 0), waiting: rows.reduce((s, r) => s + r.waiting, 0), balance: rows.reduce((s, r) => s + r.balance, 0) },
+    total: { purchased: rows.reduce((s, r) => s + r.purchased, 0), transferredIn: rows.reduce((s, r) => s + r.transferredIn, 0), transferredOut: rows.reduce((s, r) => s + r.transferredOut, 0), paid: rows.reduce((s, r) => s + r.paid, 0), waiting: rows.reduce((s, r) => s + r.waiting, 0), balance: rows.reduce((s, r) => s + r.balance, 0) },
   });
 }
 

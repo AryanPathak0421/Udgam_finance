@@ -151,6 +151,7 @@ export const api = {
   cashbookEntry: (data) => request('/cashbook/entries', { method: 'POST', body: data }),
   cashbookEntryDelete: (id) => request(`/cashbook/entries/${id}`, { method: 'DELETE' }),
   stockTransfers: {
+    products: () => request('/stock-transfers/products'),
     stock: (from) => request(`/stock-transfers/stock${qs({ from })}`),
     list: (params) => request(`/stock-transfers${qs(params)}`),
     create: (data) => request('/stock-transfers', { method: 'POST', body: data }),

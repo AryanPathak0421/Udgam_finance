@@ -192,7 +192,7 @@ function PaymentsDialog({ row, isAdmin, canPay, onClose, onChanged }) {
 
   return (
     <Modal open title={`Payments — ${row.branch ? `${row.branch.code} ${row.branch.name}` : ''}`} onClose={onClose} size="lg" busy={busy} footer={<button className="btn" onClick={onClose}>Close</button>}>
-      <p style={{ marginTop: 0 }}>Purchased <strong>{inr(row.purchased)}</strong> · Received <strong>{inr(row.purchased - balance)}</strong>{waiting > 0 && <> · Paid, waiting for the admin <strong>{inr(waiting)}</strong></>} · Balance <strong>{inr(balance)}</strong></p>
+      <p style={{ marginTop: 0 }}>Purchased <strong>{inr(row.purchased)}</strong>{(row.transferredIn > 0 || row.transferredOut > 0) && <> · Goods from other branches <strong>+{inr(row.transferredIn)}</strong> · Goods given to others <strong>−{inr(row.transferredOut)}</strong></>} · Received <strong>{inr((row.net ?? row.purchased) - balance)}</strong>{waiting > 0 && <> · Paid, waiting for the admin <strong>{inr(waiting)}</strong></>} · Balance <strong>{inr(balance)}</strong></p>
       {(isAdmin || canPay) && (
         <form onSubmit={add} noValidate className="form-grid" style={{ marginBottom: 14 }}>
           <FormField id="pamount" label={isAdmin ? 'Amount received (₹)' : 'Amount to pay (₹)'} required error={errors.amount}>
@@ -423,13 +423,14 @@ export default function ProductOrders() {
           <h3 className="section-title">Purchase balance (products bought from head office)</h3>
           <div className="table-wrap">
             <table className="data-table">
-              <thead><tr><th>Branch</th><th className="num">Orders</th><th className="num">Purchased</th><th className="num">Received</th><th className="num">Waiting</th><th className="num">Balance</th><th className="actions-col">Actions</th></tr></thead>
+              <thead><tr><th>Branch</th><th className="num">Orders</th><th className="num">Purchased</th><th className="num">Goods in / out</th><th className="num">Received</th><th className="num">Waiting</th><th className="num">Balance</th><th className="actions-col">Actions</th></tr></thead>
               <tbody>
                 {balance.rows.map((r) => (
                   <tr key={r.branchId}>
                     <td data-label="Branch">{r.branch ? `${r.branch.code} — ${r.branch.name}` : '—'}</td>
                     <td data-label="Orders" className="num">{r.orders}</td>
                     <td data-label="Purchased" className="num">{inr(r.purchased)}</td>
+                    <td data-label="Goods in / out" className="num">{r.transferredIn || r.transferredOut ? <span className="small">+{inr(r.transferredIn)}<br />−{inr(r.transferredOut)}</span> : '—'}</td>
                     <td data-label="Received" className="num">{inr(r.paid)}</td>
                     <td data-label="Waiting" className="num">{r.waiting > 0 ? <span className="badge grey">{inr(r.waiting)}</span> : '—'}</td>
                     <td data-label="Balance" className="num"><strong>{inr(r.balance)}</strong></td>
@@ -440,6 +441,7 @@ export default function ProductOrders() {
                   <tr>
                     <td><strong>Total</strong></td><td />
                     <td className="num"><strong>{inr(balance.total.purchased)}</strong></td>
+                    <td className="num small">+{inr(balance.total.transferredIn)}<br />−{inr(balance.total.transferredOut)}</td>
                     <td className="num"><strong>{inr(balance.total.paid)}</strong></td>
                     <td className="num"><strong>{inr(balance.total.waiting)}</strong></td>
                     <td className="num"><strong>{inr(balance.total.balance)}</strong></td><td />

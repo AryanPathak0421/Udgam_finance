@@ -15,8 +15,8 @@ const fmt = (d) => (d ? new Date(d).toLocaleString('en-IN') : '—');
 export default function StockTransfer() {
   const toast = useToast();
   const [branches, setBranches] = useState([]);
-  const [form, setForm] = useState({ from: 'ho', to: '', product: '', quantity: '1', remark: '' });
-  const [stock, setStock] = useState([]);
+  const [form, setForm] = useState({ product: '', from: '', to: '', quantity: '1', remark: '' }); // product = the product (key), from = the place it is taken from
+  const [catalog, setCatalog] = useState([]); // every product in stock somewhere, with the places that have it
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
   const [data, setData] = useState(null);
@@ -37,10 +37,10 @@ export default function StockTransfer() {
   useEffect(() => {
     api.groups.branchOptions().then((r) => setBranches(r.items)).catch(() => {});
   }, []);
+  const loadCatalog = useCallback(() => api.stockTransfers.products().then((r) => setCatalog(r.items)).catch(() => setCatalog([])), []);
   useEffect(() => {
-    setStock([]);
-    api.stockTransfers.stock(form.from).then((r) => setStock(r.items)).catch(() => setStock([]));
-  }, [form.from]);
+    loadCatalog();
+  }, [loadCatalog]);
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -58,23 +58,25 @@ export default function StockTransfer() {
   useEffect(() => setPage(1), [q]);
 
   const set = (k) => (e) => { setForm((f) => ({ ...f, [k]: e.target.value })); setErrors((x) => ({ ...x, [k]: undefined })); };
-  const product = stock.find((p) => p.id === form.product);
+  const chosen = catalog.find((p) => p.key === form.product);
+  const source = chosen?.places.find((p) => p.place === form.from); // the stock entry at the place it is taken from
   const places = [{ key: 'ho', label: 'Head office' }, ...branches.map((b) => ({ key: b.id, label: `${b.code} — ${b.name}` }))];
 
   async function submit(e) {
     e.preventDefault();
     const found = {};
-    if (!form.to) found.to = 'Choose where the stock goes';
     if (!form.product) found.product = 'Select the product';
+    else if (!form.from) found.from = 'Choose the place the product is taken from';
+    if (!form.to) found.to = 'Choose where the stock goes';
     if (!(Number(form.quantity) >= 1)) found.quantity = 'Enter the number of units';
     setErrors(found);
     if (Object.keys(found).length) return;
     setBusy(true);
     try {
-      const r = await api.stockTransfers.create({ ...form, quantity: Number(form.quantity) });
+      const r = await api.stockTransfers.create({ from: form.from, to: form.to, product: source.stockId, quantity: Number(form.quantity), remark: form.remark });
       toast.success(`${r.transfer.code}: ${r.transfer.quantity} × ${r.transfer.name} moved to ${r.transfer.to}`);
-      setForm((f) => ({ ...f, product: '', quantity: '1', remark: '' }));
-      api.stockTransfers.stock(form.from).then((x) => setStock(x.items)).catch(() => {});
+      setForm((f) => ({ ...f, product: '', from: '', quantity: '1', remark: '' }));
+      loadCatalog();
       load();
     } catch (err) {
       setErrors(err.errors || {});
@@ -118,13 +120,20 @@ export default function StockTransfer() {
           </div>
         )}
       </div>
-      {openOrder && <OrderDialog id={openOrder} isAdmin transferView onClose={() => setOpenOrder(null)} onChanged={() => { loadOrders(); load(); api.stockTransfers.stock(form.from).then((x) => setStock(x.items)).catch(() => {}); }} />}
+      {openOrder && <OrderDialog id={openOrder} isAdmin transferView onClose={() => setOpenOrder(null)} onChanged={() => { loadOrders(); load(); loadCatalog(); }} />}
 
       <form className="panel" style={{ padding: 16, marginBottom: 14 }} onSubmit={submit} noValidate>
         <div className="form-grid">
-          <FormField id="tfrom" label="Move from" required>
-            <select id="tfrom" value={form.from} onChange={(e) => { setForm((f) => ({ ...f, from: e.target.value, product: '' })); }}>
-              {places.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+          <FormField id="tproduct" label="Product" required error={errors.product} hint={catalog.length ? undefined : 'No product is in stock at head office or any branch'}>
+            <select id="tproduct" value={form.product} onChange={(e) => { setForm((f) => ({ ...f, product: e.target.value, from: '', to: '' })); setErrors((x) => ({ ...x, product: undefined })); }}>
+              <option value="">Select product</option>
+              {catalog.map((p) => <option key={p.key} value={p.key}>{p.category} · {p.name} · {p.places.reduce((t, x) => t + x.stockQty, 0)} in stock</option>)}
+            </select>
+          </FormField>
+          <FormField id="tfrom" label="Take from" required error={errors.from} hint={chosen ? 'Only the places that have this product' : 'Choose the product first'}>
+            <select id="tfrom" value={form.from} disabled={!chosen} onChange={(e) => { setForm((f) => ({ ...f, from: e.target.value, to: f.to === e.target.value ? '' : f.to })); setErrors((x) => ({ ...x, from: undefined })); }}>
+              <option value="">Select place</option>
+              {(chosen?.places || []).map((p) => <option key={p.place} value={p.place}>{p.label} · {p.stockQty} in stock</option>)}
             </select>
           </FormField>
           <FormField id="tto" label="Move to" required error={errors.to}>
@@ -133,13 +142,7 @@ export default function StockTransfer() {
               {places.filter((p) => p.key !== form.from).map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
             </select>
           </FormField>
-          <FormField id="tproduct" label="Product" required error={errors.product} hint={stock.length ? undefined : 'Nothing is in stock at this place'}>
-            <select id="tproduct" value={form.product} onChange={set('product')}>
-              <option value="">Select product</option>
-              {stock.map((p) => <option key={p.id} value={p.id}>{p.category} · {p.name} · {p.stockQty} in stock</option>)}
-            </select>
-          </FormField>
-          <FormField id="tqty" label="Units" required error={errors.quantity} hint={product ? `Up to ${product.stockQty} · value ${inr(product.unitPrice * (Number(form.quantity) || 0))}` : undefined}>
+          <FormField id="tqty" label="Units" required error={errors.quantity} hint={source ? `Up to ${source.stockQty} · value ${inr(source.unitPrice * (Number(form.quantity) || 0))}. The due to head office moves with the goods when a branch gives to another branch.` : undefined}>
             <input id="tqty" inputMode="numeric" value={form.quantity} onChange={(e) => { setForm((f) => ({ ...f, quantity: e.target.value.replace(/\D/g, '').slice(0, 6) })); setErrors((x) => ({ ...x, quantity: undefined })); }} />
           </FormField>
           <FormField id="tremark" label="Remark" className="span-2"><input id="tremark" value={form.remark} maxLength={200} onChange={set('remark')} /></FormField>
