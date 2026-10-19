@@ -86,6 +86,32 @@ function stateFrom(p, line, received, asOf) {
   return { schedule, left, due, totals: { paid: sum(schedule, 'paidPaise'), due: sum(due, 'remainingPaise'), outstanding: sum(left, 'remainingPaise') } };
 }
 
+// The same numbers as stateFrom, without building an object per installment (the collection lists go through thousands of borrowers).
+function dueSummary(p, line, received, asOf) {
+  const extra = line.extraEmiPaise || 0;
+  const at = asOf.getTime();
+  const day = iso(asOf);
+  const out = { dueCount: 0, duePaise: 0, outstandingPaise: 0, leftCount: 0, overdueDays: 0, nextDue: '', onDatePaise: 0, onDate: false };
+  for (const s of p.schedule) {
+    const amountPaise = s.installmentPaise + extra;
+    const due = new Date(s.dueDate).getTime();
+    if (due === at) { out.onDate = true; out.onDatePaise += amountPaise; }
+    const remaining = amountPaise - Math.min(received.get(s.no)?.paid || 0, amountPaise);
+    if (remaining <= 0) continue;
+    if (!out.leftCount) out.nextDue = iso(s.dueDate);
+    out.leftCount += 1;
+    out.outstandingPaise += remaining;
+    if (due <= at) {
+      if (!out.dueCount) out.firstDue = iso(s.dueDate);
+      out.dueCount += 1;
+      out.duePaise += remaining;
+      if (due < at) out.overdueDays = Math.max(out.overdueDays, Math.floor((at - due) / DAY));
+    }
+  }
+  if (out.firstDue) out.nextDue = out.firstDue;
+  return out;
+}
+
 // What each installment of a borrower has received so far (cancelled receipts do not count).
 function receivedMap(pays) {
   const map = new Map();
@@ -322,23 +348,28 @@ export async function collectionList(req, res) {
       if (!byKey.has(k)) byKey.set(k, new Map());
       byKey.get(k).set(r._id.no, { paid: r.paid, receipts: [] });
     });
+    // what was actually received on the chosen date (the receipts dated that day; the old system's records stay out)
+    // eslint-disable-next-line no-await-in-loop
+    const gotToday = new Map((await EmiPayment.aggregate([
+      { $match: { loanPayment: { $in: pick.map((l) => l._id) }, status: 'paid', legacy: { $ne: true }, paidOn: { $gte: asOf, $lt: new Date(asOf.getTime() + DAY) } } },
+      { $group: { _id: { lp: '$loanPayment', code: '$memberCode' }, paid: { $sum: '$amountPaise' } } },
+    ])).map((r) => [`${r._id.lp}|${r._id.code}`, r.paid]));
 
     for (const l of pick) {
       for (const line of l.lines) {
         if (settledSet.has(`${l._id}|${line.code}`)) continue;
-        const st = stateFrom(l, line, byKey.get(`${l._id}|${line.code}`) || new Map(), asOf);
+        const st = dueSummary(l, line, byKey.get(`${l._id}|${line.code}`) || new Map(), asOf);
         // group screen: every member of the group is listed, one who owes nothing is shown as paid
-        if (!st.due.length && kindScope !== 'group') continue;
-        if (!st.left.length && kindScope === 'group') continue; // the loan is fully repaid
+        if (!st.dueCount && kindScope !== 'group') continue;
+        if (!st.leftCount && kindScope === 'group') continue; // the loan is fully repaid
         const text = `${l.loanId} ${l.formId} ${line.code} ${line.name} ${l.group?.code || ''} ${l.group?.name || ''}`.toLowerCase();
         if (q && !text.includes(q)) continue;
-        const onDate = st.schedule.filter((x) => x.dueDate === iso(asOf));
         rows.push({
           loan: l._id, loanId: l.loanId || '', formId: l.formId, kind: l.kind, loanType: loanTypeOf(l), loanTypeLabel: KIND_LABEL[loanTypeOf(l)] || loanTypeOf(l), member: line.member, code: line.code, name: line.name,
           group: l.group?.code ? { code: l.group.code, name: l.group.name } : null, branch: l.branch ? { id: l.branch._id, code: l.branch.code, name: l.branch.name } : null, employeeCode: l.employeeCode || '',
-          mode: modeOf(l), modeLabel: l.modeLabel, emi: money((l.schedule[0]?.installmentPaise || 0) + (line.extraEmiPaise || 0)), dueCount: st.due.length, dueAmount: money(st.totals.due),
-          overdueDays: st.due.length ? Math.max(...st.due.map((d) => d.overdueDays)) : 0, nextDueDate: st.due[0]?.dueDate || st.left[0]?.dueDate || '', outstanding: money(st.totals.outstanding),
-          status: st.due.length ? 'due' : 'paid', dueOnDate: onDate.length > 0, emiOnDate: money(onDate.reduce((t, x) => t + x.amountPaise, 0)),
+          mode: modeOf(l), modeLabel: l.modeLabel, emi: money((l.schedule[0]?.installmentPaise || 0) + (line.extraEmiPaise || 0)), dueCount: st.dueCount, dueAmount: money(st.duePaise),
+          overdueDays: st.overdueDays, nextDueDate: st.nextDue, outstanding: money(st.outstandingPaise),
+          status: st.dueCount ? 'due' : 'paid', dueOnDate: st.onDate, emiOnDate: money(st.onDatePaise), collected: money(gotToday.get(`${l._id}|${line.code}`) || 0),
         });
       }
     }
@@ -351,11 +382,12 @@ export async function collectionList(req, res) {
   if (kindScope === 'group') {
     const groups = new Map();
     rows.forEach((r) => {
-      const k = r.group.code;
-      if (!groups.has(k)) groups.set(k, { code: r.group.code, name: r.group.name, branch: r.branch, employeeCode: r.employeeCode, modeLabel: r.modeLabel, members: [], dueAmount: 0 });
+      const k = r.group?.code || '—';
+      if (!groups.has(k)) groups.set(k, { code: k, name: r.group?.name || '',  branch: r.branch, employeeCode: r.employeeCode, modeLabel: r.modeLabel, members: [], dueAmount: 0, collected: 0 });
       const g = groups.get(k);
       g.members.push(r);
       g.dueAmount += r.dueAmount;
+      g.collected += r.collected;
     });
     // Unpaid: at least one member still owes EMI (the whole group stays here, with its members and the total due).
     // Paid: nobody owes anything and the group had an installment on the date.
@@ -366,11 +398,11 @@ export async function collectionList(req, res) {
     const counts = { unpaid: all.filter((g) => g.status === 'unpaid').length, paid: all.filter((g) => g.status === 'paid').length };
     const want = asString(req.query.status) === 'paid' ? 'paid' : 'unpaid';
     const list = all.filter((g) => g.status === want);
-    return res.json({ groups: list, counts, status: want, staff, modes, date: iso(asOf), totalDue: list.reduce((s, g) => s + g.dueAmount, 0) });
+    return res.json({ groups: list, counts, status: want, staff, modes, date: iso(asOf), totalDue: list.reduce((s, g) => s + g.dueAmount, 0), totalCollected: list.reduce((s, g) => s + g.collected, 0) });
   }
   const { page, limit, skip } = parsePaging(req.query, { defaultLimit: 25 });
   rows.sort((a, b) => a.nextDueDate.localeCompare(b.nextDueDate) || a.code.localeCompare(b.code));
-  res.json({ items: rows.slice(skip, skip + limit), total: rows.length, page, limit, totalPages: Math.max(Math.ceil(rows.length / limit), 1), staff, modes, date: iso(asOf), totalDue: rows.reduce((s, r) => s + r.dueAmount, 0) });
+  res.json({ items: rows.slice(skip, skip + limit), total: rows.length, page, limit, totalPages: Math.max(Math.ceil(rows.length / limit), 1), staff, modes, date: iso(asOf), totalDue: rows.reduce((s, r) => s + r.dueAmount, 0), totalCollected: rows.reduce((s, r) => s + r.collected, 0) });
 }
 
 // aggregate() does not cast strings to ids like find() does

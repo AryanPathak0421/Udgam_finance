@@ -212,7 +212,7 @@ function GroupCollect({ group, canCollect, onClose, onDone }) {
   return (
     <>
       <Modal open title={`${group.code} — ${group.name}`} onClose={close} size="lg" busy={busy} footer={<button className="btn" onClick={close}>{results ? 'Done' : 'Close'}</button>}>
-        <p className="muted small" style={{ marginTop: 0 }}>{group.branch?.name} · staff {group.employeeCode || '—'} · {group.modeLabel} · {group.status === 'paid' ? `all ${group.members.length} members paid · EMI of the day ${inr(group.paidAmount)}` : `total due ${inr(group.dueAmount)} · ${group.dueMembers} of ${group.members.length} members have EMI due`}</p>
+        <p className="muted small" style={{ marginTop: 0 }}>{group.branch?.name} · staff {group.employeeCode || '—'} · {group.modeLabel} · {group.status === 'paid' ? `all ${group.members.length} members paid · EMI of the day ${inr(group.paidAmount)}` : `total due ${inr(group.dueAmount)} · ${group.dueMembers} of ${group.members.length} members have EMI due`} · <strong>actual collection {inr(group.status === 'paid' ? group.collected : total)}</strong>{group.status !== 'paid' && chosen.length > 0 ? ` (${chosen.length} ticked)` : ''}{group.collected > 0 && group.status !== 'paid' ? ` · already received on this date ${inr(group.collected)}` : ''}</p>
         {!results ? (
           <>
             <div className="table-wrap">
@@ -292,13 +292,13 @@ export function GroupLoanEmi() {
       <PageHeader title="Group Loan EMI" description="Choose the group, tick the members who pay, change the EMI amount if needed and collect." />
       <div className="panel">
         <Filters f={c.f} set={c.set} branches={c.branches} staff={c.data?.staff || []} modes={c.data?.modes || []} />
-        {c.data && <div className="muted small" style={{ margin: '4px 0 10px' }}>{c.f.status === 'paid' ? `${groups.length} paid group${groups.length === 1 ? '' : 's'} on this date` : `${groups.length} unpaid group${groups.length === 1 ? '' : 's'} · total due ${inr(c.data.totalDue)}`}{c.data.counts ? ` · unpaid ${c.data.counts.unpaid} / paid ${c.data.counts.paid}` : ''}</div>}
+        {c.data && <div className="muted small" style={{ margin: '4px 0 10px' }}>{c.f.status === 'paid' ? `${groups.length} paid group${groups.length === 1 ? '' : 's'} on this date` : `${groups.length} unpaid group${groups.length === 1 ? '' : 's'} · total due ${inr(c.data.totalDue)}`} · actual collection {inr(c.data.totalCollected)}{c.data.counts ? ` · unpaid ${c.data.counts.unpaid} / paid ${c.data.counts.paid}` : ''}</div>}
         {c.loading && !c.data ? <Spinner label="Loading…" /> : c.error ? <ErrorState message={c.error} onRetry={c.load} /> : groups.length === 0 ? (
           <EmptyState title={c.f.status === 'paid' ? 'No paid group' : 'No group EMI is due'} description={c.f.status === 'paid' ? 'No group has paid all its EMI due on this date for these filters.' : 'No group loan has an EMI due on or before this date for these filters.'} />
         ) : (
           <div className={`table-wrap${c.loading ? ' dim' : ''}`}>
             <table className="data-table">
-              <thead><tr><th>Group</th><th>Branch</th><th>Staff</th><th>Mode</th><th>Status</th><th className="num">Members (due / all)</th><th className="num">{c.f.status === 'paid' ? 'EMI paid' : 'Total due'}</th><th className="actions-col">Actions</th></tr></thead>
+              <thead><tr><th>Group</th><th>Branch</th><th>Staff</th><th>Mode</th><th>Status</th><th className="num">Members (due / all)</th><th className="num">{c.f.status === 'paid' ? 'EMI paid' : 'Total due'}</th><th className="num">Actual collection</th><th className="actions-col">Actions</th></tr></thead>
               <tbody>
                 {groups.map((g) => (
                   <tr key={g.code}>
@@ -309,6 +309,7 @@ export function GroupLoanEmi() {
                     <td data-label="Status"><span className={`badge ${g.status === 'paid' ? 'green' : 'danger'}`}>{g.status === 'paid' ? 'Paid' : 'Unpaid'}</span></td>
                     <td data-label="Members" className="num">{g.dueMembers} / {g.members.length}</td>
                     <td data-label="Due" className="num">{g.status === 'paid' ? inr(g.paidAmount) : inr(g.dueAmount)}</td>
+                    <td data-label="Actual collection" className="num">{inr(g.collected)}</td>
                     <td data-label="Actions" className="actions-col"><button className="btn sm primary" onClick={() => setOpen(g)}>{canCollect && g.status === 'unpaid' ? 'Select & collect' : 'View'}</button></td>
                   </tr>
                 ))}
