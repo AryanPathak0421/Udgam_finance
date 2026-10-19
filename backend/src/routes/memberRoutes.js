@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
-import { requireAuth, requireRole } from '../middleware/auth.js';
+import { requireAuth, requireMenu, requireRole } from '../middleware/auth.js';
 import { asyncHandler as h } from '../utils/http.js';
 import { memberOptions, districts, sendOtp, verifyOtp, createMember, listMembers, getMember, savePerson, employeeOptions, changeGuarantor, setBlocked, synopsis, updateMember, completeMember, pincodeInfo, ifscInfo, listKyc, getKyc, reviewKyc, reuploadKyc } from '../controllers/memberController.js';
 
@@ -23,13 +23,13 @@ router.post('/members', requireAuth, requireRole(...CREATE), h(createMember));
 router.put('/members/:id/guarantor', requireAuth, requireRole(...CREATE), h(savePerson('guarantor')));
 router.put('/members/:id/nominee', requireAuth, requireRole(...CREATE), h(savePerson('nominee')));
 const APPROVERS = ['super_admin', 'admin', 'branch_manager'];
-const CHANGERS = ['super_admin', 'admin']; // guarantor change: admin only
 const REVIEWERS = ['super_admin', 'admin']; // KYC approve / reject: admin only
 router.get('/members/kyc', requireAuth, requireRole(...READ), h(listKyc));
 router.get('/members/:id/kyc', requireAuth, requireRole(...READ), h(getKyc));
 router.post('/members/:id/kyc/review', requireAuth, requireRole(...REVIEWERS), h(reviewKyc));
 router.post('/members/:id/kyc/reupload', requireAuth, requireRole(...CREATE), h(reuploadKyc));
-router.put('/members/:id/guarantor/change', requireAuth, requireRole(...CHANGERS), h(changeGuarantor));
+// guarantor change: admins, and the ranks that have the Guarantor Change menu ticked in Menu Permission
+router.put('/members/:id/guarantor/change', requireAuth, requireMenu('/members/guarantor-change', 'view'), h(changeGuarantor));
 router.get('/members/:id/synopsis', requireAuth, requireRole(...READ), h(synopsis));
 router.post('/members/:id/block', requireAuth, requireRole(...APPROVERS), h(setBlocked));
 router.put('/members/:id/complete', requireAuth, requireRole(...CREATE), h(completeMember));

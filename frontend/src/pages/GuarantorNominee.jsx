@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../api/client.js';
 import FormField from '../components/ui/FormField.jsx';
 import { EmptyState, PageHeader, Spinner } from '../components/ui/Feedback.jsx';
@@ -64,7 +65,10 @@ function PartySection({ kind, member, onSaved }) {
   const mobileVerified = Boolean(challenge) || Boolean(existing?.mobileVerified && form.mobile && form.mobile === existing.mobile);
   const noGuarantor = kind === 'nominee' && !member.guarantor;
   // The guarantor can be added by the branch; after that only an admin edits it.
-  const lockedGuarantor = kind === 'guarantor' && Boolean(existing?.name) && !['super_admin', 'admin'].includes(user?.role);
+  const isAdminUser = ['super_admin', 'admin'].includes(user?.role);
+  // a guarantor that came over from the old system is completed by the branch: what is already filled in stays, the rest is added
+  const completing = kind === 'guarantor' && Boolean(existing?.name) && !isAdminUser && (member.missingDetails || []).some((d) => d.key === 'guarantor');
+  const lockedGuarantor = kind === 'guarantor' && Boolean(existing?.name) && !isAdminUser && !completing;
   const blocked = Boolean(member.isBlocked);
 
   async function submit(e) {
@@ -128,6 +132,7 @@ function PartySection({ kind, member, onSaved }) {
         )}
 
         {lockedGuarantor && <div className="notice warn" style={{ marginBottom: 12 }}>The guarantor is saved. Only an admin can edit or change the guarantor.</div>}
+        {completing && <div className="notice" style={{ marginBottom: 12 }}>This guarantor came from the old system with the name only. Add the Aadhaar number and the documents. Once saved, only an admin can change them.</div>}
         <fieldset disabled={lockedGuarantor} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         <div className="form-grid">
           <EmployeeSelect
@@ -198,6 +203,13 @@ export default function GuarantorNominee() {
   const [searching, setSearching] = useState(false);
   const [member, setMember] = useState(null);
   const q = useDebounce(search);
+  const [params] = useSearchParams();
+
+  // opened from Complete details of a member: that member is chosen already
+  useEffect(() => {
+    const id = params.get('member');
+    if (id) open(id);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (member) return undefined;

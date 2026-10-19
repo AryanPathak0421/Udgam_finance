@@ -20,13 +20,26 @@ export const REQUIRED_DETAILS = [
 ];
 const PHOTO_KEYS = new Set(['memberPhoto', 'signaturePhoto', 'aadhaarPhoto']);
 
+/** What a guarantor of a migrated member still lacks (empty when he is complete, deceased or there is none: a change of guarantor is for the admin). */
+export function guarantorGaps(m) {
+  const g = m?.guarantor;
+  if (!m?.legacyImport || !g?.name || g.deceasedOn) return [];
+  const keys = m.kycKeys || [];
+  const has = (f) => Boolean(g[f]) || keys.includes(`guarantor.${f}`);
+  return ['aadhaar', 'photo', 'signature', 'aadhaarPhoto'].filter((f) => !has(f));
+}
+
 /** The required details a member does not have yet (empty for a member that was not imported). */
 export function missingDetails(m) {
   if (!m?.legacyImport) return [];
-  return REQUIRED_DETAILS.filter((d) => {
+  const out = REQUIRED_DETAILS.filter((d) => {
     if (d.key === 'mobile') return !m.mobile || !m.mobileVerifiedAt;
     // a photo is not loaded with the member: its entry in the list of documents says it exists
     if (PHOTO_KEYS.has(d.key)) return !m[d.key] && !(m.kycKeys || []).includes(d.key);
     return !String(m[d.key] || '').trim();
   });
+  // The guarantor that came over has only a name: his Aadhaar number and documents are still to be added. The nominee has to be added.
+  if (guarantorGaps(m).length) out.push({ key: 'guarantor', label: 'Guarantor details (Aadhaar number, photo, signature, Aadhaar photo)' });
+  if (!m.nominee?.name) out.push({ key: 'nominee', label: 'Nominee' });
+  return out;
 }

@@ -18,7 +18,7 @@ import { Group } from '../models/Group.js';
 import { LoanRequisition } from '../models/LoanRequisition.js';
 import { LoanPayment } from '../models/LoanPayment.js';
 import { CivilCheck } from '../models/CivilCheck.js';
-import { missingDetails } from '../utils/memberDetails.js';
+import { missingDetails, guarantorGaps } from '../utils/memberDetails.js';
 
 export const GENDERS = ['male', 'female', 'other'];
 export const OCCUPATIONS = ['Farmer', 'Agricultural labour', 'Dairy / animal husbandry', 'Small shop / trader', 'Tailoring / handicraft', 'Daily wage labour', 'Salaried', 'Self employed', 'Homemaker', 'Other'];
@@ -658,8 +658,10 @@ export function savePerson(kind) {
     // Photos are loaded so approved documents can be told apart from changed ones.
     const m = await loadMemberFor(req, { photos: true });
     assertNotBlocked(m);
-    // The guarantor can be added by the branch, but once saved only an admin may edit it.
-    if (kind === 'guarantor' && m.guarantor?.name && !isAdmin(req.user)) {
+    // The guarantor can be added by the branch, but once saved only an admin may edit it. The exception: a guarantor that came over
+    // from the old system has only a name, and the branch fills in what is missing (nothing that is already there can be changed).
+    const fillOnly = kind === 'guarantor' && Boolean(m.guarantor?.name) && !isAdmin(req.user);
+    if (fillOnly && !guarantorGaps(m).length) {
       throw new HttpError(403, 'Only an admin can edit the guarantor.');
     }
     const old = m[kind]?.name ? m[kind].toObject() : null;
@@ -687,6 +689,12 @@ export function savePerson(kind) {
     } else {
       person = await readPerson(req, kind, m, m[kind]);
       guardApproved(m, kind, old, person, req.user);
+      if (fillOnly) {
+        const label = { name: 'Name', mobile: 'Phone number', aadhaar: 'Aadhaar number', pan: 'PAN', photo: 'Photo', signature: 'Signature', aadhaarPhoto: 'Aadhaar photo', panPhoto: 'PAN photo', jointPhoto: 'Joint photo' };
+        for (const f of Object.keys(label)) {
+          if (old?.[f] && String(person[f] || '') !== String(old[f])) throw new HttpError(403, `${label[f]} is already filled in. Only an admin can change it.`, { [f]: 'Only an admin can change it' });
+        }
+      }
     }
     const before = Boolean(m[kind]?.name);
     m[kind] = person;
@@ -710,7 +718,6 @@ export function savePerson(kind) {
  * so the change history can always be shown.
  */
 export async function changeGuarantor(req, res) {
-  if (!isAdmin(req.user)) throw new HttpError(403, 'Only an admin can change the guarantor.');
   const m = await loadMemberFor(req, { photos: true });
   assertNotBlocked(m);
   if (!m.guarantor?.name) {

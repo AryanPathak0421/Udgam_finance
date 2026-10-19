@@ -58,7 +58,7 @@ export const NAV_SECTIONS = [
           { label: 'Guarantor & Nominee', path: '/members/guarantor-detail', icon: 'users' },
           { label: 'KYC Approval', path: '/members/kyc-approval', icon: 'kyc' },
           { label: 'KYC Re-upload', path: '/members/kyc-reupload', icon: 'kyc', roles: ['super_admin', 'admin', 'branch_manager', 'loan_officer', 'field_officer'] },
-          { label: 'Guarantor Change', path: '/members/guarantor-change', icon: 'users', roles: ALL_ADMIN },
+          { label: 'Guarantor Change', path: '/members/guarantor-change', icon: 'users', grantOnly: true },
           { label: 'Borrower Synopsis', path: '/members/borrower-synopsis', icon: 'file' },
           { label: 'Borrower Block & Unblock', path: '/members/block-unblock', icon: 'shield' },
         ],

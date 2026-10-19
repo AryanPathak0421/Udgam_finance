@@ -3,6 +3,7 @@ import { api } from '../api/client.js';
 import FormField from '../components/ui/FormField.jsx';
 import Modal from '../components/ui/Modal.jsx';
 import { useToast } from '../components/ui/Toast.jsx';
+import { Link } from 'react-router-dom';
 import { OtpVerify, PhotoField } from './NewBorrower.jsx';
 
 // A member imported from the old system: the branch fills in the details that are missing. A detail that is already there is changed only by an admin
@@ -55,6 +56,13 @@ export default function CompleteDetails({ member, options, onClose, onSaved }) {
           This member came from the old system. Fill in what is missing — you can save a few now and the rest later. Once a detail is saved only an admin can change it.
           The member cannot get a new loan until everything is complete.
         </div>
+        {(missing.has('guarantor') || missing.has('nominee')) && (
+          <div className="notice warn" style={{ marginBottom: 12 }}>
+            {missing.has('guarantor') && <div>Guarantor: the name came from the old system; the Aadhaar number and documents are still to be added.</div>}
+            {missing.has('nominee') && <div>Nominee: not added yet.</div>}
+            <div style={{ marginTop: 6 }}><Link className="btn sm primary" to={`/members/guarantor-detail?member=${member.id}`}>Fill in the guarantor and the nominee</Link></div>
+          </div>
+        )}
         <div className="form-grid">
           {missing.has('mobile') && (
             <FormField id="cmobile" label="Mobile number" required error={errors.mobile} hint={member.mobile ? "Number from the old system. Send the OTP to verify it (or correct it first). After that only an admin can change it." : "Verified with an OTP; after that only an admin can change it"}>
