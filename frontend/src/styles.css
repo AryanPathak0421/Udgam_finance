@@ -208,6 +208,9 @@ input:focus {
 .nav-item.group-btn .caret.open { transform: rotate(90deg); }
 .nav-sub { margin: 2px 0 6px 14px; padding-left: 10px; border-left: 1px solid rgba(255,255,255,.12); }
 .nav-item.sub { padding: 8px 10px; font-size: 13.5px; }
+/* a long sub-item name (e.g. Group Leader Commission Payment) wraps instead of being cut off */
+.nav-item.sub { white-space: normal; line-height: 1.3; align-items: flex-start; }
+.nav-item.sub svg { flex-shrink: 0; margin-top: 1px; }
 
 .page-head.row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .page-actions { display: flex; gap: 8px; }
