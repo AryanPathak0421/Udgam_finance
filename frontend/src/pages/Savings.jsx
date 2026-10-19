@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
+import { canDo } from '../config/nav.js';
 import FormField from '../components/ui/FormField.jsx';
 import Modal from '../components/ui/Modal.jsx';
 import Pagination from '../components/ui/Pagination.jsx';
@@ -111,9 +112,10 @@ export function SecurityDeposits() {
 function WithdrawalTable({ approval }) {
   const { user } = useAuth();
   const toast = useToast();
-  const isAdmin = ['super_admin', 'admin'].includes(user?.role);
+  // the admin, or a rank that has Security Approval ticked in Menu Permission (e.g. a supervisor)
+  const canApprove = canDo(user, '/savings/approval', 'view');
   const { f, set, branches } = useFilters();
-  const canDecide = approval && isAdmin;
+  const canDecide = approval && canApprove;
   const [status, setStatus] = useState('pending'); // pending | awaiting_otp | completed | rejected | '' (all)
   const [kind, setKind] = useState('');
   const [data, setData] = useState(null);
@@ -268,7 +270,7 @@ function WithdrawalTable({ approval }) {
                         ) : w.stage === 'awaiting_otp' && !approval && REQUESTERS.includes(user?.role) ? (
                           <div className="row-actions">
                             <button className="btn sm primary" onClick={() => openOtp(w)}>Verify OTP</button>
-                            {isAdmin && <button className="btn sm danger-outline" disabled={busy === w.id} onClick={() => { setRejecting(w); setReason(''); setReasonError(''); }}>Reject</button>}
+                            {canApprove && <button className="btn sm danger-outline" disabled={busy === w.id} onClick={() => { setRejecting(w); setReason(''); setReasonError(''); }}>Reject</button>}
                           </div>
                         ) : <span className="muted">{w.stage === 'pending' ? 'Waiting for admin' : w.stage === 'awaiting_otp' ? 'Waiting for the member\'s OTP' : '—'}</span>}
                       </td>

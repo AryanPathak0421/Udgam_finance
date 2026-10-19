@@ -11,7 +11,7 @@ import { borrowerState, receive, startOfToday } from './emiController.js';
 import { OtpChallenge } from '../models/OtpChallenge.js';
 import { issueOtp, hashOtp } from '../services/otpChallenges.js';
 import { sendSms } from '../services/sms.js';
-import { maskMobile, showMobile } from './groupController.js';
+import { isAdmin, maskMobile, showMobile } from './groupController.js';
 import crypto from 'crypto';
 
 const invalid = (errors) => new HttpError(422, 'Please correct the highlighted fields', errors);
@@ -305,6 +305,8 @@ async function sendOtpFor(req, w) {
  */
 export async function approveWithdrawal(req, res) {
   const w = await loadPending(req);
+  // someone who is not an admin (a supervisor with the Security Approval menu) cannot approve a request he made himself
+  if (!isAdmin(req.user) && String(w.createdBy) === String(req.user._id)) throw new HttpError(403, 'You cannot approve a request that you made yourself. Another approver has to do it.');
   const m = await Member.findById(w.member).select('isBlocked mobile');
   if (m?.isBlocked) throw new HttpError(409, 'This member is blocked. Unblock the member first.');
   if (w.kind === 'withdraw' && !m?.mobile) throw new HttpError(409, 'This member has no mobile number to send the OTP to');

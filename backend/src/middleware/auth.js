@@ -30,5 +30,5 @@ export const requireMenu = (menu, action) => (req, res, next) => {
   const perms = req.user.rank?.menuPermissions;
   const row = Array.isArray(perms) ? perms.find((p) => p.menu === menu) : null;
   if (row && row.view && row[action]) return next();
-  return res.status(403).json({ message: `You do not have permission to ${action} stock products.` });
+  return res.status(403).json({ message: `You do not have permission to ${action} here. Ask an admin to tick it under Menu Permission.` });
 };
