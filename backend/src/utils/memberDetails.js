@@ -4,6 +4,7 @@
  */
 export const REQUIRED_DETAILS = [
   { key: 'mobile', label: 'Mobile number (verified with an OTP)' },
+  { key: 'husbandName', label: 'Husband name' },
   { key: 'occupation', label: 'Occupation' },
   { key: 'education', label: 'Education' },
   { key: 'address', label: 'Address' },

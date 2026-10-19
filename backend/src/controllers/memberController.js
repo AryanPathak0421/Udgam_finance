@@ -159,7 +159,7 @@ const POPULATE = { path: 'branch', select: 'code name' };
 async function resolveEmployee(req, v, branchId) {
   const given = asString(req.body?.employeeCode).toUpperCase();
   if (!given) return staffId(req.user);
-  const emp = await User.findOne({ employeeCode: given, isActive: true }).select('employeeCode role branches');
+  const emp = await User.findOne({ employeeCode: given, $or: [{ isActive: true }, { legacyImport: true }] }).select('employeeCode role branches');
   const inBranch = emp && (['super_admin', 'admin'].includes(emp.role) || (emp.branches || []).some((x) => String(x) === String(branchId)));
   if (!emp) v.add('employeeCode', 'Select a valid employee');
   else if (!inBranch) v.add('employeeCode', 'This employee does not belong to the selected branch');
@@ -1101,15 +1101,15 @@ export async function employeeOptions(req, res) {
   if (!isAdmin(req.user) && !(req.user.branches || []).some((x) => String(x) === String(branch))) {
     throw new HttpError(403, 'You can only use branches assigned to you');
   }
+  // the employees of the branch, and the ones brought over from the old system (they have no login yet, but groups and records carry their staff ID)
   const users = await User.find({
-    isActive: true,
     employeeCode: { $exists: true },
-    $or: [{ branches: branch }, { role: { $in: ['super_admin', 'admin'] } }],
+    $or: [{ isActive: true, branches: branch }, { isActive: true, role: { $in: ['super_admin', 'admin'] } }, { legacyImport: true, branches: branch }],
   })
-    .select('name employeeCode role')
+    .select('name employeeCode role isActive')
     .sort({ employeeCode: 1 });
   res.json({
-    items: users.map((u) => ({ code: u.employeeCode, name: u.name, role: u.role })),
+    items: users.map((u) => ({ code: u.employeeCode, name: u.name, role: u.role, migrated: !u.isActive })),
     me: await staffId(req.user),
   });
 }
@@ -1294,6 +1294,7 @@ export async function completeMember(req, res) {
     set[field] = value;
   };
 
+  if (given('husbandName')) { const x = asString(b.husbandName).replace(/\s+/g, ' '); if (!NAME_RE.test(x)) v.add('husbandName', 'Enter a valid name (letters only)'); else take('husbandName', 'Husband name', x); }
   if (given('occupation')) { const x = asString(b.occupation); if (!OCCUPATIONS.includes(x)) v.add('occupation', 'Select occupation'); else take('occupation', 'Occupation', x); }
   if (given('education')) { const x = asString(b.education); if (!EDUCATIONS.includes(x)) v.add('education', 'Select education'); else take('education', 'Education', x); }
   if (given('address')) { const x = asString(b.address); if (x.length < 5 || x.length > 300) v.add('address', 'Address must be 5–300 characters'); else take('address', 'Address', x); }

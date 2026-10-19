@@ -10,7 +10,7 @@ import { OtpVerify, PhotoField } from './NewBorrower.jsx';
 export default function CompleteDetails({ member, options, onClose, onSaved }) {
   const toast = useToast();
   const missing = new Set((member.missingDetails || []).map((d) => d.key));
-  const [form, setForm] = useState({ mobile: member.mobile || '', occupation: '', education: '', address: '', pincode: '', state: member.state || '', district: '', aadhaar: '', bankName: '', ifsc: '', accountNumber: '', memberPhoto: '', signaturePhoto: '', aadhaarPhoto: '' });
+  const [form, setForm] = useState({ mobile: member.mobile || '', husbandName: '', occupation: '', education: '', address: '', pincode: '', state: member.state || '', district: '', aadhaar: '', bankName: '', ifsc: '', accountNumber: '', memberPhoto: '', signaturePhoto: '', aadhaarPhoto: '' });
   const [challengeId, setChallengeId] = useState('');
   const [districts, setDistricts] = useState([]);
   const [errors, setErrors] = useState({});
@@ -60,6 +60,11 @@ export default function CompleteDetails({ member, options, onClose, onSaved }) {
             <FormField id="cmobile" label="Mobile number" required error={errors.mobile} hint={member.mobile ? "Number from the old system. Send the OTP to verify it (or correct it first). After that only an admin can change it." : "Verified with an OTP; after that only an admin can change it"}>
               <input id="cmobile" inputMode="numeric" value={form.mobile} onChange={digits('mobile', 10)} disabled={Boolean(challengeId)} />
               <OtpVerify id="cmobile" label="Mobile number" value={form.mobile} valid={mobileValid} purpose="mobile" mobile={form.mobile} verified={Boolean(challengeId)} onVerified={setChallengeId} onReset={resetOtp} forMember exceptMember={member.id} />
+            </FormField>
+          )}
+          {missing.has('husbandName') && (
+            <FormField id="chusband" label="Husband name" required error={errors.husbandName}>
+              <input id="chusband" value={form.husbandName} maxLength={80} onChange={set('husbandName')} />
             </FormField>
           )}
           {missing.has('occupation') && (

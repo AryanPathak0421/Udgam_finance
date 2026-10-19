@@ -247,7 +247,7 @@ export async function groups(req, res) {
 }
 
 // What a member needs before a loan can be asked for.
-const MEMBER_PICK = 'code name isBlocked kycKeys kycDocs nominee.name nominee.sameAsGuarantor guarantor.name guarantor.deceasedOn legacyImport mobile mobileVerifiedAt occupation education address pincode district aadhaar bankName ifsc accountNumber';
+const MEMBER_PICK = 'code name isBlocked kycKeys kycDocs nominee.name nominee.sameAsGuarantor guarantor.name guarantor.deceasedOn legacyImport mobile mobileVerifiedAt husbandName occupation education address pincode district aadhaar bankName ifsc accountNumber';
 export function notReady(m) {
   const out = [];
   // a member imported from the old system has to complete the details that were missing (mobile verified with an OTP, bank, photos ...)
@@ -825,7 +825,7 @@ export function createRequisition(kind) {
     // Employee: chosen on the web form, otherwise the signed-in employee.
     let employeeCode = asString(b.employeeCode).toUpperCase();
     if (employeeCode) {
-      const emp = await User.findOne({ employeeCode, isActive: true }).select('role branches');
+      const emp = await User.findOne({ employeeCode, $or: [{ isActive: true }, { legacyImport: true }] }).select('role branches'); // an employee from the old system can be named too
       const ok = emp && (['super_admin', 'admin'].includes(emp.role) || (emp.branches || []).some((x) => String(x) === branchId));
       if (!ok) throw invalid({ employeeCode: 'Select a valid employee of this branch' });
     } else {

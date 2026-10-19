@@ -25,6 +25,8 @@ const userSchema = new mongoose.Schema(
     rank: { type: mongoose.Schema.Types.ObjectId, ref: 'Rank' },
     branches: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Branch' }],
     isActive: { type: Boolean, default: true },
+    // Brought over from the old system: no login yet, but groups and records carry this staff ID.
+    legacyImport: { type: Boolean, default: false },
     failedAttempts: { type: Number, default: 0 },
     lockUntil: { type: Date },
     lastLoginAt: { type: Date },
