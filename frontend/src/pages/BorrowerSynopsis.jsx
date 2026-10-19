@@ -280,11 +280,11 @@ export default function BorrowerSynopsis() {
         ) : (
           <div className="table-wrap">
             <table className="data-table">
-              <thead><tr><th>Form ID</th><th>Date</th><th>Type</th><th>Scheme</th><th className="num">Amount</th><th className="num">Cash in hand</th><th className="num">EMI</th><th>Term</th><th>Status</th><th>Details</th></tr></thead>
+              <thead><tr><th>Loan ID</th><th>Date</th><th>Type</th><th>Scheme</th><th className="num">Amount</th><th className="num">Cash in hand</th><th className="num">EMI</th><th>Term</th><th>Status</th><th>Details</th></tr></thead>
               <tbody>
                 {loans.map((l) => (
                   <tr key={l.id}>
-                    <td data-label="Form ID"><strong>{l.formId}</strong></td>
+                    <td data-label="Loan ID">{l.loanId ? <strong>{l.loanId}</strong> : <span className="muted">Not paid out yet</span>}<div className="muted small">Form {l.formId}</div></td>
                     <td data-label="Date">{fmtDate(l.loanDate)}</td>
                     <td data-label="Type">{KIND[l.kind] || l.kind}</td>
                     <td data-label="Scheme">{l.scheme}</td>

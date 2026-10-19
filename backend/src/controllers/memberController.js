@@ -16,6 +16,7 @@ import { checkPanFormat, verifyPan, verifyBankAccount } from '../services/kycVer
 import { AuditLog } from '../models/AuditLog.js';
 import { Group } from '../models/Group.js';
 import { LoanRequisition } from '../models/LoanRequisition.js';
+import { LoanPayment } from '../models/LoanPayment.js';
 import { CivilCheck } from '../models/CivilCheck.js';
 import { missingDetails } from '../utils/memberDetails.js';
 
@@ -1042,10 +1043,13 @@ export async function synopsis(req, res) {
   const base = present(m, req.user, { detail: true });
   // Every loan requisition of the member (own loans, product loans, and the group loans the member is part of).
   const reqs = await LoanRequisition.find({ isDeleted: false, $or: [{ member: m._id }, { members: m._id }] }).sort({ createdAt: -1 });
+  // the Loan ID is given when the loan is paid out; until then the loan has only its form ID
+  const paidLoanIds = new Map((await LoanPayment.find({ requisition: { $in: reqs.map((r) => r._id) }, status: 'paid' }).select('requisition loanId').lean()).map((p) => [String(p.requisition), p.loanId || '']));
   const loans = reqs.map((r) => {
     const mine = (r.additionalProducts || []).filter((a) => String(a.member) === String(m._id));
     return {
       id: r._id,
+      loanId: paidLoanIds.get(String(r._id)) || '',
       formId: r.formId,
       kind: r.kind || 'personal',
       loanDate: r.loanDate,
