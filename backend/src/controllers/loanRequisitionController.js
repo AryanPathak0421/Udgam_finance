@@ -364,23 +364,36 @@ function additionalEmi(scheme, input, valuePaise, startDate) {
  * installments of the loan, so it uses the loan's mode and number of installments; the rate is the loan's, kept within the scheme's range.
  */
 async function productLoanEmi({ schemeId, valuePaise, mode, term, rate, loanDate, code }) {
-  if (!mongoose.isValidObjectId(String(schemeId || ''))) throw invalid({ additional: `Select the product loan scheme for ${code}` });
+  const who = code ? `${code}: ` : '';
+  if (!mongoose.isValidObjectId(String(schemeId || ''))) throw invalid({ additional: `Select the product loan scheme${code ? ` for ${code}` : ''}` });
   const scheme = await LoanScheme.findOne({ _id: schemeId, isDeleted: false });
-  if (!scheme || !scheme.isActive || !SCHEME_TYPES.product.includes(scheme.loanType)) throw invalid({ additional: `${code}: select an active product loan scheme` });
+  if (!scheme || !scheme.isActive || !SCHEME_TYPES.product.includes(scheme.loanType)) throw invalid({ additional: `${who}select an active product loan scheme` });
+  // The scheme decides the amount range and the rate range. The product is repaid with the installments of the loan, so its mode and
+  // number of installments are the loan's (a product scheme made for other modes can still be used for it).
+  if (valuePaise < scheme.amountMinPaise || valuePaise > scheme.amountMaxPaise) {
+    throw invalid({ additional: `${who}${scheme.name} allows a product value of ₹${scheme.amountMinPaise / 100} to ₹${scheme.amountMaxPaise / 100}; this one is ₹${valuePaise / 100}` });
+  }
   const rateBp = Math.min(Math.max(Math.round(Number(rate) * 100), scheme.roiMinBp), scheme.roiMaxBp);
-  let ev;
+  let c;
   try {
-    ev = await evaluateLoan({ schemeId: String(scheme._id), amount: String(valuePaise / 100), rate: String(rateBp / 100), mode, term: Number(term), startDate: dateOnly(loanDate) });
+    c = calculateLoan({
+      principalPaise: valuePaise, annualRateBp: rateBp, calculationType: scheme.calculationType, emiType: scheme.calculationType === 'flat' ? 'equal' : scheme.emiType,
+      mode, term: Number(term), startDate: loanDate ? new Date(loanDate) : new Date(), roundingPaise: (scheme.installmentRounding ?? 1) * 100,
+    });
   } catch (err) {
-    if (err.errors) throw invalid({ additional: `${code}: ${Object.values(err.errors)[0]}` });
+    if (err instanceof RangeError) throw invalid({ additional: `${who}${err.message}` });
     throw err;
   }
-  return {
-    scheme, rateBp,
-    installmentPaise: Math.round(ev.summary.installmentAmount * 100),
-    totalInterestPaise: Math.round(ev.summary.totalInterest * 100),
-    totalPayablePaise: Math.round(ev.summary.totalPayable * 100),
-  };
+  return { scheme, rateBp, installmentPaise: c.installmentAmount, totalInterestPaise: c.totalInterest, totalPayablePaise: c.totalPayable, installments: c.installments };
+}
+
+/** The EMI of a product taken on top of a loan under a product loan scheme (for the screens, before anything is saved). */
+export async function productLoanPreview(req, res) {
+  const b = req.body || {};
+  const valuePaise = Math.round(Number(b.value) * 100);
+  if (!Number.isFinite(valuePaise) || valuePaise < 100) throw invalid({ additional: 'Choose the product first' });
+  const e = await productLoanEmi({ schemeId: b.schemeId, valuePaise, mode: String(b.mode || ''), term: b.term, rate: b.rate, loanDate: null, code: '' });
+  res.json({ schemeName: e.scheme.name, rate: e.rateBp / 100, installments: e.installments, installmentAmount: e.installmentPaise / 100, totalInterest: e.totalInterestPaise / 100, totalPayable: e.totalPayablePaise / 100 });
 }
 
 // Cash in hand = loan amount - security - processing fee - insurance fee.

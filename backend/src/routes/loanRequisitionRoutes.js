@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler as h } from '../utils/http.js';
 import {
-  schemes, borrowers, borrowerDetail, groups, groupDetail, preview, createRequisition, listRequisitions, getRequisition, deleteRequisition, gstCheck, stockProducts, verificationStatus, borrowerOtp, addGroupTopUp, approveRequisition, rejectRequisition, unapproveRequisition, createGroupRequisition, approveBatch, rejectBatch,
+  schemes, borrowers, borrowerDetail, groups, groupDetail, preview, productLoanPreview, createRequisition, listRequisitions, getRequisition, deleteRequisition, gstCheck, stockProducts, verificationStatus, borrowerOtp, addGroupTopUp, approveRequisition, rejectRequisition, unapproveRequisition, createGroupRequisition, approveBatch, rejectBatch,
 } from '../controllers/loanRequisitionController.js';
 
 const router = Router();
@@ -21,6 +21,7 @@ router.get('/loan-requisitions/verification/:memberId', requireAuth, requireRole
 router.get('/loan-requisitions/gst/:gstin', requireAuth, requireRole(...CREATE), h(gstCheck));
 router.post('/loan-requisitions/borrower-otp', requireAuth, requireRole(...CREATE), h(borrowerOtp));
 router.post('/loan-requisitions/preview', requireAuth, requireRole(...CREATE), h(preview));
+router.post('/loan-requisitions/product-preview', requireAuth, requireRole(...CREATE), h(productLoanPreview));
 router.get('/loan-requisitions', requireAuth, requireRole(...READ), h(listRequisitions));
 
 // One endpoint per kind of requisition.

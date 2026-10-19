@@ -11,7 +11,7 @@ import { borrowerState, receive, startOfToday } from './emiController.js';
 import { OtpChallenge } from '../models/OtpChallenge.js';
 import { issueOtp, hashOtp } from '../services/otpChallenges.js';
 import { sendSms } from '../services/sms.js';
-import { maskMobile } from './groupController.js';
+import { maskMobile, showMobile } from './groupController.js';
 import crypto from 'crypto';
 
 const invalid = (errors) => new HttpError(422, 'Please correct the highlighted fields', errors);
@@ -164,7 +164,7 @@ export async function memberSavings(req, res) {
     loans.push({ id: l._id, loanId: l.loanId || '', formId: l.formId, schemeName: l.schemeName, outstanding: money(st.totals.outstanding), due: money(st.totals.due), open: st.left.length > 0, settled: Boolean(st.settled) });
   }
   res.json({
-    member: { id: m._id, code: m.code, name: m.name, mobile: m.mobile, isBlocked: Boolean(m.isBlocked), branch: m.branch ? { id: m.branch._id, code: m.branch.code, name: m.branch.name } : null },
+    member: { id: m._id, code: m.code, name: m.name, mobile: m.mobile ? showMobile(req.user, m.mobile) : '', hasMobile: Boolean(m.mobile), isBlocked: Boolean(m.isBlocked), branch: m.branch ? { id: m.branch._id, code: m.branch.code, name: m.branch.name } : null },
     deposited: money(b.depositedPaise), withdrawn: money(b.withdrawnPaise), pending: money(b.pendingPaise), available: money(b.availablePaise), ...(await (async () => {
       const wi = await withdrawInfo(req, m._id, b);
       return { withdrawable: money(wi.withdrawable), runningSecurity: money(wi.pos.running), closedSecurity: money(wi.closedRemaining), interestRate: SECURITY_INTEREST_PERCENT, interestEarned: money(wi.pos.interestAll), interestWithdrawable: money(wi.interestRemaining) };
@@ -182,6 +182,7 @@ export async function requestWithdrawal(req, res) {
   if (!['withdraw', 'adjust'].includes(kind)) throw invalid({ kind: 'Choose Adjust EMI or Withdraw' });
   const amountPaise = toMinor(typeof b.amount === 'number' ? String(b.amount) : asString(b.amount));
   if (amountPaise === null || amountPaise < 100) throw invalid({ amount: 'Enter the amount (₹1 or more, up to 2 decimals)' });
+  if (kind === 'withdraw' && !m.mobile) throw new HttpError(409, "This member has no mobile number, so the OTP of a withdrawal cannot be sent. Add the mobile number under Member Details first (an adjustment against an EMI needs no OTP).", { amount: 'The member has no mobile number' });
   const bal = await balanceOf(req, m._id);
   if (amountPaise > bal.availablePaise) throw invalid({ amount: `Only ${money(bal.availablePaise)} of the security is available${bal.pendingPaise ? ` (${money(bal.pendingPaise)} is waiting for approval)` : ''}` });
   const data = {};
@@ -272,7 +273,8 @@ export async function withdrawalList(req, res) {
       infoOf.set(String(w._id), info);
     }
   }
-  res.json({ items: items.map((w) => presentWithdrawal(w, infoOf.get(String(w._id)))), page, limit, total, totalPages: Math.max(Math.ceil(total / limit), 1), pending, awaitingOtp, totalAmount: money(sum.reduce((s, x) => s + x.amountPaise, 0)) });
+  const mobiles = new Map((await Member.find({ _id: { $in: items.map((w) => w.member) } }).select('mobile').lean()).map((x) => [String(x._id), x.mobile || '']));
+  res.json({ items: items.map((w) => ({ ...presentWithdrawal(w, infoOf.get(String(w._id))), memberMobile: mobiles.get(String(w.member)) ? showMobile(req.user, mobiles.get(String(w.member))) : '' })), page, limit, total, totalPages: Math.max(Math.ceil(total / limit), 1), pending, awaitingOtp, totalAmount: money(sum.reduce((s, x) => s + x.amountPaise, 0)) });
 }
 
 async function loadPending(req) {

@@ -286,6 +286,8 @@ export default function GroupLoanRequisition() {
           <div className="panel" style={{ padding: 18, marginBottom: 14 }}>
             <h3 className="section-title">Group detail — {g.code} {g.name}</h3>
             <DetailList items={[['Group leader', g.leaderName], ['Employee', g.employeeCode ? `${g.employeeCode}${g.employeeName ? ` — ${g.employeeName}` : ''}` : ''], ['Members', String(g.memberCount)]]} />
+            {schemes.length > 0 && usable.length === 0 && <div className="notice warn" style={{ marginTop: 10 }}>No active group loan scheme allows {meeting} loans, so no scheme can be chosen for this {meeting} group. Add one under Loan Scheme (type: Group loan, repayment mode: {meeting}).</div>}
+            {schemes.length === 0 && <div className="notice warn" style={{ marginTop: 10 }}>There is no active group loan scheme. Add one under Loan Scheme (type: Group loan).</div>}
             {detail.issues.length > 0 && <div className="notice warn" style={{ marginTop: 10 }}>{detail.issues.map((i) => <div key={i}>{i}</div>)}</div>}
             {errors.entries && <div className="field-error" role="alert">{errors.entries}</div>}
             <div className="muted small" style={{ margin: '10px 0 6px' }}>

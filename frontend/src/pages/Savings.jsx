@@ -233,7 +233,7 @@ function WithdrawalTable({ approval }) {
                     <tr key={w.id}>
                       <td data-label="Request"><strong>{w.receiptNo}</strong></td>
                       <td data-label="Date">{dmy(w.requestedOn)}{w.requestedByCode && <div className="muted small">by {w.requestedByCode}</div>}</td>
-                      <td data-label="Member"><strong>{w.memberCode}</strong> {w.memberName}</td>
+                      <td data-label="Member"><strong>{w.memberCode}</strong> {w.memberName}<div className="muted small">{w.memberMobile ? `Mobile ${w.memberMobile}` : 'No mobile number'}</div></td>
                       <td data-label="Branch">{w.branch?.name || '—'}</td>
                       <td data-label="Type">
                         {KIND_LABEL[w.kind]}
@@ -284,7 +284,7 @@ function WithdrawalTable({ approval }) {
       {otpFor && (
         <Modal open title={`Verify OTP — ${otpFor.receiptNo}`} onClose={() => setOtpFor(null)} busy={Boolean(busy)}
           footer={<><button className="btn" onClick={() => setOtpFor(null)}>Close</button><button className="btn primary" onClick={verifyOtp} disabled={Boolean(busy)}>{otpFor.kind === 'adjust' ? 'Verify and adjust the EMI' : 'Verify and release the security'}</button></>}>
-          <p style={{ marginTop: 0 }}>{otpFor.memberCode} {otpFor.memberName} · {KIND_LABEL[otpFor.kind]} · {otpFor.kind === 'withdraw' && otpFor.interest > 0 ? <>security {inr(otpFor.amount)} + interest {inr(otpFor.interest)} = <strong>{inr(otpFor.total)}</strong></> : <strong>{inr(otpFor.amount)}</strong>}. Ask the member for the 6-digit OTP sent to the registered phone.</p>
+          <p style={{ marginTop: 0 }}>{otpFor.memberCode} {otpFor.memberName} · {KIND_LABEL[otpFor.kind]} · {otpFor.kind === 'withdraw' && otpFor.interest > 0 ? <>security {inr(otpFor.amount)} + interest {inr(otpFor.interest)} = <strong>{inr(otpFor.total)}</strong></> : <strong>{inr(otpFor.amount)}</strong>}. Ask the member for the 6-digit OTP sent to {otpFor.memberMobile ? <strong>{otpFor.memberMobile}</strong> : 'the registered phone'}.</p>
           <FormField id="otpv" label="OTP" required error={otpError}>
             <input id="otpv" inputMode="numeric" maxLength={6} autoFocus value={otpValue} onChange={(e) => { setOtpValue(e.target.value.replace(/\D/g, '')); setOtpError(''); }} />
           </FormField>
@@ -343,7 +343,7 @@ export function SecurityWithdraw() {
       setMember(d);
       const open = d.loans.filter((l) => l.open && !l.settled);
       setForm({ amount: '', loan: open[0]?.id || '', payMode: 'cash', reference: '', remark: '' });
-      setKind(open.length ? 'adjust' : d.withdrawable >= 1 ? 'withdraw' : 'adjust');
+      setKind(open.length ? 'adjust' : d.withdrawable >= 1 && d.member.hasMobile ? 'withdraw' : 'adjust');
       setErrors({});
     } catch (err) {
       setError(err.message);
@@ -409,6 +409,7 @@ export function SecurityWithdraw() {
           <div style={{ marginBottom: 10 }}><button className="btn" onClick={() => setMember(null)}>← Search another member</button></div>
           <div className="panel" style={{ padding: 16, marginBottom: 14 }}>
             <h3 className="section-title">{member.member.code} — {member.member.name} {member.member.isBlocked && <span className="badge danger">Blocked</span>}</h3>
+            <div className="small" style={{ marginBottom: 8 }}>{member.member.hasMobile ? <>Mobile <strong>{member.member.mobile}</strong> <span className="muted">(the OTP of a withdrawal goes to this number)</span></> : <span className="field-error">No mobile number. A withdrawal needs the member's OTP, so add the mobile number under Member Details first. Adjusting an EMI needs no OTP.</span>}</div>
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
               <span className="badge grey">Security deposited {inr(member.deposited)}</span>
               <span className="badge grey">Withdrawn / adjusted {inr(member.withdrawn)}</span>
@@ -445,7 +446,7 @@ export function SecurityWithdraw() {
               <>
                 <div style={{ display: 'flex', gap: 18, marginBottom: 10, flexWrap: 'wrap' }} role="radiogroup" aria-label="Choose one">
                   <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}><input type="radio" name="kind" checked={kind === 'adjust'} onChange={() => setKind('adjust')} disabled={!openLoans.length} /> Adjust EMI</label>
-                  <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}><input type="radio" name="kind" checked={kind === 'withdraw'} onChange={() => setKind('withdraw')} disabled={member.withdrawable < 1} /> Withdrawal</label>
+                  <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}><input type="radio" name="kind" checked={kind === 'withdraw'} onChange={() => setKind('withdraw')} disabled={member.withdrawable < 1 || !member.member.hasMobile} /> Withdrawal</label>
                 </div>
                 <div className="form-grid">
                   {kind === 'adjust' && (
