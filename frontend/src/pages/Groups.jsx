@@ -9,7 +9,7 @@ import { EmptyState, ErrorState, PageHeader, Spinner, StatusBadge } from '../com
 import { useToast } from '../components/ui/Toast.jsx';
 import useDebounce from '../hooks/useDebounce.js';
 import { useNavigate } from 'react-router-dom';
-import GroupFields, { MEETING_LABEL, collectionLabel, formatTime, todayISO, validateGroup } from '../components/GroupFields.jsx';
+import GroupFields, { MEETING_LABEL, WEEKDAYS, collectionLabel, formatTime, todayISO, validateGroup } from '../components/GroupFields.jsx';
 
 const LIMIT = 25;
 const ADMINS = ['super_admin', 'admin'];
@@ -72,6 +72,68 @@ function GroupForm({ item, branches, isAdmin, onClose, onSaved }) {
 }
 
 // Interim input of how many loans the group had disbursed each month (until the Loans module exists).
+// The branch changes only the meeting type, the collection day and the meeting time of a group.
+function ScheduleDialog({ item, onClose, onSaved }) {
+  const toast = useToast();
+  const [form, setForm] = useState({ meetingType: item.meetingType || '', collectionDay: item.collectionDay ? String(item.collectionDay) : '', meetingTime: item.meetingTime || '' });
+  const [errors, setErrors] = useState({});
+  const [saving, setSaving] = useState(false);
+  const set = (key) => (e) => {
+    const value = e.target.value;
+    setForm((f) => ({ ...f, [key]: value, ...(key === 'meetingType' ? { collectionDay: '' } : {}) }));
+    setErrors((x) => ({ ...x, [key]: undefined }));
+  };
+
+  async function submit(e) {
+    e.preventDefault();
+    const found = {};
+    if (!form.meetingType) found.meetingType = 'Select the meeting type';
+    if ((form.meetingType === 'weekly' || form.meetingType === 'monthly') && !form.collectionDay) found.collectionDay = form.meetingType === 'weekly' ? 'Select the collection day' : 'Select the day of the month';
+    if (!/^\d{2}:\d{2}$/.test(form.meetingTime)) found.meetingTime = 'Enter the meeting time';
+    setErrors(found);
+    if (Object.keys(found).length) return;
+    setSaving(true);
+    try {
+      await api.groups.updateSchedule(item.id, form);
+      toast.success('Meeting schedule changed');
+      onSaved();
+    } catch (err) {
+      setErrors(err.errors || {});
+      toast.error(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal open title={`Meeting — ${item.code} ${item.name}`} onClose={onClose} busy={saving}
+      footer={<><button className="btn" onClick={onClose} disabled={saving}>Cancel</button><button className="btn primary" form="schedule-form" type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button></>}>
+      <form id="schedule-form" onSubmit={submit} noValidate>
+        <p className="muted small" style={{ marginTop: 0 }}>The branch can change only the meeting type, the collection day and the meeting time. Other details of the group are changed by an admin.</p>
+        <div className="form-grid">
+          <FormField id="smeetingType" label="Meeting type" required error={errors.meetingType}>
+            <select id="smeetingType" value={form.meetingType} onChange={set('meetingType')}>
+              <option value="">Select</option>
+              {Object.entries(MEETING_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+            </select>
+          </FormField>
+          <FormField id="scollectionDay" label="Meeting day" required={form.meetingType === 'weekly' || form.meetingType === 'monthly'} error={errors.collectionDay} hint={form.meetingType === 'daily' ? 'Collection happens every day' : !form.meetingType ? 'Select the meeting type first' : undefined}>
+            <select id="scollectionDay" value={form.collectionDay} onChange={set('collectionDay')} disabled={form.meetingType !== 'weekly' && form.meetingType !== 'monthly'}>
+              <option value="">{form.meetingType === 'daily' ? 'Every day' : 'Select day'}</option>
+              {form.meetingType === 'weekly' && WEEKDAYS.slice(1).map((d, i) => <option key={d} value={i + 1}>{d}</option>)}
+              {form.meetingType === 'monthly' && Array.from({ length: 28 }, (_, i) => <option key={i + 1} value={i + 1}>Day {i + 1}</option>)}
+            </select>
+          </FormField>
+          <FormField id="smeetingTime" label="Meeting time" required error={errors.meetingTime}>
+            <input id="smeetingTime" type="time" value={form.meetingTime} onChange={set('meetingTime')} />
+          </FormField>
+        </div>
+        <p className="muted small">A group that meets daily can take daily schemes only, a weekly group weekly ones, a monthly group monthly ones. Loans that are running keep their own repayment mode.</p>
+      </form>
+    </Modal>
+  );
+}
+
 function DisbursementDialog({ group, canEdit, onClose }) {
   const toast = useToast();
   const [items, setItems] = useState([]);
@@ -285,6 +347,7 @@ export default function Groups() {
                         <div className="row-actions">
                           {isAdmin && <button className="btn sm" onClick={() => setDialog({ type: 'loans', item: g })}>Disbursements</button>}
                           {canEdit && <button className="btn sm" onClick={() => setDialog({ type: 'form', item: g })}>Edit</button>}
+                          {!canEdit && canManage && <button className="btn sm" onClick={() => setDialog({ type: 'schedule', item: g })}>Change meeting</button>}
                           {canEdit && <button className="btn sm" onClick={() => setDialog({ type: 'status', item: g })}>{g.isActive ? 'Deactivate' : 'Activate'}</button>}
                           {canDelete && <button className="btn sm danger-outline" onClick={() => setDialog({ type: 'delete', item: g })}>Delete</button>}
                         </div>
@@ -302,6 +365,7 @@ export default function Groups() {
       {dialog?.type === 'form' && dialog.item && (
         <GroupForm item={dialog.item} branches={branches} isAdmin={isAdmin} onClose={close} onSaved={() => { close(); load(); }} />
       )}
+      {dialog?.type === 'schedule' && dialog.item && <ScheduleDialog item={dialog.item} onClose={close} onSaved={() => { close(); load(); }} />}
       {dialog?.type === 'loans' && isAdmin && <DisbursementDialog group={dialog.item} canEdit onClose={close} />}
 
       <ConfirmDialog

@@ -10,6 +10,16 @@ const inr = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { minimumFractio
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-IN') : '—');
 const fmtTime = (d) => (d ? new Date(d).toLocaleString('en-IN') : '—');
 const TYPE_LABEL = { group: 'Group', loan: 'Loan', member: 'Member' };
+// what can be transferred: the groups of an employee, or all his running loans, or only one kind of loan
+const KINDS = [
+  { value: 'group', label: 'Group', type: 'group' },
+  { value: 'loan', label: 'Loan (all kinds)', type: 'loan' },
+  { value: 'loan:personal', label: 'Personal loan', type: 'loan', loanType: 'personal' },
+  { value: 'loan:business', label: 'Business loan', type: 'loan', loanType: 'business' },
+  { value: 'loan:msme', label: 'MSME loan', type: 'loan', loanType: 'msme' },
+  { value: 'loan:product', label: 'Product loan', type: 'loan', loanType: 'product' },
+  { value: 'loan:group', label: 'Group loan', type: 'loan', loanType: 'group' },
+];
 
 export function TransferHistory({ type, refreshKey }) {
   const [rows, setRows] = useState(null);
@@ -47,7 +57,9 @@ export function TransferHistory({ type, refreshKey }) {
 export default function GroupTransfer() {
   const toast = useToast();
   const [employees, setEmployees] = useState([]);
-  const [type, setType] = useState('group');
+  const [kindKey, setKindKey] = useState('group');
+  const kindInfo = KINDS.find((k) => k.value === kindKey) || KINDS[0];
+  const type = kindInfo.type;
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [search, setSearch] = useState('');
@@ -72,14 +84,14 @@ export default function GroupTransfer() {
     setLoading(true);
     setError('');
     try {
-      setData(await api.groupTransfer.items({ type, employee: from, q, all: showClosed && type === 'loan' ? '1' : undefined }));
+      setData(await api.groupTransfer.items({ type, employee: from, q, loanType: kindInfo.loanType, all: showClosed && type === 'loan' ? '1' : undefined }));
       setPicked(new Set());
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [type, from, q, showClosed]);
+  }, [type, kindInfo.loanType, from, q, showClosed]);
   useEffect(() => {
     load();
   }, [load]);
@@ -120,9 +132,8 @@ export default function GroupTransfer() {
       <div className="panel">
         <div className="form-grid">
           <FormField id="ttype" label="Transfer type" required>
-            <select id="ttype" value={type} onChange={(e) => { setType(e.target.value); setPicked(new Set()); setFormError(''); }}>
-              <option value="group">Group</option>
-              <option value="loan">Loan</option>
+            <select id="ttype" value={kindKey} onChange={(e) => { setKindKey(e.target.value); setPicked(new Set()); setFormError(''); }}>
+              {KINDS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
             </select>
           </FormField>
           <FormField id="tfrom" label="From employee" required>
@@ -138,7 +149,7 @@ export default function GroupTransfer() {
             <div className="toolbar" style={{ marginTop: 8 }}>
               <input type="search" className="toolbar-search" placeholder={type === 'group' ? 'Search group code or name' : 'Search Loan ID, form ID, group or borrower'} value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search" />
               {type === 'loan' && <label className="small" style={{ display: 'flex', gap: 6, alignItems: 'center' }}><input type="checkbox" checked={showClosed} onChange={(e) => setShowClosed(e.target.checked)} /> Also show closed loans</label>}
-              {data && <span className="muted small">{data.total} {type === 'group' ? 'group' : 'loan'}{data.total === 1 ? '' : 's'}{type === 'loan' && !showClosed ? ' running' : ''}{data.capped ? ' (first 1,000)' : ''}</span>}
+              {data && <span className="muted small">{data.total} {type === 'group' ? 'group' : `${kindInfo.label.replace(' (all kinds)', '').toLowerCase()}`}{data.total === 1 ? '' : 's'}{type === 'loan' && !showClosed ? ' running' : ''}{data.capped ? ' (first 1,000)' : ''}</span>}
             </div>
 
             {loading && !data ? <Spinner label="Loading…" /> : error ? <ErrorState message={error} onRetry={load} /> : !items.length ? (

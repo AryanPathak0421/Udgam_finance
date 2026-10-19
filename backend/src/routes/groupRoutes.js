@@ -9,6 +9,7 @@ import {
   updateGroup,
   setGroupStatus,
   deleteGroup,
+  updateSchedule,
   listDisbursements,
   saveDisbursement,
   getGroup,
@@ -39,6 +40,7 @@ router.post('/groups/:id/members', requireAuth, requireRole(...MANAGE), h(addGro
 router.delete('/groups/:id/members/:memberId', requireAuth, requireRole(...MANAGE), h(removeGroupMember));
 router.post('/groups', requireAuth, requireRole(...MANAGE), h(createGroup));
 router.put('/groups/:id', requireAuth, requireRole(...ADMIN), h(updateGroup));
+router.put('/groups/:id/schedule', requireAuth, requireRole(...MANAGE), h(updateSchedule));
 router.patch('/groups/:id/status', requireAuth, requireRole(...ADMIN), h(setGroupStatus));
 router.delete('/groups/:id', requireAuth, requireRole(...ADMIN), h(deleteGroup));
 router.get('/groups/:id/disbursements', requireAuth, requireRole(...ADMIN), h(listDisbursements));

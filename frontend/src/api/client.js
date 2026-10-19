@@ -55,6 +55,7 @@ export const api = {
     removeMember: (id, memberId) => request(`/groups/${id}/members/${memberId}`, { method: 'DELETE' }),
     create: (data) => request('/groups', { method: 'POST', body: data }),
     update: (id, data) => request(`/groups/${id}`, { method: 'PUT', body: data }),
+    updateSchedule: (id, data) => request(`/groups/${id}/schedule`, { method: 'PUT', body: data }),
     setStatus: (id, isActive) => request(`/groups/${id}/status`, { method: 'PATCH', body: { isActive } }),
     remove: (id) => request(`/groups/${id}`, { method: 'DELETE' }),
     disbursements: (id) => request(`/groups/${id}/disbursements`),

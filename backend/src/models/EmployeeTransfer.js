@@ -8,7 +8,7 @@ const transferSchema = new mongoose.Schema(
     toEmployee: { type: String },
     fromGroup: { type: String }, // member transfer: group codes
     toGroup: { type: String },
-    items: [{ _id: false, id: String, label: String }], // what was moved, as it was named at the time
+    items: [{ _id: false, id: String, label: String, loans: [String] }], // member transfer: the loans that moved with each member // what was moved, as it was named at the time
     count: { type: Number, required: true },
     loansMoved: { type: Number, default: 0 },
     branch: { type: mongoose.Schema.Types.ObjectId, ref: 'Branch' },

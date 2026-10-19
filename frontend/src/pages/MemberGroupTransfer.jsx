@@ -67,7 +67,7 @@ export default function MemberGroupTransfer() {
     setError('');
     try {
       const r = await api.groupTransfer.transferMembers({ fromGroup: fromId, toGroup: toId, memberIds: [...picked] });
-      toast.success(`${r.moved} member${r.moved === 1 ? '' : 's'} moved from ${r.from.code} to ${r.to.code}`);
+      toast.success(`${r.moved} member${r.moved === 1 ? '' : 's'} moved from ${r.from.code} to ${r.to.code}${r.loansMoved ? ` (with ${r.loansMoved} running loan${r.loansMoved === 1 ? '' : 's'})` : ''}`);
       setConfirm(false);
       setToId('');
       setRefreshKey((k) => k + 1);
@@ -82,7 +82,7 @@ export default function MemberGroupTransfer() {
 
   return (
     <>
-      <PageHeader title="Member Group Transfer" description="Move members from one group to another group of the same branch. A member whose loan of the group is still running (or applied for and not paid out yet) stays until that loan is finished." />
+      <PageHeader title="Member Group Transfer" description="Move members from one group to another group of the same branch. A member whose loan is running moves with it: the loan, its EMI collection and its record go to the new group. The move is shown in the member's Borrower Synopsis. Only a member whose loan is applied for and not paid out yet has to wait." />
       <div className="panel">
         <div className="form-grid">
           <FormField id="mtype" label="Transfer type"><input id="mtype" value="Group" disabled readOnly /></FormField>
@@ -105,7 +105,7 @@ export default function MemberGroupTransfer() {
                     <tr key={m.id} style={m.reason ? { opacity: 0.6 } : undefined}>
                       <td><input type="checkbox" aria-label={`Select ${m.code}`} checked={picked.has(m.id)} disabled={Boolean(m.reason)} onChange={() => toggle(m.id)} /></td>
                       <td data-label="Member"><strong>{m.code}</strong> {m.name}</td>
-                      <td data-label="Can move?">{m.reason ? <span className="muted small">{m.reason}</span> : <span className="badge green">Yes</span>}</td>
+                      <td data-label="Can move?">{m.reason ? <span className="muted small">{m.reason}</span> : <><span className="badge green">Yes</span>{m.runningLoan && <span className="muted small" style={{ marginLeft: 8 }}>running loan moves with the member</span>}</>}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -133,7 +133,7 @@ export default function MemberGroupTransfer() {
       <ConfirmDialog
         open={confirm}
         title="Move members to another group?"
-        message={`${picked.size} member${picked.size === 1 ? '' : 's'} of ${members?.group?.code || ''} will be moved to ${target ? `${target.code} — ${target.name}` : ''}.`}
+        message={`${picked.size} member${picked.size === 1 ? '' : 's'} of ${members?.group?.code || ''} will be moved to ${target ? `${target.code} — ${target.name}` : ''}${(members?.items || []).filter((m) => picked.has(m.id) && m.runningLoan).length ? `, together with ${(members?.items || []).filter((m) => picked.has(m.id) && m.runningLoan).length} running loan(s)` : ''}.`}
         confirmLabel="Move"
         loading={busy}
         onConfirm={submit}

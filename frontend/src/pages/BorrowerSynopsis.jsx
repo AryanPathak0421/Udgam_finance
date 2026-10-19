@@ -128,7 +128,7 @@ export default function BorrowerSynopsis() {
     );
   }
 
-  const { member: m, kyc, blockHistory, timeline, editHistory = [], groups = [], loans = [], civilChecks = [] } = data;
+  const { member: m, kyc, blockHistory, timeline, editHistory = [], groups = [], groupTransfers = [], loans = [], civilChecks = [] } = data;
   const inr = (n) => (n === null || n === undefined ? '—' : `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
   const KIND = { personal: 'Personal', group: 'Group', business: 'Business / MSME', product: 'Product' };
 
@@ -273,6 +273,27 @@ export default function BorrowerSynopsis() {
           </div>
         )}
       </Section>
+
+      {groupTransfers.length > 0 && (
+        <Section title={`Group transfers (${groupTransfers.length})`}>
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead><tr><th>Date</th><th>From group</th><th>To group</th><th>Loans moved with the member</th><th>By</th></tr></thead>
+              <tbody>
+                {groupTransfers.map((t) => (
+                  <tr key={t.id}>
+                    <td data-label="Date">{fmtTime(t.at)}</td>
+                    <td data-label="From">{t.from}</td>
+                    <td data-label="To"><strong>{t.to}</strong></td>
+                    <td data-label="Loans">{t.loans.length ? t.loans.join(', ') : <span className="muted">none</span>}</td>
+                    <td data-label="By">{t.by || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Section>
+      )}
 
       <Section title={`Loan record (${loans.length})`}>
         {loans.length === 0 ? (

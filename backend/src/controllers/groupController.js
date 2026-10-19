@@ -154,7 +154,13 @@ async function readGroup(b, user, v, { current } = {}) {
     else if (!ok) v.add('employeeCode', 'This employee does not belong to the selected branch');
   }
 
-  // Meeting schedule.
+  Object.assign(out, readSchedule(b, v));
+  return out;
+}
+
+/** The meeting schedule of a group: type (daily / weekly / monthly), the collection day and the time. */
+function readSchedule(b, v) {
+  const out = {};
   out.meetingType = asString(b.meetingType);
   if (!MEETING_TYPES.includes(out.meetingType)) v.add('meetingType', 'Select daily, weekly or monthly');
   out.meetingTime = asString(b.meetingTime);
@@ -172,6 +178,22 @@ async function readGroup(b, user, v, { current } = {}) {
   }
   return out;
 }
+/** The branch changes only the meeting type, day and time of a group (everything else is for the admin). */
+export async function updateSchedule(req, res) {
+  const g = await loadGroup(req);
+  const v = createValidator();
+  const s = readSchedule(req.body || {}, v);
+  v.throwIfAny();
+  const before = { meetingType: g.meetingType, collectionDay: g.collectionDay, meetingTime: g.meetingTime };
+  g.meetingType = s.meetingType;
+  g.collectionDay = s.collectionDay;
+  g.meetingTime = s.meetingTime;
+  g.updatedBy = req.user._id;
+  await g.save();
+  await audit(req, { action: 'group.schedule', entity: 'Group', entityId: g._id, before, after: s });
+  res.json({ group: present(g, req.user) });
+}
+
 const isBlankDate = (x) => x === undefined || x === null || String(x).trim() === '';
 
 const duplicate = () => new HttpError(409, 'A group with this name already exists in the branch', { name: 'This group name is already used in the branch' });

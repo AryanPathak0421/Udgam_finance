@@ -17,6 +17,7 @@ import { AuditLog } from '../models/AuditLog.js';
 import { Group } from '../models/Group.js';
 import { LoanRequisition } from '../models/LoanRequisition.js';
 import { LoanPayment } from '../models/LoanPayment.js';
+import { EmployeeTransfer } from '../models/EmployeeTransfer.js';
 import { CivilCheck } from '../models/CivilCheck.js';
 import { missingDetails, guarantorGaps } from '../utils/memberDetails.js';
 
@@ -1074,6 +1075,10 @@ export async function synopsis(req, res) {
       employeeCode: r.employeeCode,
     };
   });
+  // the groups the member was moved between (Group Master → Member Group Transfer)
+  const groupTransfers = (await EmployeeTransfer.find({ type: 'member', 'items.id': String(m._id) }).sort({ createdAt: -1 }).limit(50)).map((t) => ({
+    id: t._id, at: t.createdAt, from: t.fromGroup, to: t.toGroup, by: t.byName || '', loans: t.items.find((i) => i.id === String(m._id))?.loans || [],
+  }));
   const civilChecks = (await CivilCheck.find({ member: m._id, isDeleted: false }).sort({ reportDate: -1, createdAt: -1 })).map((c) => ({
     score: c.score,
     bureau: c.bureau,
@@ -1082,6 +1087,7 @@ export async function synopsis(req, res) {
   res.json({
     member: base,
     loans,
+    groupTransfers,
     civilChecks,
     kyc: { status: kyc.status, total: kyc.total, approved: kyc.approved, rejected: kyc.rejected, pending: kyc.pending, documents: docs },
     blockHistory: (m.blockHistory || [])

@@ -5,6 +5,7 @@ import { User } from '../models/User.js';
 import { LoanPayment } from '../models/LoanPayment.js';
 import { LoanRequisition } from '../models/LoanRequisition.js';
 import { EmployeeTransfer } from '../models/EmployeeTransfer.js';
+import { EmiPayment } from '../models/EmiPayment.js';
 import { runningBorrowers } from '../services/loanRunning.js';
 import { branchFilter, isAdmin } from './groupController.js';
 import { asString, escapeRegex, HttpError } from '../utils/http.js';
@@ -62,7 +63,12 @@ export async function items(req, res) {
   }
 
   const filter = { status: 'paid', employeeCode: from, ...branchFilter(req.user) };
-  if (rx) filter.$or = [{ loanId: rx }, { formId: rx }, { 'group.code': rx }, { 'group.name': rx }, { 'lines.code': rx }, { 'lines.name': rx }];
+  const and = [];
+  if (rx) and.push({ $or: [{ loanId: rx }, { formId: rx }, { 'group.code': rx }, { 'group.name': rx }, { 'lines.code': rx }, { 'lines.name': rx }] });
+  // one kind of loan only: personal, business, msme, product or group
+  const kind = asString(req.query.loanType);
+  if (['personal', 'business', 'msme', 'product', 'group'].includes(kind)) and.push({ $or: [{ loanType: kind }, { loanType: { $exists: false }, kind }] });
+  if (and.length) filter.$and = and;
   const loans = await LoanPayment.find(filter).select('loanId formId kind loanType group branch paidOn totalAmountPaise lines.code lines.name lines.extraEmiPaise schedule.installmentPaise employeeCode').populate('branch', 'code name').sort({ paidOn: -1 }).limit(MAX_ITEMS).lean();
   const state = await runningBorrowers(loans);
   const all = req.query.all === '1';
@@ -160,8 +166,8 @@ async function loadGroupFor(req, id, label) {
 }
 
 /**
- * Why a member of the group cannot be moved: a loan of the group is still running for him (the loan belongs to the group's collection),
- * or a loan of the group is applied for and not paid out yet. Nothing else stops a member.
+ * What stands in the way of moving a member of the group: a loan of the group applied for and not paid out yet. A running loan does not stop him:
+ * the loan moves to the new group with him. `running` tells who has one.
  */
 async function holdBack(group) {
   const memberIds = group.members.map((x) => x.member);
@@ -186,7 +192,8 @@ export async function groupMembers(req, res) {
     items: members.map((m) => ({
       id: m._id, code: m.code, name: m.name,
       blocked: m.isBlocked,
-      reason: m.isBlocked ? 'Blocked' : running.has(m.code) ? 'A loan of this group is still running for this member' : pending.has(String(m._id)) ? 'A loan of this group is applied for and not paid out yet' : '',
+      reason: m.isBlocked ? 'Blocked' : pending.has(String(m._id)) ? 'A loan of this group is applied for and not paid out yet' : '',
+      runningLoan: running.has(m.code),
     })),
   });
 }
@@ -219,10 +226,29 @@ export async function transferMembers(req, res) {
   const problems = [];
   for (const m of members) {
     if (m.isBlocked) problems.push(`${m.code} is blocked`);
-    else if (running.has(m.code)) problems.push(`${m.code} still has a running loan of ${from.code}`);
     else if (pending.has(String(m._id))) problems.push(`${m.code} has a loan of ${from.code} that is not paid out yet`);
   }
   if (problems.length) throw new HttpError(409, problems.join('; '), { memberIds: problems.join('; ') });
+
+  // the loans of these members in the old group go with them: group, employee and the requisition they came from. A loan shared with other
+  // members cannot be split, so it is refused (a group loan is made for one member at a time, so this does not happen in practice).
+  const codes = members.map((m) => m.code);
+  const loans = await LoanPayment.find({ 'group.code': from.code, status: 'paid', 'lines.code': { $in: codes } }).select('loanId requisition lines.code').lean();
+  const shared = loans.filter((l) => l.lines.some((x) => !codes.includes(x.code)));
+  if (shared.length) throw new HttpError(409, `Loan ${shared[0].loanId} is shared with members who stay in ${from.code}, so it cannot be moved on its own`, { memberIds: 'A loan of these members is shared with other members of the group' });
+  const loanIdsOf = new Map(); // member code -> loan ids
+  for (const l of loans) for (const x of l.lines) { if (!loanIdsOf.has(x.code)) loanIdsOf.set(x.code, []); loanIdsOf.get(x.code).push(l.loanId || String(l._id)); }
+  let loansMoved = 0;
+  if (loans.length) {
+    const toEmployee = to.employeeCode || undefined;
+    await LoanPayment.updateMany({ _id: { $in: loans.map((l) => l._id) } }, { $set: { 'group.code': to.code, 'group.name': to.name, ...(toEmployee ? { employeeCode: toEmployee } : {}) } });
+    await LoanRequisition.updateMany(
+      { _id: { $in: loans.map((l) => l.requisition) } },
+      { $set: { group: to._id, 'groupInfo.code': to.code, 'groupInfo.name': to.name, 'groupInfo.leaderName': to.leaderName || '', 'groupInfo.employeeCode': to.employeeCode || '', 'groupInfo.meetingType': to.meetingType, ...(toEmployee ? { employeeCode: toEmployee } : {}) } }
+    );
+    await EmiPayment.updateMany({ loanPayment: { $in: loans.map((l) => l._id) } }, { $set: { group: `${to.code} — ${to.name}` } });
+    loansMoved = loans.length;
+  }
 
   // out of one group, into the other (a member is in one group only)
   const moveSet = new Set(ids);
@@ -232,9 +258,9 @@ export async function transferMembers(req, res) {
   to.updatedBy = req.user._id;
   await from.save();
   await to.save();
-  await EmployeeTransfer.create({ type: 'member', fromGroup: from.code, toGroup: to.code, items: members.map((m) => ({ id: String(m._id), label: `${m.code} ${m.name}` })), count: members.length, branch: from.branch, by: req.user._id, byName: req.user.name });
-  await audit(req, { action: 'group.memberTransfer', entity: 'Group', entityId: to._id, after: { from: from.code, to: to.code, members: members.map((m) => m.code) } });
-  res.json({ moved: members.length, from: { code: from.code, members: from.members.length }, to: { code: to.code, members: to.members.length } });
+  await EmployeeTransfer.create({ type: 'member', fromGroup: from.code, toGroup: to.code, items: members.map((m) => ({ id: String(m._id), label: `${m.code} ${m.name}`, loans: loanIdsOf.get(m.code) || [] })), count: members.length, loansMoved, branch: from.branch, by: req.user._id, byName: req.user.name });
+  await audit(req, { action: 'group.memberTransfer', entity: 'Group', entityId: to._id, after: { from: from.code, to: to.code, members: members.map((m) => m.code), loansMoved } });
+  res.json({ moved: members.length, loansMoved, from: { code: from.code, members: from.members.length }, to: { code: to.code, members: to.members.length } });
 }
 
 /** The transfers made so far, newest first. */
