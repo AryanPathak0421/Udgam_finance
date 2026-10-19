@@ -192,6 +192,15 @@ export const api = {
     verifyDueOtp: (challengeId, otp) => request('/group-leader-commission/pay/verify-otp', { method: 'POST', body: { challengeId, otp } }),
     payDue: (groupId, challengeId) => request('/group-leader-commission/pay', { method: 'POST', body: { groupId, challengeId } }),
   },
+  groupTransfer: {
+    employees: () => request('/group-transfer/employees'),
+    items: (params) => request(`/group-transfer/items${qs(params)}`),
+    transfer: (data) => request('/group-transfer', { method: 'POST', body: data }),
+    history: (params) => request(`/group-transfer/history${qs(params)}`),
+    groupMembers: (group) => request(`/group-transfer/group-members${qs({ group })}`),
+    targetGroups: (params) => request(`/group-transfer/target-groups${qs(params)}`),
+    transferMembers: (data) => request('/group-transfer/members', { method: 'POST', body: data }),
+  },
   commissionGenerate: {
     overview: (month) => request(`/commission/generate${qs({ month })}`),
     run: (data) => request('/commission/generate', { method: 'POST', body: data }),

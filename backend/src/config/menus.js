@@ -26,6 +26,8 @@ export const MENU_CATALOGUE = [
   { key: '/group-master/create', label: 'Create Group', group: 'Group Master' },
   { key: '/group-master/list', label: 'Group List', group: 'Group Master' },
   { key: '/group-master/members', label: 'Group Members', group: 'Group Master' },
+  { key: '/group-master/transfer', label: 'Group Transfer', group: 'Group Master' },
+  { key: '/group-master/member-transfer', label: 'Member Group Transfer', group: 'Group Master' },
   { key: '/loan-requisition/civil-check', label: 'Civil Check', group: 'Loan Requisition' },
   { key: '/loan-requisition/personal', label: 'Personal Loan Requisition', group: 'Loan Requisition' },
   { key: '/loan-requisition/group', label: 'Group Loan Requisition', group: 'Loan Requisition' },

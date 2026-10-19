@@ -44,6 +44,8 @@ import { SecurityDeposits, SecurityWithdrawals, SecurityApproval, SecurityWithdr
 import GroupMembers from './pages/GroupMembers.jsx';
 import GroupLeaderCommission from './pages/GroupLeaderCommission.jsx';
 import CommissionGenerate from './pages/CommissionGenerate.jsx';
+import GroupTransfer from './pages/GroupTransfer.jsx';
+import MemberGroupTransfer from './pages/MemberGroupTransfer.jsx';
 import Layout from './components/Layout.jsx';
 import { routableItems, canOpenPath } from './config/nav.js';
 
@@ -89,6 +91,8 @@ const PAGES = {
   '/group-master/create': GroupCreate,
   '/group-master/list': Groups,
   '/group-master/members': GroupMembers,
+  '/group-master/transfer': GroupTransfer,
+  '/group-master/member-transfer': MemberGroupTransfer,
   '/group-leader-commission': GroupLeaderCommission,
   '/commission/generate': CommissionGenerate,
   '/admin-master/company-profile': CompanyProfile,

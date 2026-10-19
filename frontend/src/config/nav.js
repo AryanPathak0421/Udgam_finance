@@ -77,6 +77,8 @@ export const NAV_SECTIONS = [
           { label: 'Create Group', path: '/group-master/create', icon: 'userplus', roles: [...MGMT, 'loan_officer', 'field_officer'] },
           { label: 'Group List', path: '/group-master/list', icon: 'users' },
           { label: 'Group Members', path: '/group-master/members', icon: 'customer' },
+          { label: 'Group Transfer', path: '/group-master/transfer', icon: 'userplus', roles: MGMT },
+          { label: 'Member Group Transfer', path: '/group-master/member-transfer', icon: 'customer', roles: [...MGMT, 'loan_officer', 'field_officer'] },
         ],
       },
     ],
