@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 // A one-time code sent to verify a value (a mobile number, or a PAN via the member's mobile).
 const otpChallengeSchema = new mongoose.Schema(
   {
-    purpose: { type: String, enum: ['member_mobile', 'member_pan', 'security_withdrawal'], required: true },
+    purpose: { type: String, enum: ['member_mobile', 'member_pan', 'security_withdrawal', 'group_commission'], required: true },
     subject: { type: String, required: true }, // the mobile number or PAN being verified
     sentTo: { type: String, required: true }, // mobile the code was sent to
     hash: { type: String, select: false },

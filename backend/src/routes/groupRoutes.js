@@ -16,7 +16,8 @@ import {
   addGroupMembers,
   removeGroupMember,
 } from '../controllers/groupController.js';
-import { report, generate, sendOtp, verifyOtp } from '../controllers/groupLeaderCommissionController.js';
+import { report, generate, sendOtp, verifyOtp, dueByGroup, sendDueOtp, payDue } from '../controllers/groupLeaderCommissionController.js';
+import { verifyOtp as verifyChallenge } from '../controllers/memberController.js';
 
 const router = Router();
 
@@ -46,6 +47,11 @@ router.put('/groups/:id/disbursements', requireAuth, requireRole(...ADMIN), h(sa
 // Group leader commission: report, generation, OTP deposit
 router.get('/group-leader-commission', requireAuth, requireRole(...REPORT), h(report));
 router.post('/group-leader-commission/generate', requireAuth, requireRole(...FINANCE), h(generate));
+// due commission of a group, paid with one OTP
+router.get('/group-leader-commission/due', requireAuth, requireRole(...REPORT), h(dueByGroup));
+router.post('/group-leader-commission/pay/send-otp', requireAuth, requireRole(...FINANCE), otpLimiter, h(sendDueOtp));
+router.post('/group-leader-commission/pay/verify-otp', requireAuth, requireRole(...FINANCE), otpLimiter, h(verifyChallenge));
+router.post('/group-leader-commission/pay', requireAuth, requireRole(...FINANCE), otpLimiter, h(payDue));
 router.post('/group-leader-commission/:id/send-otp', requireAuth, requireRole(...FINANCE), otpLimiter, h(sendOtp));
 router.post('/group-leader-commission/:id/verify-otp', requireAuth, requireRole(...FINANCE), otpLimiter, h(verifyOtp));
 

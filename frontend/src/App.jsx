@@ -43,6 +43,7 @@ import { LoanSettlement, DeathSettlement } from './pages/Settlement.jsx';
 import { SecurityDeposits, SecurityWithdrawals, SecurityApproval, SecurityWithdraw } from './pages/Savings.jsx';
 import GroupMembers from './pages/GroupMembers.jsx';
 import GroupLeaderCommission from './pages/GroupLeaderCommission.jsx';
+import CommissionGenerate from './pages/CommissionGenerate.jsx';
 import Layout from './components/Layout.jsx';
 import { routableItems, canOpenPath } from './config/nav.js';
 
@@ -89,6 +90,7 @@ const PAGES = {
   '/group-master/list': Groups,
   '/group-master/members': GroupMembers,
   '/group-leader-commission': GroupLeaderCommission,
+  '/commission/generate': CommissionGenerate,
   '/admin-master/company-profile': CompanyProfile,
   '/admin-master/branches': BranchMaster,
   '/admin-master/financial-years': FinancialYear,

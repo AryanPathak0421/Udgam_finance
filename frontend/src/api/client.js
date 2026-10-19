@@ -187,6 +187,15 @@ export const api = {
     generate: () => request('/group-leader-commission/generate', { method: 'POST' }),
     sendOtp: (id) => request(`/group-leader-commission/${id}/send-otp`, { method: 'POST' }),
     verifyOtp: (id, otp) => request(`/group-leader-commission/${id}/verify-otp`, { method: 'POST', body: { otp } }),
+    due: (params) => request(`/group-leader-commission/due${qs(params)}`),
+    sendDueOtp: (groupId) => request('/group-leader-commission/pay/send-otp', { method: 'POST', body: { groupId } }),
+    verifyDueOtp: (challengeId, otp) => request('/group-leader-commission/pay/verify-otp', { method: 'POST', body: { challengeId, otp } }),
+    payDue: (groupId, challengeId) => request('/group-leader-commission/pay', { method: 'POST', body: { groupId, challengeId } }),
+  },
+  commissionGenerate: {
+    overview: (month) => request(`/commission/generate${qs({ month })}`),
+    run: (data) => request('/commission/generate', { method: 'POST', body: data }),
+    employees: (params) => request(`/commission/employee${qs(params)}`),
   },
   ranks: {
     list: (params) => request(`${AM}/ranks${qs(params)}`),

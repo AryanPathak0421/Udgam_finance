@@ -2,7 +2,8 @@ import crypto from 'crypto';
 import mongoose from 'mongoose';
 import { Group } from '../models/Group.js';
 import { GroupLeaderCommission, COMMISSION_STATUS } from '../models/GroupLeaderCommission.js';
-import { loadRuleContext, syncGroupEntries } from '../services/groupLeaderPayout.js';
+import { syncAllGroups } from '../services/groupLeaderPayout.js';
+import { issueOtp, takeVerified, consumeChallenge } from '../services/otpChallenges.js';
 import { parseMonth } from '../services/groupLeaderCommission.js';
 import { sendSms, isDevSms } from '../services/sms.js';
 import { branchFilter, maskMobile, showMobile } from './groupController.js';
@@ -72,15 +73,7 @@ export async function report(req, res) {
 
 /** Recomputes commission entries for every group the caller can see. Deposited entries are untouched. */
 export async function generate(req, res) {
-  const ctx = await loadRuleContext();
-  const groups = await Group.find({ isDeleted: false, ...branchFilter(req.user) });
-  const total = { groups: groups.length, created: 0, updated: 0, removed: 0, unchanged: 0, skippedNoRule: 0 };
-  for (const g of groups) {
-    // eslint-disable-next-line no-await-in-loop
-    const s = await syncGroupEntries(g, ctx);
-    for (const k of ['created', 'updated', 'removed', 'unchanged', 'skippedNoRule']) total[k] += s[k];
-  }
-  total.hasRule = ctx.byFy.size > 0;
+  const total = await syncAllGroups(branchFilter(req.user));
   await audit(req, { action: 'groupLeaderCommission.generate', entity: 'GroupLeaderCommission', entityId: 'all', after: total });
   res.json(total);
 }
@@ -194,4 +187,78 @@ export async function verifyOtp(req, res) {
     after: { month: e.month, amount: e.amountPaise / 100, to: e.depositedToMobile },
   });
   res.json({ entry: present(e, req.user) });
+}
+
+// ---- due commission of a group, paid with one OTP ----------------------------------------------------------------------------------
+
+/** The commission that is due: pending months up to this month (a later month is not due yet). */
+const dueFilter = (user) => ({ status: 'pending', month: { $lte: currentMonth() }, ...branchFilter(user) });
+
+/**
+ * Groups with commission due, one row per group with its pending months. `q` finds a group by code, name or leader, so
+ * the payment starts from the group code.
+ */
+export async function dueByGroup(req, res) {
+  const filter = dueFilter(req.user);
+  if (mongoose.isValidObjectId(req.query.branch)) filter.branch = req.query.branch;
+  const q = asString(req.query.q);
+  let entries = await GroupLeaderCommission.find(filter).populate(POPULATE).sort({ month: 1 });
+  if (q) {
+    const rx = new RegExp(escapeRegex(q), 'i');
+    entries = entries.filter((e) => [e.group?.code, e.group?.name, e.group?.leaderName].some((x) => rx.test(String(x || ''))));
+  }
+  const groups = new Map();
+  for (const e of entries) {
+    const k = String(e.group?._id || e.group);
+    if (!groups.has(k)) {
+      groups.set(k, {
+        groupId: k, groupCode: e.group?.code || '', groupName: e.group?.name || '', leaderName: e.group?.leaderName || '',
+        leaderMobile: showMobile(req.user, e.group?.leaderMobile), hasMobile: Boolean(e.group?.leaderMobile), active: e.group?.isActive !== false,
+        branch: e.branch?._id ? { id: e.branch._id, code: e.branch.code, name: e.branch.name } : null, entries: [], loans: 0, totalDue: 0,
+      });
+    }
+    const g = groups.get(k);
+    g.entries.push({ id: e._id, month: e.month, loans: e.loans, perLoan: e.perLoanPaise == null ? null : e.perLoanPaise / 100, amount: e.amountPaise / 100 });
+    g.loans += e.loans;
+    g.totalDue += e.amountPaise / 100;
+  }
+  const items = [...groups.values()].sort((a, b) => a.groupCode.localeCompare(b.groupCode));
+  res.json({ items: items.slice(0, 200), total: items.length, totalDue: items.reduce((s, g) => s + g.totalDue, 0), smsMode: isDevSms() ? 'dev' : 'live' });
+}
+
+async function loadDueGroup(req) {
+  const groupId = req.body?.groupId;
+  if (!mongoose.isValidObjectId(groupId)) throw new HttpError(422, 'Choose the group', { groupId: 'Choose the group' });
+  const group = await Group.findOne({ _id: groupId, isDeleted: false, ...branchFilter(req.user) });
+  if (!group) throw new HttpError(404, 'Group not found');
+  const entries = await GroupLeaderCommission.find({ group: group._id, ...dueFilter(req.user) }).sort({ month: 1 });
+  if (!entries.length) throw new HttpError(409, 'No commission is due for this group');
+  return { group, entries, total: entries.reduce((s, e) => s + e.amountPaise, 0) };
+}
+
+/** Sends one OTP to the group leader's registered mobile for everything that is due. */
+export async function sendDueOtp(req, res) {
+  const { group, entries, total } = await loadDueGroup(req);
+  if (group.isActive === false) throw new HttpError(409, 'The group is inactive');
+  if (!group.leaderMobile) throw new HttpError(409, 'The group leader has no registered mobile number');
+  const { challenge, otp } = await issueOtp({ user: req.user, purpose: 'group_commission', subject: String(group._id), sentTo: maskMobile(group.leaderMobile) });
+  const text = `Udgam Microfinance: OTP ${otp} to receive your group leader commission of Rs ${(total / 100).toFixed(2)} (${entries.length} month${entries.length === 1 ? '' : 's'}). Valid for 5 minutes. Do not share this OTP.`;
+  const sms = await sendSms({ to: group.leaderMobile, text });
+  await audit(req, { action: 'groupLeaderCommission.otpSent', entity: 'Group', entityId: group._id, after: { to: maskMobile(group.leaderMobile), months: entries.length, amount: total / 100 } });
+  res.json({ challengeId: challenge._id, sentTo: maskMobile(group.leaderMobile), expiresAt: challenge.expiresAt, ...(sms.dev && process.env.NODE_ENV !== 'production' ? { devOtp: otp } : {}) });
+}
+
+/** Pays everything that is due to the group: needs the OTP that the leader shared (verified first). */
+export async function payDue(req, res) {
+  const { group, entries, total } = await loadDueGroup(req);
+  const ch = await takeVerified(req.body?.challengeId, req.user, 'group_commission', String(group._id));
+  if (!ch) throw new HttpError(422, 'Verify the OTP of the group leader first', { otp: 'Verify the OTP first' });
+  const claim = await GroupLeaderCommission.updateMany(
+    { _id: { $in: entries.map((e) => e._id) }, status: 'pending' },
+    { $set: { status: 'deposited', depositedAt: new Date(), depositedBy: req.user._id, depositedToMobile: maskMobile(group.leaderMobile) }, $unset: { otpHash: '', otpExpiresAt: '', otpMobile: '' } }
+  );
+  if (claim.modifiedCount !== entries.length) throw new HttpError(409, 'Some of this commission was just paid by someone else. Reload and check.');
+  await consumeChallenge(ch);
+  await audit(req, { action: 'groupLeaderCommission.deposited', entity: 'Group', entityId: group._id, after: { months: entries.map((e) => e.month), amount: total / 100, to: maskMobile(group.leaderMobile) } });
+  res.json({ paid: entries.length, amount: total / 100, months: entries.map((e) => e.month) });
 }

@@ -177,6 +177,21 @@ export const NAV_SECTIONS = [
     items: [{ label: 'Cashbook', path: '/cashbook', icon: 'book', roles: [...MGMT, 'accountant'] }],
   },
   {
+    title: 'Commission',
+    items: [
+      {
+        label: 'Commission',
+        path: '/commission',
+        icon: 'percent',
+        roles: [...MGMT, 'accountant', 'viewer'],
+        children: [
+          { label: 'Commission Generate', path: '/commission/generate', icon: 'calendar', roles: [...MGMT, 'accountant', 'viewer'] },
+          { label: 'Group Leader Commission Payment', path: '/group-leader-commission', icon: 'cash', roles: [...MGMT, 'accountant', 'viewer'] },
+        ],
+      },
+    ],
+  },
+  {
     title: 'Organisation',
     items: [
       { label: 'Employees', path: '/employees', icon: 'users', roles: [...MGMT, 'accountant', 'viewer'] },
@@ -209,7 +224,6 @@ export const NAV_SECTIONS = [
     title: 'Finance',
     items: [
       { label: 'Transactions', path: '/transactions', icon: 'ledger', roles: [...MGMT, 'accountant', 'viewer'] },
-      { label: 'Group Leader Commission', path: '/group-leader-commission', icon: 'cash', roles: [...MGMT, 'accountant', 'viewer'] },
       { label: 'Reports', path: '/reports', icon: 'chart' },
     ],
   },
