@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import FormField from '../components/ui/FormField.jsx';
+import SearchableSelect from '../components/ui/SearchableSelect.jsx';
 import Modal from '../components/ui/Modal.jsx';
 import Pagination from '../components/ui/Pagination.jsx';
 import { EmptyState, ErrorState, PageHeader, Spinner } from '../components/ui/Feedback.jsx';
@@ -80,10 +81,10 @@ function NewOrder({ branches, onClose, onSaved }) {
           const p = products.find((x) => x.id === l.product);
           return (
             <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-              <select aria-label={`Product ${i + 1}`} style={{ flex: 1, minWidth: 220 }} value={l.product} onChange={(e) => setLine(i, { product: e.target.value })}>
+              <SearchableSelect aria-label={`Product ${i + 1}`} style={{ flex: 1, minWidth: 220 }} value={l.product} onChange={(e) => setLine(i, { product: e.target.value })}>
                 <option value="">Select product</option>
                 {products.map((x) => <option key={x.id} value={x.id}>{x.category} · {x.name} · {inr(x.unitPrice)} · {x.stockQty} available</option>)}
-              </select>
+              </SearchableSelect>
               <input aria-label={`Quantity ${i + 1}`} inputMode="numeric" style={{ width: 90 }} placeholder="Qty" value={l.quantity} onChange={(e) => setLine(i, { quantity: e.target.value.replace(/\D/g, '').slice(0, 6) })} />
               {p && <span className="muted small">{inr(p.unitPrice * (Number(l.quantity) || 0))}</span>}
               {lines.length > 1 && <button type="button" className="btn sm danger-outline" onClick={() => setLines((x) => x.filter((_, j) => j !== i))}>Remove</button>}

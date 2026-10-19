@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client.js';
 import FormField from '../components/ui/FormField.jsx';
+import SearchableSelect from '../components/ui/SearchableSelect.jsx';
 import Pagination from '../components/ui/Pagination.jsx';
 import { EmptyState, ErrorState, PageHeader, Spinner } from '../components/ui/Feedback.jsx';
 import { useToast } from '../components/ui/Toast.jsx';
@@ -125,10 +126,10 @@ export default function StockTransfer() {
       <form className="panel" style={{ padding: 16, marginBottom: 14 }} onSubmit={submit} noValidate>
         <div className="form-grid">
           <FormField id="tproduct" label="Product" required error={errors.product} hint={catalog.length ? undefined : 'No product is in stock at head office or any branch'}>
-            <select id="tproduct" value={form.product} onChange={(e) => { setForm((f) => ({ ...f, product: e.target.value, from: '', to: '' })); setErrors((x) => ({ ...x, product: undefined })); }}>
+            <SearchableSelect id="tproduct" value={form.product} onChange={(e) => { setForm((f) => ({ ...f, product: e.target.value, from: '', to: '' })); setErrors((x) => ({ ...x, product: undefined })); }}>
               <option value="">Select product</option>
               {catalog.map((p) => <option key={p.key} value={p.key}>{p.category} · {p.name} · {p.places.reduce((t, x) => t + x.stockQty, 0)} in stock</option>)}
-            </select>
+            </SearchableSelect>
           </FormField>
           <FormField id="tfrom" label="Take from" required error={errors.from} hint={chosen ? 'Only the places that have this product' : 'Choose the product first'}>
             <select id="tfrom" value={form.from} disabled={!chosen} onChange={(e) => { setForm((f) => ({ ...f, from: e.target.value, to: f.to === e.target.value ? '' : f.to })); setErrors((x) => ({ ...x, from: undefined })); }}>

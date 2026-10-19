@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import FormField from '../components/ui/FormField.jsx';
+import SearchableSelect from '../components/ui/SearchableSelect.jsx';
 import Modal from '../components/ui/Modal.jsx';
 import { DetailList, PageHeader } from '../components/ui/Feedback.jsx';
 import { useToast } from '../components/ui/Toast.jsx';
@@ -242,10 +243,10 @@ export function GroupTopUp({ members, stock, onDone }) {
               <div className="form-grid" style={{ marginTop: 8 }}>
                 <FormField id={`tp-${m.id}`} label="Product" error={er.additional}>
                   <div style={{ display: 'flex', gap: 6 }}>
-                    <select id={`tp-${m.id}`} value={e.id} onChange={(ev) => set(m.id, { id: ev.target.value })}>
+                    <SearchableSelect id={`tp-${m.id}`} value={e.id} onChange={(ev) => set(m.id, { id: ev.target.value })}>
                       <option value="">{stock.length ? 'Select product' : 'No product in stock'}</option>
                       {stock.map((s) => <option key={s.id} value={s.id}>{s.name} · {inr(s.unitPrice)}</option>)}
-                    </select>
+                    </SearchableSelect>
                     {e.id && <input aria-label={`Units for ${m.code}`} inputMode="numeric" style={{ width: 64 }} value={e.qty} onChange={(ev) => set(m.id, { qty: ev.target.value.replace(/\D/g, '').slice(0, 4) })} />}
                   </div>
                   {p && <div className="small muted">{inr(value)}</div>}
@@ -735,11 +736,11 @@ function RequisitionForm({ kind }) {
                                     return (
                                       <div style={{ minWidth: 220 }}>
                                         <div style={{ display: 'flex', gap: 6 }}>
-                                          <select aria-label={`Additional product for ${m.code}`} value={e.id}
+                                          <SearchableSelect aria-label={`Additional product for ${m.code}`} value={e.id}
                                             onChange={(ev) => setExtras((x) => ({ ...x, [m.id]: { id: ev.target.value, qty: x[m.id]?.qty || '1' } }))}>
                                             <option value="">{stock.length ? 'None' : 'No product in stock'}</option>
                                             {stock.map((s) => <option key={s.id} value={s.id}>{s.name} · {inr(s.unitPrice)}</option>)}
-                                          </select>
+                                          </SearchableSelect>
                                           {e.id && (
                                             <input aria-label={`Units for ${m.code}`} inputMode="numeric" style={{ width: 64 }} value={e.qty}
                                               onChange={(ev) => setExtras((x) => ({ ...x, [m.id]: { ...x[m.id], qty: ev.target.value.replace(/\D/g, '').slice(0, 4) } }))} />
@@ -875,10 +876,10 @@ function RequisitionForm({ kind }) {
             <div className="form-grid">
               <FormField id="stockProduct" label="Select stock product" required error={errors.stockProduct} className="span-2"
                 hint={stock.length ? undefined : 'No product is in stock in this branch. Add it under Stock → Stock Product Master, or order it from the admin under Product Orders.'}>
-                <select id="stockProduct" value={prod.id} onChange={(e) => { setProd((p) => ({ ...p, id: e.target.value })); setErrors((er) => ({ ...er, stockProduct: undefined })); }}>
+                <SearchableSelect id="stockProduct" value={prod.id} onChange={(e) => { setProd((p) => ({ ...p, id: e.target.value })); setErrors((er) => ({ ...er, stockProduct: undefined })); }}>
                   <option value="">{stock.length ? 'Select product' : 'No product in stock'}</option>
                   {stock.map((p) => <option key={p.id} value={p.id}>{p.code} — {p.name}{p.category ? ` (${p.category})` : ''} · {inr(p.unitPrice)} · {p.stockQty} in stock</option>)}
-                </select>
+                </SearchableSelect>
               </FormField>
               <FormField id="quantity" label="Number of units" required error={errors.quantity} hint={product ? `${inr(product.unitPrice)} per unit` : undefined}>
                 <input id="quantity" inputMode="numeric" value={prod.qty}
@@ -896,10 +897,10 @@ function RequisitionForm({ kind }) {
           <div className="form-grid">
             <FormField id="schemeId" label={schemeLabel} required error={errors.schemeId} className="span-2"
               hint={isBusiness && !biz.loanType ? 'Select the loan type first' : undefined}>
-              <select id="schemeId" value={form.schemeId} onChange={chooseScheme} disabled={isBusiness && !biz.loanType}>
+              <SearchableSelect id="schemeId" value={form.schemeId} onChange={chooseScheme} disabled={isBusiness && !biz.loanType}>
                 <option value="">{visibleSchemes.length ? `Select ${schemeLabel.toLowerCase()}` : `No ${schemeLabel.toLowerCase()} available`}</option>
                 {visibleSchemes.map((s) => <option key={s.id} value={s.id}>{s.code} — {s.name}</option>)}
-              </select>
+              </SearchableSelect>
             </FormField>
             {hiddenSchemes.length > 0 && (
               <div className="notice warn span-2">

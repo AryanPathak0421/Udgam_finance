@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import FormField from '../components/ui/FormField.jsx';
+import SearchableSelect from '../components/ui/SearchableSelect.jsx';
 import Modal from '../components/ui/Modal.jsx';
 import Pagination from '../components/ui/Pagination.jsx';
 import { EmptyState, ErrorState, PageHeader, Spinner } from '../components/ui/Feedback.jsx';
@@ -326,10 +327,10 @@ function PayDialog({ id, onClose, onPaid }) {
                       {prep.lines.map((l) => <option key={l.member} value={l.member}>{l.code} — {l.name}</option>)}
                     </select>
                   )}
-                  <select aria-label="Product" style={{ flex: 1, minWidth: 200 }} value={it.stockProduct} onChange={(e) => setItem(i, { stockProduct: e.target.value })}>
+                  <SearchableSelect aria-label="Product" style={{ flex: 1, minWidth: 200 }} value={it.stockProduct} onChange={(e) => setItem(i, { stockProduct: e.target.value })}>
                     <option value="">{stock.length ? 'Select product' : 'No product in stock'}</option>
                     {stock.map((s) => <option key={s.id} value={s.id}>{s.name} · {inr(s.unitPrice)} · {s.stockQty} in stock</option>)}
-                  </select>
+                  </SearchableSelect>
                   <input aria-label="Units" inputMode="numeric" style={{ width: 70 }} value={it.quantity} onChange={(e) => setItem(i, { quantity: e.target.value.replace(/\D/g, '').slice(0, 4) })} />
                   <button type="button" className="btn sm danger-outline" onClick={() => setItems((x) => x.filter((_, j) => j !== i))}>Remove</button>
                 </div>

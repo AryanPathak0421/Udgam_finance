@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/client.js';
 import FormField from '../components/ui/FormField.jsx';
+import SearchableSelect from '../components/ui/SearchableSelect.jsx';
 import useDebounce from '../hooks/useDebounce.js';
 
 const inr = (n) => (n === null || n === undefined || Number.isNaN(n) ? '—' : `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
@@ -25,10 +26,10 @@ export function ProductSchemeField({ id, code, schemes, mode, term, rate, value,
     <div style={{ marginTop: 8 }}>
       <FormField id={id} label={`Product loan scheme${code ? ` of ${code}` : ''}`} required error={error}
         hint={schemes.length ? `Repaid with the loan's installments (${term || '—'}); rate ${scheme ? `${useRate}% within the scheme` : 'of the loan, within the scheme'}` : 'There is no active product loan scheme. Add one under Loan Scheme (type: Product loan).'}>
-        <select id={id} value={schemeId} onChange={(ev) => onChange(ev.target.value)}>
+        <SearchableSelect id={id} value={schemeId} onChange={(ev) => onChange(ev.target.value)}>
           <option value="">Select product loan scheme</option>
           {schemes.map((s) => <option key={s.id} value={s.id}>{s.code} — {s.name}</option>)}
-        </select>
+        </SearchableSelect>
       </FormField>
       {emiError && <div className="field-error" role="alert">{emiError}</div>}
       {emi && <div className="notice ok" style={{ marginTop: 6 }}>Product loan: <strong>EMI {inr(emi.installmentAmount)}</strong> × {emi.installments} = {inr(emi.totalPayable)} ({emi.schemeName}, {emi.rate}%). Added to each installment of the loan.</div>}

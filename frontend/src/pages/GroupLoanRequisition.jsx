@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client.js';
 import FormField from '../components/ui/FormField.jsx';
+import SearchableSelect from '../components/ui/SearchableSelect.jsx';
 import Modal from '../components/ui/Modal.jsx';
 import { DetailList, PageHeader } from '../components/ui/Feedback.jsx';
 import { useToast } from '../components/ui/Toast.jsx';
@@ -58,10 +59,10 @@ function MemberLoan({ index, m, e, schemes, productSchemes, stock, errors, onCha
       {err('member') && <div className="field-error" role="alert">{err('member')}</div>}
       <div className="form-grid">
         <FormField id={`sch-${m.id}`} label="Loan scheme" required error={err('schemeId')}>
-          <select id={`sch-${m.id}`} value={e.schemeId} onChange={chooseScheme}>
+          <SearchableSelect id={`sch-${m.id}`} value={e.schemeId} onChange={chooseScheme}>
             <option value="">Select loan scheme</option>
             {schemes.filter((s) => !m.runningSchemeIds?.includes(s.id)).map((s) => <option key={s.id} value={s.id}>{s.code} — {s.name}</option>)}
-          </select>
+          </SearchableSelect>
         </FormField>
         <FormField id={`amt-${m.id}`} label="Loan amount (₹)" required error={err('amount')} hint={scheme ? `Between ${inr(scheme.amountMin)} and ${inr(scheme.amountMax)}` : 'Choose the scheme first'}>
           <input id={`amt-${m.id}`} inputMode="decimal" value={e.amount} disabled={!scheme} onChange={(ev) => onChange({ amount: ev.target.value.replace(/[^\d.]/g, '') })} />
@@ -95,10 +96,10 @@ function MemberLoan({ index, m, e, schemes, productSchemes, stock, errors, onCha
         <div style={{ marginTop: 10 }}>
           <div className="muted small" style={{ marginBottom: 4 }}>Optional: a product on top of this loan, up to {EXTRA_PERCENT}% of it{extraMax ? ` (${inr(extraMax)})` : ''}. Its EMI is worked out on its own value.</div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <select aria-label={`Additional product for ${m.code}`} value={e.extraId} onChange={(ev) => onChange({ extraId: ev.target.value, extraScheme: ev.target.value ? e.extraScheme : '' })}>
+            <SearchableSelect aria-label={`Additional product for ${m.code}`} value={e.extraId} onChange={(ev) => onChange({ extraId: ev.target.value, extraScheme: ev.target.value ? e.extraScheme : '' })}>
               <option value="">{stock.length ? 'No product' : 'No product in stock'}</option>
               {stock.map((p) => <option key={p.id} value={p.id}>{p.name} · {inr(p.unitPrice)}</option>)}
-            </select>
+            </SearchableSelect>
             {e.extraId && <input aria-label={`Units for ${m.code}`} inputMode="numeric" style={{ width: 70 }} value={e.extraQty} onChange={(ev) => onChange({ extraQty: ev.target.value.replace(/\D/g, '').slice(0, 4) })} />}
             {extraProduct && <span className={extraValue > extraMax ? 'field-error' : 'muted small'}>{inr(extraValue)}{extraValue > extraMax ? ` is more than ${inr(extraMax)}` : ''}</span>}
           </div>
