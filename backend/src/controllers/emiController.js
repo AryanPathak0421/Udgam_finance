@@ -316,7 +316,11 @@ export async function collectionList(req, res) {
   const asOf = req.query.date ? parseDateOnly(asString(req.query.date)) : startOfToday();
   if (!asOf) throw invalid({ date: 'Enter a valid date' });
   const filter = { status: 'paid', ...branchFilter(req.user), kind: kindScope === 'group' ? 'group' : { $in: ['personal', 'business', 'product'] } };
-  if (mongoose.isValidObjectId(req.query.branch)) filter.branch = req.query.branch;
+  // a chosen branch narrows the user's own branches, it never widens them
+  if (mongoose.isValidObjectId(req.query.branch)) {
+    const own = filter.branch?.$in?.map(String) ?? (filter.branch ? [String(filter.branch)] : null);
+    filter.branch = own && !own.includes(String(req.query.branch)) ? { $in: [] } : req.query.branch;
+  }
   // The loans are worked through in batches of 250, so thousands of loans (each with its whole schedule) are never in memory together.
   const loanIds = (await LoanPayment.find(filter).sort({ createdAt: -1 }).select('_id').limit(20000).lean()).map((x) => x._id);
   const staffSet = new Set();
@@ -328,7 +332,7 @@ export async function collectionList(req, res) {
   const rows = [];
   for (let at = 0; at < loanIds.length; at += 250) {
     // eslint-disable-next-line no-await-in-loop
-    const batch = await LoanPayment.find({ _id: { $in: loanIds.slice(at, at + 250) } }).populate(POPULATE).lean();
+    const batch = await LoanPayment.find({ _id: { $in: loanIds.slice(at, at + 250) } }).select('loanId formId kind loanType mode modeLabel employeeCode group branch lines schedule.no schedule.dueDate schedule.installmentPaise').populate(POPULATE).lean(); // only what the list needs: the rest of the schedule is most of a loan's size
     batch.forEach((l) => { if (l.employeeCode) staffSet.add(l.employeeCode); if (modeOf(l)) modeSet.add(modeOf(l)); });
     const pick = batch.filter((l) => (!wantStaff || l.employeeCode === wantStaff) && (!wantMode || modeOf(l) === wantMode) && (kindScope === 'group' || !wantType || loanTypeOf(l) === wantType));
     if (!pick.length) continue;

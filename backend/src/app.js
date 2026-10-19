@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import authRoutes from './routes/authRoutes.js';
 import adminMasterRoutes from './routes/adminMasterRoutes.js';
@@ -27,6 +28,8 @@ const allowedOrigins = (process.env.CLIENT_ORIGIN || '')
   .filter(Boolean);
 
 app.use(helmet());
+// big lists (the group EMI list is over 1 MB of JSON) travel compressed
+app.use(compression());
 app.use(
   cors({
     credentials: true,
