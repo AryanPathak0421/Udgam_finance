@@ -60,6 +60,10 @@ const loanSchemeSchema = new mongoose.Schema(
       counting: { type: String, enum: FINE_COUNTING, default: 'per_day' },
     },
 
+    // A loan on this scheme needs the civil score of the borrower, at least `minCivilScore`.
+    civilRequired: { type: Boolean, default: false },
+    minCivilScore: { type: Number, min: 300, max: 900 },
+
     isActive: { type: Boolean, default: true },
     isDeleted: { type: Boolean, default: false },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },

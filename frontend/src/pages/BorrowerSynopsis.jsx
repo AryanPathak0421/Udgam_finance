@@ -334,8 +334,19 @@ export default function BorrowerSynopsis() {
         ) : (
           <div className="table-wrap">
             <table className="data-table">
-              <thead><tr><th>Report date</th><th>Bureau</th><th className="num">Score</th></tr></thead>
-              <tbody>{civilChecks.map((c, i) => <tr key={i}><td data-label="Date">{fmtDate(c.reportDate)}</td><td data-label="Bureau">{c.bureau}</td><td data-label="Score" className="num">{c.score}</td></tr>)}</tbody>
+              <thead><tr><th>Report date</th><th>Bureau</th><th>Report no.</th><th className="num">Score</th><th>Band</th><th>Remark</th><th>Recorded by</th><th>Recorded on</th></tr></thead>
+              <tbody>{civilChecks.map((c, i) => (
+                <tr key={c.id || i}>
+                  <td data-label="Report date">{fmtDate(c.reportDate)}</td>
+                  <td data-label="Bureau">{c.bureau}</td>
+                  <td data-label="Report no.">{c.reportNumber || '—'}</td>
+                  <td data-label="Score" className="num"><strong>{c.score}</strong></td>
+                  <td data-label="Band"><span className={`badge ${c.score >= 700 ? 'green' : c.score >= 650 ? 'grey' : 'danger'}`}>{c.band}</span></td>
+                  <td data-label="Remark">{c.remark || '—'}</td>
+                  <td data-label="Recorded by">{c.employeeCode ? `${c.employeeCode}${c.employeeName ? ` — ${c.employeeName}` : ''}` : '—'}</td>
+                  <td data-label="Recorded on">{c.recordedAt ? fmtTime(c.recordedAt) : '—'}</td>
+                </tr>
+              ))}</tbody>
             </table>
           </div>
         )}

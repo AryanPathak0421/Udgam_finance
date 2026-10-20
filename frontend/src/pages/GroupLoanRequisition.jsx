@@ -18,7 +18,7 @@ const EXTRA_PERCENT = 25;
 const UNIT_DAYS = { days: 1, weeks: 7, months: 30 };
 const MODE_DAYS = { daily: 1, weekly: 7, biweekly: 14, monthly: 30, quarterly: 90, halfyearly: 180, yearly: 360 };
 const installmentsFor = (s, mode) => Math.max(1, Math.round((s.termMin * UNIT_DAYS[s.termUnit]) / MODE_DAYS[mode]));
-const blank = { schemeId: '', amount: '', mode: '', term: '', rate: '', front: '', back: '', extraId: '', extraQty: '1', extraScheme: '' };
+const blank = { civilScore: '', schemeId: '', amount: '', mode: '', term: '', rate: '', front: '', back: '', extraId: '', extraQty: '1', extraScheme: '' };
 const eligible = (m) => !m.isBlocked && !m.runningInGroup && !(m.issues && m.issues.length);
 
 // One member's loan: her own scheme, amount, mode, installments and rate, application form photos and an optional product.
@@ -44,7 +44,7 @@ function MemberLoan({ index, m, e, schemes, productSchemes, stock, errors, onCha
 
   function chooseScheme(ev) {
     const s = schemes.find((x) => x.id === ev.target.value);
-    onChange(s ? { schemeId: s.id, amount: String(s.amountMin), mode: s.modes[0].value, term: String(installmentsFor(s, s.modes[0].value)), rate: String(s.roiMin) } : { schemeId: '', amount: '', mode: '', term: '', rate: '' });
+    onChange(s ? { civilScore: m.civilScore != null ? String(m.civilScore) : '', schemeId: s.id, amount: String(s.amountMin), mode: s.modes[0].value, term: String(installmentsFor(s, s.modes[0].value)), rate: String(s.roiMin) } : { civilScore: '', schemeId: '', amount: '', mode: '', term: '', rate: '' });
   }
   const err = (f) => errors?.[`entries.${m.id}.${f}`];
   const extraProduct = stock.find((p) => p.id === e.extraId);
@@ -64,6 +64,11 @@ function MemberLoan({ index, m, e, schemes, productSchemes, stock, errors, onCha
             {schemes.filter((s) => !m.runningSchemeIds?.includes(s.id)).map((s) => <option key={s.id} value={s.id}>{s.code} — {s.name}</option>)}
           </SearchableSelect>
         </FormField>
+        {scheme?.civilRequired && (
+          <FormField id={`civ-${m.id}`} label="Civil score" required error={err('civilScore')} hint={`This scheme needs at least ${scheme.minCivilScore}. ${m.civilScore != null ? `Latest civil check: ${m.civilScore}` : 'No civil check yet: enter the score'}`}>
+            <input id={`civ-${m.id}`} inputMode="numeric" maxLength={3} value={e.civilScore} onChange={(ev) => onChange({ civilScore: ev.target.value.replace(/\D/g, '').slice(0, 3) })} />
+          </FormField>
+        )}
         <FormField id={`amt-${m.id}`} label="Loan amount (₹)" required error={err('amount')} hint={scheme ? `Between ${inr(scheme.amountMin)} and ${inr(scheme.amountMax)}` : 'Choose the scheme first'}>
           <input id={`amt-${m.id}`} inputMode="decimal" value={e.amount} disabled={!scheme} onChange={(ev) => onChange({ amount: ev.target.value.replace(/[^\d.]/g, '') })} />
         </FormField>
@@ -207,6 +212,12 @@ export default function GroupLoanRequisition() {
       const k = (f) => `entries.${m.id}.${f}`;
       if (!x.schemeId) found[k('schemeId')] = `Select the loan scheme of ${m.code}`;
       else if (!(Number(x.amount) > 0)) found[k('amount')] = 'Enter the loan amount';
+      const sch = usable.find((y) => y.id === x.schemeId);
+      if (sch?.civilRequired) {
+        const c = Number(x.civilScore);
+        if (!Number.isInteger(c) || c < 300 || c > 900) found[k('civilScore')] = 'Enter the civil score (300 to 900)';
+        else if (sch.minCivilScore && c < sch.minCivilScore) found[k('civilScore')] = `The score is below the ${sch.minCivilScore} this scheme needs`;
+      }
       if (!x.front) found[k('front')] = `Upload the front photo of the form of ${m.code}`;
       if (!x.back) found[k('back')] = `Upload the back photo of the form of ${m.code}`;
       if (x.extraId) {
@@ -232,7 +243,7 @@ export default function GroupLoanRequisition() {
         group: picked.id,
         entries: members.map((m) => {
           const x = entries[m.id];
-          return { member: m.id, schemeId: x.schemeId, amount: x.amount, mode: x.mode, term: Number(x.term), rate: x.rate, front: x.front, back: x.back, additional: x.extraId ? { stockProduct: x.extraId, quantity: Number(x.extraQty) || 1, schemeId: x.extraScheme } : undefined };
+          return { member: m.id, civilScore: x.civilScore, schemeId: x.schemeId, amount: x.amount, mode: x.mode, term: Number(x.term), rate: x.rate, front: x.front, back: x.back, additional: x.extraId ? { stockProduct: x.extraId, quantity: Number(x.extraQty) || 1, schemeId: x.extraScheme } : undefined };
         }),
       };
       const r = await api.loanRequisitions.create('group', payload);

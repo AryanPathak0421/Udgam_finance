@@ -62,6 +62,8 @@ const presentScheme = (s) => ({
     : { type: 'percentage', value: (s.securityDeposit?.value ?? s.securityBp ?? 0) / 100 },
   processingFee: { type: s.processingFee.type, value: s.processingFee.value / 100 },
   gracePeriodDays: s.gracePeriodDays || 0,
+  civilRequired: Boolean(s.civilRequired),
+  minCivilScore: s.minCivilScore ?? null,
 });
 
 /** Active schemes the requisition form of a kind can choose from. */
@@ -178,6 +180,30 @@ async function civilSnapshot(memberId) {
 async function civilFor(memberId) {
   const c = await civilSnapshot(memberId);
   return c ? { civilCheck: { score: c.score, reportDate: new Date(c.reportDate), bureau: c.bureau } } : {};
+}
+
+/**
+ * A scheme with "Civil required" needs the civil score of the borrower, at least the minimum of the scheme. The score typed on the form is used,
+ * otherwise the newest civil check. Returns { error } or { score, record } (record: the score is new, so it goes into the member's civil checks).
+ */
+async function civilGate({ scheme, member, given }) {
+  if (!scheme.civilRequired) return { skip: true };
+  const latest = await civilSnapshot(member._id);
+  const typed = given === undefined || given === null || String(given).trim() === '' ? null : Number(given);
+  const score = typed ?? latest?.score ?? null;
+  if (score === null) return { error: `${scheme.name} needs the civil score of ${member.code}. Enter it, or do the civil check first.` };
+  if (!Number.isInteger(score) || score < 300 || score > 900) return { error: 'Enter the civil score (300 to 900)' };
+  if (scheme.minCivilScore && score < scheme.minCivilScore) return { error: `The civil score ${score} of ${member.code} is below the ${scheme.minCivilScore} that ${scheme.name} needs` };
+  return { score, record: !latest || latest.score !== score };
+}
+
+/** A civil score entered on a loan form is kept in the member's civil checks (and so shows in the Borrower Synopsis). */
+async function recordCivil({ gate, member, branchId, req, formId }) {
+  if (!gate?.record) return;
+  await CivilCheck.create({
+    member: member._id, branch: branchId, score: gate.score, reportDate: new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`), bureau: 'Other',
+    remark: `Entered on the loan requisition${formId ? ` ${formId}` : ''}`, employeeCode: req.user.employeeCode || '', createdBy: req.user._id,
+  });
 }
 
 async function previousLoanPaise(memberId) {
@@ -786,6 +812,9 @@ export function createRequisition(kind) {
     if (business && scheme.loanType !== business.loanType) {
       throw invalid({ schemeId: `This scheme is a ${scheme.loanType.toUpperCase()} scheme; choose a ${business.loanType.toUpperCase()} scheme` });
     }
+    // the scheme may ask for a civil score
+    const civilGateResult = await civilGate({ scheme, member: m, given: business ? business.civilScore : b.civilScore });
+    if (civilGateResult.error) throw invalid(business ? { 'business.civilScore': civilGateResult.error } : { civilScore: civilGateResult.error });
     // The same scheme is not offered again to a member until that loan is finished.
     const sameScheme = { isDeleted: false, scheme: scheme._id, status: { $in: RUNNING } };
     if (m) {
@@ -1379,6 +1408,9 @@ export async function createGroupRequisition(req, res) {
     if (busy.get(mid)?.has(String(scheme._id))) { errors[key('schemeId')] = `${m.code} already has an unfinished loan under ${scheme.name}`; continue; }
     const modeError = groupModeError(g.meetingType, ev.input.mode);
     if (modeError) { errors[key('mode')] = modeError; continue; }
+    // eslint-disable-next-line no-await-in-loop
+    const gate = await civilGate({ scheme, member: m, given: e.civilScore });
+    if (gate.error) { errors[key('civilScore')] = gate.error; continue; }
     const amountPaise = Math.round(ev.input.amount * 100);
     const cashPaise = cashAfterCharges(amountPaise, ev.charges);
     if (cashPaise <= 0) { errors[key('amount')] = 'The security, processing fee and insurance fee are more than the loan amount'; continue; }
@@ -1393,14 +1425,14 @@ export async function createGroupRequisition(req, res) {
         throw err;
       }
     }
-    prepared.push({ m, ev, scheme, amountPaise, cashPaise, additional, front, back });
+    prepared.push({ m, ev, scheme, amountPaise, cashPaise, additional, front, back, gate });
   }
   if (Object.keys(errors).length) throw new HttpError(422, 'Please correct the highlighted fields', errors);
 
   // Employee: chosen on the form, otherwise the signed-in employee.
   let employeeCode = asString(b.employeeCode).toUpperCase();
   if (employeeCode) {
-    const emp = await User.findOne({ employeeCode, isActive: true }).select('role branches');
+    const emp = await User.findOne({ employeeCode, $or: [{ isActive: true }, { legacyImport: true }] }).select('role branches');
     const ok = emp && (['super_admin', 'admin'].includes(emp.role) || (emp.branches || []).some((x) => String(x) === branchId));
     if (!ok) throw invalid({ employeeCode: 'Select a valid employee of this branch' });
   } else {
@@ -1410,6 +1442,8 @@ export async function createGroupRequisition(req, res) {
       await User.updateOne({ _id: req.user._id, employeeCode: { $exists: false } }, { $set: { employeeCode } });
     }
   }
+  // the civil scores typed on the form go into the members' civil checks
+  for (const p of prepared) await recordCivil({ gate: p.gate, member: p.m, branchId, req }); // eslint-disable-line no-await-in-loop
 
   // The products sold with the loans leave the stock now; if anything fails nothing is kept.
   const reserved = await reserveStock(prepared.flatMap((p) => p.additional.map((a) => ({ id: a.productId, qty: a.product.quantity, name: a.product.name }))));

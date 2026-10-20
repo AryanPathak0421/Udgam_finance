@@ -1079,7 +1079,16 @@ export async function synopsis(req, res) {
   const groupTransfers = (await EmployeeTransfer.find({ type: 'member', 'items.id': String(m._id) }).sort({ createdAt: -1 }).limit(50)).map((t) => ({
     id: t._id, at: t.createdAt, from: t.fromGroup, to: t.toGroup, by: t.byName || '', loans: t.items.find((i) => i.id === String(m._id))?.loans || [],
   }));
-  const civilChecks = (await CivilCheck.find({ member: m._id, isDeleted: false }).sort({ reportDate: -1, createdAt: -1 })).map((c) => ({
+  const civilRows = await CivilCheck.find({ member: m._id, isDeleted: false }).sort({ reportDate: -1, createdAt: -1 });
+  const civilNames = new Map((await User.find({ employeeCode: { $in: [...new Set(civilRows.map((c) => c.employeeCode).filter(Boolean))] } }).select('name employeeCode')).map((u) => [u.employeeCode, u.name]));
+  const civilChecks = civilRows.map((c) => ({
+    id: c._id,
+    band: c.score >= 750 ? 'Excellent' : c.score >= 700 ? 'Good' : c.score >= 650 ? 'Fair' : 'Poor',
+    reportNumber: c.reportNumber || '',
+    remark: c.remark || '',
+    employeeCode: c.employeeCode || '',
+    employeeName: civilNames.get(c.employeeCode) || '',
+    recordedAt: c.createdAt,
     score: c.score,
     bureau: c.bureau,
     reportDate: c.reportDate,

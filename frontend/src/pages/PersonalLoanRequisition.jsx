@@ -290,6 +290,7 @@ function RequisitionForm({ kind }) {
   const [verif, setVerif] = useState(null); // business / MSME: PAN + Aadhaar OTP status
   const [extras, setExtras] = useState({}); // group loan: additional product per member { memberId: { id, qty } }
   const [chosen, setChosen] = useState([]); // group loan: ids of the members who get the loan
+  const [civilScore, setCivilScore] = useState('');
   const [biz, setBiz] = useState({ loanType: '', businessName: '', gstNumber: '', udgamNumber: '', civilScore: '', shopPhoto: '', bankStatement: '', bankStatementName: '', itr: '', itrName: '', agreement: '', agreementName: '', udyamCertificate: '', udyamCertificateName: '' });
   const [otpId, setOtpId] = useState(''); // business loan: OTP sent to the borrower's registered mobile, verified
   const [memberForms, setMemberForms] = useState({}); // group loan: form photos of each member { memberId: { front, back } }
@@ -432,6 +433,8 @@ function RequisitionForm({ kind }) {
   useEffect(() => {
     const cs = detail?.borrower?.civilCheck?.score;
     if (isBusiness && cs) setBiz((x) => (x.civilScore ? x : { ...x, civilScore: String(cs) }));
+    // a scheme that needs the civil score: the newest civil check is filled in
+    if (!isBusiness && cs) setCivilScore((x) => x || String(cs));
   }, [isBusiness, detail]);
 
   // Live EMI.
@@ -508,6 +511,12 @@ function RequisitionForm({ kind }) {
       if (!otpId) found['business.otp'] = "Verify the OTP sent to the borrower's registered mobile number";
     }
     if (!form.schemeId) found.schemeId = kind === 'product' ? 'Select the product' : 'Select a loan scheme';
+    if (scheme?.civilRequired) {
+      const cv = Number(isBusiness ? biz.civilScore : civilScore);
+      const key = isBusiness ? 'business.civilScore' : 'civilScore';
+      if (!Number.isInteger(cv) || cv < 300 || cv > 900) found[key] = 'Enter the civil score (300 to 900)';
+      else if (scheme.minCivilScore && cv < scheme.minCivilScore) found[key] = `The score is below the ${scheme.minCivilScore} this scheme needs`;
+    }
     if (!form.amount) found.amount = isGroup ? 'Enter the amount per member' : 'Enter the request amount';
     if (!form.mode) found.mode = 'Select the repayment mode';
     if (!form.term) found.term = 'Enter the loan term';
@@ -531,6 +540,7 @@ function RequisitionForm({ kind }) {
         mode: form.mode,
         term: Number(installments),
         rate: form.rate,
+        ...(!isBusiness && scheme?.civilRequired ? { civilScore } : {}),
         ...(isGroup
           ? { memberForms: effective.map((m) => ({ member: m.id, front: memberForms[m.id]?.front, back: memberForms[m.id]?.back })) }
           : { formFrontPhoto: form.formFrontPhoto, formBackPhoto: form.formBackPhoto }),
@@ -902,6 +912,12 @@ function RequisitionForm({ kind }) {
                 {visibleSchemes.map((s) => <option key={s.id} value={s.id}>{s.code} — {s.name}</option>)}
               </SearchableSelect>
             </FormField>
+            {scheme?.civilRequired && !isBusiness && (
+              <FormField id="civilScoreScheme" label="Civil score" required error={errors.civilScore}
+                hint={`This scheme needs at least ${scheme.minCivilScore}. ${detail?.borrower?.civilCheck ? `Latest civil check: ${detail.borrower.civilCheck.score} (${detail.borrower.civilCheck.reportDate})` : 'No civil check yet: enter the score'}`}>
+                <input id="civilScoreScheme" inputMode="numeric" maxLength={3} value={civilScore} onChange={(e) => { setCivilScore(e.target.value.replace(/\D/g, '').slice(0, 3)); setErrors((er) => ({ ...er, civilScore: undefined })); }} />
+              </FormField>
+            )}
             {hiddenSchemes.length > 0 && (
               <div className="notice warn span-2">
                 Not offered, because {b?.name || 'this borrower'} already has a loan in {hiddenSchemes.length === 1 ? 'it' : 'them'} that is not finished: {hiddenSchemes.map((s) => s.name).join(', ')}.

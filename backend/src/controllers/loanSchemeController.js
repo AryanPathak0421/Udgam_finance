@@ -39,6 +39,8 @@ export const presentScheme = (s) => ({
   cost: { type: s.cost.type, value: s.cost.type === 'percentage' ? pct(s.cost.value) : rs(s.cost.value) },
   installmentRounding: s.installmentRounding ?? 1,
   gracePeriodDays: s.gracePeriodDays ?? 0,
+  civilRequired: Boolean(s.civilRequired),
+  minCivilScore: s.minCivilScore ?? null,
   fine: {
     type: s.fine?.type || 'fixed',
     value: (s.fine?.type || 'fixed') === 'percentage' ? pct(s.fine?.value || 0) : rs(s.fine?.value || 0),
@@ -64,12 +66,13 @@ function readCharge(raw, field, label, v) {
   return { type, value };
 }
 
-function readScheme(b) {
+// editing: the code never changes (a scheme brought over from the old system has a longer code than a new one may have)
+function readScheme(b, { editing = false } = {}) {
   const v = createValidator();
   const out = {};
 
   out.code = asString(b.code).toUpperCase();
-  if (!CODE_RE.test(out.code)) v.add('code', 'Code must be 2–12 characters: letters, numbers or hyphen');
+  if (!editing && !CODE_RE.test(out.code)) v.add('code', 'Code must be 2–12 characters: letters, numbers or hyphen');
   out.name = asString(b.name);
   if (out.name.length < 2 || out.name.length > 80) v.add('name', 'Scheme name must be 2–80 characters');
   out.loanType = String(b.loanType || '');
@@ -154,6 +157,16 @@ function readScheme(b) {
   if (!Number.isInteger(grace) || grace < 0 || grace > 365) v.add('gracePeriodDays', 'Enter whole days from 0 to 365');
   out.gracePeriodDays = grace;
 
+  // Civil required: Yes opens the minimum civil score
+  out.civilRequired = b.civilRequired === true || b.civilRequired === 'true' || b.civilRequired === 'yes';
+  if (out.civilRequired) {
+    const min = Number(b.minCivilScore);
+    if (!Number.isInteger(min) || min < 300 || min > 900) v.add('minCivilScore', 'Enter the minimum civil score (300 to 900)');
+    else out.minCivilScore = min;
+  } else {
+    out.minCivilScore = undefined;
+  }
+
   const fine = readCharge(b.fine, 'fine', 'fine', v);
   const counting = String(b.fine?.counting || 'per_day');
   if (!FINE_COUNTING.includes(counting)) v.add('fineCounting', 'Select how the fine is counted');
@@ -211,7 +224,7 @@ export async function createScheme(req, res) {
 export async function updateScheme(req, res) {
   const doc = await LoanScheme.findOne({ _id: req.params.id, isDeleted: false });
   if (!doc) throw new HttpError(404, 'Loan scheme not found');
-  const data = readScheme(req.body || {});
+  const data = readScheme(req.body || {}, { editing: true });
   delete data.code; // immutable once created
   const before = doc.toObject();
   Object.assign(doc, { ...data, updatedBy: req.user._id });

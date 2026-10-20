@@ -69,6 +69,7 @@ const EMPTY = {
   cost: { type: 'percentage', value: '0' },
   installmentRounding: '1',
   gracePeriodDays: '0',
+  civilRequired: false, minCivilScore: '',
   fine: { type: 'fixed', value: '0', counting: 'per_day' },
 };
 
@@ -85,6 +86,7 @@ const toForm = (s) => ({
   cost: { type: s.cost.type, value: String(s.cost.value) },
   installmentRounding: String(s.installmentRounding ?? 1),
   gracePeriodDays: String(s.gracePeriodDays ?? 0),
+  civilRequired: Boolean(s.civilRequired), minCivilScore: s.minCivilScore ? String(s.minCivilScore) : '',
   fine: { type: s.fine?.type || 'fixed', value: String(s.fine?.value ?? 0), counting: s.fine?.counting || 'per_day' },
 });
 
@@ -116,6 +118,7 @@ function validate(f, isEdit) {
   if (!money(dep.value) || (dep.type === 'percentage' && Number(dep.value) > 100)) e.securityDeposit = dep.type === 'percentage' ? '0 to 100' : 'Enter an amount';
   else if (f.securityType === 'none' && Number(dep.value) > 0) e.securityDeposit = 'Choose a security type, or set 0';
   if (!int(f.gracePeriodDays) || Number(f.gracePeriodDays) > 365) e.gracePeriodDays = 'Whole days, 0 to 365';
+  if (f.civilRequired && !(/^\d{3}$/.test(String(f.minCivilScore)) && Number(f.minCivilScore) >= 300 && Number(f.minCivilScore) <= 900)) e.minCivilScore = 'Enter the minimum civil score (300 to 900)';
   for (const k of ['processingFee', 'cost', 'fine']) {
     const c = f[k];
     if (!money(c.value) || (c.type === 'percentage' && Number(c.value) > 100)) e[k] = c.type === 'percentage' ? '0 to 100' : 'Enter an amount';
@@ -283,6 +286,21 @@ function SchemeForm({ item, onClose, onSaved }) {
           {ChargeField({ id: 'securityDeposit', title: 'Security deposit', hint: '% of the loan amount, or a fixed ₹' })}
           {ChargeField({ id: 'processingFee', title: 'Processing fee' })}
           {ChargeField({ id: 'cost', title: 'Cost (insurance / other)' })}
+        </div>
+
+        <h4 className="form-section">Civil check</h4>
+        <div className="form-grid cols-4">
+          <FormField id="civilRequired" label="Civil required" hint="Yes: a loan on this scheme needs the civil score of the borrower">
+            <select id="civilRequired" value={form.civilRequired ? 'yes' : 'no'} onChange={(e) => { const yes = e.target.value === 'yes'; setForm((f) => ({ ...f, civilRequired: yes, minCivilScore: yes ? f.minCivilScore : '' })); setErrors((er) => ({ ...er, minCivilScore: undefined })); }}>
+              <option value="no">No</option>
+              <option value="yes">Yes</option>
+            </select>
+          </FormField>
+          {form.civilRequired && (
+            <FormField id="minCivilScore" label="Minimum civil score" required error={errors.minCivilScore} hint="300 to 900. A borrower below this score cannot get this loan">
+              <input id="minCivilScore" inputMode="numeric" maxLength={3} value={form.minCivilScore} onChange={(e) => { setForm((f) => ({ ...f, minCivilScore: e.target.value.replace(/\D/g, '').slice(0, 3) })); setErrors((er) => ({ ...er, minCivilScore: undefined })); }} />
+            </FormField>
+          )}
         </div>
 
         <h4 className="form-section">Late payment & rounding</h4>
@@ -473,6 +491,7 @@ export default function LoanScheme() {
               ['Cost', charge(dialog.item.cost)],
               ['Installment rounding', dialog.item.installmentRounding ? `Nearest ₹${dialog.item.installmentRounding}` : 'None (exact)'],
               ['Grace period', `${dialog.item.gracePeriodDays} day(s)`],
+              ['Civil required', dialog.item.civilRequired ? `Yes, minimum score ${dialog.item.minCivilScore}` : 'No'],
               ['Fine', dialog.item.fine.value ? `${charge(dialog.item.fine)} · ${label(FINE_COUNTING, dialog.item.fine.counting)}` : 'No fine'],
               ['Status', dialog.item.isActive ? 'Active' : 'Inactive'],
             ]}
