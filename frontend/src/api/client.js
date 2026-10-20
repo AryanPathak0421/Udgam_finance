@@ -194,7 +194,7 @@ export const api = {
     payDue: (groupId, challengeId) => request('/group-leader-commission/pay', { method: 'POST', body: { groupId, challengeId } }),
   },
   groupTransfer: {
-    employees: () => request('/group-transfer/employees'),
+    employees: (params) => request(`/group-transfer/employees${qs(params)}`),
     items: (params) => request(`/group-transfer/items${qs(params)}`),
     transfer: (data) => request('/group-transfer', { method: 'POST', body: data }),
     history: (params) => request(`/group-transfer/history${qs(params)}`),

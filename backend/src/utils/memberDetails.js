@@ -38,6 +38,8 @@ export function missingDetails(m) {
     if (PHOTO_KEYS.has(d.key)) return !m[d.key] && !(m.kycKeys || []).includes(d.key);
     return !String(m[d.key] || '').trim();
   });
+  // a PAN number that came over needs its photo (the registration asks for it whenever a PAN is given)
+  if (m.pan && !m.panPhoto && !(m.kycKeys || []).includes('panPhoto')) out.push({ key: 'panPhoto', label: 'PAN photo' });
   // The guarantor that came over has only a name: his Aadhaar number and documents are still to be added. The nominee has to be added.
   if (guarantorGaps(m).length) out.push({ key: 'guarantor', label: 'Guarantor details (Aadhaar number, photo, signature, Aadhaar photo)' });
   if (!m.nominee?.name) out.push({ key: 'nominee', label: 'Nominee' });

@@ -11,7 +11,7 @@ import { OtpVerify, PhotoField } from './NewBorrower.jsx';
 export default function CompleteDetails({ member, options, onClose, onSaved }) {
   const toast = useToast();
   const missing = new Set((member.missingDetails || []).map((d) => d.key));
-  const [form, setForm] = useState({ mobile: member.mobile || '', husbandName: '', occupation: '', education: '', address: '', pincode: '', state: member.state || '', district: '', aadhaar: '', bankName: '', ifsc: '', accountNumber: '', memberPhoto: '', signaturePhoto: '', aadhaarPhoto: '' });
+  const [form, setForm] = useState({ mobile: member.mobile || '', husbandName: '', occupation: '', education: '', address: '', pincode: '', state: member.state || '', district: '', aadhaar: '', bankName: '', ifsc: '', accountNumber: '', memberPhoto: '', signaturePhoto: '', aadhaarPhoto: '', panPhoto: '' });
   const [challengeId, setChallengeId] = useState('');
   const [districts, setDistricts] = useState([]);
   const [errors, setErrors] = useState({});
@@ -103,6 +103,7 @@ export default function CompleteDetails({ member, options, onClose, onSaved }) {
           {missing.has('accountNumber') && <FormField id="cacc" label="Account number" required error={errors.accountNumber}><input id="cacc" inputMode="numeric" value={form.accountNumber} onChange={digits('accountNumber', 18)} /></FormField>}
           {missing.has('memberPhoto') && <PhotoField id="memberPhoto" label="Member photo" required value={form.memberPhoto} error={errors.memberPhoto} onChange={photo('memberPhoto')} />}
           {missing.has('signaturePhoto') && <PhotoField id="signaturePhoto" label="Signature" required value={form.signaturePhoto} error={errors.signaturePhoto} onChange={photo('signaturePhoto')} />}
+          {missing.has('panPhoto') && <PhotoField id="panPhoto" label="PAN photo" required value={form.panPhoto} error={errors.panPhoto} onChange={photo('panPhoto')} />}
           {missing.has('aadhaarPhoto') && <PhotoField id="aadhaarPhoto" label="Aadhaar photo" required value={form.aadhaarPhoto} error={errors.aadhaarPhoto} onChange={photo('aadhaarPhoto')} />}
         </div>
         {errors.form && <div className="field-error" role="alert" style={{ marginTop: 10 }}>{errors.form}</div>}

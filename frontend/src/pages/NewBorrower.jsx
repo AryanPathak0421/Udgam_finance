@@ -150,7 +150,7 @@ export function EmployeeSelect({ id = 'employeeCode', label = 'Employee ID', req
   return (
     <FormField id={id} label={label} required={required} error={error} hint={!branch ? 'Select the branch first' : undefined}>
       <select id={id} value={value} onChange={(e) => onChange(e.target.value)} disabled={!branch || state.loading}>
-        <option value="">{state.loading ? 'Loading…' : required ? 'Select employee' : 'All employees'}</option>
+        <option value="">{state.loading ? 'Loading…' : !state.items.length && branch ? 'No employee in this branch' : required ? 'Select employee' : 'All employees'}</option>
         {state.items.map((x) => (
           <option key={x.code} value={x.code}>{x.code} — {x.name}{x.code === state.me ? ' (you)' : ''}{x.migrated ? ' (old system)' : ''}</option>
         ))}

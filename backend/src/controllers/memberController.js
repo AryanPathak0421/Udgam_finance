@@ -1117,7 +1117,10 @@ export async function employeeOptions(req, res) {
   // the employees of the branch, and the ones brought over from the old system (they have no login yet, but groups and records carry their staff ID)
   const users = await User.find({
     employeeCode: { $exists: true },
-    $or: [{ isActive: true, branches: branch }, { isActive: true, role: { $in: ['super_admin', 'admin'] } }, { legacyImport: true, branches: branch }],
+    // the staff of this branch only (an admin is not an employee of a branch), and the ones brought over from the old system
+    role: { $nin: ['super_admin', 'admin'] },
+    branches: branch,
+    $or: [{ isActive: true }, { legacyImport: true }],
   })
     .select('name employeeCode role isActive')
     .sort({ employeeCode: 1 });

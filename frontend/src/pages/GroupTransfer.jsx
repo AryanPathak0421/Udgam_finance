@@ -56,6 +56,8 @@ export function TransferHistory({ type, refreshKey }) {
 // Group Master → Group Transfer: choose Group or Loan, the employee they are with now, tick them, choose the employee who takes over, transfer.
 export default function GroupTransfer() {
   const toast = useToast();
+  const [branches, setBranches] = useState([]);
+  const [branch, setBranch] = useState('');
   const [employees, setEmployees] = useState([]);
   const [kindKey, setKindKey] = useState('group');
   const kindInfo = KINDS.find((k) => k.value === kindKey) || KINDS[0];
@@ -76,27 +78,38 @@ export default function GroupTransfer() {
   const q = useDebounce(search);
 
   useEffect(() => {
-    api.groupTransfer.employees().then((r) => setEmployees(r.items)).catch((err) => setError(err.message));
+    api.groups.branchOptions().then((r) => {
+      setBranches(r.items);
+      if (r.items.length === 1) setBranch(r.items[0].id);
+    }).catch((err) => setError(err.message));
   }, []);
+
+  // the staff of the chosen branch only
+  useEffect(() => {
+    setEmployees([]);
+    if (!branch) return;
+    api.groupTransfer.employees({ branch }).then((r) => setEmployees(r.items)).catch((err) => setError(err.message));
+  }, [branch]);
 
   const load = useCallback(async () => {
     if (!from) { setData(null); return; }
     setLoading(true);
     setError('');
     try {
-      setData(await api.groupTransfer.items({ type, employee: from, q, loanType: kindInfo.loanType, all: showClosed && type === 'loan' ? '1' : undefined }));
+      setData(await api.groupTransfer.items({ type, employee: from, branch, q, loanType: kindInfo.loanType, all: showClosed && type === 'loan' ? '1' : undefined }));
       setPicked(new Set());
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [type, kindInfo.loanType, from, q, showClosed]);
+  }, [type, kindInfo.loanType, from, branch, q, showClosed]);
   useEffect(() => {
     load();
   }, [load]);
 
-  const items = data?.items || [];
+  // only what was loaded for this kind of transfer (a group row and a loan row look different)
+  const items = data && data.type === type ? data.items : [];
   const allPicked = items.length > 0 && picked.size === items.length;
   const toggle = (id) => setPicked((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const target = employees.find((e) => e.code === to);
@@ -131,15 +144,21 @@ export default function GroupTransfer() {
       <PageHeader title="Group Transfer" description="Hand the groups or the loans of one employee to another. Choose the type and the employee they are with now, tick what to move, choose the employee who takes over and transfer in one go." />
       <div className="panel">
         <div className="form-grid">
+          <FormField id="tbranch" label="Branch" required hint="Only the staff of this branch are listed">
+            <select id="tbranch" value={branch} onChange={(e) => { setBranch(e.target.value); setFrom(''); setTo(''); setData(null); setPicked(new Set()); setFormError(''); }}>
+              <option value="">Select branch</option>
+              {branches.map((b) => <option key={b.id} value={b.id}>{b.code} — {b.name}</option>)}
+            </select>
+          </FormField>
           <FormField id="ttype" label="Transfer type" required>
-            <select id="ttype" value={kindKey} onChange={(e) => { setKindKey(e.target.value); setPicked(new Set()); setFormError(''); }}>
+            <select id="ttype" value={kindKey} onChange={(e) => { setKindKey(e.target.value); setData(null); setPicked(new Set()); setFormError(''); }}>
               {KINDS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
             </select>
           </FormField>
           <FormField id="tfrom" label="From employee" required>
-            <select id="tfrom" value={from} onChange={(e) => { setFrom(e.target.value); setTo((t) => (t === e.target.value ? '' : t)); setFormError(''); }}>
-              <option value="">Select employee</option>
-              {employees.map((e) => <option key={e.code} value={e.code}>{e.code} — {e.name}{e.isActive ? '' : ' (not active)'}</option>)}
+            <select id="tfrom" value={from} disabled={!branch} onChange={(e) => { setFrom(e.target.value); setTo((t) => (t === e.target.value ? '' : t)); setData(null); setFormError(''); }}>
+              <option value="">{branch ? (employees.length ? 'Select employee' : 'No employee in this branch') : 'Select the branch first'}</option>
+              {employees.map((e) => <option key={e.code} value={e.code}>{e.code} — {e.name}{e.isActive ? '' : e.migrated ? ' (old system)' : ' (not active)'}</option>)}
             </select>
           </FormField>
         </div>
@@ -199,7 +218,7 @@ export default function GroupTransfer() {
                 <FormField id="tto" label="Transfer to employee" required>
                   <select id="tto" value={to} onChange={(e) => { setTo(e.target.value); setFormError(''); }}>
                     <option value="">Select employee</option>
-                    {employees.filter((e) => e.isActive && e.code !== from).map((e) => <option key={e.code} value={e.code}>{e.code} — {e.name}</option>)}
+                    {employees.filter((e) => (e.isActive || e.migrated) && e.code !== from).map((e) => <option key={e.code} value={e.code}>{e.code} — {e.name}</option>)}
                   </select>
                 </FormField>
                 {type === 'group' && <label className="small" style={{ display: 'flex', gap: 6, alignItems: 'center', paddingBottom: 10 }}><input type="checkbox" checked={withLoans} onChange={(e) => setWithLoans(e.target.checked)} /> Also move the running loans of these groups</label>}
@@ -209,7 +228,7 @@ export default function GroupTransfer() {
             {formError && <div className="field-error" role="alert" style={{ marginTop: 8 }}>{formError}</div>}
           </>
         )}
-        {!from && <div className="muted" style={{ marginTop: 8 }}>Select the employee whose {type === 'group' ? 'groups' : 'loans'} are to be transferred.</div>}
+        {!from && <div className="muted" style={{ marginTop: 8 }}>{!branch ? 'Select the branch, then ' : ''}Select the employee whose {type === 'group' ? 'groups' : 'loans'} are to be transferred.</div>}
       </div>
 
       <TransferHistory type={undefined} refreshKey={refreshKey} />

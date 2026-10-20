@@ -20,10 +20,15 @@ const code = (v) => asString(v).toUpperCase();
 
 /** Employees to choose from: those of the caller's branches (an admin sees everyone). Someone who has left is still listed, to take his work away. */
 export async function employees(req, res) {
-  const filter = { employeeCode: { $exists: true, $ne: '' } };
-  if (!isAdmin(req.user)) filter.$or = [{ branches: { $in: req.user.branches || [] } }, { role: { $in: ADMIN_ROLES } }];
-  const users = await User.find(filter).select('name employeeCode role isActive branches').sort({ employeeCode: 1 });
-  res.json({ items: users.map((u) => ({ code: u.employeeCode, name: u.name, role: u.role, isActive: u.isActive, branches: (u.branches || []).map(String) })) });
+  // the staff of the chosen branch (an admin is not an employee of a branch); without a branch, those of the caller's branches
+  const branch = mongoose.isValidObjectId(req.query.branch) ? String(req.query.branch) : null;
+  const own = (req.user.branches || []).map(String);
+  if (branch && !isAdmin(req.user) && !own.includes(branch)) throw new HttpError(403, 'You can only use branches assigned to you');
+  const filter = { employeeCode: { $exists: true, $ne: '' }, role: { $nin: ADMIN_ROLES } };
+  if (branch) filter.branches = branch;
+  else if (!isAdmin(req.user)) filter.branches = { $in: own };
+  const users = await User.find(filter).select('name employeeCode role isActive legacyImport branches').sort({ employeeCode: 1 });
+  res.json({ items: users.map((u) => ({ code: u.employeeCode, name: u.name, role: u.role, isActive: u.isActive, migrated: !u.isActive && Boolean(u.legacyImport), branches: (u.branches || []).map(String) })) });
 }
 
 const groupRow = (g, running) => ({
@@ -54,15 +59,16 @@ export async function items(req, res) {
   if (!from) throw invalid({ employee: 'Select the employee' });
   const q = asString(req.query.q);
   const rx = q ? new RegExp(escapeRegex(q), 'i') : null;
+  const inBranch = mongoose.isValidObjectId(req.query.branch) ? { branch: req.query.branch } : {};
 
   if (type === 'group') {
-    let groups = await Group.find({ isDeleted: false, employeeCode: from, ...branchFilter(req.user) }).populate('branch', 'code name').sort({ code: 1 });
+    let groups = await Group.find({ isDeleted: false, employeeCode: from, ...inBranch, ...branchFilter(req.user) }).populate('branch', 'code name').sort({ code: 1 });
     if (rx) groups = groups.filter((g) => rx.test(g.code) || rx.test(g.name));
     const { per } = await runningLoansOfGroups(groups, from);
     return res.json({ type, items: groups.map((g) => groupRow(g, per.get(g.code) || 0)), total: groups.length });
   }
 
-  const filter = { status: 'paid', employeeCode: from, ...branchFilter(req.user) };
+  const filter = { status: 'paid', employeeCode: from, ...inBranch, ...branchFilter(req.user) };
   const and = [];
   if (rx) and.push({ $or: [{ loanId: rx }, { formId: rx }, { 'group.code': rx }, { 'group.name': rx }, { 'lines.code': rx }, { 'lines.name': rx }] });
   // one kind of loan only: personal, business, msme, product or group
@@ -87,7 +93,7 @@ async function readTarget(req, from, branchIds) {
   const to = code(req.body?.to);
   if (!to) throw invalid({ to: 'Select the employee who takes over' });
   if (to === from) throw invalid({ to: 'Choose a different employee' });
-  const emp = await User.findOne({ employeeCode: to, isActive: true }).select('name role branches');
+  const emp = await User.findOne({ employeeCode: to, $or: [{ isActive: true }, { legacyImport: true }] }).select('name role branches');
   if (!emp) throw invalid({ to: 'Select a valid employee' });
   if (!ADMIN_ROLES.includes(emp.role)) {
     const own = new Set((emp.branches || []).map(String));
@@ -269,9 +275,12 @@ export async function history(req, res) {
   if (['group', 'loan', 'member'].includes(req.query.type)) filter.type = req.query.type;
   if (!isAdmin(req.user)) filter.branch = { $in: req.user.branches || [] };
   const rows = await EmployeeTransfer.find(filter).sort({ createdAt: -1 }).limit(50);
+  const codes = [...new Set(rows.flatMap((t) => [t.fromEmployee, t.toEmployee]).filter(Boolean))];
+  const names = new Map((await User.find({ employeeCode: { $in: codes } }).select('name employeeCode')).map((u) => [u.employeeCode, u.name]));
+  const who = (code) => (code ? `${code} — ${names.get(code) || ''}`.replace(/ — $/, '') : '');
   res.json({
     items: rows.map((t) => ({
-      id: t._id, type: t.type, from: t.type === 'member' ? t.fromGroup : t.fromEmployee, to: t.type === 'member' ? t.toGroup : t.toEmployee,
+      id: t._id, type: t.type, from: t.type === 'member' ? t.fromGroup : who(t.fromEmployee), to: t.type === 'member' ? t.toGroup : who(t.toEmployee),
       count: t.count, loansMoved: t.loansMoved, items: t.items.slice(0, 20).map((i) => i.label), by: t.byName || '', at: t.createdAt,
     })),
   });
