@@ -21,6 +21,7 @@ const emiPaymentSchema = new mongoose.Schema(
     paidOn: { type: Date, required: true },
     payMode: { type: String, enum: ['cash', 'bank', 'upi', 'cheque', 'security'], required: true }, // security = the borrower's security amount put against the EMI
     reference: String,
+    bankAccount: { type: mongoose.Schema.Types.ObjectId, ref: 'BankAccount' }, // Account detail: the bank account of a bank transfer
     // Imported from the old system as "collected before the data starts" (an assumption): not cash of this system, so not in the Cashbook.
     legacy: { type: Boolean, default: false },
     status: { type: String, enum: ['paid', 'cancelled'], default: 'paid' },

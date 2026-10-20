@@ -1,3 +1,4 @@
+import BankAccountSelect from '../components/BankAccountSelect.jsx';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -187,7 +188,7 @@ function LoanSummary({ d }) {
 function LoanSettleForm({ loanId, member, canSettle, onDone }) {
   const toast = useToast();
   const { data: d, error, load } = usePreview(loanId, member);
-  const [form, setForm] = useState({ settledOn: todayISO(), amount: '', payMode: 'cash', reference: '', remark: '' });
+  const [form, setForm] = useState({ settledOn: todayISO(), amount: '', payMode: 'cash', bankAccount: '', reference: '', remark: '' });
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -235,6 +236,7 @@ function LoanSettleForm({ loanId, member, canSettle, onDone }) {
                 {Object.entries(MODE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
               </select>
             </FormField>
+            <BankAccountSelect id="sbank" mode={form.payMode} value={form.bankAccount} onChange={(v) => setForm((f) => ({ ...f, bankAccount: v }))} error={errors.bankAccount} />
             <FormField id="sref" label="Reference no." hint="Optional">
               <input id="sref" value={form.reference} maxLength={60} onChange={set('reference')} />
             </FormField>

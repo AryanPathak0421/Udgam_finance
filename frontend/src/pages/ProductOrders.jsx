@@ -1,3 +1,4 @@
+import BankAccountSelect from '../components/BankAccountSelect.jsx';
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -104,7 +105,7 @@ function PaymentsDialog({ row, isAdmin, canPay, onClose, onChanged }) {
   const toast = useToast();
   const today = new Date().toISOString().slice(0, 10);
   const [items, setItems] = useState(null);
-  const [form, setForm] = useState({ amount: '', paidOn: today, mode: 'bank', reference: '' });
+  const [form, setForm] = useState({ amount: '', paidOn: today, mode: 'bank', bankAccount: '', reference: '' });
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
   const [balance, setBalance] = useState(row.balance);
@@ -211,6 +212,7 @@ function PaymentsDialog({ row, isAdmin, canPay, onClose, onChanged }) {
               <option value="cheque">Cheque</option>
             </select>
           </FormField>
+          <BankAccountSelect id="pbank" mode={form.mode} value={form.bankAccount} onChange={(v) => setForm((f) => ({ ...f, bankAccount: v }))} error={errors.bankAccount} />
           <FormField id="pref" label="Reference no." hint="Optional">
             <input id="pref" value={form.reference} maxLength={60} onChange={set('reference')} />
           </FormField>

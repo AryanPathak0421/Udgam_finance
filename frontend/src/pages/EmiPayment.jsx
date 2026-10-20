@@ -1,3 +1,4 @@
+import BankAccountSelect from '../components/BankAccountSelect.jsx';
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -71,6 +72,7 @@ function LoanView({ id, advance, canCollect, onBack }) {
   const [member, setMember] = useState('');
   const [count, setCount] = useState('1');
   const [payMode, setPayMode] = useState('cash');
+  const [bankAccount, setBankAccount] = useState('');
   const [reference, setReference] = useState('');
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
@@ -100,7 +102,7 @@ function LoanView({ id, advance, canCollect, onBack }) {
     setBusy(true);
     setErrors({});
     try {
-      const r = await api.emi.pay({ loan: id, member: b.member, type: advance ? 'advance' : 'regular', count: Number(count), payMode, reference });
+      const r = await api.emi.pay({ loan: id, member: b.member, type: advance ? 'advance' : 'regular', count: Number(count), payMode, reference, bankAccount: payMode === 'bank' ? bankAccount : undefined });
       toast.success(advance ? `Advance EMI received — receipt ${r.payment.receiptNo}. Installment${r.payment.installments.length === 1 ? '' : 's'} ${r.payment.installments.join(', ')} ${r.payment.installments.length === 1 ? 'is' : 'are'} marked paid and will not be asked for again on the due date.` : `EMI received — receipt ${r.payment.receiptNo}`);
       setReceipt(r.payment);
       await load();
@@ -175,6 +177,7 @@ function LoanView({ id, advance, canCollect, onBack }) {
                   {PAY_CHOICES.map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                 </select>
               </FormField>
+              <BankAccountSelect id="ebank" mode={payMode} value={bankAccount} onChange={setBankAccount} error={errors.bankAccount} />
               <FormField id="eref" label="Reference no." hint="Optional">
                 <input id="eref" value={reference} maxLength={60} onChange={(e) => setReference(e.target.value)} />
               </FormField>

@@ -25,6 +25,7 @@ const loanPaymentSchema = new mongoose.Schema(
     installmentPaise: Number,
     payMode: { type: String, enum: PAYMENT_MODES, required: true },
     reference: String,
+    bankAccount: { type: mongoose.Schema.Types.ObjectId, ref: 'BankAccount' }, // Account detail: the bank account of a bank transfer
     // installments of the loan (one borrower's); the due dates follow the first installment date chosen at payment
     schedule: [{ _id: false, no: Number, dueDate: Date, installmentPaise: Number, principalPaise: Number, interestPaise: Number }],
     // one line per borrower (a group loan has one per member)

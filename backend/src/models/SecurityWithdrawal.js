@@ -22,6 +22,7 @@ const securityWithdrawalSchema = new mongoose.Schema(
     // withdraw: how it is paid back
     payMode: { type: String, enum: ['cash', 'bank', 'upi', 'cheque'] },
     reference: String,
+    bankAccount: { type: mongoose.Schema.Types.ObjectId, ref: 'BankAccount' }, // Account detail: the bank account of a bank transfer
     remark: String,
     status: { type: String, enum: WITHDRAWAL_STATUS, default: 'pending' },
     rejectReason: String,

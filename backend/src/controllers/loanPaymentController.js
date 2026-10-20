@@ -1,3 +1,4 @@
+import { readBankAccount } from '../services/bankAccountPick.js';
 import mongoose from 'mongoose';
 import { LoanPayment, PAYMENT_MODES } from '../models/LoanPayment.js';
 import { LoanRequisition } from '../models/LoanRequisition.js';
@@ -194,6 +195,7 @@ async function pay(req, r, b) {
   const { start, end } = emiDates(r, paidOn, b.emiStartDate, await collectionRule(r));
   const payMode = asString(b.payMode);
   if (!PAYMENT_MODES.includes(payMode)) throw invalid({ payMode: 'Select how the loan is paid' });
+  const bankAccount = await readBankAccount(b, payMode);
 
   const borrowers = borrowersOf(r);
   const items = Array.isArray(b.items) ? b.items : [];
@@ -246,7 +248,7 @@ async function pay(req, r, b) {
       requisition: r._id, formId: r.formId, kind, branch: r.branch,
       group: r.groupInfo?.code ? { code: r.groupInfo.code, name: r.groupInfo.name } : undefined,
       paidOn, emiStartDate: start, emiEndDate: end, installments: r.term, modeLabel: MODES[r.mode]?.label || r.mode, mode: r.mode, loanType: kind === 'business' ? r.business?.loanType || 'business' : kind, schemeName: r.schemeName,
-      annualRateBp: r.annualRateBp, installmentPaise: r.installmentPaise, payMode, reference: asString(b.reference).slice(0, 60), lines,
+      annualRateBp: r.annualRateBp, installmentPaise: r.installmentPaise, payMode, reference: asString(b.reference).slice(0, 60), bankAccount, lines,
       totalAmountPaise: lines.reduce((s, l) => s + l.amountPaise, 0), totalCashPaise: lines.reduce((s, l) => s + l.cashPaise, 0),
       employeeCode: r.employeeCode, createdBy: req.user._id, createdByCode: req.user.employeeCode || '',
     });

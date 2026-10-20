@@ -22,6 +22,7 @@ const loanSettlementSchema = new mongoose.Schema(
     waiverPaise: { type: Number, default: 0 }, // outstanding - received: given up (death settlement: all of it)
     payMode: { type: String, enum: ['cash', 'bank', 'upi', 'cheque'] },
     reference: String,
+    bankAccount: { type: mongoose.Schema.Types.ObjectId, ref: 'BankAccount' }, // Account detail: the bank account of a bank transfer
     settledOn: { type: Date, required: true },
     remark: String,
     // death settlement

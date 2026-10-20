@@ -1,3 +1,4 @@
+import BankAccountSelect from '../components/BankAccountSelect.jsx';
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -95,6 +96,7 @@ export function SingleLoanEmi() {
   const c = useCollection('single');
   const [amounts, setAmounts] = useState({});
   const [payMode, setPayMode] = useState('cash');
+  const [bankAccount, setBankAccount] = useState('');
   const [busy, setBusy] = useState('');
   const [receipt, setReceipt] = useState(null);
   const rows = c.data?.items || [];
@@ -105,7 +107,7 @@ export function SingleLoanEmi() {
     if (Number(amount) > r.dueAmount) return toast.error(`Only the due EMI (${inr(r.dueAmount)}) can be collected here. Use Advance EMI Payment for later installments.`);
     setBusy(key(r));
     try {
-      const res = await api.emi.collect({ items: [{ loan: r.loan, member: r.member, amount }], payMode });
+      const res = await api.emi.collect({ items: [{ loan: r.loan, member: r.member, amount }], payMode, bankAccount: payMode === 'bank' ? bankAccount : undefined });
       const one = res.results[0];
       if (one.ok) {
         toast.success(`EMI received — receipt ${one.payment.receiptNo}`);
@@ -132,6 +134,7 @@ export function SingleLoanEmi() {
               {Object.entries(MODE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
           </label>
+          <BankAccountSelect id="sbank" mode={payMode} value={bankAccount} onChange={setBankAccount} />
           {c.data && <span className="muted small">{c.data.total} borrower{c.data.total === 1 ? '' : 's'} with EMI due · total due {inr(c.data.totalDue)}</span>}
         </div>
         {c.loading && !c.data ? <Spinner label="Loading…" /> : c.error ? <ErrorState message={c.error} onRetry={c.load} /> : rows.length === 0 ? (
@@ -183,6 +186,7 @@ function GroupCollect({ group, canCollect, onClose, onDone }) {
   const [ticked, setTicked] = useState(() => new Set(dueMembers.map(key)));
   const [amounts, setAmounts] = useState({});
   const [payMode, setPayMode] = useState('cash');
+  const [bankAccount, setBankAccount] = useState('');
   const [busy, setBusy] = useState(false);
   const [results, setResults] = useState(null);
   const [receipt, setReceipt] = useState(null);
@@ -196,7 +200,7 @@ function GroupCollect({ group, canCollect, onClose, onDone }) {
     if (chosen.some((m) => Number(amountOf(m)) > m.dueAmount)) return toast.error('A member cannot pay more than the EMI due today. Use Advance EMI Payment for later installments.');
     setBusy(true);
     try {
-      const r = await api.emi.collect({ items: chosen.map((m) => ({ loan: m.loan, member: m.member, amount: amountOf(m) })), payMode });
+      const r = await api.emi.collect({ items: chosen.map((m) => ({ loan: m.loan, member: m.member, amount: amountOf(m) })), payMode, bankAccount: payMode === 'bank' ? bankAccount : undefined });
       setResults(r);
       toast.success(`${r.paidCount} EMI received — ${inr(r.totalAmount)}`);
       if (r.failedCount) toast.error(`${r.failedCount} could not be received`);
@@ -248,6 +252,7 @@ function GroupCollect({ group, canCollect, onClose, onDone }) {
                     {Object.entries(MODE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                   </select>
                 </FormField>
+                <BankAccountSelect id="gbank" mode={payMode} value={bankAccount} onChange={setBankAccount} />
                 <button className="btn primary" disabled={busy || !chosen.length} onClick={collect}>{busy ? 'Collecting…' : `Collect ${inr(total)} from ${chosen.length} member${chosen.length === 1 ? '' : 's'}`}</button>
               </div>
             ) : <div className="muted" style={{ marginTop: 10 }}>{dueMembers.length ? 'You can view the group but not collect EMI.' : 'Every member of this group has paid.'}</div>}

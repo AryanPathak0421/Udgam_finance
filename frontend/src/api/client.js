@@ -107,6 +107,7 @@ export const api = {
     approveBatch: (batchId) => request(`/loan-requisitions/batch/${batchId}/approve`, { method: 'POST' }),
     rejectBatch: (batchId, reason) => request(`/loan-requisitions/batch/${batchId}/reject`, { method: 'POST', body: { reason } }),
   },
+  bankAccountOptions: () => request('/bank-account-options'),
   civilChecks: {
     member: (memberId) => request(`/civil-checks/member/${memberId}`),
     add: (data) => request('/civil-checks', { method: 'POST', body: data }),

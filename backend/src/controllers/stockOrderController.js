@@ -1,3 +1,4 @@
+import { readBankAccount } from '../services/bankAccountPick.js';
 import mongoose from 'mongoose';
 import { StockTransfer } from '../models/StockTransfer.js';
 import { ProductOrder } from '../models/ProductOrder.js';
@@ -360,7 +361,8 @@ async function readPayment(req, b, { today }) {
   if (paidOn > today) throw invalid({ paidOn: 'The payment date cannot be in the future' });
   const mode = asString(b.mode);
   if (!PAYMENT_MODES.includes(mode)) throw invalid({ mode: 'Select the payment mode' });
-  return { amountPaise, paidOn, mode, reference: asString(b.reference).slice(0, 60), note: asString(b.note).slice(0, 200) };
+  const bankAccount = await readBankAccount(b, mode);
+  return { amountPaise, paidOn, mode, bankAccount, reference: asString(b.reference).slice(0, 60), note: asString(b.note).slice(0, 200) };
 }
 const startOfToday = () => new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
 

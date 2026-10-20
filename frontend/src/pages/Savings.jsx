@@ -1,3 +1,4 @@
+import BankAccountSelect from '../components/BankAccountSelect.jsx';
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -320,7 +321,7 @@ export function SecurityWithdraw() {
   const [member, setMember] = useState(null); // savings of the chosen member
   const [error, setError] = useState('');
   const [kind, setKind] = useState('adjust');
-  const [form, setForm] = useState({ amount: '', loan: '', payMode: 'cash', reference: '', remark: '' });
+  const [form, setForm] = useState({ amount: '', loan: '', payMode: 'cash', bankAccount: '', reference: '', remark: '' });
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
   const q = useDebounce(search);
@@ -344,7 +345,7 @@ export function SecurityWithdraw() {
       const d = await api.savings.member(id);
       setMember(d);
       const open = d.loans.filter((l) => l.open && !l.settled);
-      setForm({ amount: '', loan: open[0]?.id || '', payMode: 'cash', reference: '', remark: '' });
+      setForm({ amount: '', loan: open[0]?.id || '', payMode: 'cash', bankAccount: '', reference: '', remark: '' });
       setKind(open.length ? 'adjust' : d.withdrawable >= 1 && d.member.hasMobile ? 'withdraw' : 'adjust');
       setErrors({});
     } catch (err) {
@@ -357,7 +358,7 @@ export function SecurityWithdraw() {
     setBusy(true);
     setErrors({});
     try {
-      const r = await api.savings.request({ member: member.member.id, kind, amount: form.amount, loan: kind === 'adjust' ? form.loan : undefined, payMode: kind === 'withdraw' ? form.payMode : undefined, reference: form.reference, remark: form.remark });
+      const r = await api.savings.request({ member: member.member.id, kind, amount: form.amount, loan: kind === 'adjust' ? form.loan : undefined, payMode: kind === 'withdraw' ? form.payMode : undefined, bankAccount: kind === 'withdraw' && form.payMode === 'bank' ? form.bankAccount : undefined, reference: form.reference, remark: form.remark });
       toast.success(`Request ${r.withdrawal.receiptNo} for ${inr(r.withdrawal.amount)} sent to the admin for approval`);
       await open(member.member.id);
     } catch (err) {
@@ -468,6 +469,7 @@ export function SecurityWithdraw() {
                           {Object.entries(MODE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                         </select>
                       </FormField>
+                      <BankAccountSelect id="wbank" mode={form.payMode} value={form.bankAccount} onChange={(v) => setForm((f) => ({ ...f, bankAccount: v }))} error={errors.bankAccount} />
                       <FormField id="wref" label="Reference no." hint="Optional"><input id="wref" value={form.reference} maxLength={60} onChange={set('reference')} /></FormField>
                     </>
                   )}

@@ -1,3 +1,4 @@
+import { readBankAccount } from '../services/bankAccountPick.js';
 import mongoose from 'mongoose';
 import { LoanSettlement } from '../models/LoanSettlement.js';
 import { Member } from '../models/Member.js';
@@ -91,11 +92,13 @@ export async function settleLoan(req, res) {
   const waiverPaise = 0;
   const remark = asString(b.remark).slice(0, 300);
   let payMode;
+  let bankAccount;
   if (amountPaise > 0) {
     payMode = asString(b.payMode);
     if (!['cash', 'bank', 'upi', 'cheque'].includes(payMode)) throw invalid({ payMode: 'Select how the amount is paid' });
+    bankAccount = await readBankAccount(b, payMode);
   }
-  const s = await save(req, p, line, { kind: 'loan', outstandingPaise, amountPaise, waiverPaise, payMode, reference: asString(b.reference).slice(0, 60), settledOn, remark });
+  const s = await save(req, p, line, { kind: 'loan', outstandingPaise, amountPaise, waiverPaise, payMode, bankAccount, reference: asString(b.reference).slice(0, 60), settledOn, remark });
   await s.populate(POPULATE);
   await audit(req, { action: 'settlement.loan', entity: 'LoanSettlement', entityId: s._id, after: { receiptNo: s.receiptNo, loanId: p.loanId, member: line.code, outstanding: outstandingPaise / 100, received: amountPaise / 100, waiver: waiverPaise / 100 } });
   res.status(201).json({ settlement: present(s) });

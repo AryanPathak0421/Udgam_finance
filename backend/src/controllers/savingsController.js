@@ -1,3 +1,4 @@
+import { readBankAccount } from '../services/bankAccountPick.js';
 import mongoose from 'mongoose';
 import { LoanPayment } from '../models/LoanPayment.js';
 import { SecurityWithdrawal } from '../models/SecurityWithdrawal.js';
@@ -207,6 +208,7 @@ export async function requestWithdrawal(req, res) {
     data.payMode = asString(b.payMode);
     if (!['cash', 'bank', 'upi', 'cheque'].includes(data.payMode)) throw invalid({ payMode: 'Select how the amount is paid back' });
     data.reference = asString(b.reference).slice(0, 60);
+    data.bankAccount = await readBankAccount(b, data.payMode);
   }
   const w = await SecurityWithdrawal.create({
     ...data, receiptNo: await generateCode('securityWithdrawal'), member: m._id, memberCode: m.code, memberName: m.name, branch: m.branch._id, kind, amountPaise,

@@ -1,3 +1,4 @@
+import BankAccountSelect from '../components/BankAccountSelect.jsx';
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -106,6 +107,7 @@ function BatchPayDialog({ batch, onClose, onPaid }) {
   const [paidOn, setPaidOn] = useState(new Date().toISOString().slice(0, 10));
   const [emiStart, setEmiStart] = useState('');
   const [payMode, setPayMode] = useState('cash');
+  const [bankAccount, setBankAccount] = useState('');
   const [reference, setReference] = useState('');
   const [prod, setProd] = useState({}); // loan id -> { id, qty }
   const [errors, setErrors] = useState({});
@@ -134,7 +136,7 @@ function BatchPayDialog({ batch, onClose, onPaid }) {
     setFailed([]);
     try {
       const r = await api.loanPayments.payBatch({
-        batchId: batch.batchId, paidOn, emiStartDate: emiStart || undefined, payMode, reference,
+        batchId: batch.batchId, paidOn, emiStartDate: emiStart || undefined, payMode, reference, bankAccount: payMode === 'bank' ? bankAccount : undefined,
         items: Object.entries(prod).filter(([, v]) => v.id).map(([requisition, v]) => ({ requisition, stockProduct: v.id, quantity: Number(v.qty) || 1 })),
       });
       const ok = r.results.filter((x) => x.ok).map((x) => x.payment);
@@ -172,6 +174,7 @@ function BatchPayDialog({ batch, onClose, onPaid }) {
                 {Object.entries(MODE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
               </select>
             </FormField>
+            <BankAccountSelect id="bbank" mode={payMode} value={bankAccount} onChange={setBankAccount} error={errors.bankAccount} />
             <FormField id="bref" label="Reference no." hint="Optional">
               <input id="bref" value={reference} maxLength={60} onChange={(e) => setReference(e.target.value)} />
             </FormField>
@@ -223,6 +226,7 @@ function PayDialog({ id, onClose, onPaid }) {
   const [paidOn, setPaidOn] = useState('');
   const [emiStart, setEmiStart] = useState('');
   const [payMode, setPayMode] = useState('cash');
+  const [bankAccount, setBankAccount] = useState('');
   const [reference, setReference] = useState('');
   const [items, setItems] = useState([]); // { member, stockProduct, quantity }
   const [errors, setErrors] = useState({});
@@ -264,7 +268,7 @@ function PayDialog({ id, onClose, onPaid }) {
     setErrors({});
     try {
       const r = await api.loanPayments.pay({
-        requisition: id, paidOn, emiStartDate: emiStart, payMode, reference,
+        requisition: id, paidOn, emiStartDate: emiStart, payMode, reference, bankAccount: payMode === 'bank' ? bankAccount : undefined,
         items: items.filter((it) => it.stockProduct).map((it) => ({ member: isGroup ? it.member : undefined, stockProduct: it.stockProduct, quantity: Number(it.quantity) || 1 })),
       });
       toast.success(`Loan paid — receipt ${r.payment.receiptNo}`);
@@ -306,6 +310,7 @@ function PayDialog({ id, onClose, onPaid }) {
                 {Object.entries(MODE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
               </select>
             </FormField>
+            <BankAccountSelect id="pbank" mode={payMode} value={bankAccount} onChange={setBankAccount} error={errors.bankAccount} />
             <FormField id="pref" label="Reference no." hint="Optional (UTR, cheque no.)">
               <input id="pref" value={reference} maxLength={60} onChange={(e) => setReference(e.target.value)} />
             </FormField>

@@ -10,6 +10,7 @@ const productPaymentSchema = new mongoose.Schema(
     paidOn: { type: Date, required: true },
     mode: { type: String, enum: PAYMENT_MODES, required: true },
     reference: String,
+    bankAccount: { type: mongoose.Schema.Types.ObjectId, ref: 'BankAccount' }, // Account detail: the bank account of a bank transfer
     note: String,
     // paid = the branch has paid and waits for the admin to receive it; received = counted in the purchase balance
     status: { type: String, enum: ['paid', 'received', 'rejected'], default: 'received' },

@@ -1,3 +1,4 @@
+import { readBankAccount } from '../services/bankAccountPick.js';
 import mongoose from 'mongoose';
 import { EmiPayment } from '../models/EmiPayment.js';
 import { LoanSettlement } from '../models/LoanSettlement.js';
@@ -277,6 +278,7 @@ export async function addEntry(req, res) {
   if (amountPaise === null || amountPaise < 100) throw invalid({ amount: 'Enter the amount (₹1 or more, up to 2 decimals)' });
   const mode = asString(b.mode) || 'cash';
   if (!ENTRY_MODES.includes(mode)) throw invalid({ mode: 'Select cash, bank, UPI or cheque' });
+  const bankAccount = await readBankAccount(b, mode);
   const today = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
   let date = today;
   if (b.date) {
@@ -297,7 +299,7 @@ export async function addEntry(req, res) {
     if (!(await Branch.exists({ _id: id }))) throw invalid({ branch: 'Branch not found' });
     branch = id;
   }
-  const e = await CashEntry.create({ branch, date, side, category, amountPaise, mode, remark: asString(b.remark).slice(0, 200), enteredByCode: req.user.employeeCode || '', createdBy: req.user._id });
+  const e = await CashEntry.create({ branch, date, side, category, amountPaise, mode, bankAccount, remark: asString(b.remark).slice(0, 200), enteredByCode: req.user.employeeCode || '', createdBy: req.user._id });
   await audit(req, { action: 'cashbook.entry', entity: 'CashEntry', entityId: e._id, after: { side, category, amount: amountPaise / 100, date: iso(date), branch: branch ? String(branch) : 'head office' } });
   res.status(201).json({ entry: { id: e._id, side, category, amount: amountPaise / 100, date: iso(date), mode, remark: e.remark || '' } });
 }

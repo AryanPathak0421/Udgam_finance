@@ -18,6 +18,7 @@ import productComplaintRoutes from './routes/productComplaintRoutes.js';
 import memberRoutes from './routes/memberRoutes.js';
 import loanRequisitionRoutes from './routes/loanRequisitionRoutes.js';
 import civilCheckRoutes from './routes/civilCheckRoutes.js';
+import bankAccountOptionsRoutes from './routes/bankAccountOptionsRoutes.js';
 
 const app = express();
 
@@ -63,6 +64,7 @@ app.use('/api', productComplaintRoutes);
 app.use('/api', memberRoutes);
 app.use('/api', loanRequisitionRoutes);
 app.use('/api', civilCheckRoutes);
+app.use('/api', bankAccountOptionsRoutes);
 
 app.use((_req, res) => res.status(404).json({ message: 'Not found' }));
 

@@ -1,3 +1,4 @@
+import BankAccountSelect from '../components/BankAccountSelect.jsx';
 import { Fragment, useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -73,7 +74,7 @@ function Side({ title, lines, rows, total, totalLabel, openRow, closeRow, tone, 
 // Add a line typed in by hand: cash fund, NPA, voucher, bank / cash deposit, fund transfer, staff salary, other.
 function EntryDialog({ cats, branches, isAdmin, defaultBranch, onClose, onSaved }) {
   const toast = useToast();
-  const [form, setForm] = useState({ side: 'receive', category: '', branch: defaultBranch, date: today(), amount: '', mode: 'cash', remark: '' });
+  const [form, setForm] = useState({ side: 'receive', category: '', branch: defaultBranch, date: today(), amount: '', mode: 'cash', bankAccount: '', remark: '' });
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
   const set = (k) => (e) => { setForm((f) => ({ ...f, [k]: e.target.value, ...(k === 'side' ? { category: '' } : {}) })); setErrors((x) => ({ ...x, [k]: undefined })); };
@@ -125,6 +126,7 @@ function EntryDialog({ cats, branches, isAdmin, defaultBranch, onClose, onSaved 
             {['cash', 'bank', 'upi', 'cheque'].map((m) => <option key={m} value={m}>{MODE_LABEL[m]}</option>)}
           </select>
         </FormField>
+        <BankAccountSelect id="cbank" mode={form.mode} value={form.bankAccount} onChange={(v) => setForm((f) => ({ ...f, bankAccount: v }))} error={errors.bankAccount} />
         <FormField id="cremark" label="Remark" className="span-2" hint="For example the bank, the person or the voucher number"><input id="cremark" value={form.remark} maxLength={200} onChange={set('remark')} /></FormField>
       </div>
     </Modal>
