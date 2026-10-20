@@ -61,7 +61,10 @@ const KIND = {
 const byEmployee = { _id: { code: '$employeeCode', branch: '$branch' } };
 const COUNTED = ['collection', 'new_group_opening', 'new_member_joining', 'product_sell', ...Object.keys(KIND)];
 
-/** [{ code, branch, count, amount }] for one commission type in one period (amount in paise). The old system's records are left out. */
+/**
+ * [{ code, branch, count, amount }] for one commission type in one period (amount in paise). Loans, groups and members of the old system count on
+ * their real dates; only the collections that were assumed (not really in the file) are left out.
+ */
 async function activity(type, p) {
   const range = { $gte: p.from, $lt: p.to };
   let rows;
@@ -73,22 +76,23 @@ async function activity(type, p) {
   } else if (type in KIND) {
     const kind = KIND[type];
     rows = await LoanPayment.aggregate([
-      { $match: { status: 'paid', legacyImport: { $ne: true }, paidOn: range, ...(kind ? { $or: [{ loanType: kind }, { kind }] } : {}) } },
+      { $match: { status: 'paid', paidOn: range, ...(kind ? { $or: [{ loanType: kind }, { kind }] } : {}) } },
       { $group: { ...byEmployee, count: { $sum: { $size: { $ifNull: ['$lines', []] } } }, amount: { $sum: { $ifNull: ['$totalAmountPaise', 0] } } } },
     ]);
   } else if (type === 'new_group_opening') {
     rows = await Group.aggregate([
-      { $match: { isDeleted: false, legacyImport: { $ne: true }, createdAt: range } },
+      // a group counts from its opening date (an imported group has no creation date of its own)
+      { $match: { isDeleted: false, $or: [{ openingDate: range }, { openingDate: { $exists: false }, createdAt: range }] } },
       { $group: { ...byEmployee, count: { $sum: 1 }, amount: { $sum: 0 } } },
     ]);
   } else if (type === 'new_member_joining') {
     rows = await Member.aggregate([
-      { $match: { isDeleted: false, legacyImport: { $ne: true }, joiningDate: range } },
+      { $match: { isDeleted: false, joiningDate: range } },
       { $group: { ...byEmployee, count: { $sum: 1 }, amount: { $sum: 0 } } },
     ]);
   } else if (type === 'product_sell') {
     rows = await LoanPayment.aggregate([
-      { $match: { status: 'paid', legacyImport: { $ne: true }, paidOn: range } },
+      { $match: { status: 'paid', paidOn: range } },
       { $unwind: '$lines' },
       {
         $group: {

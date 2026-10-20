@@ -15,8 +15,19 @@ function addMonths(d, n) {
 }
 
 // perYear = number of installments in a year; unit = what one term step is called.
+// A daily loan is collected every working day: the company is off on Sunday, so no installment falls on a Sunday (the next day takes it).
+export const skipSundays = (s, k) => {
+  let d = new Date(s.getTime());
+  if (d.getUTCDay() === 0) d = addDays(d, 1);
+  for (let i = 0; i < k; i += 1) {
+    d = addDays(d, 1);
+    if (d.getUTCDay() === 0) d = addDays(d, 1);
+  }
+  return d;
+};
+
 export const MODES = {
-  daily: { label: 'Daily', unit: 'day', perYear: 365, next: (s, k) => addDays(s, k) },
+  daily: { label: 'Daily', unit: 'day', perYear: 365, next: (s, k) => skipSundays(s, k) },
   weekly: { label: 'Weekly', unit: 'week', perYear: 52, next: (s, k) => addDays(s, 7 * k) },
   biweekly: { label: 'Bi-weekly (fortnightly)', unit: 'fortnight', perYear: 26, next: (s, k) => addDays(s, 14 * k) },
   monthly: { label: 'Monthly', unit: 'month', perYear: 12, next: (s, k) => addMonths(s, k) },

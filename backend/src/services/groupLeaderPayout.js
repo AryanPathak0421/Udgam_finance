@@ -42,11 +42,11 @@ export function payoutMonths(month, rule) {
 
 /**
  * Loans disbursed to each group in each month, from the group loans that were really paid out in the app (one loan per member of the group).
- * The old system's loans are left out: their commission was settled there. Map: group code -> Map(month -> loans).
+ * The loans of the old system count too (on the date they were paid out). Map: group code -> Map(month -> loans).
  */
 export async function loadRealDisbursements(codes) {
   const rows = await LoanPayment.aggregate([
-    { $match: { status: 'paid', legacyImport: { $ne: true }, 'group.code': { $in: codes }, $or: [{ loanType: 'group' }, { kind: 'group' }] } },
+    { $match: { status: 'paid', 'group.code': { $in: codes }, $or: [{ loanType: 'group' }, { kind: 'group' }] } },
     { $group: { _id: { code: '$group.code', month: { $dateToString: { format: '%Y-%m', date: '$paidOn' } } }, loans: { $sum: { $size: { $ifNull: ['$lines', []] } } } } },
   ]);
   const map = new Map();
