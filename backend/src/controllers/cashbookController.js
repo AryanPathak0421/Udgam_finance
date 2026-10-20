@@ -7,6 +7,7 @@ import { SecurityWithdrawal } from '../models/SecurityWithdrawal.js';
 import { ProductPayment } from '../models/ProductPayment.js';
 import { CashEntry, ENTRY_CATEGORIES, ENTRY_MODES } from '../models/CashEntry.js';
 import { Branch } from '../models/Branch.js';
+import { Ledger } from '../models/Ledger.js';
 import { CivilCheck } from '../models/CivilCheck.js';
 import { asString, parseDateOnly, HttpError } from '../utils/http.js';
 import { toMinor } from '../utils/money.js';
@@ -54,11 +55,11 @@ const PAYMENT = [
   { key: 'personal_disbursement', label: 'Personal loan disbursement' },
   { key: 'msme_disbursement', label: 'MSME loan disbursement' },
   { key: 'business_disbursement', label: 'Business loan disbursement' },
-  { key: 'daily_due', label: 'Daily today due', memo: true },
-  { key: 'weekly_due', label: 'Weekly today due', memo: true },
-  { key: 'product_due', label: 'Product today due', memo: true },
-  { key: 'personal_due', label: 'Personal today due', memo: true },
-  { key: 'bm_due', label: 'MSME / Business today due', memo: true },
+  { key: 'daily_due', label: 'Daily today due' },
+  { key: 'weekly_due', label: 'Weekly today due' },
+  { key: 'product_due', label: 'Product today due' },
+  { key: 'personal_due', label: 'Personal today due' },
+  { key: 'bm_due', label: 'MSME / Business today due' },
   { key: 'leader_commission', label: 'Group leader commission' },
   { key: 'security_return', label: 'Security return' },
   { key: 'bank_deposit', label: 'Bank deposit' },
@@ -197,7 +198,7 @@ export async function cashbook(req, res) {
 
     // entries typed in by hand
     const entries = await CashEntry.find({ isDeleted: false, ...entryScope, ...modeFilter('mode'), ...range('date', before) }).limit(20000);
-    entries.forEach((e) => add(e.side, e.category, { date: iso(e.date), particulars: e.remark || '', ref: e.enteredByCode ? `by ${e.enteredByCode}` : '', mode: e.mode, amount: e.amountPaise, branchId: e.branch, entryId: e._id, manual: true }));
+    entries.forEach((e) => add(e.side, e.ledger ? `ledger:${e.ledger}` : e.category, { date: iso(e.date), particulars: e.remark || '', ref: e.enteredByCode ? `by ${e.enteredByCode}` : '', mode: e.mode, amount: e.amountPaise, branchId: e.branch, entryId: e._id, manual: true }));
     return rows;
   }
 
@@ -235,16 +236,20 @@ export async function cashbook(req, res) {
       if (st.totals.due > 0) dueBy.set(dueKey(l), (dueBy.get(dueKey(l)) || 0) + st.totals.due);
     }));
   }
-  dueBy.forEach((amount, cat) => cur.push({ side: 'payment', cat, date: iso(asOf), particulars: 'EMI due up to this date', ref: '', mode: '', amount, branchId: null, memo: true }));
+  dueBy.forEach((amount, cat) => cur.push({ side: 'payment', cat, date: iso(asOf), particulars: 'EMI due up to this date', ref: '', mode: '', amount, branchId: null }));
 
+  // one line for every ledger of the Ledger master that has an entry in the period
+  const ledgerIds = [...new Set(cur.filter((x) => x.cat.startsWith('ledger:')).map((x) => x.cat.slice(7)))];
+  const ledgerNames = new Map((await Ledger.find({ _id: { $in: ledgerIds } }).select('name').lean()).map((x) => [String(x._id), x.name]));
+  const ledgerDefs = (side) => ledgerIds.filter((id) => cur.some((x) => x.side === side && x.cat === `ledger:${id}`)).map((id) => ({ key: `ledger:${id}`, label: `${ledgerNames.get(id) || 'Ledger'} (ledger)` }));
   const lineOf = (def, rows) => {
     const mine = rows.filter((r) => r.cat === def.key);
     return { key: def.key, label: def.label, amount: sum(mine) / 100, count: mine.length, memo: Boolean(def.memo), optional: Boolean(def.optional) };
   };
   const recRows = cur.filter((r) => r.side === 'receive');
   const payRows = cur.filter((r) => r.side === 'payment');
-  const receiveLines = RECEIVE.map((d) => lineOf(d, recRows)).filter((l) => !l.optional || l.amount > 0);
-  const paymentLines = PAYMENT.map((d) => lineOf(d, payRows)).filter((l) => !l.optional || l.amount > 0);
+  const receiveLines = [...RECEIVE, ...ledgerDefs('receive')].map((d) => lineOf(d, recRows)).filter((l) => !l.optional || l.amount > 0);
+  const paymentLines = [...PAYMENT, ...ledgerDefs('payment')].map((d) => lineOf(d, payRows)).filter((l) => !l.optional || l.amount > 0);
   const recP = sum(counted(cur, 'receive'));
   const payP = sum(counted(cur, 'payment'));
   const totals = { receipts: recP / 100, payments: payP / 100, grand: (openingPaise + recP) / 100 };
@@ -263,17 +268,27 @@ export async function cashbook(req, res) {
   res.json({
     from: iso(from), to: iso(to), asOf: iso(asOf), opening: openingPaise / 100, receiveLines, paymentLines, totals, closing: (openingPaise + recP - payP) / 100,
     receipts: await detail(recRows), payments: await detail(payRows),
+    ledgers: { receive: await ledgerOptions('credit'), payment: await ledgerOptions('debit') },
     entryCategories: { receive: RECEIVE.filter((d) => ENTRY_CATEGORIES.receive.includes(d.key)).map(({ key, label }) => ({ key, label })), payment: PAYMENT.filter((d) => ENTRY_CATEGORIES.payment.includes(d.key)).map(({ key, label }) => ({ key, label })) },
   });
 }
 
 /** A cashbook line typed in by hand (cash fund, NPA, voucher, bank / cash deposit, fund transfer, staff salary, other ...). */
+// the ledgers of the Ledger master an entry can be made for: a receive entry is a credit, a payment entry a debit
+const ledgerOptions = async (type) => (await Ledger.find({ isDeleted: false, isActive: true, type }).select('name').sort({ name: 1 }).lean()).map((x) => ({ id: x._id, name: x.name }));
 export async function addEntry(req, res) {
   const b = req.body || {};
   const side = asString(b.side);
   if (!['receive', 'payment'].includes(side)) throw invalid({ side: 'Choose receive or payment' });
-  const category = asString(b.category);
-  if (!ENTRY_CATEGORIES[side].includes(category) || !KNOWN.has(category)) throw invalid({ category: 'Choose what this entry is for' });
+  let category = asString(b.category);
+  let ledger;
+  if (asString(b.ledger)) {
+    const l = mongoose.isValidObjectId(asString(b.ledger)) ? await Ledger.findOne({ _id: b.ledger, isDeleted: false, isActive: true }) : null;
+    if (!l) throw invalid({ category: 'Ledger not found' });
+    if (l.type !== (side === 'receive' ? 'credit' : 'debit')) throw invalid({ category: side === 'receive' ? 'A receive entry takes a credit ledger' : 'A payment entry takes a debit ledger' });
+    ledger = l._id;
+    category = 'ledger';
+  } else if (!ENTRY_CATEGORIES[side].includes(category) || !KNOWN.has(category)) throw invalid({ category: 'Choose what this entry is for' });
   const amountPaise = toMinor(typeof b.amount === 'number' ? String(b.amount) : asString(b.amount));
   if (amountPaise === null || amountPaise < 100) throw invalid({ amount: 'Enter the amount (₹1 or more, up to 2 decimals)' });
   const mode = asString(b.mode) || 'cash';
@@ -299,7 +314,7 @@ export async function addEntry(req, res) {
     if (!(await Branch.exists({ _id: id }))) throw invalid({ branch: 'Branch not found' });
     branch = id;
   }
-  const e = await CashEntry.create({ branch, date, side, category, amountPaise, mode, bankAccount, remark: asString(b.remark).slice(0, 200), enteredByCode: req.user.employeeCode || '', createdBy: req.user._id });
+  const e = await CashEntry.create({ branch, date, side, category, amountPaise, mode, bankAccount, ledger, remark: asString(b.remark).slice(0, 200), enteredByCode: req.user.employeeCode || '', createdBy: req.user._id });
   await audit(req, { action: 'cashbook.entry', entity: 'CashEntry', entityId: e._id, after: { side, category, amount: amountPaise / 100, date: iso(date), branch: branch ? String(branch) : 'head office' } });
   res.status(201).json({ entry: { id: e._id, side, category, amount: amountPaise / 100, date: iso(date), mode, remark: e.remark || '' } });
 }

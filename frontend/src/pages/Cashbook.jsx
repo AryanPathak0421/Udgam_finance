@@ -71,7 +71,7 @@ function Side({ title, lines, rows, total, totalLabel, openRow, closeRow, tone, 
 }
 
 // Add a line typed in by hand: cash fund, NPA, voucher, bank / cash deposit, fund transfer, staff salary, other.
-function EntryDialog({ cats, branches, isAdmin, defaultBranch, onClose, onSaved }) {
+function EntryDialog({ cats, ledgers, branches, isAdmin, defaultBranch, onClose, onSaved }) {
   const toast = useToast();
   const [form, setForm] = useState({ side: 'receive', category: '', branch: defaultBranch, date: today(), amount: '', mode: 'cash', bankAccount: '', remark: '' });
   const [errors, setErrors] = useState({});
@@ -81,7 +81,8 @@ function EntryDialog({ cats, branches, isAdmin, defaultBranch, onClose, onSaved 
     setBusy(true);
     setErrors({});
     try {
-      await api.cashbookEntry(form);
+      const isLedger = form.category.startsWith('ledger:');
+      await api.cashbookEntry({ ...form, category: isLedger ? '' : form.category, ledger: isLedger ? form.category.slice(7) : undefined });
       toast.success('Entry added to the cashbook');
       onSaved();
     } catch (err) {
@@ -105,6 +106,11 @@ function EntryDialog({ cats, branches, isAdmin, defaultBranch, onClose, onSaved 
           <select id="ccat" value={form.category} onChange={set('category')}>
             <option value="">Select</option>
             {(cats[form.side] || []).map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+            {(ledgers?.[form.side] || []).length > 0 && (
+              <optgroup label={form.side === 'receive' ? 'Ledger master (credit)' : 'Ledger master (debit)'}>
+                {ledgers[form.side].map((l) => <option key={l.id} value={`ledger:${l.id}`}>{l.name}</option>)}
+              </optgroup>
+            )}
           </select>
         </FormField>
         {(branches.length > 1 || isAdmin) && (
@@ -205,13 +211,13 @@ export default function Cashbook() {
               openRow={<tr><td><strong>Opening balance</strong></td><td /><td className="num"><strong>{inr(data.opening)}</strong></td></tr>}
               extra={<div className="muted small" style={{ marginTop: 6 }}>Receipts in the period {inr(data.totals.receipts)}</div>} />
             <Side title="Payment side" lines={data.paymentLines} rows={data.payments} total={data.totals.payments} totalLabel="Total" tone="danger" canDelete={isAdmin} onDelete={remove}
-              closeRow={<tr><td><strong>Closing balance</strong></td><td /><td className="num"><span className="badge grey"><strong>{inr(data.closing)}</strong></span></td></tr>}
-              extra={<div className="muted small" style={{ marginTop: 6 }}>"Today due" is the EMI still to be collected up to {dmy(data.asOf)}; it is shown for information and is not part of the total.</div>} />
+              closeRow={<><tr><td><strong>Closing balance</strong></td><td /><td className="num"><span className="badge grey"><strong>{inr(data.closing)}</strong></span></td></tr><tr style={{ borderTop: '2px solid currentColor' }}><td><strong>Grand total (payments + closing)</strong></td><td /><td className="num"><span className="badge danger"><strong>{inr(data.totals.grand)}</strong></span></td></tr></>}
+              extra={<div className="muted small" style={{ marginTop: 6 }}>"Today due" is the EMI still to be collected up to {dmy(data.asOf)}; it is part of the payment total.</div>} />
           </div>
         )}
       </div>
       {adding && data && (
-        <EntryDialog cats={data.entryCategories} branches={branches} isAdmin={isAdmin} defaultBranch={branch && branch !== '' ? branch : branches.length === 1 ? branches[0].id : ''} onClose={() => setAdding(false)} onSaved={() => { setAdding(false); load(); }} />
+        <EntryDialog cats={data.entryCategories} ledgers={data.ledgers} branches={branches} isAdmin={isAdmin} defaultBranch={branch && branch !== '' ? branch : branches.length === 1 ? branches[0].id : ''} onClose={() => setAdding(false)} onSaved={() => { setAdding(false); load(); }} />
       )}
     </>
   );

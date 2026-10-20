@@ -18,6 +18,7 @@ const cashEntrySchema = new mongoose.Schema(
     category: { type: String, required: true },
     amountPaise: { type: Number, required: true, min: 100 },
     mode: { type: String, enum: ENTRY_MODES, default: 'cash' },
+    ledger: { type: mongoose.Schema.Types.ObjectId, ref: 'Ledger' }, // an entry made for a ledger of the Ledger master (category is then 'ledger')
     bankAccount: { type: mongoose.Schema.Types.ObjectId, ref: 'BankAccount' }, // Account detail: the bank account of a bank transfer
     remark: { type: String, trim: true },
     enteredByCode: String,
