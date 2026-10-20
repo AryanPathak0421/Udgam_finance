@@ -10,7 +10,6 @@ import { useToast } from '../components/ui/Toast.jsx';
 const MODE_LABEL = { cash: 'Cash', bank: 'Bank', upi: 'UPI', cheque: 'Cheque', security: 'Security' };
 const inr = (n) => (n === null || n === undefined || Number.isNaN(n) ? '—' : `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const dmy = (s) => (s ? new Date(`${s}T00:00:00`).toLocaleDateString('en-IN') : '—');
-const monthStart = () => `${new Date().toISOString().slice(0, 7)}-01`;
 const today = () => new Date().toISOString().slice(0, 10);
 
 // One side of the cashbook: a line for everything that is received (or paid), the amount, and what it is made of when clicked.
@@ -140,7 +139,7 @@ export default function Cashbook() {
   const isAdmin = ['super_admin', 'admin'].includes(user?.role);
   const [branches, setBranches] = useState([]);
   const [branch, setBranch] = useState('');
-  const [from, setFrom] = useState(monthStart());
+  const [from, setFrom] = useState(today());
   const [to, setTo] = useState(today());
   const [mode, setMode] = useState('');
   const [data, setData] = useState(null);
@@ -197,6 +196,7 @@ export default function Cashbook() {
             <option value="upi">UPI</option>
             <option value="cheque">Cheque</option>
           </select>
+          <button className="btn" onClick={load} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button>
           <button className="btn primary" onClick={() => setAdding(true)}>Add entry</button>
         </div>
         {loading && !data ? <Spinner label="Loading…" /> : error ? <ErrorState message={error} onRetry={load} /> : !data ? <EmptyState title="No data" /> : (
