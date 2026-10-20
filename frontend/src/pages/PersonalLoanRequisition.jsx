@@ -750,7 +750,7 @@ function RequisitionForm({ kind }) {
                                           <SearchableSelect aria-label={`Additional product for ${m.code}`} value={e.id}
                                             onChange={(ev) => setExtras((x) => ({ ...x, [m.id]: { id: ev.target.value, qty: x[m.id]?.qty || '1' } }))}>
                                             <option value="">{stock.length ? 'None' : 'No product in stock'}</option>
-                                            {stock.map((s) => <option key={s.id} value={s.id}>{s.name} · {inr(s.unitPrice)}</option>)}
+                                            {stock.filter((s) => !extraMax || s.unitPrice <= extraMax || s.id === e.id).map((s) => <option key={s.id} value={s.id}>{s.name} · {inr(s.unitPrice)}</option>)}
                                           </SearchableSelect>
                                           {e.id && (
                                             <input aria-label={`Units for ${m.code}`} inputMode="numeric" style={{ width: 64 }} value={e.qty}

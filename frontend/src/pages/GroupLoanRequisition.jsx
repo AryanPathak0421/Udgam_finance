@@ -105,8 +105,10 @@ function MemberLoan({ index, m, e, schemes, productSchemes, stock, errors, onCha
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <SearchableSelect aria-label={`Additional product for ${m.code}`} value={e.extraId} onChange={(ev) => onChange({ extraId: ev.target.value, extraScheme: ev.target.value ? e.extraScheme : '' })}>
               <option value="">{stock.length ? 'No product' : 'No product in stock'}</option>
-              {stock.map((p) => <option key={p.id} value={p.id}>{p.name} · {inr(p.unitPrice)}</option>)}
+              {/* only the products that fit in the 25% of this loan (the one already chosen stays) */}
+              {stock.filter((p) => !extraMax || p.unitPrice <= extraMax || p.id === e.extraId).map((p) => <option key={p.id} value={p.id}>{p.name} · {inr(p.unitPrice)}</option>)}
             </SearchableSelect>
+            {extraMax > 0 && stock.some((p) => p.unitPrice > extraMax) && <span className="muted small">Products above {inr(extraMax)} are not offered</span>}
             {e.extraId && <input aria-label={`Units for ${m.code}`} inputMode="numeric" style={{ width: 70 }} value={e.extraQty} onChange={(ev) => onChange({ extraQty: ev.target.value.replace(/\D/g, '').slice(0, 4) })} />}
             {extraProduct && <span className={extraValue > extraMax ? 'field-error' : 'muted small'}>{inr(extraValue)}{extraValue > extraMax ? ` is more than ${inr(extraMax)}` : ''}</span>}
           </div>

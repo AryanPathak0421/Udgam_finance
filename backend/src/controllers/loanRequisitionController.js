@@ -400,8 +400,10 @@ async function productLoanEmi({ schemeId, valuePaise, mode, term, rate, loanDate
   if (!scheme || !scheme.isActive || !SCHEME_TYPES.product.includes(scheme.loanType)) throw invalid({ additional: `${who}select an active product loan scheme` });
   // The scheme decides the amount range and the rate range. The product is repaid with the installments of the loan, so its mode and
   // number of installments are the loan's (a product scheme made for other modes can still be used for it).
-  if (valuePaise < scheme.amountMinPaise || valuePaise > scheme.amountMaxPaise) {
-    throw invalid({ additional: `${who}${scheme.name} allows a product value of ₹${scheme.amountMinPaise / 100} to ₹${scheme.amountMaxPaise / 100}; this one is ₹${valuePaise / 100}` });
+  // A product on top of a loan is limited by the 25% of the loan (checked by the caller), so the scheme's minimum amount does not apply: a ₹200 product
+  // is fine when 25% of the loan is ₹250. The scheme's top limit still does.
+  if (valuePaise > scheme.amountMaxPaise) {
+    throw invalid({ additional: `${who}${scheme.name} allows a product value up to ₹${scheme.amountMaxPaise / 100}; this one is ₹${valuePaise / 100}` });
   }
   const rateBp = Math.min(Math.max(Math.round(Number(rate) * 100), scheme.roiMinBp), scheme.roiMaxBp);
   let c;

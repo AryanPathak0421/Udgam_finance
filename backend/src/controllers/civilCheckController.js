@@ -2,7 +2,11 @@ import mongoose from 'mongoose';
 import { CivilCheck, BUREAUS } from '../models/CivilCheck.js';
 import { Member } from '../models/Member.js';
 import { User } from '../models/User.js';
-import { branchFilter, isAdmin } from './groupController.js';
+import { branchFilter, isAdmin, maskMobile } from './groupController.js';
+import { issueOtp, takeVerified, consumeChallenge } from '../services/otpChallenges.js';
+import { sendSms } from '../services/sms.js';
+import { civilApiConfigured, fetchCivilScore } from '../services/civilBureau.js';
+import { checkPanFormat } from '../services/kycVerify.js';
 import { asString, createValidator, parseDateOnly, HttpError } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
 import { AppSetting, CIVIL_FEE_KEY, civilFeePaise } from '../models/AppSetting.js';
@@ -50,6 +54,8 @@ export async function memberChecks(req, res) {
   res.json({
     member: { id: m._id, code: m.code, name: m.name, mobile: m.mobile, branch: m.branch ? { id: m.branch._id, name: m.branch.name } : null, isBlocked: Boolean(m.isBlocked) },
     fee: (await civilFeePaise()) / 100,
+    // the civil score from the bureau with the PAN number and an OTP to the phone number
+    bureau: { connected: civilApiConfigured(), hasPan: Boolean(m.pan), pan: m.pan ? `XXXXX${String(m.pan).slice(5)}` : '', hasMobile: Boolean(m.mobile), mobile: m.mobile ? maskMobile(m.mobile) : '' },
     latest: items[0] ? present(items[0]) : null,
     items: items.map(present),
   });
@@ -89,6 +95,49 @@ export async function addCheck(req, res) {
     createdBy: req.user._id,
   });
   await audit(req, { action: 'civilCheck.add', entity: 'CivilCheck', entityId: doc._id, after: { member: m.code, score, bureau, reportDate: dateOnly(reportDate) } });
+  res.status(201).json({ check: present(doc) });
+}
+
+// ---- the civil score from the bureau: PAN number + an OTP to the member's phone number -------------------------------------------
+
+async function bureauMember(req) {
+  const m = await loadMember(req, req.body?.member);
+  if (m.isBlocked) throw new HttpError(409, 'This member is blocked.');
+  if (!civilApiConfigured()) throw new HttpError(409, 'The civil check service is not connected on the server yet. Record the score by hand for now.');
+  if (!m.pan) throw new HttpError(409, 'This member has no PAN number. Add the PAN first (Borrower Synopsis → Edit details).');
+  const pc = checkPanFormat(m.pan);
+  if (!pc.ok) throw new HttpError(409, `The PAN on record is not valid: ${pc.message}`);
+  if (!m.mobile) throw new HttpError(409, 'This member has no phone number to send the OTP to.');
+  return m;
+}
+
+/** Sends the OTP to the member's phone: the member agrees to the credit check by sharing it. */
+export async function bureauSendOtp(req, res) {
+  const m = await bureauMember(req);
+  const { challenge, otp } = await issueOtp({ user: req.user, purpose: 'civil_check', subject: String(m._id), sentTo: maskMobile(m.mobile) });
+  const text = `Udgam Microfinance: OTP ${otp} to allow a civil score check on your PAN XXXXX${String(m.pan).slice(5)}. Valid for 5 minutes. Do not share this OTP with anyone else.`;
+  const sms = await sendSms({ to: m.mobile, text });
+  await audit(req, { action: 'civilCheck.otpSent', entity: 'Member', entityId: m._id, after: { to: maskMobile(m.mobile) } });
+  res.json({ challengeId: challenge._id, sentTo: maskMobile(m.mobile), expiresAt: challenge.expiresAt, ...(sms.dev && process.env.NODE_ENV !== 'production' ? { devOtp: otp } : {}) });
+}
+
+/** After the OTP is verified: asks the bureau with the PAN and phone number and records the score as a civil check. */
+export async function bureauFetch(req, res) {
+  const m = await bureauMember(req);
+  const ch = await takeVerified(req.body?.challengeId, req.user, 'civil_check', String(m._id));
+  if (!ch) throw new HttpError(422, "Verify the OTP of the member's phone first", { otp: 'Verify the OTP first' });
+  const r = await fetchCivilScore({ pan: m.pan, mobile: m.mobile, name: m.name });
+  if (r.status === 'unavailable') throw new HttpError(409, 'The civil check service is not connected on the server yet.');
+  if (r.status === 'error') throw new HttpError(424, r.message); // 4xx so that the message reaches the screen
+  let employeeCode = req.user.employeeCode;
+  if (!employeeCode) employeeCode = (await User.findById(req.user._id).select('employeeCode'))?.employeeCode;
+  const today = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
+  const doc = await CivilCheck.create({
+    member: m._id, branch: m.branch._id, score: r.score, reportDate: today, bureau: r.bureau, reportNumber: r.reportNumber || undefined,
+    remark: 'Fetched from the bureau with the PAN number and the OTP of the phone number', employeeCode, feePaise: await civilFeePaise(), createdBy: req.user._id,
+  });
+  await consumeChallenge(ch);
+  await audit(req, { action: 'civilCheck.fetch', entity: 'CivilCheck', entityId: doc._id, after: { member: m.code, score: r.score, bureau: r.bureau } });
   res.status(201).json({ check: present(doc) });
 }
 

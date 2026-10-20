@@ -27,6 +27,58 @@ function ScoreCard({ check }) {
 }
 
 // The first step of a loan requisition: the borrower's civil (credit bureau) score.
+// The civil score from the bureau: the member's PAN number and an OTP to the member's phone number (the member agrees by sharing it).
+function BureauBox({ member, info, onDone }) {
+  const toast = useToast();
+  const [sent, setSent] = useState(null);
+  const [verified, setVerified] = useState(false);
+  const [otp, setOtp] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { setSent(null); setVerified(false); setOtp(''); setError(''); }, [member.id]);
+  if (!info) return null;
+  if (!info.connected) {
+    return <div className="notice" style={{ margin: '12px 0' }}>The civil check service (bought with the PAN number) is not connected on the server yet, so the score is recorded by hand below. Once it is connected here, the score comes from the bureau with the PAN number and an OTP to the member's phone.</div>;
+  }
+  if (!info.hasPan) return <div className="notice warn" style={{ margin: '12px 0' }}>This member has no PAN number. Add the PAN first (Borrower Synopsis → Edit details) to get the score from the bureau.</div>;
+  if (!info.hasMobile) return <div className="notice warn" style={{ margin: '12px 0' }}>This member has no phone number to send the OTP to.</div>;
+
+  async function run(fn, ok) {
+    setBusy(true);
+    setError('');
+    try {
+      await fn();
+      if (ok) toast.success(ok);
+    } catch (err) {
+      setError(err.errors?.otp || err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="panel" style={{ padding: 16, margin: '12px 0' }}>
+      <h3 className="section-title">Get the civil score from the bureau</h3>
+      <p className="muted small" style={{ marginTop: 0 }}>With the PAN number <strong>{info.pan}</strong>. An OTP goes to the member's phone <strong>{info.mobile}</strong>; the member shares it to allow the check.</p>
+      {error && <div className="field-error" role="alert" style={{ marginBottom: 8 }}>{error}</div>}
+      {!sent ? (
+        <button className="btn primary" disabled={busy} onClick={() => run(async () => setSent(await api.civilChecks.bureauSendOtp(member.id)), 'OTP sent to the member')}>{busy ? 'Sending…' : "Send OTP to the member's phone"}</button>
+      ) : !verified ? (
+        <div>
+          {sent.devOtp && <div className="notice warn" style={{ marginBottom: 8 }}>Development mode: no SMS was sent. OTP: <strong>{sent.devOtp}</strong></div>}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <input aria-label="OTP" placeholder="6-digit OTP" inputMode="numeric" maxLength={6} value={otp} style={{ maxWidth: 150 }} onChange={(e) => { setOtp(e.target.value.replace(/\D/g, '')); setError(''); }} />
+            <button className="btn primary" disabled={busy} onClick={() => run(async () => { if (!/^\d{6}$/.test(otp)) throw new Error('Enter the 6-digit OTP'); await api.civilChecks.bureauVerifyOtp(sent.challengeId, otp); setVerified(true); }, 'OTP verified')}>Verify OTP</button>
+            <button className="btn" disabled={busy} onClick={() => run(async () => setSent(await api.civilChecks.bureauSendOtp(member.id)), 'OTP sent again')}>Resend</button>
+          </div>
+          <div className="muted small" style={{ marginTop: 4 }}>OTP sent to {sent.sentTo}</div>
+        </div>
+      ) : (
+        <button className="btn primary" disabled={busy} onClick={() => run(async () => { const r = await api.civilChecks.bureauFetch(member.id, sent.challengeId); setSent(null); setVerified(false); setOtp(''); await onDone(); toast.success(`Civil score ${r.check.score} recorded`); })}>{busy ? 'Asking the bureau…' : 'Get the civil score'}</button>
+      )}
+    </div>
+  );
+}
+
 // The fee of one civil check: the admin sets the amount, and every check adds that amount to the Cashbook.
 function FeeBox({ isAdmin }) {
   const toast = useToast();
@@ -196,6 +248,8 @@ export default function CivilCheck() {
       {m.isBlocked && <div className="notice warn">This member is blocked.</div>}
       <ScoreCard check={data.latest} />
       {data.fee > 0 && <div className="notice" style={{ marginTop: 10 }}>Fee of a civil check: ₹{data.fee}. It is added to the Cashbook when you record the check.</div>}
+
+      {canAdd && <BureauBox member={m} info={data.bureau} onDone={async () => setData(await api.civilChecks.member(m.id))} />}
 
       {canAdd && (
         <form onSubmit={submit} noValidate className="panel" style={{ padding: 18, margin: '14px 0' }}>
