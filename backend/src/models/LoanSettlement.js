@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 
-export const SETTLEMENT_KINDS = ['loan', 'death'];
+// loan: closed early by paying what is left; death: closed because the borrower died; auto: every installment was paid, so the loan closes by itself
+export const SETTLEMENT_KINDS = ['loan', 'death', 'auto'];
 
 // The settlement of one borrower's loan: either closed early by paying what is left ("loan"), or closed because the
 // borrower died ("death"). After it, no more EMI is due on that borrower's loan.

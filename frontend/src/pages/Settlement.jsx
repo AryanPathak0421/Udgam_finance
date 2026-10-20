@@ -52,7 +52,7 @@ function SettlementDialog({ settlement: s, onClose }) {
   }, [s]);
   const cert = full?.certificate;
   return (
-    <Modal open title={`${s.kind === 'death' ? 'Death settlement' : 'Loan settlement'} ${s.receiptNo}`} onClose={onClose} size="lg"
+    <Modal open title={`${s.kind === 'death' ? 'Death settlement' : s.kind === 'auto' ? 'Auto settlement' : 'Loan settlement'} ${s.receiptNo}`} onClose={onClose} size="lg"
       footer={<><button className="btn" onClick={onClose}>Close</button><button className="btn primary" onClick={() => { if (!printSettlement(s)) toast.error('Allow pop-ups to print'); }}>Print</button></>}>
       <DetailList items={[
         ['Loan ID', s.loanId || s.formId], ['Branch', s.branch ? `${s.branch.code} — ${s.branch.name}` : ''], ['Borrower', `${s.memberCode} — ${s.memberName}`], ...(s.group ? [['Group', s.group]] : []),
@@ -550,7 +550,7 @@ function History({ kind, reloadKey, onCancelled }) {
               <tbody>
                 {data.items.map((s) => (
                   <tr key={s.id}>
-                    <td data-label="Receipt"><strong>{s.receiptNo}</strong></td>
+                    <td data-label="Receipt"><strong>{s.receiptNo}</strong>{s.auto && <div><span className="badge green">Auto settle</span></div>}</td>
                     <td data-label="Date">{dmy(s.settledOn)}</td>
                     <td data-label="Loan ID">{s.loanId || s.formId}</td>
                     <td data-label="Borrower"><strong>{s.memberCode}</strong> {s.memberName}{s.group && <div className="muted small">{s.group}</div>}</td>
@@ -563,7 +563,7 @@ function History({ kind, reloadKey, onCancelled }) {
                     <td data-label="Actions" className="actions-col">
                       <div className="row-actions">
                         <button className="btn sm" onClick={() => setView(s)}>View</button>
-                        {isAdmin && s.status === 'active' && <button className="btn sm danger-outline" onClick={() => { setCancelling(s); setReason(''); setReasonError(''); }}>Cancel</button>}
+                        {isAdmin && s.status === 'active' && !s.auto && <button className="btn sm danger-outline" onClick={() => { setCancelling(s); setReason(''); setReasonError(''); }}>Cancel</button>}
                       </div>
                     </td>
                   </tr>

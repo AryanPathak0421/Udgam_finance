@@ -25,7 +25,7 @@ function findLine(p, memberId) {
 const present = (s, { full = false } = {}) => ({
   id: s._id, kind: s.kind, receiptNo: s.receiptNo, loanPaymentId: s.loanPayment, loanId: s.loanId || '', formId: s.formId,
   branch: s.branch?._id ? { id: s.branch._id, code: s.branch.code, name: s.branch.name } : null,
-  memberCode: s.memberCode, memberName: s.memberName, group: s.group || '', outstanding: money(s.outstandingPaise), amount: money(s.amountPaise), waiver: money(s.waiverPaise),
+  auto: s.kind === 'auto', memberCode: s.memberCode, memberName: s.memberName, group: s.group || '', outstanding: money(s.outstandingPaise), amount: money(s.amountPaise), waiver: money(s.waiverPaise),
   payMode: s.payMode || '', reference: s.reference || '', settledOn: iso(s.settledOn), remark: s.remark || '', deathDate: iso(s.deathDate), claimRef: s.claimRef || '',
   verifier: s.verifier?.code ? { code: s.verifier.code, name: s.verifier.name } : null, status: s.status, cancelReason: s.cancelReason || '', createdAt: s.createdAt,
   ...(full ? { certificate: s.certificate || null } : { hasCertificate: s.kind === 'death' }),
@@ -191,7 +191,7 @@ export async function guarantorDeathList(req, res) {
 
 export async function listSettlements(req, res) {
   const { page, limit, skip } = parsePaging(req.query, { defaultLimit: 25 });
-  const filter = { ...branchFilter(req.user), kind: req.query.kind === 'death' ? 'death' : 'loan', status: req.query.status === 'cancelled' ? 'cancelled' : 'active' };
+  const filter = { ...branchFilter(req.user), kind: req.query.kind === 'death' ? 'death' : req.query.kind === 'auto' ? 'auto' : { $in: ['loan', 'auto'] }, status: req.query.status === 'cancelled' ? 'cancelled' : 'active' };
   if (mongoose.isValidObjectId(req.query.branch)) filter.branch = req.query.branch;
   const from = parseDateOnly(asString(req.query.from));
   const to = parseDateOnly(asString(req.query.to));
@@ -224,6 +224,7 @@ export async function cancelSettlement(req, res) {
   if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Settlement not found');
   const s = await LoanSettlement.findOne({ _id: req.params.id, status: 'active' });
   if (!s) throw new HttpError(404, 'Settlement not found');
+  if (s.kind === 'auto') throw new HttpError(409, 'An automatic settlement (every installment paid) cannot be cancelled');
   const reason = asString(req.body?.reason);
   if (reason.length < 3 || reason.length > 200) throw invalid({ reason: 'Enter the reason (3–200 characters)' });
   s.status = 'cancelled';

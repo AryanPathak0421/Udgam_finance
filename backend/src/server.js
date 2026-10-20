@@ -7,6 +7,7 @@ import { Member } from './models/Member.js';
 import { generateCode } from './services/codeSequence.js';
 import { StockProduct } from './models/StockProduct.js';
 import { EmiPayment } from './models/EmiPayment.js';
+import { autoSettleAll } from './services/autoSettle.js';
 
 const port = process.env.PORT || 5000;
 
@@ -60,7 +61,13 @@ async function migrate() {
 
 connectDB()
   .then(migrate)
-  .then(() => app.listen(port, () => console.log(`API running on http://localhost:${port}`)))
+  .then(() => app.listen(port, () => {
+    console.log(`API running on http://localhost:${port}`);
+    // loans whose every installment is paid close by themselves (auto settle): once after the start, then every few hours
+    const settleAuto = () => autoSettleAll().then((n) => n && console.log(`Auto settled ${n} fully paid loan(s)`)).catch((err) => console.error('auto settle failed', err.message));
+    setTimeout(settleAuto, 2 * 60 * 1000).unref();
+    setInterval(settleAuto, 6 * 60 * 60 * 1000).unref();
+  }))
   .catch((err) => {
     console.error('Failed to start:', err.message);
     process.exit(1);

@@ -3,6 +3,7 @@ import { LoanPayment } from '../models/LoanPayment.js';
 import { EmiPayment } from '../models/EmiPayment.js';
 import { User } from '../models/User.js';
 import { LoanSettlement } from '../models/LoanSettlement.js';
+import { autoSettleLine } from '../services/autoSettle.js';
 import { generateCode } from '../services/codeSequence.js';
 import { asString, escapeRegex, parseDateOnly, parsePaging, HttpError } from '../utils/http.js';
 import { toMinor } from '../utils/money.js';
@@ -201,7 +202,7 @@ function readPaidOn(req, p, input) {
  */
 export async function receive(req, p, line, { amountPaise, count, type, paidOn, payMode, reference, dueOnly = false }) {
   const st = await borrowerState(p, line, paidOn);
-  if (st.settled) throw new HttpError(409, `This loan has been settled (${st.settled.kind === 'death' ? 'death settlement' : 'loan settlement'} ${st.settled.receiptNo}). No EMI is due.`);
+  if (st.settled) throw new HttpError(409, `This loan has been settled (${st.settled.kind === 'death' ? 'death settlement' : st.settled.kind === 'auto' ? 'automatic settlement, all installments paid' : 'loan settlement'} ${st.settled.receiptNo}). No EMI is due.`);
   if (!st.left.length) throw new HttpError(409, 'All installments of this loan are already paid');
   let pay = amountPaise;
   let kind = type;
@@ -247,6 +248,8 @@ export async function receive(req, p, line, { amountPaise, count, type, paidOn, 
     throw new HttpError(409, 'This EMI has just been received by someone else. Reload and try again.');
   }
   await doc.populate(POPULATE);
+  // the last installment is paid: the loan closes by itself (auto settle)
+  if (st.totals.outstanding === pay) await autoSettleLine(p, line, paidOn).catch((err) => console.error('auto settle failed', err.message));
   await audit(req, { action: 'emi.pay', entity: 'EmiPayment', entityId: doc._id, after: { receiptNo: doc.receiptNo, loanId: p.loanId, member: line.code, type: kind, installments: doc.installments, amount: pay / 100 } });
   return doc;
 }
