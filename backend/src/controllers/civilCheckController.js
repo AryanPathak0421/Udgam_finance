@@ -5,6 +5,8 @@ import { User } from '../models/User.js';
 import { branchFilter, isAdmin } from './groupController.js';
 import { asString, createValidator, parseDateOnly, HttpError } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
+import { AppSetting, CIVIL_FEE_KEY, civilFeePaise } from '../models/AppSetting.js';
+import { toMinor } from '../utils/money.js';
 
 const dateOnly = (d) => (d ? new Date(d).toISOString().slice(0, 10) : null);
 
@@ -26,6 +28,7 @@ const present = (c) => ({
   remark: c.remark || '',
   employeeCode: c.employeeCode || '',
   createdAt: c.createdAt,
+  fee: (c.feePaise || 0) / 100,
 });
 
 async function loadMember(req, id) {
@@ -46,6 +49,7 @@ export async function memberChecks(req, res) {
   const items = await CivilCheck.find({ member: m._id, isDeleted: false }).sort({ reportDate: -1, createdAt: -1 });
   res.json({
     member: { id: m._id, code: m.code, name: m.name, mobile: m.mobile, branch: m.branch ? { id: m.branch._id, name: m.branch.name } : null, isBlocked: Boolean(m.isBlocked) },
+    fee: (await civilFeePaise()) / 100,
     latest: items[0] ? present(items[0]) : null,
     items: items.map(present),
   });
@@ -81,10 +85,27 @@ export async function addCheck(req, res) {
     reportNumber: reportNumber || undefined,
     remark: remark || undefined,
     employeeCode,
+    feePaise: await civilFeePaise(),
     createdBy: req.user._id,
   });
   await audit(req, { action: 'civilCheck.add', entity: 'CivilCheck', entityId: doc._id, after: { member: m.code, score, bureau, reportDate: dateOnly(reportDate) } });
   res.status(201).json({ check: present(doc) });
+}
+
+/** The fee of one civil check. */
+export async function getSettings(_req, res) {
+  res.json({ fee: (await civilFeePaise()) / 100 });
+}
+
+/** Admin: the amount charged for every civil check (0 = no fee). Each check adds it to the Cashbook. */
+export async function saveSettings(req, res) {
+  if (!isAdmin(req.user)) throw new HttpError(403, 'Only an admin can set the civil check fee');
+  const raw = req.body?.fee;
+  const paise = raw === '' || raw === undefined || raw === null ? 0 : toMinor(String(raw));
+  if (paise === null || paise < 0 || paise > 10_000_00) throw new HttpError(422, 'Please correct the highlighted fields', { fee: 'Enter an amount from 0 to ₹10,000 (up to 2 decimals)' });
+  await AppSetting.findOneAndUpdate({ key: CIVIL_FEE_KEY }, { $set: { value: paise, updatedBy: req.user._id } }, { upsert: true, new: true });
+  await audit(req, { action: 'civilCheck.fee', entity: 'AppSetting', entityId: CIVIL_FEE_KEY, after: { fee: paise / 100 } });
+  res.json({ fee: paise / 100 });
 }
 
 /** Only an admin removes a check (e.g. one entered by mistake). */

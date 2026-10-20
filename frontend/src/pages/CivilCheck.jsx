@@ -27,6 +27,48 @@ function ScoreCard({ check }) {
 }
 
 // The first step of a loan requisition: the borrower's civil (credit bureau) score.
+// The fee of one civil check: the admin sets the amount, and every check adds that amount to the Cashbook.
+function FeeBox({ isAdmin }) {
+  const toast = useToast();
+  const [fee, setFee] = useState(null);
+  const [text, setText] = useState('');
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    api.civilChecks.settings().then((r) => { setFee(r.fee); setText(r.fee ? String(r.fee) : ''); }).catch(() => setFee(0));
+  }, []);
+  async function save(e) {
+    e.preventDefault();
+    setSaving(true);
+    setError('');
+    try {
+      const r = await api.civilChecks.saveSettings(text.trim());
+      setFee(r.fee);
+      setText(r.fee ? String(r.fee) : '');
+      toast.success(r.fee ? `Civil check fee set to ₹${r.fee}` : 'Civil check fee removed');
+    } catch (err) {
+      setError(err.errors?.fee || err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+  if (fee === null) return null;
+  return (
+    <div className="panel" style={{ padding: 14, marginBottom: 12 }}>
+      {isAdmin ? (
+        <form onSubmit={save} noValidate style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+          <FormField id="civilFee" label="Civil check fee (₹ per civil check)" error={error} hint="Every civil check adds this amount to the Cashbook (receive side). Leave empty for no fee.">
+            <input id="civilFee" inputMode="decimal" style={{ maxWidth: 180 }} value={text} onChange={(e) => { setText(e.target.value.replace(/[^\d.]/g, '')); setError(''); }} />
+          </FormField>
+          <button className="btn primary" type="submit" disabled={saving}>{saving ? 'Saving…' : 'Set amount'}</button>
+        </form>
+      ) : (
+        <div className="muted">{fee ? `Fee of every civil check: ₹${fee}. It is added to the Cashbook.` : 'No fee is set for a civil check.'}</div>
+      )}
+    </div>
+  );
+}
+
 export default function CivilCheck() {
   const toast = useToast();
   const { user } = useAuth();
@@ -109,6 +151,7 @@ export default function CivilCheck() {
     return (
       <>
         <PageHeader title="Civil Check" description="Look up the civil (credit bureau) score of a borrower before a loan requisition. Search by member code, name, mobile, Aadhaar or PAN." />
+        <FeeBox isAdmin={isAdmin} />
         <div className="panel">
           <div className="toolbar">
             <input type="search" className="toolbar-search" placeholder="Search by member code, name, form ID, mobile, Aadhaar number (or last 4 digits) or PAN" value={search}
@@ -152,6 +195,7 @@ export default function CivilCheck() {
       />
       {m.isBlocked && <div className="notice warn">This member is blocked.</div>}
       <ScoreCard check={data.latest} />
+      {data.fee > 0 && <div className="notice" style={{ marginTop: 10 }}>Fee of a civil check: ₹{data.fee}. It is added to the Cashbook when you record the check.</div>}
 
       {canAdd && (
         <form onSubmit={submit} noValidate className="panel" style={{ padding: 18, margin: '14px 0' }}>

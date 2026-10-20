@@ -13,6 +13,8 @@ const civilCheckSchema = new mongoose.Schema(
     reportNumber: { type: String, trim: true },
     remark: { type: String, trim: true },
     employeeCode: { type: String },
+    // The fee of this civil check (set by the admin); it shows on the receive side of the Cashbook.
+    feePaise: { type: Number, default: 0, min: 0 },
     isDeleted: { type: Boolean, default: false },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   },

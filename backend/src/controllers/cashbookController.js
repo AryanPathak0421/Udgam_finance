@@ -6,6 +6,7 @@ import { SecurityWithdrawal } from '../models/SecurityWithdrawal.js';
 import { ProductPayment } from '../models/ProductPayment.js';
 import { CashEntry, ENTRY_CATEGORIES, ENTRY_MODES } from '../models/CashEntry.js';
 import { Branch } from '../models/Branch.js';
+import { CivilCheck } from '../models/CivilCheck.js';
 import { asString, parseDateOnly, HttpError } from '../utils/http.js';
 import { toMinor } from '../utils/money.js';
 import { audit } from '../utils/audit.js';
@@ -41,6 +42,7 @@ const RECEIVE = [
   { key: 'npa_receive', label: 'NPA receive' },
   { key: 'security_adjust', label: 'Security adjust (against EMI, not cash)', memo: true },
   { key: 'voucher_receive', label: 'Voucher entry' },
+  { key: 'civil_fee', label: 'Civil check fee' },
   { key: 'product_received', label: 'Product payment received from branches (head office)', optional: true },
 ];
 const PAYMENT = [
@@ -184,6 +186,12 @@ export async function cashbook(req, res) {
     if (head) {
       const got = await ProductPayment.find({ isDeleted: false, status: { $nin: ['paid', 'rejected'] }, ...modeFilter('mode'), ...rv }).limit(20000);
       got.forEach((p) => add('receive', 'product_received', { date: iso(p.receivedOn || p.paidOn), particulars: 'Product payment received from branch', ref: p.reference || '', mode: p.mode, amount: p.amountPaise, branchId: p.branch, head: true }));
+    }
+
+    // the fee of every civil check (the amount the admin set on the Civil Check page), received in cash
+    if (!mode || mode === 'cash') {
+      const civil = await CivilCheck.find({ ...scope, isDeleted: false, feePaise: { $gt: 0 }, ...stampRange('createdAt', before) }).populate('member', 'code name').limit(20000);
+      civil.forEach((c) => add('receive', 'civil_fee', { date: iso(c.createdAt), particulars: `Civil check fee — ${c.member?.code || ''} ${c.member?.name || ''}`.trim(), ref: c.employeeCode ? `by ${c.employeeCode}` : '', mode: 'cash', amount: c.feePaise, branchId: c.branch }));
     }
 
     // entries typed in by hand

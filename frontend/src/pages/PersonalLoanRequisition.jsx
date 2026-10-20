@@ -4,6 +4,7 @@ import { api } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import FormField from '../components/ui/FormField.jsx';
 import SearchableSelect from '../components/ui/SearchableSelect.jsx';
+import CivilMatch from '../components/CivilMatch.jsx';
 import Modal from '../components/ui/Modal.jsx';
 import { DetailList, PageHeader } from '../components/ui/Feedback.jsx';
 import { useToast } from '../components/ui/Toast.jsx';
@@ -912,6 +913,7 @@ function RequisitionForm({ kind }) {
                 {visibleSchemes.map((s) => <option key={s.id} value={s.id}>{s.code} — {s.name}</option>)}
               </SearchableSelect>
             </FormField>
+            {scheme?.civilRequired && <div className="span-2"><CivilMatch scheme={scheme} profile={detail?.borrower?.civilCheck} typed={isBusiness ? biz.civilScore : civilScore} /></div>}
             {scheme?.civilRequired && !isBusiness && (
               <FormField id="civilScoreScheme" label="Civil score" required error={errors.civilScore}
                 hint={`This scheme needs at least ${scheme.minCivilScore}. ${detail?.borrower?.civilCheck ? `Latest civil check: ${detail.borrower.civilCheck.score} (${detail.borrower.civilCheck.reportDate})` : 'No civil check yet: enter the score'}`}>

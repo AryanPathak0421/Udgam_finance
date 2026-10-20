@@ -9,6 +9,7 @@ import { useToast } from '../components/ui/Toast.jsx';
 import useDebounce from '../hooks/useDebounce.js';
 import { EmployeeSelect, PhotoField } from './NewBorrower.jsx';
 import { ProductSchemeField } from './ProductSchemeField.jsx';
+import CivilMatch from '../components/CivilMatch.jsx';
 import { Search, GroupTopUp } from './PersonalLoanRequisition.jsx';
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -64,6 +65,7 @@ function MemberLoan({ index, m, e, schemes, productSchemes, stock, errors, onCha
             {schemes.filter((s) => !m.runningSchemeIds?.includes(s.id)).map((s) => <option key={s.id} value={s.id}>{s.code} — {s.name}</option>)}
           </SearchableSelect>
         </FormField>
+        {scheme?.civilRequired && <div className="span-2"><CivilMatch scheme={scheme} profile={m.civilScore} typed={e.civilScore} /></div>}
         {scheme?.civilRequired && (
           <FormField id={`civ-${m.id}`} label="Civil score" required error={err('civilScore')} hint={`This scheme needs at least ${scheme.minCivilScore}. ${m.civilScore != null ? `Latest civil check: ${m.civilScore}` : 'No civil check yet: enter the score'}`}>
             <input id={`civ-${m.id}`} inputMode="numeric" maxLength={3} value={e.civilScore} onChange={(ev) => onChange({ civilScore: ev.target.value.replace(/\D/g, '').slice(0, 3) })} />

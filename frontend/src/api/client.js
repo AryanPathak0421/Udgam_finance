@@ -110,6 +110,8 @@ export const api = {
   civilChecks: {
     member: (memberId) => request(`/civil-checks/member/${memberId}`),
     add: (data) => request('/civil-checks', { method: 'POST', body: data }),
+    settings: () => request('/civil-checks/settings'),
+    saveSettings: (fee) => request('/civil-checks/settings', { method: 'PUT', body: { fee } }),
     remove: (id) => request(`/civil-checks/${id}`, { method: 'DELETE' }),
   },
   savings: {
