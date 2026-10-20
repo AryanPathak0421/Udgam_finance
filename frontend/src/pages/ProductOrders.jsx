@@ -8,6 +8,7 @@ import Pagination from '../components/ui/Pagination.jsx';
 import { EmptyState, ErrorState, PageHeader, Spinner } from '../components/ui/Feedback.jsx';
 import { useToast } from '../components/ui/Toast.jsx';
 import { canDo } from '../config/nav.js';
+import ProductComplaints from './ProductComplaints.jsx';
 
 const LIMIT = 25;
 const ADMINS = ['super_admin', 'admin'];
@@ -379,6 +380,7 @@ export default function ProductOrders() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [page, setPage] = useState(1);
+  const [section, setSection] = useState('order'); // Order or Complaint
   const [status, setStatus] = useState(isAdmin ? 'pending' : '');
   const [branch, setBranch] = useState('');
   const [creating, setCreating] = useState(false);
@@ -412,6 +414,27 @@ export default function ProductOrders() {
 
   const tab = (key, label) => <button key={key} className={`btn sm${status === key ? ' primary' : ''}`} onClick={() => setStatus(key)}>{label}{key === 'pending' ? ` (${data.pending})` : ''}</button>;
 
+  // the dropdown that switches between an order and a complaint about a sold product
+  const picker = (
+    <div className="panel" style={{ marginBottom: 12, padding: 14 }}>
+      <FormField id="osection" label="Order / Complaint">
+        <select id="osection" value={section} onChange={(e) => setSection(e.target.value)} style={{ maxWidth: 260 }}>
+          <option value="order">Order</option>
+          <option value="complaint">Complaint</option>
+        </select>
+      </FormField>
+    </div>
+  );
+  if (section === 'complaint') {
+    return (
+      <>
+        <PageHeader title="Product Complaints" description={isAdmin ? 'Complaints raised by the branches about products sold to members. Check the bill and mark the complaint resolved.' : 'Raise a complaint about a product sold to a member: choose the sold product (the member name and ID are shown), upload the bill and submit. The admin resolves it; then mark it delivered.'} />
+        {picker}
+        <ProductComplaints isAdmin={isAdmin} canAdd={canAdd} branches={branches} />
+      </>
+    );
+  }
+
   return (
     <>
       <PageHeader
@@ -419,6 +442,7 @@ export default function ProductOrders() {
         description={isAdmin ? 'Orders sent by the branches. Approve (the quantity can be edited) to move the stock from head office to the branch, or reject.' : 'Order products from the head-office stock. The admin approves your order and may change the quantity.'}
         actions={canAdd ? <button className="btn primary" onClick={() => setCreating(true)}>+ New order</button> : null}
       />
+      {picker}
       {balance && balance.rows.length > 0 && (
         <div className="panel" style={{ marginBottom: 14, padding: 16 }}>
           <h3 className="section-title">Purchase balance (products bought from head office)</h3>

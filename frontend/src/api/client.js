@@ -207,6 +207,14 @@ export const api = {
     targetGroups: (params) => request(`/group-transfer/target-groups${qs(params)}`),
     transferMembers: (data) => request('/group-transfer/members', { method: 'POST', body: data }),
   },
+  productComplaints: {
+    sales: (params) => request(`/product-complaints/sales${qs(params)}`),
+    list: (params) => request(`/product-complaints${qs(params)}`),
+    get: (id) => request(`/product-complaints/${id}`),
+    create: (data) => request('/product-complaints', { method: 'POST', body: data }),
+    resolve: (id, resolution) => request(`/product-complaints/${id}/resolve`, { method: 'POST', body: { resolution } }),
+    deliver: (id) => request(`/product-complaints/${id}/deliver`, { method: 'POST' }),
+  },
   commissionGenerate: {
     overview: (month) => request(`/commission/generate${qs({ month })}`),
     run: (data) => request('/commission/generate', { method: 'POST', body: data }),

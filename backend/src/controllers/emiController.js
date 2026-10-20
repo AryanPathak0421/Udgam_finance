@@ -397,12 +397,15 @@ export async function collectionList(req, res) {
     // Paid: nobody owes anything and the group had an installment on the date.
     const all = [...groups.values()].sort((a, b) => a.code.localeCompare(b.code)).map((g) => {
       const unpaid = g.members.some((m) => m.status === 'due');
-      return { ...g, status: unpaid ? 'unpaid' : 'paid', paidAmount: g.members.reduce((t, m) => t + (m.dueOnDate ? m.emiOnDate : 0), 0), dueMembers: g.members.filter((m) => m.status === 'due').length };
+      // the group's total EMI (what all its members pay for one installment), what falls due on the date, and what was received on it
+      const totalEmi = g.members.reduce((t, m) => t + (m.emi || 0), 0);
+      const todayDue = g.members.reduce((t, m) => t + (m.dueOnDate ? m.emiOnDate : 0), 0);
+      return { ...g, totalEmi, todayDue, status: unpaid ? 'unpaid' : 'paid', paidAmount: g.members.reduce((t, m) => t + (m.dueOnDate ? m.emiOnDate : 0), 0), dueMembers: g.members.filter((m) => m.status === 'due').length };
     }).filter((g) => g.status === 'unpaid' || g.members.some((m) => m.dueOnDate));
     const counts = { unpaid: all.filter((g) => g.status === 'unpaid').length, paid: all.filter((g) => g.status === 'paid').length };
     const want = asString(req.query.status) === 'paid' ? 'paid' : 'unpaid';
     const list = all.filter((g) => g.status === want);
-    return res.json({ groups: list, counts, status: want, staff, modes, date: iso(asOf), totalDue: list.reduce((s, g) => s + g.dueAmount, 0), totalCollected: list.reduce((s, g) => s + g.collected, 0) });
+    return res.json({ groups: list, counts, status: want, staff, modes, date: iso(asOf), totalDue: list.reduce((s, g) => s + g.dueAmount, 0), totalCollected: list.reduce((s, g) => s + g.collected, 0), totalEmi: list.reduce((s, g) => s + g.totalEmi, 0), totalTodayDue: list.reduce((s, g) => s + g.todayDue, 0) });
   }
   const { page, limit, skip } = parsePaging(req.query, { defaultLimit: 25 });
   rows.sort((a, b) => a.nextDueDate.localeCompare(b.nextDueDate) || a.code.localeCompare(b.code));
