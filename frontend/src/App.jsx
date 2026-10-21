@@ -36,6 +36,7 @@ import { PaymentVoucher, ReceiveVoucher, BankDeposit, BankWithdraw, BranchTransf
 import { LoanLedger, RequisitionReport, ApprovalReport, DisbursementReport, DueReport, OverdueReport, OutstandingReport, EmiCollectionReport, MemberJoiningReport, NpaReport, PersonalCollectionSheet, MsmeCollectionSheet, WriteOffReport, StaffNpaReport, StaffNpaPaymentReport, StaffDisbursementReport, GroupCollectionReport } from './pages/Reports.jsx';
 import CenterSurveys from './pages/CenterSurveys.jsx';
 import { AppUsers, MemberApproval, EmiApproval } from './pages/AppSection.jsx';
+import { DepartmentMaster, DesignationMaster, EmployeeRegistration, Attendance, SalaryGenerate, SalaryPayment, BranchSalary } from './pages/HrPages.jsx';
 import DayClose from './pages/DayClose.jsx';
 import DayCloseApproval from './pages/DayCloseApproval.jsx';
 import { TrialBalance, BankBook, DayBook, ProductBranchDue } from './pages/AccountReports.jsx';
@@ -77,6 +78,13 @@ const PAGES = {
   '/accounts/bank-deposit': BankDeposit,
   '/accounts/bank-withdraw': BankWithdraw,
   '/accounts/branch-transfer': BranchTransfer,
+  '/hr/departments': DepartmentMaster,
+  '/hr/designations': DesignationMaster,
+  '/hr/employees': EmployeeRegistration,
+  '/hr/attendance': Attendance,
+  '/hr/salary': SalaryGenerate,
+  '/hr/salary-payment': SalaryPayment,
+  '/hr/branch-salary': BranchSalary,
   '/app/app-users': AppUsers,
   '/app/member-approval': MemberApproval,
   '/app/emi-approval': EmiApproval,

@@ -8,6 +8,7 @@ import { generateCode } from './services/codeSequence.js';
 import { StockProduct } from './models/StockProduct.js';
 import { EmiPayment } from './models/EmiPayment.js';
 import { autoSettleAll } from './services/autoSettle.js';
+import { autoAttendanceFor } from './controllers/hrController.js';
 
 const port = process.env.PORT || 5000;
 
@@ -67,6 +68,14 @@ connectDB()
     const settleAuto = () => autoSettleAll().then((n) => n && console.log(`Auto settled ${n} fully paid loan(s)`)).catch((err) => console.error('auto settle failed', err.message));
     setTimeout(settleAuto, 2 * 60 * 1000).unref();
     setInterval(settleAuto, 6 * 60 * 60 * 1000).unref();
+    // attendance of employees with a staff login: present when they worked in the system that day (today and yesterday, so the late hours of a day count)
+    const attend = async () => {
+      const today = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
+      for (const d of [today, new Date(today.getTime() - 24 * 3600 * 1000)]) await autoAttendanceFor(d);
+    };
+    const runAttend = () => attend().catch((err) => console.error('auto attendance failed', err.message));
+    setTimeout(runAttend, 3 * 60 * 1000).unref();
+    setInterval(runAttend, 60 * 60 * 1000).unref();
   }))
   .catch((err) => {
     console.error('Failed to start:', err.message);
