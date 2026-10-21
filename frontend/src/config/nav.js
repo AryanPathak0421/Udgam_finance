@@ -201,6 +201,26 @@ export const NAV_SECTIONS = [
     ],
   },
   {
+    title: 'Super Admin',
+    items: [
+      {
+        label: 'Super Admin',
+        path: '/super-admin',
+        icon: 'shield',
+        roles: ALL_ADMIN,
+        children: [
+          { label: 'Bulk Notification', path: '/super-admin/notifications', icon: 'bell' },
+          { label: 'Holiday Master', path: '/super-admin/holidays', icon: 'calendar' },
+          { label: 'Profit & Loss', path: '/super-admin/profit-loss', icon: 'calculator' },
+          { label: 'Complaint', path: '/super-admin/complaints', icon: 'alert' },
+          { label: 'Company Summary Report', path: '/super-admin/company-summary', icon: 'file' },
+          { label: 'Monitoring Report', path: '/super-admin/monitoring', icon: 'eye' },
+          { label: 'Company Graph', path: '/super-admin/graph', icon: 'chart' },
+        ],
+      },
+    ],
+  },
+  {
     title: 'HR Department',
     items: [
       {

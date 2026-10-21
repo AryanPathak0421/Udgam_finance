@@ -284,6 +284,7 @@ export function Attendance() {
           <>
             <Summary items={[['Employees', s.employees], ['Present', s.present], ['Half day', s.half_day], ['Leave', s.leave], ['Holiday', s.holiday], ['Absent', s.absent], ['Not marked', s.notMarked]]} />
             {list.data.sunday && <div className="notice">Sunday: the weekly off. It is paid even when nobody is marked.</div>}
+            {list.data.holidays?.length > 0 && <div className="notice">Holiday: {list.data.holidays.join(', ')}. It is paid even when nobody is marked.</div>}
             <div className="table-wrap">
               <table className="data-table">
                 <thead><tr><th>Employee</th><th>Branch</th><th>Attendance</th><th>Marked</th><th>Remark</th></tr></thead>

@@ -4,6 +4,7 @@ import { User } from '../models/User.js';
 import { Branch } from '../models/Branch.js';
 import { CashEntry } from '../models/CashEntry.js';
 import { AuditLog } from '../models/AuditLog.js';
+import { Holiday } from '../models/SuperAdmin.js';
 import { generateCode } from '../services/codeSequence.js';
 import { assertDayOpen } from '../services/dayOpen.js';
 import { readBankAccount } from '../services/bankAccountPick.js';
@@ -260,7 +261,8 @@ export async function attendanceDay(req, res) {
     return { id: e._id, employeeCode: e.employeeCode, name: e.name, branch: e.branch?.code || '', designation: e.designation?.name || '', status: a?.status || '', source: a?.source || '', firstActivity: a?.firstActivity || null, lastActivity: a?.lastActivity || null, remark: a?.remark || '', hasLogin: Boolean(e.user) };
   });
   const count = (s) => items.filter((i) => i.status === s).length;
-  res.json({ date: iso(date), sunday: date.getUTCDay() === 0, items, summary: { employees: items.length, present: count('present'), half_day: count('half_day'), leave: count('leave'), holiday: count('holiday'), absent: count('absent'), notMarked: items.filter((i) => !i.status).length } });
+  const holidays = (await Holiday.find({ date, isDeleted: false, isActive: true }).select('name').lean()).map((h) => h.name);
+  res.json({ date: iso(date), sunday: date.getUTCDay() === 0, holidays, items, summary: { employees: items.length, present: count('present'), half_day: count('half_day'), leave: count('leave'), holiday: count('holiday'), absent: count('absent'), notMarked: items.filter((i) => !i.status).length } });
 }
 
 /** Marks attendance by hand for a date. Marking replaces what was there (auto or manual). */
@@ -325,7 +327,7 @@ const monthRange = (month) => {
   return { from, to, days: to.getUTCDate() };
 };
 
-function compute(emp, marks, range, bonusPaise = 0, otherDeductionPaise = 0) {
+function compute(emp, marks, range, bonusPaise = 0, otherDeductionPaise = 0, holidays = new Set()) {
   let sundays = 0;
   let present = 0; let half = 0; let leave = 0; let holiday = 0; let absent = 0; let unmarked = 0;
   for (let i = 0; i < range.days; i += 1) {
@@ -334,6 +336,7 @@ function compute(emp, marks, range, bonusPaise = 0, otherDeductionPaise = 0) {
     if (emp.leftOn && day > emp.leftOn) { continue; }
     const m = marks.get(iso(day));
     if (day.getUTCDay() === 0 && !m) { sundays += 1; continue; } // Sunday is the weekly off, paid
+    if (!m && holidays.has(iso(day))) { holiday += 1; continue; } // a holiday of the company (Holiday Master), paid
     if (!m) { unmarked += 1; absent += 1; continue; }
     if (m === 'present') present += 1;
     else if (m === 'half_day') half += 1;
@@ -368,13 +371,15 @@ export async function generateSalary(req, res) {
   const marks = new Map();
   marksAll.forEach((a) => { const k = String(a.employee); if (!marks.has(k)) marks.set(k, new Map()); marks.get(k).set(iso(a.date), a.status); });
   const existing = new Map((await Salary.find({ month, employee: { $in: emps.map((e) => e._id) } }).lean()).map((s) => [String(s.employee), s]));
+  const holidayRows = await Holiday.find({ isDeleted: false, isActive: true, date: { $gte: range.from, $lte: range.to } }).select('date branch').lean();
+  const holidaysOf = (e) => new Set(holidayRows.filter((h) => !h.branch || String(h.branch) === String(e.branch?._id)).map((h) => iso(h.date)));
   let made = 0; let updated = 0; let keptPaid = 0; let noSalary = 0;
   const ops = [];
   for (const e of emps) {
     const ex = existing.get(String(e._id));
     if (ex?.status === 'paid') { keptPaid += 1; continue; }
     if (!e.monthlySalaryPaise) noSalary += 1;
-    const c = compute(e, marks.get(String(e._id)) || new Map(), range, ex?.bonusPaise || 0, ex?.otherDeductionPaise || 0);
+    const c = compute(e, marks.get(String(e._id)) || new Map(), range, ex?.bonusPaise || 0, ex?.otherDeductionPaise || 0, holidaysOf(e));
     const doc = {
       employee: e._id, employeeCode: e.employeeCode, name: e.name, mobile: e.mobile, branch: e.branch?._id, department: e.department?.name || '', designation: e.designation?.name || '', month, daysInMonth: range.days, ...c, generatedByCode: req.user.employeeCode || '',
     };

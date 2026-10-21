@@ -36,6 +36,7 @@ import { PaymentVoucher, ReceiveVoucher, BankDeposit, BankWithdraw, BranchTransf
 import { LoanLedger, RequisitionReport, ApprovalReport, DisbursementReport, DueReport, OverdueReport, OutstandingReport, EmiCollectionReport, MemberJoiningReport, NpaReport, PersonalCollectionSheet, MsmeCollectionSheet, WriteOffReport, StaffNpaReport, StaffNpaPaymentReport, StaffDisbursementReport, GroupCollectionReport } from './pages/Reports.jsx';
 import CenterSurveys from './pages/CenterSurveys.jsx';
 import { AppUsers, MemberApproval, EmiApproval } from './pages/AppSection.jsx';
+import { BulkNotification, HolidayMaster, ProfitLoss, ComplaintOverview, CompanySummary, Monitoring, CompanyGraph } from './pages/SuperAdminPages.jsx';
 import { RoomRent, Tasks, Complaints, Requirements, LeaveApply, LeaveApproval, Resignations, PromotionTransfer, Letters, EmployeeList } from './pages/HrExtraPages.jsx';
 import { DepartmentMaster, DesignationMaster, EmployeeRegistration, Attendance, SalaryGenerate, SalaryPayment, BranchSalary } from './pages/HrPages.jsx';
 import DayClose from './pages/DayClose.jsx';
@@ -86,6 +87,13 @@ const PAGES = {
   '/hr/salary': SalaryGenerate,
   '/hr/salary-payment': SalaryPayment,
   '/hr/branch-salary': BranchSalary,
+  '/super-admin/notifications': BulkNotification,
+  '/super-admin/holidays': HolidayMaster,
+  '/super-admin/profit-loss': ProfitLoss,
+  '/super-admin/complaints': ComplaintOverview,
+  '/super-admin/company-summary': CompanySummary,
+  '/super-admin/monitoring': Monitoring,
+  '/super-admin/graph': CompanyGraph,
   '/hr/room-rent': RoomRent,
   '/hr/tasks': Tasks,
   '/hr/complaints': Complaints,

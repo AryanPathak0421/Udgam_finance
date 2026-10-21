@@ -43,7 +43,7 @@ const dateRange = (req, field) => {
 const matches = (q, ...vals) => !q || vals.some((v) => String(v || '').toLowerCase().includes(q));
 
 /** Works through every running borrower (loans in batches of 250) and hands each one's figures to `pick`. */
-async function scanBorrowers(req, asOf, pick) {
+export async function scanBorrowers(req, asOf, pick) {
   const ids = (await LoanPayment.find({ status: 'paid', ...branchScope(req) }).sort({ createdAt: -1 }).select('_id').limit(20000).lean()).map((x) => x._id);
   const branches = new Map((await Branch.find({}).select('code name').lean()).map((b) => [String(b._id), b.code]));
   const rows = [];
