@@ -14,6 +14,11 @@ export const SYSTEM_SEQUENCES = {
   securityWithdrawal: { label: 'Security Withdrawal No', prefix: 'SWD', padding: 6, nextNumber: 1 },
   stockTransfer: { label: 'Stock Transfer No', prefix: 'STF', padding: 5, nextNumber: 1 },
   productOrder: { label: 'Product Order No', prefix: 'ORD', padding: 5, nextNumber: 1 },
+  paymentVoucher: { label: 'Payment Voucher No', prefix: 'PV', padding: 6, nextNumber: 1 },
+  receiveVoucher: { label: 'Receive Voucher No', prefix: 'RV', padding: 6, nextNumber: 1 },
+  bankDeposit: { label: 'Bank Deposit No', prefix: 'BD', padding: 6, nextNumber: 1 },
+  bankWithdraw: { label: 'Bank Withdraw No', prefix: 'BW', padding: 6, nextNumber: 1 },
+  branchTransfer: { label: 'Branch Transfer No', prefix: 'BT', padding: 6, nextNumber: 1 },
 };
 
 export const formatCode = ({ prefix, padding }, n) => `${prefix}${String(n).padStart(padding, '0')}`;

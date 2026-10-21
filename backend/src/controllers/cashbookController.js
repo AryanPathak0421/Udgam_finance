@@ -42,6 +42,7 @@ const RECEIVE = [
   { key: 'bm_settlement', label: 'Business / MSME settlement' },
   { key: 'cash_fund', label: 'Cash fund receive and Bank withdrawal fund' },
   { key: 'npa_receive', label: 'NPA receive' },
+  { key: 'fund_transfer_in', label: 'Fund transfer from branch' },
   { key: 'security_adjust', label: 'Security adjust (against EMI, not cash)', memo: true },
   { key: 'voucher_receive', label: 'Voucher entry' },
   { key: 'civil_fee', label: 'Civil check fee' },
@@ -69,6 +70,7 @@ const PAYMENT = [
   { key: 'staff_salary', label: 'Staff salary paid' },
   { key: 'other_payment', label: 'Other' },
 ];
+export const CATEGORY_LABEL = new Map([...RECEIVE, ...PAYMENT].map((x) => [x.key, x.label]));
 const KNOWN = new Set([...RECEIVE, ...PAYMENT].map((x) => x.key));
 
 // Which cashbook line a loan belongs to: group loans by how they are collected (daily / weekly), the others by their type.
@@ -85,8 +87,14 @@ const dueKey = (l) => (l.kind === 'group' ? (l.mode === 'weekly' ? 'weekly_due' 
  * receives them they show on the head-office receive side. Entries typed in by hand (cash fund, NPA, voucher, deposits, salary ...) are included.
  */
 export async function cashbook(req, res) {
+  const { _rows, ...data } = await cashbookData(req, req.query);
+  res.json(data);
+}
+
+/** The cashbook figures; _rows are the raw lines (paise) of the period and of everything before it, for the books built on top of it. */
+export async function cashbookData(req, query) {
   const admin = isAdmin(req.user);
-  const wanted = asString(req.query.branch);
+  const wanted = asString(query.branch);
   let scope; // { branch } filter for branch entries; head: whether head-office entries are included
   let head;
   if (wanted === 'ho') {
@@ -101,9 +109,9 @@ export async function cashbook(req, res) {
     scope = admin ? {} : { branch: { $in: (req.user.branches || []).map((b) => new mongoose.Types.ObjectId(String(b))) } };
     head = admin;
   }
-  const from = parseDateOnly(asString(req.query.from));
-  const to = parseDateOnly(asString(req.query.to));
-  const mode = MODES.includes(asString(req.query.mode)) ? asString(req.query.mode) : '';
+  const from = parseDateOnly(asString(query.from));
+  const to = parseDateOnly(asString(query.to));
+  const mode = MODES.includes(asString(query.mode)) ? asString(query.mode) : '';
   const range = (field, before) => {
     if (before) return from ? { [field]: { $lt: from } } : null; // opening balance: everything before the from date
     const r = {};
@@ -152,19 +160,19 @@ export async function cashbook(req, res) {
       const l = loanInfo.get(String(e.loanPayment));
       if (!l) return;
       const memo = e.payMode === 'security';
-      add('receive', memo ? 'security_adjust' : collectionKey(l), { date: iso(e.paidOn), particulars: `${e.type === 'advance' ? 'Advance EMI' : 'EMI'} — ${nameOfMember(e)}`, ref: `${e.receiptNo} · ${e.loanId || e.formId}`, mode: e.payMode, amount: e.amountPaise, branchId: e.branch, memo });
+      add('receive', memo ? 'security_adjust' : collectionKey(l), { date: iso(e.paidOn), particulars: `${e.type === 'advance' ? 'Advance EMI' : 'EMI'} — ${nameOfMember(e)}`, ref: `${e.receiptNo} · ${e.loanId || e.formId}`, mode: e.payMode, bank: e.bankAccount, amount: e.amountPaise, branchId: e.branch, memo });
     });
     sets.forEach((x) => {
       const l = loanInfo.get(String(x.loanPayment));
       if (!l) return;
-      add('receive', settlementKey(l), { date: iso(x.settledOn), particulars: `Loan settlement — ${nameOfMember(x)}`, ref: `${x.receiptNo} · ${x.loanId || x.formId}`, mode: x.payMode, amount: x.amountPaise, branchId: x.branch });
+      add('receive', settlementKey(l), { date: iso(x.settledOn), particulars: `Loan settlement — ${nameOfMember(x)}`, ref: `${x.receiptNo} · ${x.loanId || x.formId}`, mode: x.payMode, bank: x.bankAccount, amount: x.amountPaise, branchId: x.branch });
     });
 
     // loans paid out: the loan amount is paid; the fees and the security kept from it come back on the receive side, goods are given in kind
     const loans = LoanPayment.find({ ...scope, status: 'paid', ...modeFilter('payMode'), ...r }).select('-schedule').limit(20000).lean().cursor({ batchSize: 200 });
     for await (const l of loans) {
       const who = l.group?.code ? `${l.group.code} ${l.group.name}` : `${l.lines[0]?.code} ${l.lines[0]?.name || ''}`.trim();
-      const base = { date: iso(l.paidOn), ref: `${l.receiptNo} · ${l.loanId || l.formId}`, mode: l.payMode, branchId: l.branch };
+      const base = { date: iso(l.paidOn), ref: `${l.receiptNo} · ${l.loanId || l.formId}`, mode: l.payMode, bank: l.bankAccount, branchId: l.branch };
       const sum = (f) => l.lines.reduce((t, x) => t + (x[f] || 0), 0);
       const amount = l.totalAmountPaise || sum('amountPaise');
       add('payment', disbursementKey(l), { ...base, particulars: `Loan paid — ${who}`, amount });
@@ -179,15 +187,15 @@ export async function cashbook(req, res) {
     // security paid back once the member's OTP is verified (requests made before that step were paid on approval)
     const oldSec = await SecurityWithdrawal.find({ ...scope, kind: 'withdraw', status: 'approved', otpRequired: { $ne: true }, ...modeFilter('payMode'), ...stampRange('decidedAt', before) }).limit(20000);
     const newSec = await SecurityWithdrawal.find({ ...scope, kind: 'withdraw', status: 'approved', otpRequired: true, ...modeFilter('payMode'), ...stampRange('otpVerifiedAt', before) }).limit(20000);
-    oldSec.forEach((w) => add('payment', 'security_return', { date: iso(w.decidedAt), particulars: `Security paid back — ${w.memberCode} ${w.memberName || ''}`.trim(), ref: w.receiptNo, mode: w.payMode, amount: w.amountPaise + (w.interestPaise || 0), branchId: w.branch }));
-    newSec.filter((w) => w.otpVerifiedAt).forEach((w) => add('payment', 'security_return', { date: iso(w.otpVerifiedAt), particulars: `Security paid back${w.interestPaise ? ' with interest' : ''} — ${w.memberCode} ${w.memberName || ''}`.trim(), ref: w.receiptNo, mode: w.payMode, amount: w.amountPaise + (w.interestPaise || 0), branchId: w.branch }));
+    oldSec.forEach((w) => add('payment', 'security_return', { date: iso(w.decidedAt), particulars: `Security paid back — ${w.memberCode} ${w.memberName || ''}`.trim(), ref: w.receiptNo, mode: w.payMode, bank: w.bankAccount, amount: w.amountPaise + (w.interestPaise || 0), branchId: w.branch }));
+    newSec.filter((w) => w.otpVerifiedAt).forEach((w) => add('payment', 'security_return', { date: iso(w.otpVerifiedAt), particulars: `Security paid back${w.interestPaise ? ' with interest' : ''} — ${w.memberCode} ${w.memberName || ''}`.trim(), ref: w.receiptNo, mode: w.payMode, bank: w.bankAccount, amount: w.amountPaise + (w.interestPaise || 0), branchId: w.branch }));
 
     // product payments: a branch pays head office (payment side); the admin receiving it is a head-office receipt
     const pays = await ProductPayment.find({ ...scope, isDeleted: false, status: { $ne: 'rejected' }, ...modeFilter('mode'), ...r }).limit(20000);
-    pays.forEach((p) => add('payment', 'product_balance_deposit', { date: iso(p.paidOn), particulars: 'Product balance deposit to head office', ref: p.reference || '', mode: p.mode, amount: p.amountPaise, branchId: p.branch }));
+    pays.forEach((p) => add('payment', 'product_balance_deposit', { date: iso(p.paidOn), particulars: 'Product balance deposit to head office', ref: p.reference || '', mode: p.mode, bank: p.bankAccount, amount: p.amountPaise, branchId: p.branch }));
     if (head) {
       const got = await ProductPayment.find({ isDeleted: false, status: { $nin: ['paid', 'rejected'] }, ...modeFilter('mode'), ...rv }).limit(20000);
-      got.forEach((p) => add('receive', 'product_received', { date: iso(p.receivedOn || p.paidOn), particulars: 'Product payment received from branch', ref: p.reference || '', mode: p.mode, amount: p.amountPaise, branchId: p.branch, head: true }));
+      got.forEach((p) => add('receive', 'product_received', { date: iso(p.receivedOn || p.paidOn), particulars: 'Product payment received from branch', ref: p.reference || '', mode: p.mode, bank: p.bankAccount, amount: p.amountPaise, branchId: p.branch, head: true }));
     }
 
     // the fee of every civil check (the amount the admin set on the Civil Check page), received in cash
@@ -198,7 +206,7 @@ export async function cashbook(req, res) {
 
     // entries typed in by hand
     const entries = await CashEntry.find({ isDeleted: false, ...entryScope, ...modeFilter('mode'), ...range('date', before) }).limit(20000);
-    entries.forEach((e) => add(e.side, e.ledger ? `ledger:${e.ledger}` : e.category, { date: iso(e.date), particulars: e.remark || '', ref: e.enteredByCode ? `by ${e.enteredByCode}` : '', mode: e.mode, amount: e.amountPaise, branchId: e.branch, entryId: e._id, manual: true }));
+    entries.forEach((e) => add(e.side, e.ledger ? `ledger:${e.ledger}` : e.category, { date: iso(e.date), particulars: e.remark || '', ref: `${e.voucherNo ? `${e.voucherNo} · ` : ''}${e.enteredByCode ? `by ${e.enteredByCode}` : ''}`, mode: e.mode, bank: e.bankAccount, kind: e.kind, voucherNo: e.voucherNo, amount: e.amountPaise, branchId: e.branch, entryId: e._id, manual: true }));
     return rows;
   }
 
@@ -254,6 +262,7 @@ export async function cashbook(req, res) {
   const payP = sum(counted(cur, 'payment'));
   const totals = { receipts: recP / 100, payments: payP / 100, grand: (openingPaise + recP) / 100 };
 
+  const rawRows = { cur: cur.map((x) => ({ ...x })), open };
   const detail = async (rows) => {
     for (const r of rows) {
       // eslint-disable-next-line no-await-in-loop
@@ -265,17 +274,18 @@ export async function cashbook(req, res) {
     }
     return rows.sort((a, b) => a.date.localeCompare(b.date));
   };
-  res.json({
+  return {
+    _rows: rawRows,
     from: iso(from), to: iso(to), asOf: iso(asOf), opening: openingPaise / 100, receiveLines, paymentLines, totals, closing: (openingPaise + recP - payP) / 100,
     receipts: await detail(recRows), payments: await detail(payRows),
     ledgers: { receive: await ledgerOptions('credit'), payment: await ledgerOptions('debit') },
     entryCategories: { receive: RECEIVE.filter((d) => ENTRY_CATEGORIES.receive.includes(d.key)).map(({ key, label }) => ({ key, label })), payment: PAYMENT.filter((d) => ENTRY_CATEGORIES.payment.includes(d.key)).map(({ key, label }) => ({ key, label })) },
-  });
+  };
 }
 
 /** A cashbook line typed in by hand (cash fund, NPA, voucher, bank / cash deposit, fund transfer, staff salary, other ...). */
 // the ledgers of the Ledger master an entry can be made for: a receive entry is a credit, a payment entry a debit
-const ledgerOptions = async (type) => (await Ledger.find({ isDeleted: false, isActive: true, type }).select('name').sort({ name: 1 }).lean()).map((x) => ({ id: x._id, name: x.name }));
+export const ledgerOptions = async (type) => (await Ledger.find({ isDeleted: false, isActive: true, type }).select('name').sort({ name: 1 }).lean()).map((x) => ({ id: x._id, name: x.name }));
 export async function addEntry(req, res) {
   const b = req.body || {};
   const side = asString(b.side);
@@ -326,6 +336,8 @@ export async function deleteEntry(req, res) {
   if (!e) throw new HttpError(404, 'Entry not found');
   e.isDeleted = true;
   await e.save();
+  // a branch to branch transfer is two entries: both go
+  if (e.transferId) await CashEntry.updateMany({ transferId: e.transferId, isDeleted: false }, { $set: { isDeleted: true } });
   await audit(req, { action: 'cashbook.entryDeleted', entity: 'CashEntry', entityId: e._id, after: { side: e.side, category: e.category, amount: e.amountPaise / 100 } });
   res.json({ message: 'Entry removed' });
 }

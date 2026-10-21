@@ -32,6 +32,8 @@ import StockProductMaster from './pages/adminMaster/StockProductMaster.jsx';
 import ProductOrders from './pages/ProductOrders.jsx';
 import StockTransfer from './pages/StockTransfer.jsx';
 import Cashbook from './pages/Cashbook.jsx';
+import { PaymentVoucher, ReceiveVoucher, BankDeposit, BankWithdraw, BranchTransfer } from './pages/AccountEntries.jsx';
+import { TrialBalance, BankBook, DayBook, ProductBranchDue } from './pages/AccountReports.jsx';
 import { PersonalLoanRequisition, BusinessLoanRequisition, ProductLoanRequisition } from './pages/PersonalLoanRequisition.jsx';
 import GroupLoanRequisition from './pages/GroupLoanRequisition.jsx';
 import RequisitionList from './pages/RequisitionList.jsx';
@@ -64,6 +66,16 @@ const PAGES = {
   '/stock/orders': ProductOrders,
   '/stock/transfers': StockTransfer,
   '/cashbook': Cashbook,
+  '/accounts/voucher-master': VoucherMaster,
+  '/accounts/payment-voucher': PaymentVoucher,
+  '/accounts/receive-voucher': ReceiveVoucher,
+  '/accounts/bank-deposit': BankDeposit,
+  '/accounts/bank-withdraw': BankWithdraw,
+  '/accounts/branch-transfer': BranchTransfer,
+  '/accounts/trial-balance': TrialBalance,
+  '/accounts/bank-book': BankBook,
+  '/accounts/day-book': DayBook,
+  '/accounts/product-branch-due': ProductBranchDue,
   '/loan-requisition/group': GroupLoanRequisition,
   '/loan-requisition/business': BusinessLoanRequisition,
   '/loan-requisition/product': ProductLoanRequisition,

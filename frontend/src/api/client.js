@@ -107,6 +107,16 @@ export const api = {
     approveBatch: (batchId) => request(`/loan-requisitions/batch/${batchId}/approve`, { method: 'POST' }),
     rejectBatch: (batchId, reason) => request(`/loan-requisitions/batch/${batchId}/reject`, { method: 'POST', body: { reason } }),
   },
+  accounts: {
+    options: () => request('/accounts/options'),
+    entries: (params) => request(`/accounts/entries${qs(params)}`),
+    create: (path, data) => request(`/accounts/${path}`, { method: 'POST', body: data }),
+    remove: (id) => request(`/accounts/entries/${id}`, { method: 'DELETE' }),
+    trialBalance: (params) => request(`/accounts/trial-balance${qs(params)}`),
+    bankBook: (params) => request(`/accounts/bank-book${qs(params)}`),
+    dayBook: (params) => request(`/accounts/day-book${qs(params)}`),
+    productBranchDue: () => request('/accounts/product-branch-due'),
+  },
   bankAccountOptions: () => request('/bank-account-options'),
   civilChecks: {
     member: (memberId) => request(`/civil-checks/member/${memberId}`),

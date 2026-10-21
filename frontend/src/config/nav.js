@@ -175,8 +175,28 @@ export const NAV_SECTIONS = [
     ],
   },
   {
-    title: 'Cashbook',
-    items: [{ label: 'Cashbook', path: '/cashbook', icon: 'book', roles: [...MGMT, 'accountant'] }],
+    title: 'Accounts',
+    items: [
+      {
+        label: 'Accounts',
+        path: '/accounts',
+        icon: 'ledger',
+        roles: [...MGMT, 'accountant'],
+        children: [
+          { label: 'Voucher Master', path: '/accounts/voucher-master', icon: 'ticket', roles: ALL_ADMIN },
+          { label: 'Payment Voucher Entry', path: '/accounts/payment-voucher', icon: 'cash' },
+          { label: 'Receive Voucher Entry', path: '/accounts/receive-voucher', icon: 'file' },
+          { label: 'Bank Deposit', path: '/accounts/bank-deposit', icon: 'bank' },
+          { label: 'Bank Withdraw', path: '/accounts/bank-withdraw', icon: 'bank' },
+          { label: 'Branch to Branch Transfer', path: '/accounts/branch-transfer', icon: 'branch' },
+          { label: 'Trial Balance', path: '/accounts/trial-balance', icon: 'calculator' },
+          { label: 'Cash Book', path: '/cashbook', icon: 'book' },
+          { label: 'Bank Book', path: '/accounts/bank-book', icon: 'bank' },
+          { label: 'Day Book', path: '/accounts/day-book', icon: 'calendar' },
+          { label: 'Product Branch Due Balance', path: '/accounts/product-branch-due', icon: 'product' },
+        ],
+      },
+    ],
   },
   {
     title: 'Commission',
