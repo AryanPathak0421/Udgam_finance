@@ -8,6 +8,7 @@ import { ProductPayment } from '../models/ProductPayment.js';
 import { CashEntry, ENTRY_CATEGORIES, ENTRY_MODES } from '../models/CashEntry.js';
 import { Branch } from '../models/Branch.js';
 import { Ledger } from '../models/Ledger.js';
+import { assertDayOpen } from '../services/dayOpen.js';
 import { CivilCheck } from '../models/CivilCheck.js';
 import { asString, parseDateOnly, HttpError } from '../utils/http.js';
 import { toMinor } from '../utils/money.js';
@@ -325,6 +326,7 @@ export async function addEntry(req, res) {
     if (!(await Branch.exists({ _id: id }))) throw invalid({ branch: 'Branch not found' });
     branch = id;
   }
+  await assertDayOpen(branch, date);
   const e = await CashEntry.create({ branch, date, side, category, amountPaise, mode, bankAccount, ledger, remark: asString(b.remark).slice(0, 200), enteredByCode: req.user.employeeCode || '', createdBy: req.user._id });
   await audit(req, { action: 'cashbook.entry', entity: 'CashEntry', entityId: e._id, after: { side, category, amount: amountPaise / 100, date: iso(date), branch: branch ? String(branch) : 'head office' } });
   res.status(201).json({ entry: { id: e._id, side, category, amount: amountPaise / 100, date: iso(date), mode, remark: e.remark || '' } });

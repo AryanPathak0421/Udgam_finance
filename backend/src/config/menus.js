@@ -63,6 +63,8 @@ export const MENU_CATALOGUE = [
   { key: '/accounts/bank-deposit', label: 'Bank Deposit', group: 'Accounts' },
   { key: '/accounts/bank-withdraw', label: 'Bank Withdraw', group: 'Accounts' },
   { key: '/accounts/branch-transfer', label: 'Branch to Branch Transfer', group: 'Accounts' },
+  { key: '/accounts/denomination', label: 'Denomination (Day Close)', group: 'Accounts' },
+  { key: '/accounts/day-close-approval', label: 'Denomination & Cashbook Approval', group: 'Accounts', adminOnly: true },
   { key: '/accounts/trial-balance', label: 'Trial Balance', group: 'Accounts' },
   { key: '/cashbook', label: 'Cash Book', group: 'Accounts' },
   { key: '/accounts/bank-book', label: 'Bank Book', group: 'Accounts' },

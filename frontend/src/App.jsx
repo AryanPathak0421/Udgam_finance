@@ -33,6 +33,8 @@ import ProductOrders from './pages/ProductOrders.jsx';
 import StockTransfer from './pages/StockTransfer.jsx';
 import Cashbook from './pages/Cashbook.jsx';
 import { PaymentVoucher, ReceiveVoucher, BankDeposit, BankWithdraw, BranchTransfer } from './pages/AccountEntries.jsx';
+import DayClose from './pages/DayClose.jsx';
+import DayCloseApproval from './pages/DayCloseApproval.jsx';
 import { TrialBalance, BankBook, DayBook, ProductBranchDue } from './pages/AccountReports.jsx';
 import { PersonalLoanRequisition, BusinessLoanRequisition, ProductLoanRequisition } from './pages/PersonalLoanRequisition.jsx';
 import GroupLoanRequisition from './pages/GroupLoanRequisition.jsx';
@@ -72,6 +74,8 @@ const PAGES = {
   '/accounts/bank-deposit': BankDeposit,
   '/accounts/bank-withdraw': BankWithdraw,
   '/accounts/branch-transfer': BranchTransfer,
+  '/accounts/denomination': DayClose,
+  '/accounts/day-close-approval': DayCloseApproval,
   '/accounts/trial-balance': TrialBalance,
   '/accounts/bank-book': BankBook,
   '/accounts/day-book': DayBook,

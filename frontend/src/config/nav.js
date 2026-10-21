@@ -189,6 +189,8 @@ export const NAV_SECTIONS = [
           { label: 'Bank Deposit', path: '/accounts/bank-deposit', icon: 'bank' },
           { label: 'Bank Withdraw', path: '/accounts/bank-withdraw', icon: 'bank' },
           { label: 'Branch to Branch Transfer', path: '/accounts/branch-transfer', icon: 'branch' },
+          { label: 'Denomination', path: '/accounts/denomination', icon: 'cash' },
+          { label: 'Denomination & Cashbook Approval', path: '/accounts/day-close-approval', icon: 'check', roles: ALL_ADMIN },
           { label: 'Trial Balance', path: '/accounts/trial-balance', icon: 'calculator' },
           { label: 'Cash Book', path: '/cashbook', icon: 'book' },
           { label: 'Bank Book', path: '/accounts/bank-book', icon: 'bank' },
