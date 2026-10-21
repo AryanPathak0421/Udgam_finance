@@ -232,7 +232,7 @@ export function ProductBranchDue() {
                   <tr style={{ borderTop: '2px solid currentColor' }}>
                     <td><strong>Total</strong></td>
                     <td className="num"><strong>{inr(d.total.purchased)}</strong></td><td className="num"><strong>{inr(d.total.transferredIn)}</strong></td><td className="num"><strong>{inr(d.total.transferredOut)}</strong></td>
-                    <td className="num" /><td className="num"><strong>{inr(d.total.paid)}</strong></td><td className="num"><strong>{inr(d.total.waiting)}</strong></td><td className="num"><strong>{inr(d.total.balance)}</strong></td>
+                    <td className="num"><strong>{inr(d.total.purchased + d.total.transferredIn - d.total.transferredOut)}</strong></td><td className="num"><strong>{inr(d.total.paid)}</strong></td><td className="num"><strong>{inr(d.total.waiting)}</strong></td><td className="num"><strong>{inr(d.total.balance)}</strong></td>
                   </tr>
                 </tbody>
               </table>
