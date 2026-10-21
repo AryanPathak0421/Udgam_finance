@@ -4,6 +4,8 @@ import { EmiPayment } from '../models/EmiPayment.js';
 import { User } from '../models/User.js';
 import { LoanSettlement } from '../models/LoanSettlement.js';
 import { readBankAccount } from '../services/bankAccountPick.js';
+import { isAppRequest } from '../services/appRequest.js';
+import { queueAppEmi } from './appController.js';
 import { autoSettleLine } from '../services/autoSettle.js';
 import { generateCode } from '../services/codeSequence.js';
 import { asString, escapeRegex, parseDateOnly, parsePaging, HttpError } from '../utils/http.js';
@@ -279,6 +281,11 @@ export async function payEmi(req, res) {
   if (amountPaise === undefined && !type) throw invalid({ type: 'Choose regular or advance EMI' });
   const payMode = readPayMode(b.payMode);
   const bankAccount = await readBankAccount(b, payMode);
+  if (await isAppRequest(req)) {
+    if (amountPaise === undefined) throw invalid({ amount: 'Enter the amount received' });
+    const q = await queueAppEmi(req, p, line, { amountPaise, paidOn: readPaidOn(req, p, b.paidOn), payMode, reference: b.reference, bankAccount });
+    return res.status(202).json({ queued: true, requestId: q._id, message: 'Received for approval: it counts once the admin approves it' });
+  }
   const doc = await receive(req, p, line, {
     amountPaise, count: b.count === undefined || b.count === '' ? undefined : Number(b.count), type: amountPaise === undefined ? type : undefined,
     paidOn: readPaidOn(req, p, b.paidOn), payMode, reference: b.reference, bankAccount,
@@ -294,6 +301,7 @@ export async function collectEmi(req, res) {
   if (items.length > 100) throw invalid({ items: 'Collect up to 100 at a time' });
   const payMode = readPayMode(b.payMode);
   const bankAccount = await readBankAccount(b, payMode);
+  const fromApp = await isAppRequest(req);
   const results = [];
   for (const it of items) {
     try {
@@ -303,6 +311,12 @@ export async function collectEmi(req, res) {
       if (!line) throw invalid({ member: 'Select the borrower' });
       const amountPaise = readAmount(it.amount);
       if (amountPaise === undefined) throw invalid({ amount: 'Enter the amount' });
+      if (fromApp) {
+        // eslint-disable-next-line no-await-in-loop
+        const q = await queueAppEmi(req, p, line, { amountPaise, paidOn: readPaidOn(req, p, b.paidOn), payMode, reference: b.reference, bankAccount });
+        results.push({ loan: it.loan, member: it.member, ok: true, queued: true, requestId: q._id, payment: { amount: amountPaise / 100, receiptNo: '' } });
+        continue;
+      }
       // eslint-disable-next-line no-await-in-loop
       const doc = await receive(req, p, line, { amountPaise, paidOn: readPaidOn(req, p, b.paidOn), payMode, reference: b.reference, bankAccount, dueOnly: true });
       results.push({ loan: it.loan, member: it.member, ok: true, payment: present(doc) });

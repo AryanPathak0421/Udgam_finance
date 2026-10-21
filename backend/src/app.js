@@ -21,6 +21,7 @@ import civilCheckRoutes from './routes/civilCheckRoutes.js';
 import accountsRoutes from './routes/accountsRoutes.js';
 import dayCloseRoutes from './routes/dayCloseRoutes.js';
 import reportRoutes from './routes/reportRoutes.js';
+import appRoutes from './routes/appRoutes.js';
 import bankAccountOptionsRoutes from './routes/bankAccountOptionsRoutes.js';
 
 const app = express();
@@ -71,6 +72,7 @@ app.use('/api', bankAccountOptionsRoutes);
 app.use('/api', accountsRoutes);
 app.use('/api', dayCloseRoutes);
 app.use('/api', reportRoutes);
+app.use('/api', appRoutes);
 
 app.use((_req, res) => res.status(404).json({ message: 'Not found' }));
 

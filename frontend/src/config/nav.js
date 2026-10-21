@@ -201,6 +201,22 @@ export const NAV_SECTIONS = [
     ],
   },
   {
+    title: 'App Section',
+    items: [
+      {
+        label: 'App Section',
+        path: '/app',
+        icon: 'settings',
+        roles: MGMT,
+        children: [
+          { label: 'App User Creation', path: '/app/app-users', icon: 'userplus', roles: ALL_ADMIN },
+          { label: 'Member Joining Approval', path: '/app/member-approval', icon: 'check' },
+          { label: 'Loan EMI Collection Approval', path: '/app/emi-approval', icon: 'cash' },
+        ],
+      },
+    ],
+  },
+  {
     title: 'Reports',
     items: [
       {

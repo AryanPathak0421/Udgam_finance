@@ -273,9 +273,12 @@ export async function groups(req, res) {
 }
 
 // What a member needs before a loan can be asked for.
-const MEMBER_PICK = 'code name isBlocked kycKeys kycDocs nominee.name nominee.sameAsGuarantor guarantor.name guarantor.aadhaar guarantor.deceasedOn legacyImport pan mobile mobileVerifiedAt husbandName occupation education address pincode district aadhaar bankName ifsc accountNumber';
+const MEMBER_PICK = 'code name isBlocked joiningApproval kycKeys kycDocs nominee.name nominee.sameAsGuarantor guarantor.name guarantor.aadhaar guarantor.deceasedOn legacyImport pan mobile mobileVerifiedAt husbandName occupation education address pincode district aadhaar bankName ifsc accountNumber';
 export function notReady(m) {
   const out = [];
+  // a member registered in the app is not a member until the admin approves the joining
+  if (m.joiningApproval?.status === 'pending') out.push('The joining of this member (registered in the app) is waiting for approval (App Section → Member Joining Approval)');
+  if (m.joiningApproval?.status === 'rejected') out.push('The joining of this member was rejected');
   // a member imported from the old system has to complete the details that were missing (mobile verified with an OTP, bank, photos ...)
   const todo = missingDetails(m);
   if (todo.length) out.push(`Complete the member's missing details first (Member Details → Borrower Synopsis → Complete details): ${todo.map((d) => d.label).join(', ')}`);

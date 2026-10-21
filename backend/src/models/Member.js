@@ -134,6 +134,8 @@ const memberSchema = new mongoose.Schema(
     // Imported from the old system (see above).
     legacyImport: { type: Boolean, default: false },
     isBlocked: { type: Boolean, default: false },
+    // A member registered in the mobile app waits for approval (App Section → Member Joining Approval) before a loan can be made. Others have no such record.
+    joiningApproval: { source: String, status: { type: String, enum: ['pending', 'approved', 'rejected'] }, byCode: String, at: Date, reason: String },
     blockHistory: { type: [blockSchema], default: [] },
     isActive: { type: Boolean, default: true },
     isDeleted: { type: Boolean, default: false },

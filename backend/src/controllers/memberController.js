@@ -1,3 +1,4 @@
+import { isAppRequest } from '../services/appRequest.js';
 import crypto from 'crypto';
 import mongoose from 'mongoose';
 import { Member } from '../models/Member.js';
@@ -367,6 +368,7 @@ function readMemberFields(b, v) {
 
 export async function createMember(req, res) {
   const b = req.body || {};
+  const fromApp = await isAppRequest(req);
   const v = createValidator();
   const d = {};
 
@@ -440,6 +442,7 @@ export async function createMember(req, res) {
       ifscVerified: bank.status === 'ok',
       accountVerifiedAt: acctCheck.status === 'verified' ? new Date() : undefined,
       employeeCode,
+      ...(fromApp ? { joiningApproval: { source: 'app', status: 'pending' } } : {}),
       kycKeys: ['memberPhoto', 'signaturePhoto', 'aadhaarPhoto', ...(d.panPhoto ? ['panPhoto'] : [])],
       createdBy: req.user._id,
       updatedBy: req.user._id,

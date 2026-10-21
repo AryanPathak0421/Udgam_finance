@@ -35,6 +35,7 @@ import Cashbook from './pages/Cashbook.jsx';
 import { PaymentVoucher, ReceiveVoucher, BankDeposit, BankWithdraw, BranchTransfer } from './pages/AccountEntries.jsx';
 import { LoanLedger, RequisitionReport, ApprovalReport, DisbursementReport, DueReport, OverdueReport, OutstandingReport, EmiCollectionReport, MemberJoiningReport, NpaReport, PersonalCollectionSheet, MsmeCollectionSheet, WriteOffReport, StaffNpaReport, StaffNpaPaymentReport, StaffDisbursementReport, GroupCollectionReport } from './pages/Reports.jsx';
 import CenterSurveys from './pages/CenterSurveys.jsx';
+import { AppUsers, MemberApproval, EmiApproval } from './pages/AppSection.jsx';
 import DayClose from './pages/DayClose.jsx';
 import DayCloseApproval from './pages/DayCloseApproval.jsx';
 import { TrialBalance, BankBook, DayBook, ProductBranchDue } from './pages/AccountReports.jsx';
@@ -76,6 +77,9 @@ const PAGES = {
   '/accounts/bank-deposit': BankDeposit,
   '/accounts/bank-withdraw': BankWithdraw,
   '/accounts/branch-transfer': BranchTransfer,
+  '/app/app-users': AppUsers,
+  '/app/member-approval': MemberApproval,
+  '/app/emi-approval': EmiApproval,
   '/reports/loan-ledger': LoanLedger,
   '/reports/requisition': RequisitionReport,
   '/reports/approval': ApprovalReport,
