@@ -113,6 +113,11 @@ input:focus {
 }
 .collapse-btn:hover { background: rgba(255,255,255,.12); }
 
+@media print {
+  .sidebar, .header, .toolbar, .pagination, .no-print, .btn { display: none !important; }
+  .main, .app-shell.is-collapsed .main { margin-left: 0 !important; }
+  .panel { box-shadow: none !important; border: 0 !important; }
+}
 .main { margin-left: var(--sidebar-w); transition: margin-left .2s ease; min-height: 100vh; }
 .app-shell.is-collapsed .main { margin-left: var(--sidebar-w-collapsed); }
 

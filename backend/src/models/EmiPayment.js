@@ -24,6 +24,7 @@ const emiPaymentSchema = new mongoose.Schema(
     bankAccount: { type: mongoose.Schema.Types.ObjectId, ref: 'BankAccount' }, // Account detail: the bank account of a bank transfer
     // Imported from the old system as "collected before the data starts" (an assumption): not cash of this system, so not in the Cashbook.
     legacy: { type: Boolean, default: false },
+    npa: { type: Boolean, default: false }, // received on a loan that is NPA (NPA payment): it shows as NPA receive in the Cashbook
     status: { type: String, enum: ['paid', 'cancelled'], default: 'paid' },
     cancelReason: String,
     cancelledAt: Date,

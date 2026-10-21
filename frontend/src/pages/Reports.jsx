@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client.js';
 import FormField from '../components/ui/FormField.jsx';
+import Modal from '../components/ui/Modal.jsx';
+import BankAccountSelect from '../components/BankAccountSelect.jsx';
 import Pagination from '../components/ui/Pagination.jsx';
 import { EmptyState, ErrorState, PageHeader, Spinner } from '../components/ui/Feedback.jsx';
 import { useToast } from '../components/ui/Toast.jsx';
@@ -47,7 +49,21 @@ const borrowerCols = (extra) => [
 COLS.due = borrowerCols([['Due today', (r) => inr(r.due), true], ['Outstanding', (r) => inr(r.outstanding), true]]);
 COLS.overdue = borrowerCols([['Overdue amount', (r) => inr(r.due), true], ['Installments', (r) => r.dueCount, true], ['Oldest due', (r) => dmy(r.firstDue)], ['Days overdue', (r) => <span className="badge danger">{r.overdueDays}</span>], ['Outstanding', (r) => inr(r.outstanding), true]]);
 COLS.outstanding = borrowerCols([['Loan amount', (r) => inr(r.loanAmount), true], ['Total payable', (r) => inr(r.scheduled), true], ['Paid', (r) => inr(r.paid), true], ['Outstanding', (r) => <strong>{inr(r.outstanding)}</strong>, true], ['Due now', (r) => inr(r.due), true]]);
-COLS.npa = borrowerCols([['Loan amount', (r) => inr(r.loanAmount), true], ['Last installment', (r) => dmy(r.lastInstallment)], ['Days after term', (r) => <span className="badge danger">{r.daysPastEnd}</span>], ['Outstanding', (r) => <strong>{inr(r.outstanding)}</strong>, true]]);
+COLS.npa = borrowerCols([['Staff', (r) => r.staff || '—'], ['Loan amount', (r) => inr(r.loanAmount), true], ['Last installment', (r) => dmy(r.lastInstallment)], ['Days after term', (r) => <span className="badge danger">{r.daysPastEnd}</span>], ['Outstanding', (r) => <strong>{inr(r.outstanding)}</strong>, true]]);
+const blank = () => <span style={{ display: 'inline-block', width: 90, borderBottom: '1px solid currentColor' }}>&nbsp;</span>;
+const sheetCols = borrowerCols([['Due now', (r) => inr(r.due), true], ['Overdue days', (r) => r.overdueDays || '—', true], ['Outstanding', (r) => inr(r.outstanding), true], ['Collected (₹)', blank], ['Sign', blank]]);
+COLS['personal-collection-sheet'] = sheetCols;
+COLS['msme-collection-sheet'] = sheetCols;
+const KIND_LABEL = { death: 'Death settlement', auto: 'Auto settle', loan: 'Loan settlement' };
+COLS['write-off'] = [
+  ['Receipt', (r) => <strong>{r.receiptNo}</strong>], ['Date', (r) => dmy(r.date)], ['Kind', (r) => KIND_LABEL[r.kind] || r.kind], ['Loan ID', (r) => r.loanId], ['Borrower', (r) => <>{r.memberCode} {r.memberName}{r.group && <div className="muted small">{r.group}</div>}</>],
+  ['Branch', (r) => r.branch], ['Outstanding', (r) => inr(r.outstanding), true], ['Received', (r) => inr(r.received), true], ['Written off', (r) => <strong>{inr(r.writtenOff)}</strong>, true], ['Remark', (r) => r.remark || '—'],
+];
+const staffCell = (r) => <><strong>{r.staff}</strong>{r.staffName && <div className="muted small">{r.staffName}</div>}</>;
+COLS['staff-npa'] = [['Staff', staffCell], ['NPA borrowers', (r) => r.borrowers, true], ['Loan amount', (r) => inr(r.loanAmount), true], ['Outstanding', (r) => <strong>{inr(r.outstanding)}</strong>, true], ['Oldest (days after term)', (r) => r.oldest, true]];
+COLS['staff-npa-payment'] = [['Staff', staffCell], ['NPA receipts', (r) => r.receipts, true], ['Collected', (r) => <strong>{inr(r.amount)}</strong>, true]];
+COLS['staff-disbursement'] = [['Staff', staffCell], ['Loans', (r) => r.loans, true], ['Borrowers', (r) => r.borrowers, true], ['Loan amount', (r) => <strong>{inr(r.amount)}</strong>, true], ['Cash paid', (r) => inr(r.cash), true]];
+COLS['group-collection'] = [['Group', (r) => <strong>{r.group}</strong>], ['Branch', (r) => r.branch || '—'], ['Members', (r) => r.members, true], ['Demand', (r) => inr(r.demand), true], ['Collected', (r) => inr(r.collected), true], ['Balance', (r) => inr(r.balance), true], ['Collection %', (r) => (r.efficiency === null ? '—' : <span className={`badge ${r.efficiency >= 95 ? 'green' : r.efficiency >= 70 ? 'grey' : 'danger'}`}>{r.efficiency}%</span>)]];
 
 const REPORTS = {
   requisition: { title: 'Loan Requisition Report', description: 'Every loan requisition with its status, by the loan date.', range: true, status: ['pending', 'approved', 'rejected', 'cancelled'], from: monthStart },
@@ -58,7 +74,14 @@ const REPORTS = {
   outstanding: { title: 'Loan Outstanding Report', description: 'What every running borrower still has to pay as on the chosen date.', asOf: true },
   'emi-collection': { title: 'Loan EMI Collection Report', description: 'EMI received, by the date it was paid.', range: true, from: today },
   'member-joining': { title: 'Member Joining Report', description: 'Members who joined, by the joining date.', range: true, from: monthStart },
-  npa: { title: 'NPA Report', description: 'Borrowers of a 120-day loan who still owe after the 121st day: the last installment is behind them and the loan is not paid.', asOf: true },
+  npa: { title: 'NPA Report', description: 'Borrowers of a 120-day loan who still owe after the 121st day: the last installment is behind them and the loan is not paid. NPA payment takes the money received from the borrower.', asOf: true, npaPay: true },
+  'personal-collection-sheet': { title: 'Personal Loan Collection Sheet', description: 'Personal loan borrowers with an EMI to collect as on the date. Print it for the field.', asOf: true, print: true },
+  'msme-collection-sheet': { title: 'MSME / Business Loan Collection Sheet', description: 'MSME and business loan borrowers with an EMI to collect as on the date. Print it for the field.', asOf: true, print: true },
+  'write-off': { title: 'Write-off Report', description: 'Balance given up on loans: death settlements, automatic settlements and loan settlements with a waiver, by the settlement date.', range: true, status: ['death', 'auto', 'loan'], statusLabel: KIND_LABEL, from: monthStart },
+  'staff-npa': { title: 'Staff wise NPA Report', description: 'NPA borrowers and what is outstanding on them, for every staff member (the staff of the loan).', asOf: true, noCall: true },
+  'staff-npa-payment': { title: 'Staff wise NPA Payment Report', description: 'What every staff member collected on NPA loans (NPA payment), by the date it was received.', range: true, from: monthStart, noCall: true },
+  'staff-disbursement': { title: 'Staff wise Disbursement Report', description: 'Loans paid out for every staff member, by the payment date.', range: true, from: monthStart, noCall: true },
+  'group-collection': { title: 'Group wise Collection & CDS Report', description: 'For every group: the EMI that fell due in the period (demand), what was collected and the share collected (Collection and Demand Statement).', range: true, from: monthStart, noCall: true },
 };
 
 /** "Call done": the borrower of the row was called. Shows who called last and when. */
@@ -85,6 +108,46 @@ function CallButton({ report, row, onDone }) {
   );
 }
 
+/** NPA payment: money received from the borrower of an NPA loan. */
+function NpaPaymentDialog({ row, onClose, onSaved }) {
+  const toast = useToast();
+  const [f, setF] = useState({ amount: String(row.outstanding), payMode: 'cash', bankAccount: '', reference: '' });
+  const [errors, setErrors] = useState({});
+  const [busy, setBusy] = useState(false);
+  async function save() {
+    setBusy(true);
+    setErrors({});
+    try {
+      const r = await api.reports.npaPayment({ loan: row.loanPaymentId, member: row.memberCode, amount: f.amount, payMode: f.payMode, bankAccount: f.payMode === 'bank' ? f.bankAccount : undefined, reference: f.reference });
+      toast.success(`NPA payment received — receipt ${r.receiptNo}`);
+      onSaved();
+    } catch (err) {
+      setErrors(err.errors || {});
+      toast.error(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Modal open title="NPA payment" onClose={onClose} busy={busy}
+      footer={<><button className="btn" onClick={onClose} disabled={busy}>Close</button><button className="btn primary" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Receive'}</button></>}>
+      <p className="muted">Loan {row.loanId} · {row.memberCode} {row.memberName} · outstanding {inr(row.outstanding)}. The money goes to the earliest unpaid installments and shows as NPA receive in the Cashbook.</p>
+      <div className="form-grid">
+        <FormField id="npaamt" label="Amount received (₹)" required error={errors.amount}>
+          <input id="npaamt" inputMode="decimal" value={f.amount} onChange={(e) => { setF((x) => ({ ...x, amount: e.target.value.replace(/[^\d.]/g, '') })); setErrors((x) => ({ ...x, amount: undefined })); }} />
+        </FormField>
+        <FormField id="npamode" label="Paid by" required error={errors.payMode}>
+          <select id="npamode" value={f.payMode} onChange={(e) => setF((x) => ({ ...x, payMode: e.target.value }))}>
+            {Object.entries(MODE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+        </FormField>
+        <BankAccountSelect id="npabank" mode={f.payMode} value={f.bankAccount} onChange={(v) => setF((x) => ({ ...x, bankAccount: v }))} error={errors.bankAccount} />
+        <FormField id="nparef" label="Reference no." hint="Optional"><input id="nparef" value={f.reference} maxLength={60} onChange={(e) => setF((x) => ({ ...x, reference: e.target.value }))} /></FormField>
+      </div>
+    </Modal>
+  );
+}
+
 function BranchSelect({ value, onChange }) {
   const [branches, setBranches] = useState([]);
   useEffect(() => { api.groups.branchOptions().then((r) => setBranches(r.items)).catch(() => {}); }, []);
@@ -97,8 +160,8 @@ function BranchSelect({ value, onChange }) {
   );
 }
 
-const SUMMARY_LABEL = { borrowers: 'Borrowers', due: 'Due', outstanding: 'Outstanding', loanAmount: 'Loan amount', paid: 'Paid', receipts: 'Receipts', amount: 'Amount', loans: 'Loans', cash: 'Cash paid', requisitions: 'Requisitions', decided: 'Decided', approved: 'Approved', rejected: 'Rejected', members: 'Members' };
-const COUNT_KEYS = ['borrowers', 'receipts', 'loans', 'requisitions', 'decided', 'approved', 'rejected', 'members'];
+const SUMMARY_LABEL = { staff: 'Staff', groups: 'Groups', demand: 'Demand', collected: 'Collected', balance: 'Balance', writtenOff: 'Written off', borrowers: 'Borrowers', due: 'Due', outstanding: 'Outstanding', loanAmount: 'Loan amount', paid: 'Paid', receipts: 'Receipts', amount: 'Amount', loans: 'Loans', cash: 'Cash paid', requisitions: 'Requisitions', decided: 'Decided', approved: 'Approved', rejected: 'Rejected', members: 'Members' };
+const COUNT_KEYS = ['staff', 'groups', 'borrowers', 'receipts', 'loans', 'requisitions', 'decided', 'approved', 'rejected', 'members'];
 
 export function ReportPage({ name }) {
   const cfg = REPORTS[name];
@@ -114,6 +177,7 @@ export function ReportPage({ name }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [paying, setPaying] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -150,11 +214,12 @@ export function ReportPage({ name }) {
           {cfg.status && (
             <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status">
               <option value="">All statuses</option>
-              {cfg.status.map((s) => <option key={s} value={s}>{cap(s)}</option>)}
+              {cfg.status.map((s) => <option key={s} value={s}>{cfg.statusLabel?.[s] || cap(s)}</option>)}
             </select>
           )}
           <input type="search" placeholder="Search" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search" style={{ minWidth: 180 }} />
           <button className="btn" onClick={load} disabled={loading}>{loading ? 'Refreshing…' : 'Refresh'}</button>
+          {cfg.print && <button className="btn" onClick={() => window.print()}>Print the sheet</button>}
         </div>
         {loading && !data ? <Spinner label="Loading…" /> : error ? <ErrorState message={error} onRetry={load} /> : !data || rows.length === 0 ? (
           <EmptyState title="Nothing to show" description="No record for these filters." />
@@ -166,17 +231,19 @@ export function ReportPage({ name }) {
             {data.truncated && <div className="notice">Showing the first {rows.length} of {data.total}. Narrow the dates or the branch to see the rest.</div>}
             <div className="table-wrap">
               <table className="data-table">
-                <thead><tr>{cols.map(([l, , n]) => <th key={l} className={n ? 'num' : ''}>{l}</th>)}<th>Call</th></tr></thead>
+                <thead><tr>{cols.map(([l, , n]) => <th key={l} className={n ? 'num' : ''}>{l}</th>)}{!cfg.noCall && <th className="no-print">Call</th>}{cfg.npaPay && <th className="no-print">NPA payment</th>}</tr></thead>
                 <tbody>
                   {view.map((r) => (
                     <tr key={r.key}>
                       {cols.map(([l, f, n]) => <td key={l} data-label={l} className={n ? 'num' : ''}>{f(r)}</td>)}
-                      <td data-label="Call"><CallButton report={name} row={r} onDone={done} /></td>
+                      {!cfg.noCall && <td data-label="Call" className="no-print"><CallButton report={name} row={r} onDone={done} /></td>}
+                      {cfg.npaPay && <td data-label="NPA payment" className="no-print"><button className="btn sm primary" onClick={() => setPaying(r)}>NPA payment</button></td>}
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+            {paying && <NpaPaymentDialog row={paying} onClose={() => setPaying(null)} onSaved={() => { setPaying(null); load(); }} />}
             <Pagination page={page} totalPages={Math.max(1, Math.ceil(rows.length / LIMIT))} total={rows.length} limit={LIMIT} onPage={setPage} />
           </>
         )}
@@ -290,3 +357,10 @@ export const OutstandingReport = () => <ReportPage name="outstanding" />;
 export const EmiCollectionReport = () => <ReportPage name="emi-collection" />;
 export const MemberJoiningReport = () => <ReportPage name="member-joining" />;
 export const NpaReport = () => <ReportPage name="npa" />;
+export const PersonalCollectionSheet = () => <ReportPage name="personal-collection-sheet" />;
+export const MsmeCollectionSheet = () => <ReportPage name="msme-collection-sheet" />;
+export const WriteOffReport = () => <ReportPage name="write-off" />;
+export const StaffNpaReport = () => <ReportPage name="staff-npa" />;
+export const StaffNpaPaymentReport = () => <ReportPage name="staff-npa-payment" />;
+export const StaffDisbursementReport = () => <ReportPage name="staff-disbursement" />;
+export const GroupCollectionReport = () => <ReportPage name="group-collection" />;

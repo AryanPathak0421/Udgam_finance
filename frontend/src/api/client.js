@@ -110,6 +110,12 @@ export const api = {
   reports: {
     get: (name, params) => request(`/reports/${name}${qs(params)}`),
     callDone: (data) => request('/reports/call-done', { method: 'POST', body: data }),
+    npaPayment: (data) => request('/reports/npa-payment', { method: 'POST', body: data }),
+  },
+  centerSurveys: {
+    list: (params) => request(`/center-surveys${qs(params)}`),
+    create: (data) => request('/center-surveys', { method: 'POST', body: data }),
+    setStatus: (id, data) => request(`/center-surveys/${id}/status`, { method: 'POST', body: data }),
   },
   dayClose: {
     status: (params) => request(`/day-close/status${qs(params)}`),
