@@ -1,3 +1,4 @@
+import { assertDayOpen } from '../services/dayOpen.js';
 import { readBankAccount } from '../services/bankAccountPick.js';
 import mongoose from 'mongoose';
 import { LoanPayment, PAYMENT_MODES } from '../models/LoanPayment.js';
@@ -192,6 +193,7 @@ const present = (p) => ({
 async function pay(req, r, b) {
   const kind = r.kind || 'personal';
   const paidOn = readPaidOn(req, r, b.paidOn);
+  await assertDayOpen(r.branch?._id || r.branch, paidOn);
   const { start, end } = emiDates(r, paidOn, b.emiStartDate, await collectionRule(r));
   const payMode = asString(b.payMode);
   if (!PAYMENT_MODES.includes(payMode)) throw invalid({ payMode: 'Select how the loan is paid' });

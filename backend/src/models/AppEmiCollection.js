@@ -13,6 +13,8 @@ const appEmiSchema = new mongoose.Schema(
     group: String,
     amountPaise: { type: Number, required: true, min: 100 },
     collectedOn: { type: Date, required: true },
+    type: { type: String, enum: ['regular', 'advance'] }, // when it was collected by number of installments
+    installments: Number, // how many installments (count) it covers, when collected that way
     payMode: { type: String, enum: ['cash', 'bank', 'upi', 'cheque'], required: true },
     bankAccount: { type: mongoose.Schema.Types.ObjectId, ref: 'BankAccount' },
     reference: String,

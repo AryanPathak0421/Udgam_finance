@@ -4,6 +4,7 @@ import { EmiPayment } from '../models/EmiPayment.js';
 import { User } from '../models/User.js';
 import { LoanSettlement } from '../models/LoanSettlement.js';
 import { readBankAccount } from '../services/bankAccountPick.js';
+import { assertDayOpen } from '../services/dayOpen.js';
 import { isAppRequest } from '../services/appRequest.js';
 import { queueAppEmi } from './appController.js';
 import { autoSettleLine } from '../services/autoSettle.js';
@@ -204,6 +205,8 @@ function readPaidOn(req, p, input) {
  * installments that are not due yet.
  */
 export async function receive(req, p, line, { amountPaise, count, type, paidOn, payMode, reference, bankAccount, npa = false, dueOnly = false }) {
+  // a branch whose day is closed (denomination made) takes no EMI for that day
+  await assertDayOpen(p.branch?._id || p.branch, paidOn);
   const st = await borrowerState(p, line, paidOn);
   if (st.settled) throw new HttpError(409, `This loan has been settled (${st.settled.kind === 'death' ? 'death settlement' : st.settled.kind === 'auto' ? 'automatic settlement, all installments paid' : 'loan settlement'} ${st.settled.receiptNo}). No EMI is due.`);
   if (!st.left.length) throw new HttpError(409, 'All installments of this loan are already paid');
@@ -282,8 +285,7 @@ export async function payEmi(req, res) {
   const payMode = readPayMode(b.payMode);
   const bankAccount = await readBankAccount(b, payMode);
   if (await isAppRequest(req)) {
-    if (amountPaise === undefined) throw invalid({ amount: 'Enter the amount received' });
-    const q = await queueAppEmi(req, p, line, { amountPaise, paidOn: readPaidOn(req, p, b.paidOn), payMode, reference: b.reference, bankAccount });
+    const q = await queueAppEmi(req, p, line, { amountPaise, count: b.count === undefined || b.count === '' ? undefined : Number(b.count), type: amountPaise === undefined ? type : undefined, paidOn: readPaidOn(req, p, b.paidOn), payMode, reference: b.reference, bankAccount });
     return res.status(202).json({ queued: true, requestId: q._id, message: 'Received for approval: it counts once the admin approves it' });
   }
   const doc = await receive(req, p, line, {

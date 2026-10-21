@@ -1,3 +1,4 @@
+import { assertDayOpen } from '../services/dayOpen.js';
 import { readBankAccount } from '../services/bankAccountPick.js';
 import mongoose from 'mongoose';
 import { LoanSettlement } from '../models/LoanSettlement.js';
@@ -70,6 +71,7 @@ async function prepare(req, b) {
 }
 
 async function save(req, p, line, data) {
+  await assertDayOpen(p.branch._id, data.settledOn);
   try {
     return await LoanSettlement.create({
       ...data, receiptNo: await generateCode('settlementReceipt'), loanPayment: p._id, loanId: p.loanId, formId: p.formId, branch: p.branch._id, member: line.member, memberCode: line.code,

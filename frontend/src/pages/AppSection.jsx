@@ -242,7 +242,7 @@ export function EmiApproval() {
                       <td data-label="Loan"><strong>{c.loanId}</strong>{c.group && <div className="muted small">{c.group}</div>}</td>
                       <td data-label="Borrower">{c.memberCode} {c.memberName}</td>
                       <td data-label="Branch">{c.branch?.code}</td>
-                      <td data-label="Amount" className="num">{inr(c.amount)}</td>
+                      <td data-label="Amount" className="num">{inr(c.amount)}{c.installments ? <div className="muted small">{c.installments} installment{c.installments === 1 ? "" : "s"} ({c.type})</div> : null}</td>
                       <td data-label="Collected">{dmy(c.collectedOn)} · {MODE_LABEL[c.payMode] || c.payMode}<div className="muted small">by {c.collectedBy || '—'}{c.reference ? ` · ${c.reference}` : ''}</div></td>
                       <td data-label="Status"><Badge s={c.status} />{c.status === 'approved' && <div className="muted small">{c.receiptNo}</div>}{c.status === 'rejected' && c.reason && <div className="muted small">{c.reason}</div>}</td>
                       <td>{c.status === 'pending' && <div style={{ display: 'flex', gap: 6 }}><button className="btn sm primary" disabled={busy === c.id} onClick={() => approve(c)}>{busy === c.id ? '…' : 'Approve'}</button><button className="btn sm danger-outline" onClick={() => setRejecting(c)}>Reject</button></div>}</td>

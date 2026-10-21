@@ -128,12 +128,37 @@ export async function rejectMember(req, res) {
 // ---- Loan EMI Collection Approval -----------------------------------------------------------------------------------------
 
 /** EMI collected in the app: checked like any collection, then kept as a request until it is approved. */
-export async function queueAppEmi(req, p, line, { amountPaise, paidOn, payMode, reference, bankAccount }) {
+export async function queueAppEmi(req, p, line, { amountPaise, count, type, paidOn, payMode, reference, bankAccount }) {
   const st = await borrowerState(p, line, paidOn);
   if (st.settled) throw new HttpError(409, 'This loan has been settled. No EMI is due.');
   const waiting = (await AppEmiCollection.aggregate([{ $match: { loanPayment: p._id, memberCode: line.code, status: 'pending' } }, { $group: { _id: null, t: { $sum: '$amountPaise' } } }]))[0]?.t || 0;
-  if (amountPaise + waiting > st.totals.due) throw invalid({ amount: `Only ₹${Math.max(st.totals.due - waiting, 0) / 100} is due${waiting ? ` (₹${waiting / 100} is already waiting for approval)` : ''}` });
+  let pay = amountPaise;
+  let kind;
+  let covers;
+  if (pay === undefined) {
+    // by number of installments, like the Loan ID screens: due installments (regular) or installments ahead (advance)
+    kind = type === 'advance' ? 'advance' : 'regular';
+    if (kind === 'regular') {
+      if (!st.due.length) throw new HttpError(409, 'No installment is due now. Pay in advance instead.');
+      covers = count === undefined ? st.due.length : count;
+      if (!Number.isInteger(covers) || covers < 1 || covers > st.due.length) throw invalid({ count: `Choose 1 to ${st.due.length} due installment${st.due.length === 1 ? '' : 's'}` });
+      pay = st.due.slice(0, covers).reduce((s, x) => s + x.remainingPaise, 0);
+    } else {
+      if (st.due.length) throw new HttpError(409, `${st.due.length} installment${st.due.length === 1 ? ' is' : 's are'} due. Collect the due EMI first, then pay in advance.`);
+      covers = count;
+      if (!Number.isInteger(covers) || covers < 1 || covers > st.left.length) throw invalid({ count: `Choose 1 to ${st.left.length} installment${st.left.length === 1 ? '' : 's'} to pay in advance` });
+      pay = st.left.slice(0, covers).reduce((s, x) => s + x.remainingPaise, 0);
+    }
+  }
+  if (!Number.isInteger(pay) || pay < 100) throw invalid({ amount: 'Enter the amount received (₹1 or more, up to 2 decimals)' });
+  if (kind === 'advance') {
+    if (pay + waiting > st.totals.outstanding) throw invalid({ amount: `The borrower owes only ₹${Math.max(st.totals.outstanding - waiting, 0) / 100}${waiting ? ` (₹${waiting / 100} is already waiting for approval)` : ''}` });
+  } else if (pay + waiting > st.totals.due) {
+    throw invalid({ amount: `Only ₹${Math.max(st.totals.due - waiting, 0) / 100} is due${waiting ? ` (₹${waiting / 100} is already waiting for approval)` : ''}` });
+  }
+  amountPaise = pay;
   return AppEmiCollection.create({
+    type: kind, installments: covers,
     loanPayment: p._id, loanId: p.loanId || p.formId, branch: p.branch._id, memberCode: line.code, memberName: line.name, group: p.group?.code ? `${p.group.code} — ${p.group.name}` : '', amountPaise, collectedOn: paidOn,
     payMode, bankAccount, reference: asString(reference).slice(0, 60), collectedBy: req.user._id, collectedByCode: req.user.employeeCode || '',
   });
@@ -141,7 +166,7 @@ export async function queueAppEmi(req, p, line, { amountPaise, paidOn, payMode, 
 
 const presentEmi = (c) => ({
   id: c._id, loanId: c.loanId, branch: c.branch?._id ? { id: c.branch._id, code: c.branch.code, name: c.branch.name } : null, memberCode: c.memberCode, memberName: c.memberName, group: c.group || '', amount: rupees(c.amountPaise),
-  collectedOn: iso(c.collectedOn), payMode: c.payMode, reference: c.reference || '', collectedBy: c.collectedByCode || '', submittedAt: c.createdAt, status: c.status, decidedBy: c.decidedByCode || '', decidedAt: c.decidedAt,
+  collectedOn: iso(c.collectedOn), type: c.type || '', installments: c.installments || null, payMode: c.payMode, reference: c.reference || '', collectedBy: c.collectedByCode || '', submittedAt: c.createdAt, status: c.status, decidedBy: c.decidedByCode || '', decidedAt: c.decidedAt,
   reason: c.rejectReason || '', receiptNo: c.receiptNo || '',
 });
 
@@ -173,7 +198,7 @@ export async function approveEmi(req, res) {
   if (!line) throw new HttpError(409, 'The borrower is no longer on this loan');
   let doc;
   try {
-    doc = await receive({ user: collector, ip: req.ip, headers: req.headers }, p, line, { amountPaise: c.amountPaise, paidOn: c.collectedOn, payMode: c.payMode, reference: c.reference, bankAccount: c.bankAccount, dueOnly: true });
+    doc = await receive({ user: collector, ip: req.ip, headers: req.headers }, p, line, { amountPaise: c.amountPaise, type: c.type, paidOn: c.collectedOn, payMode: c.payMode, reference: c.reference, bankAccount: c.bankAccount, dueOnly: c.type !== 'advance' });
   } catch (err) {
     throw new HttpError(err.status || 409, `This collection cannot be received now: ${err.errors?.amount || err.message}. Reject it instead.`);
   }
