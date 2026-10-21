@@ -218,7 +218,8 @@ export async function cashbookData(req, query) {
 
   // today due: the EMI still to be collected up to the end date (information, not cash)
   const asOf = to || new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
-  const dueIds = (await LoanPayment.find({ ...scope, status: 'paid' }).select('_id').limit(20000).lean()).map((x) => x._id);
+  // the books built on the cashbook (trial balance, bank book, day book) do not need the due and skip this slow part
+  const dueIds = query.skipDue ? [] : (await LoanPayment.find({ ...scope, status: 'paid' }).select('_id').limit(20000).lean()).map((x) => x._id);
   const dueBy = new Map();
   for (let at = 0; at < dueIds.length; at += 250) {
     const idsNow = dueIds.slice(at, at + 250);

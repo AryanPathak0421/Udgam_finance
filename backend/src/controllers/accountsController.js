@@ -177,7 +177,7 @@ async function names() {
 
 /** Bank Book: every transaction that went through a bank (bank, UPI, cheque, deposits and withdrawals), with a running balance. */
 export async function bankBook(req, res) {
-  const { _rows: rows } = await cashbookData(req, { branch: req.query.branch, from: req.query.from, to: req.query.to });
+  const { _rows: rows } = await cashbookData(req, { branch: req.query.branch, from: req.query.from, to: req.query.to, skipDue: true });
   const n = await names();
   const only = mongoose.isValidObjectId(asString(req.query.bankAccount)) ? asString(req.query.bankAccount) : '';
   const keyOf = (r) => (r.bank ? String(r.bank) : '');
@@ -193,7 +193,7 @@ export async function bankBook(req, res) {
       const inn = bankLeg(r) === 'in';
       balance += inn ? r.amount : -r.amount;
       return {
-        date: r.date, ref: r.ref || '', particulars: r.particulars || '', branch: r.branchId ? n.branch.get(String(r.branchId)) || '' : 'Head office', mode: r.mode, account: r.bank ? n.bank.get(String(r.bank)) || '' : 'Not specified',
+        date: r.date, ref: r.ref || '', particulars: r.particulars || '', branch: r.branchId ? n.branch.get(String(r.branchId)) || '' : 'Head office', mode: r.kind === 'bank_deposit' ? 'Deposit' : r.kind === 'bank_withdraw' ? 'Withdraw' : r.mode, account: r.bank ? n.bank.get(String(r.bank)) || '' : 'Not specified',
         deposit: inn ? r.amount / 100 : 0, withdrawal: inn ? 0 : r.amount / 100, balance: balance / 100,
       };
     });
@@ -208,7 +208,7 @@ export async function bankBook(req, res) {
 /** Day Book: everything of one day, in the order it was entered, with the opening and closing balance of the day. */
 export async function dayBook(req, res) {
   const date = parseDateOnly(asString(req.query.date)) || startOfToday();
-  const { _rows: rows, opening } = await cashbookData(req, { branch: req.query.branch, from: iso(date), to: iso(date) });
+  const { _rows: rows, opening } = await cashbookData(req, { branch: req.query.branch, from: iso(date), to: iso(date), skipDue: true });
   const n = await names();
   const lines = rows.cur
     .filter((r) => !isDue(r))
@@ -224,7 +224,7 @@ export async function dayBook(req, res) {
 
 /** Trial Balance of a period: every account with its opening, debit, credit and closing. Receipts credit their account and debit cash / bank, payments the other way round. */
 export async function trialBalance(req, res) {
-  const { _rows: rows } = await cashbookData(req, { branch: req.query.branch, from: req.query.from, to: req.query.to });
+  const { _rows: rows } = await cashbookData(req, { branch: req.query.branch, from: req.query.from, to: req.query.to, skipDue: true });
   const n = await names();
   const ORDER = { Cash: 0, Bank: 1, Ledger: 2, Account: 3 };
   const accounts = new Map();
