@@ -37,12 +37,14 @@ export const NAV_SECTIONS = [
     ],
   },
   {
-    title: 'Stock',
+    title: 'Product',
     items: [
       // Its own module: admins always; other ranks only when it is granted under Menu Permission.
-      { label: 'Stock Product Master', path: '/stock/products', icon: 'product', grantOnly: true },
-      { label: 'Product Orders', path: '/stock/orders', icon: 'ticket', grantOnly: true },
-      { label: 'Stock Transfer', path: '/stock/transfers', icon: 'branch', roles: ALL_ADMIN },
+      { label: 'Product Master', path: '/stock/products', icon: 'product', grantOnly: true },
+      { label: 'Product Stock Entry', path: '/stock/stock-entry', icon: 'file', grantOnly: true },
+      { label: 'Quantity Report', path: '/stock/quantity-report', icon: 'chart', grantOnly: true },
+      { label: 'Branch Order', path: '/stock/orders', icon: 'ticket', grantOnly: true },
+      { label: 'Branch Transfer', path: '/stock/transfers', icon: 'branch', roles: ALL_ADMIN },
     ],
   },
   {

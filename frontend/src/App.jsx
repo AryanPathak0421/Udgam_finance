@@ -36,6 +36,7 @@ import { PaymentVoucher, ReceiveVoucher, BankDeposit, BankWithdraw, BranchTransf
 import { LoanLedger, RequisitionReport, ApprovalReport, DisbursementReport, DueReport, OverdueReport, OutstandingReport, EmiCollectionReport, MemberJoiningReport, NpaReport, PersonalCollectionSheet, MsmeCollectionSheet, WriteOffReport, StaffNpaReport, StaffNpaPaymentReport, StaffDisbursementReport, GroupCollectionReport } from './pages/Reports.jsx';
 import CenterSurveys from './pages/CenterSurveys.jsx';
 import { AppUsers, MemberApproval, EmiApproval } from './pages/AppSection.jsx';
+import { StockEntry, QuantityReport } from './pages/StockEntryPages.jsx';
 import { BulkNotification, HolidayMaster, ProfitLoss, ComplaintOverview, CompanySummary, Monitoring, CompanyGraph } from './pages/SuperAdminPages.jsx';
 import { RoomRent, Tasks, Complaints, Requirements, LeaveApply, LeaveApproval, Resignations, PromotionTransfer, Letters, EmployeeList } from './pages/HrExtraPages.jsx';
 import { DepartmentMaster, DesignationMaster, EmployeeRegistration, Attendance, SalaryGenerate, SalaryPayment, BranchSalary } from './pages/HrPages.jsx';
@@ -71,6 +72,8 @@ const PAGES = {
   '/loan-requisition/civil-check': CivilCheck,
   '/loan-requisition/personal': PersonalLoanRequisition,
   '/stock/products': StockProductMaster,
+  '/stock/stock-entry': StockEntry,
+  '/stock/quantity-report': QuantityReport,
   '/stock/orders': ProductOrders,
   '/stock/transfers': StockTransfer,
   '/cashbook': Cashbook,

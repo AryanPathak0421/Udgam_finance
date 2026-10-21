@@ -2,12 +2,15 @@ import { Router } from 'express';
 import { requireAuth, requireMenu, requireRole } from '../middleware/auth.js';
 import { asyncHandler as h } from '../utils/http.js';
 import { listProducts, createProduct, updateProduct, setProductStatus, deleteProduct, productOptions, stockReport } from '../controllers/stockProductController.js';
+import { listEntries, entryProducts, createEntry, cancelEntry, quantityReport } from '../controllers/stockEntryController.js';
 import { stockAt, productsWithPlaces, createTransfer, listTransfers } from '../controllers/stockTransferController.js';
 import { orderableProducts, listOrders, getOrder, createOrder, approveOrder, rejectOrder, cancelOrder, purchaseBalance, listPayments, addPayment, voidPayment, payToHeadOffice, receivePayment, rejectPayment } from '../controllers/stockOrderController.js';
 
 const router = Router();
 const MENU = '/stock/products';
 const ORDERS = '/stock/orders';
+const ENTRY = '/stock/stock-entry';
+const QTY = '/stock/quantity-report';
 const ADMIN = ['super_admin', 'admin'];
 
 // Stock Product Master is its own module: admins always, other ranks through Menu Permission.
@@ -20,6 +23,11 @@ router.patch('/stock-products/:id/status', requireAuth, requireMenu(MENU, 'edit'
 router.delete('/stock-products/:id', requireAuth, requireMenu(MENU, 'delete'), h(deleteProduct));
 
 // Product orders: a branch (buyer) asks the admin; only the admin approves (and can edit the quantities) or rejects.
+router.get('/stock-entries/products', requireAuth, requireMenu(ENTRY, 'add'), h(entryProducts));
+router.get('/stock-entries', requireAuth, requireMenu(ENTRY, 'view'), h(listEntries));
+router.post('/stock-entries', requireAuth, requireMenu(ENTRY, 'add'), h(createEntry));
+router.post('/stock-entries/:id/cancel', requireAuth, requireRole(...ADMIN), h(cancelEntry));
+router.get('/stock-report/quantity', requireAuth, requireMenu(QTY, 'view'), h(quantityReport));
 router.get('/stock-orders/products', requireAuth, requireMenu(ORDERS, 'add'), h(orderableProducts));
 router.get('/stock-orders/balance', requireAuth, requireMenu(ORDERS, 'view'), h(purchaseBalance));
 router.get('/stock-payments', requireAuth, requireMenu(ORDERS, 'view'), h(listPayments));

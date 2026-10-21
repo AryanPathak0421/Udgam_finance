@@ -286,6 +286,13 @@ export const api = {
     receivePayment: (id) => request(`/stock-payments/${id}/receive`, { method: 'POST' }),
     rejectPayment: (id, reason) => request(`/stock-payments/${id}/reject`, { method: 'POST', body: { reason } }),
   },
+  stockEntries: {
+    products: () => request('/stock-entries/products'),
+    list: (params) => request(`/stock-entries${qs(params)}`),
+    create: (data) => request('/stock-entries', { method: 'POST', body: data }),
+    cancel: (id, reason) => request(`/stock-entries/${id}/cancel`, { method: 'POST', body: { reason } }),
+    quantityReport: (params) => request(`/stock-report/quantity${qs(params)}`),
+  },
   stockProducts: {
     options: () => request('/stock-products/options'),
     report: () => request('/stock-products/report'),

@@ -18,6 +18,7 @@ export const SYSTEM_SEQUENCES = {
   complaint: { label: 'Toll Free Complaint No', prefix: 'CMP', padding: 5, nextNumber: 1 },
   empRequirement: { label: 'Employee Requirement No', prefix: 'REQ', padding: 5, nextNumber: 1 },
   hrLetter: { label: 'HR Letter No', prefix: 'LTR', padding: 5, nextNumber: 1 },
+  stockEntry: { label: 'Product Stock Entry No', prefix: 'SE', padding: 5, nextNumber: 1 },
   paymentVoucher: { label: 'Payment Voucher No', prefix: 'PV', padding: 6, nextNumber: 1 },
   receiveVoucher: { label: 'Receive Voucher No', prefix: 'RV', padding: 6, nextNumber: 1 },
   bankDeposit: { label: 'Bank Deposit No', prefix: 'BD', padding: 6, nextNumber: 1 },
