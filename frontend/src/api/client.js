@@ -107,6 +107,10 @@ export const api = {
     approveBatch: (batchId) => request(`/loan-requisitions/batch/${batchId}/approve`, { method: 'POST' }),
     rejectBatch: (batchId, reason) => request(`/loan-requisitions/batch/${batchId}/reject`, { method: 'POST', body: { reason } }),
   },
+  reports: {
+    get: (name, params) => request(`/reports/${name}${qs(params)}`),
+    callDone: (data) => request('/reports/call-done', { method: 'POST', body: data }),
+  },
   dayClose: {
     status: (params) => request(`/day-close/status${qs(params)}`),
     submit: (data) => request('/day-close', { method: 'POST', body: data }),

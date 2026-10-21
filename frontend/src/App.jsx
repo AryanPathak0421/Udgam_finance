@@ -33,6 +33,7 @@ import ProductOrders from './pages/ProductOrders.jsx';
 import StockTransfer from './pages/StockTransfer.jsx';
 import Cashbook from './pages/Cashbook.jsx';
 import { PaymentVoucher, ReceiveVoucher, BankDeposit, BankWithdraw, BranchTransfer } from './pages/AccountEntries.jsx';
+import { LoanLedger, RequisitionReport, ApprovalReport, DisbursementReport, DueReport, OverdueReport, OutstandingReport, EmiCollectionReport, MemberJoiningReport, NpaReport } from './pages/Reports.jsx';
 import DayClose from './pages/DayClose.jsx';
 import DayCloseApproval from './pages/DayCloseApproval.jsx';
 import { TrialBalance, BankBook, DayBook, ProductBranchDue } from './pages/AccountReports.jsx';
@@ -74,6 +75,16 @@ const PAGES = {
   '/accounts/bank-deposit': BankDeposit,
   '/accounts/bank-withdraw': BankWithdraw,
   '/accounts/branch-transfer': BranchTransfer,
+  '/reports/loan-ledger': LoanLedger,
+  '/reports/requisition': RequisitionReport,
+  '/reports/approval': ApprovalReport,
+  '/reports/disbursement': DisbursementReport,
+  '/reports/due': DueReport,
+  '/reports/overdue': OverdueReport,
+  '/reports/outstanding': OutstandingReport,
+  '/reports/emi-collection': EmiCollectionReport,
+  '/reports/member-joining': MemberJoiningReport,
+  '/reports/npa': NpaReport,
   '/accounts/denomination': DayClose,
   '/accounts/day-close-approval': DayCloseApproval,
   '/accounts/trial-balance': TrialBalance,

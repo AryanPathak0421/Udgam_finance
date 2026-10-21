@@ -201,6 +201,29 @@ export const NAV_SECTIONS = [
     ],
   },
   {
+    title: 'Reports',
+    items: [
+      {
+        label: 'Reports',
+        path: '/reports',
+        icon: 'chart',
+        roles: [...MGMT, 'accountant', 'loan_officer', 'field_officer', 'collection_officer', 'viewer'],
+        children: [
+          { label: 'Loan Account Ledger', path: '/reports/loan-ledger', icon: 'ledger' },
+          { label: 'Loan Requisition Report', path: '/reports/requisition', icon: 'file' },
+          { label: 'Loan Approval Report', path: '/reports/approval', icon: 'check' },
+          { label: 'Loan Disbursement Report', path: '/reports/disbursement', icon: 'cash' },
+          { label: 'Loan Due Report', path: '/reports/due', icon: 'calendar' },
+          { label: 'Loan Over Due Report', path: '/reports/overdue', icon: 'alert' },
+          { label: 'Loan Outstanding Report', path: '/reports/outstanding', icon: 'loan' },
+          { label: 'Loan EMI Collection Report', path: '/reports/emi-collection', icon: 'collect' },
+          { label: 'Member Joining Report', path: '/reports/member-joining', icon: 'userplus' },
+          { label: 'NPA Report', path: '/reports/npa', icon: 'shield' },
+        ],
+      },
+    ],
+  },
+  {
     title: 'Commission',
     items: [
       {

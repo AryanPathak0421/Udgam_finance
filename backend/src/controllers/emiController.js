@@ -144,7 +144,7 @@ export async function borrowerState(p, line, asOf) {
   return applySettled(stateFrom(p, line, receivedMap(pays), asOf), settled ? { kind: settled.kind, receiptNo: settled.receiptNo, on: iso(settled.settledOn) } : null);
 }
 
-export { stateFrom, receivedMap, loadLoan, startOfToday };
+export { stateFrom, dueSummary, receivedMap, loadLoan, startOfToday };
 
 const scheduleOut = (s) => ({
   no: s.no, dueDate: s.dueDate, amount: money(s.amountPaise), paid: money(s.paidPaise), remaining: money(s.remainingPaise), status: s.status, partial: s.paidPaise > 0 && s.remainingPaise > 0,
