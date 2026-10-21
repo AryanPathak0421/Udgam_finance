@@ -48,6 +48,10 @@ const employeeSchema = new mongoose.Schema(
     accountNumber: String,
     status: { type: String, enum: ['active', 'left'], default: 'active' },
     leftOn: Date,
+    isBlocked: { type: Boolean, default: false }, // a blocked employee cannot sign in (staff login and app)
+    blockReason: String,
+    blockedAt: Date,
+    blockedByCode: String,
     isDeleted: { type: Boolean, default: false },
     createdByCode: String,
   },

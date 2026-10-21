@@ -119,7 +119,7 @@ const presentEmployee = (e, user) => ({
   department: e.department?._id ? { id: e.department._id, name: e.department.name } : null, designation: e.designation?._id ? { id: e.designation._id, name: e.designation.name } : null,
   branch: e.branch?._id ? { id: e.branch._id, code: e.branch.code, name: e.branch.name } : null, joiningDate: iso(e.joiningDate), monthlySalary: rupees(e.monthlySalaryPaise),
   bankName: e.bankName || '', ifsc: e.ifsc || '', accountNumber: isAdmin(user) ? e.accountNumber || '' : e.accountNumber ? `XXXXX${String(e.accountNumber).slice(-4)}` : '',
-  status: e.status, leftOn: iso(e.leftOn), hasLogin: Boolean(e.user),
+  status: e.status, leftOn: iso(e.leftOn), hasLogin: Boolean(e.user), isBlocked: Boolean(e.isBlocked), blockReason: e.blockReason || '',
 });
 const EMP_POPULATE = [{ path: 'department', select: 'name' }, { path: 'designation', select: 'name' }, { path: 'branch', select: 'code name' }];
 

@@ -36,6 +36,7 @@ import { PaymentVoucher, ReceiveVoucher, BankDeposit, BankWithdraw, BranchTransf
 import { LoanLedger, RequisitionReport, ApprovalReport, DisbursementReport, DueReport, OverdueReport, OutstandingReport, EmiCollectionReport, MemberJoiningReport, NpaReport, PersonalCollectionSheet, MsmeCollectionSheet, WriteOffReport, StaffNpaReport, StaffNpaPaymentReport, StaffDisbursementReport, GroupCollectionReport } from './pages/Reports.jsx';
 import CenterSurveys from './pages/CenterSurveys.jsx';
 import { AppUsers, MemberApproval, EmiApproval } from './pages/AppSection.jsx';
+import { RoomRent, Tasks, Complaints, Requirements, LeaveApply, LeaveApproval, Resignations, PromotionTransfer, Letters, EmployeeList } from './pages/HrExtraPages.jsx';
 import { DepartmentMaster, DesignationMaster, EmployeeRegistration, Attendance, SalaryGenerate, SalaryPayment, BranchSalary } from './pages/HrPages.jsx';
 import DayClose from './pages/DayClose.jsx';
 import DayCloseApproval from './pages/DayCloseApproval.jsx';
@@ -85,6 +86,16 @@ const PAGES = {
   '/hr/salary': SalaryGenerate,
   '/hr/salary-payment': SalaryPayment,
   '/hr/branch-salary': BranchSalary,
+  '/hr/room-rent': RoomRent,
+  '/hr/tasks': Tasks,
+  '/hr/complaints': Complaints,
+  '/hr/requirements': Requirements,
+  '/hr/leave-apply': LeaveApply,
+  '/hr/leave-approval': LeaveApproval,
+  '/hr/resignations': Resignations,
+  '/hr/promotion-transfer': PromotionTransfer,
+  '/hr/letters': Letters,
+  '/hr/employee-list': EmployeeList,
   '/app/app-users': AppUsers,
   '/app/member-approval': MemberApproval,
   '/app/emi-approval': EmiApproval,
