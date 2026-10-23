@@ -57,11 +57,11 @@ const PAYMENT = [
   { key: 'personal_disbursement', label: 'Personal loan disbursement' },
   { key: 'msme_disbursement', label: 'MSME loan disbursement' },
   { key: 'business_disbursement', label: 'Business loan disbursement' },
-  { key: 'daily_due', label: 'Daily today due' },
-  { key: 'weekly_due', label: 'Weekly today due' },
-  { key: 'product_due', label: 'Product today due' },
-  { key: 'personal_due', label: 'Personal today due' },
-  { key: 'bm_due', label: 'MSME / Business today due' },
+  { key: 'daily_due', label: 'Daily today due', memo: true, optional: true },
+  { key: 'weekly_due', label: 'Weekly today due', memo: true, optional: true },
+  { key: 'product_due', label: 'Product today due', memo: true, optional: true },
+  { key: 'personal_due', label: 'Personal today due', memo: true, optional: true },
+  { key: 'bm_due', label: 'MSME / Business today due', memo: true, optional: true },
   { key: 'leader_commission', label: 'Group leader commission' },
   { key: 'security_return', label: 'Security return' },
   { key: 'bank_deposit', label: 'Bank deposit' },
@@ -82,6 +82,154 @@ const collectionKey = (l) => (l.kind === 'group' ? `${groupMode(l)}_collection` 
 const settlementKey = (l) => (l.kind === 'group' ? `${groupMode(l)}_settlement` : ['business', 'msme'].includes(typeOf(l)) ? 'bm_settlement' : `${typeOf(l)}_settlement`);
 const disbursementKey = (l) => (l.kind === 'group' ? `${groupMode(l)}_disbursement` : `${typeOf(l)}_disbursement`);
 const dueKey = (l) => (l.kind === 'group' ? (l.mode === 'weekly' ? 'weekly_due' : 'daily_due') : ['business', 'msme'].includes(typeOf(l)) ? 'bm_due' : `${typeOf(l)}_due`);
+
+async function fastOpening(scope, head, from, mode = '') {
+  const modeFilter = (field) => (mode ? { [field]: mode } : {});
+  const entryScope = head ? { $or: [scope, { branch: null }] } : scope;
+
+  const [
+    [emiSum],
+    [settleSum],
+    [loanSum],
+    [oldSecSum],
+    [newSecSum],
+    [paySum],
+    [gotSum],
+    [civilSum],
+    entrySums,
+  ] = await Promise.all([
+    EmiPayment.aggregate([
+      { $match: { ...scope, status: 'paid', legacy: { $ne: true }, ...(mode ? { payMode: mode } : { payMode: { $ne: 'security' } }), paidOn: { $lt: from } } },
+      { $group: { _id: null, total: { $sum: '$amountPaise' } } },
+    ]),
+    LoanSettlement.aggregate([
+      { $match: { ...scope, kind: 'loan', status: 'active', amountPaise: { $gt: 0 }, ...modeFilter('payMode'), settledOn: { $lt: from } } },
+      { $group: { _id: null, total: { $sum: '$amountPaise' } } },
+    ]),
+    LoanPayment.aggregate([
+      { $match: { ...scope, status: 'paid', ...modeFilter('payMode'), paidOn: { $lt: from } } },
+      {
+        $project: {
+          paidAmount: { $ifNull: ['$totalAmountPaise', { $sum: '$lines.amountPaise' }] },
+          processing: { $sum: '$lines.processingFeePaise' },
+          insurance: { $sum: '$lines.insuranceFeePaise' },
+          security: { $sum: '$lines.securityPaise' },
+          goods: {
+            $cond: [
+              { $eq: ['$kind', 'product'] },
+              { $ifNull: ['$totalAmountPaise', { $sum: '$lines.amountPaise' }] },
+              { $sum: '$lines.productPaise' },
+            ],
+          },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          totalPaid: { $sum: '$paidAmount' },
+          totalProcessing: { $sum: '$processing' },
+          totalInsurance: { $sum: '$insurance' },
+          totalSecurity: { $sum: '$security' },
+          totalGoods: { $sum: '$goods' },
+        },
+      },
+    ]),
+    SecurityWithdrawal.aggregate([
+      { $match: { ...scope, kind: 'withdraw', status: 'approved', otpRequired: { $ne: true }, ...modeFilter('payMode'), decidedAt: { $lt: from } } },
+      { $group: { _id: null, total: { $sum: { $add: ['$amountPaise', { $ifNull: ['$interestPaise', 0] }] } } } },
+    ]),
+    SecurityWithdrawal.aggregate([
+      { $match: { ...scope, kind: 'withdraw', status: 'approved', otpRequired: true, ...modeFilter('payMode'), otpVerifiedAt: { $lt: from } } },
+      { $group: { _id: null, total: { $sum: { $add: ['$amountPaise', { $ifNull: ['$interestPaise', 0] }] } } } },
+    ]),
+    ProductPayment.aggregate([
+      { $match: { ...scope, isDeleted: false, status: { $ne: 'rejected' }, ...modeFilter('mode'), paidOn: { $lt: from } } },
+      { $group: { _id: null, total: { $sum: '$amountPaise' } } },
+    ]),
+    head
+      ? ProductPayment.aggregate([
+          { $match: { isDeleted: false, status: { $nin: ['paid', 'rejected'] }, ...modeFilter('mode'), receivedOn: { $lt: from } } },
+          { $group: { _id: null, total: { $sum: '$amountPaise' } } },
+        ])
+      : Promise.resolve([]),
+    (!mode || mode === 'cash')
+      ? CivilCheck.aggregate([
+          { $match: { ...scope, isDeleted: false, feePaise: { $gt: 0 }, createdAt: { $lt: from } } },
+          { $group: { _id: null, total: { $sum: '$feePaise' } } },
+        ])
+      : Promise.resolve([]),
+    CashEntry.aggregate([
+      { $match: { isDeleted: false, ...entryScope, ...modeFilter('mode'), date: { $lt: from } } },
+      { $group: { _id: '$side', total: { $sum: '$amountPaise' } } },
+    ]),
+  ]);
+
+  const entryRec = entrySums?.find((x) => x._id === 'receive')?.total || 0;
+  const entryPay = entrySums?.find((x) => x._id === 'payment')?.total || 0;
+
+  const totalReceive = (emiSum?.total || 0) + (settleSum?.total || 0)
+    + (loanSum?.totalProcessing || 0) + (loanSum?.totalInsurance || 0) + (loanSum?.totalSecurity || 0) + (loanSum?.totalGoods || 0)
+    + (gotSum?.total || 0) + (civilSum?.total || 0) + entryRec;
+
+  const totalPayment = (loanSum?.totalPaid || 0)
+    + (oldSecSum?.total || 0) + (newSecSum?.total || 0)
+    + (paySum?.total || 0) + entryPay;
+
+  return totalReceive - totalPayment;
+}
+
+async function fastDue(scope, asOf) {
+  const dueAgg = await LoanPayment.aggregate([
+    {
+      $match: {
+        ...scope,
+        status: 'paid',
+        'schedule.dueDate': asOf,
+      },
+    },
+    { $unwind: '$schedule' },
+    { $match: { 'schedule.dueDate': asOf } },
+    {
+      $project: {
+        kind: 1,
+        mode: 1,
+        loanType: 1,
+        instTotal: {
+          $add: [
+            { $multiply: ['$schedule.installmentPaise', { $size: '$lines' }] },
+            { $sum: '$lines.extraEmiPaise' },
+          ],
+        },
+      },
+    },
+    {
+      $group: {
+        _id: {
+          $cond: [
+            { $eq: ['$kind', 'group'] },
+            { $cond: [{ $eq: ['$mode', 'weekly'] }, 'weekly_due', 'daily_due'] },
+            {
+              $cond: [
+                { $in: ['$loanType', ['business', 'msme']] },
+                'bm_due',
+                { $concat: [{ $ifNull: ['$loanType', 'personal'] }, '_due'] },
+              ],
+            },
+          ],
+        },
+        totalScheduled: { $sum: '$instTotal' },
+      },
+    },
+  ]);
+
+  const dueBy = new Map();
+  dueAgg.forEach((d) => {
+    if (d._id && d.totalScheduled > 0) {
+      dueBy.set(d._id, d.totalScheduled);
+    }
+  });
+  return dueBy;
+}
 
 /**
  * Cashbook of one branch, of head office, or of everything (admin): the receive side and the payment side, line by line, with the
@@ -212,68 +360,22 @@ export async function cashbookData(req, query) {
     return rows;
   }
 
-  const cur = await collect(false);
-  const open = from ? await collect(true) : [];
   const counted = (rows, side) => rows.filter((r) => r.side === side && !r.memo);
   const sum = (rows) => rows.reduce((t, r) => t + r.amount, 0);
-  const openingPaise = sum(counted(open, 'receive')) - sum(counted(open, 'payment'));
 
-  // today due: the EMI still to be collected up to the end date (information, not cash)
+  const cur = await collect(false);
+  const needOpenRows = Boolean(query.needOpenRows);
+  const open = from && needOpenRows ? await collect(true) : [];
+  const openingPaise = from
+    ? (needOpenRows
+        ? sum(counted(open, 'receive')) - sum(counted(open, 'payment'))
+        : await fastOpening(scope, head, from, mode))
+    : 0;
+
+  // today due: the EMI scheduled on the end date (information, not cash)
   const asOf = to || new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
-  // the books built on the cashbook (trial balance, bank book, day book) do not need the due and skip this slow part
-  const dueIds = query.skipDue ? [] : (await LoanPayment.find({ ...scope, status: 'paid', emiStartDate: { $lte: asOf } }).select('_id').limit(20000).lean()).map((x) => x._id);
-  const dueBy = new Map();
-  if (dueIds.length > 0) {
-    const BATCH_SIZE = 400;
-    const batches = [];
-    for (let at = 0; at < dueIds.length; at += BATCH_SIZE) {
-      batches.push(dueIds.slice(at, at + BATCH_SIZE));
-    }
-
-    const processBatch = async (idsNow) => {
-      const [dueLoans, settlements, recv] = await Promise.all([
-        LoanPayment.find({ _id: { $in: idsNow } }).lean(),
-        LoanSettlement.find({ loanPayment: { $in: idsNow }, status: 'active' }).select('loanPayment memberCode').lean(),
-        EmiPayment.aggregate([
-          { $match: { loanPayment: { $in: idsNow }, status: 'paid' } },
-          { $unwind: '$items' },
-          { $group: { _id: { lp: '$loanPayment', code: '$memberCode', no: '$items.no' }, paid: { $sum: '$items.amountPaise' } } },
-        ]),
-      ]);
-
-      const settledSet = new Set(settlements.map((x) => `${x.loanPayment}|${x.memberCode}`));
-      const byKey = new Map();
-      recv.forEach((x) => {
-        const k = `${x._id.lp}|${x._id.code}`;
-        if (!byKey.has(k)) byKey.set(k, new Map());
-        byKey.get(k).set(x._id.no, { paid: x.paid, receipts: [] });
-      });
-
-      const batchDue = new Map();
-      dueLoans.forEach((l) => l.lines.forEach((line) => {
-        if (settledSet.has(`${l._id}|${line.code}`)) return;
-        const st = dueSummary(l, line, byKey.get(`${l._id}|${line.code}`) || new Map(), asOf);
-        if (st.duePaise > 0) {
-          const k = dueKey(l);
-          batchDue.set(k, (batchDue.get(k) || 0) + st.duePaise);
-        }
-      }));
-      return batchDue;
-    };
-
-    const CONCURRENCY = 6;
-    for (let i = 0; i < batches.length; i += CONCURRENCY) {
-      const chunk = batches.slice(i, i + CONCURRENCY);
-      // eslint-disable-next-line no-await-in-loop
-      const batchResults = await Promise.all(chunk.map(processBatch));
-      batchResults.forEach((m) => {
-        for (const [k, v] of m.entries()) {
-          dueBy.set(k, (dueBy.get(k) || 0) + v);
-        }
-      });
-    }
-  }
-  dueBy.forEach((amount, cat) => cur.push({ side: 'payment', cat, date: iso(asOf), particulars: 'EMI due up to this date', ref: '', mode: '', amount, branchId: null }));
+  const dueBy = query.skipDue ? new Map() : await fastDue(scope, asOf);
+  dueBy.forEach((amount, cat) => cur.push({ side: 'payment', cat, date: iso(asOf), particulars: 'EMI due on this date', ref: '', mode: '', amount, branchId: null, memo: true }));
 
   // one line for every ledger of the Ledger master that has an entry in the period
   const ledgerIds = [...new Set(cur.filter((x) => x.cat.startsWith('ledger:')).map((x) => x.cat.slice(7)))];
