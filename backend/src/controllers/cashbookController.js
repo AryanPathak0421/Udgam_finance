@@ -9,8 +9,7 @@ import { CashEntry, ENTRY_CATEGORIES, ENTRY_MODES } from '../models/CashEntry.js
 import { Branch } from '../models/Branch.js';
 import { Ledger } from '../models/Ledger.js';
 import { assertDayOpen } from '../services/dayOpen.js';
-import { CivilCheck } from '../models/CivilCheck.js';
-import { asString, parseDateOnly, HttpError } from '../utils/http.js';
+import { asString, parseDateOnly, startOfToday, HttpError } from '../utils/http.js';
 import { toMinor } from '../utils/money.js';
 import { audit } from '../utils/audit.js';
 import { isAdmin } from './groupController.js';
@@ -307,7 +306,7 @@ export async function addEntry(req, res) {
   const mode = asString(b.mode) || 'cash';
   if (!ENTRY_MODES.includes(mode)) throw invalid({ mode: 'Select cash, bank, UPI or cheque' });
   const bankAccount = await readBankAccount(b, mode);
-  const today = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
+  const today = startOfToday();
   let date = today;
   if (b.date) {
     date = parseDateOnly(asString(b.date));

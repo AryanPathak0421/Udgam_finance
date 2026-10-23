@@ -34,8 +34,26 @@ export function parseDateOnly(v) {
   return Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== v ? null : d;
 }
 
+export function todayDateString() {
+  const d = new Date();
+  const utcStr = d.toISOString().slice(0, 10);
+  let istStr = utcStr;
+  try {
+    istStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(d);
+  } catch {
+    const ist = new Date(d.getTime() + 5.5 * 3600 * 1000);
+    istStr = ist.toISOString().slice(0, 10);
+  }
+  return istStr > utcStr ? istStr : utcStr;
+}
+
+export function startOfToday() {
+  return new Date(`${todayDateString()}T00:00:00.000Z`);
+}
+
 export function parsePaging(query, { defaultLimit = 10, maxLimit = 100 } = {}) {
   const page = Math.max(parseInt(query.page, 10) || 1, 1);
   const limit = Math.min(Math.max(parseInt(query.limit, 10) || defaultLimit, 1), maxLimit);
   return { page, limit, skip: (page - 1) * limit };
 }
+

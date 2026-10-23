@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import FormField from '../components/ui/FormField.jsx';
@@ -11,7 +11,16 @@ import { useToast } from '../components/ui/Toast.jsx';
 const MODE_LABEL = { cash: 'Cash', bank: 'Bank', upi: 'UPI', cheque: 'Cheque' };
 const inr = (n) => (n === null || n === undefined || Number.isNaN(n) ? '—' : `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const dmy = (s) => (s ? new Date(`${s}T00:00:00`).toLocaleDateString('en-IN') : '—');
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => {
+  const d = new Date();
+  const localStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  try {
+    const istStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(d);
+    return istStr > localStr ? istStr : localStr;
+  } catch {
+    return localStr;
+  }
+};
 const branchText = (b) => (b ? `${b.code} — ${b.name}` : 'Head office');
 
 // What each Accounts entry page is. Every entry shows in the Cashbook as well.
@@ -40,10 +49,53 @@ const CONFIG = {
 
 function EntryForm({ kind, cfg, branches, ledgers, isAdmin, onClose, onSaved }) {
   const toast = useToast();
-  const [f, setF] = useState({ branch: branches.length === 1 ? branches[0].id : '', fromBranch: branches.length === 1 ? branches[0].id : '', toBranch: '', ledger: '', amount: '', mode: 'cash', bankAccount: '', date: today(), remark: '' });
+  const [f, setF] = useState({
+    branch: branches.length === 1 ? branches[0].id : '',
+    fromBranch: branches.length === 1 ? branches[0].id : (branches[0]?.id || ''),
+    toBranch: '',
+    ledger: '',
+    amount: '',
+    mode: 'cash',
+    bankAccount: '',
+    date: today(),
+    remark: '',
+  });
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showResults, setShowResults] = useState(false);
+  const searchBoxRef = useRef(null);
+
   const set = (k) => (e) => { setF((x) => ({ ...x, [k]: e.target.value })); setErrors((x) => ({ ...x, [k]: undefined })); };
+
+  useEffect(() => {
+    if (!isAdmin && cfg.transfer && !f.fromBranch && branches.length > 0) {
+      setF((x) => ({ ...x, fromBranch: branches[0].id }));
+    }
+  }, [isAdmin, cfg.transfer, branches, f.fromBranch]);
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (searchBoxRef.current && !searchBoxRef.current.contains(event.target)) {
+        setShowResults(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const myBranch = branches.find((b) => String(b.id) === String(f.fromBranch)) || branches[0];
+  const allBranchesList = ledgers.allBranches || [];
+  const selectedToBranch = allBranchesList.find((b) => String(b.id) === String(f.toBranch));
+
+  const filteredBranches = searchQuery.trim()
+    ? allBranchesList.filter((b) => {
+        if (myBranch && String(b.id) === String(myBranch.id)) return false;
+        const q = searchQuery.toLowerCase().trim();
+        return (b.code || '').toLowerCase().includes(q) || (b.name || '').toLowerCase().includes(q);
+      })
+    : [];
+
   const branchSelect = (id, key, label, extra) => (
     <FormField id={id} label={label} required error={errors[key]}>
       <select id={id} value={f[key]} onChange={set(key)}>
@@ -53,11 +105,24 @@ function EntryForm({ kind, cfg, branches, ledgers, isAdmin, onClose, onSaved }) 
       </select>
     </FormField>
   );
+
   async function save() {
     setBusy(true);
     setErrors({});
     try {
-      const r = await api.accounts.create(cfg.post, { ...f, bankAccount: cfg.bank || f.mode === 'bank' ? f.bankAccount : undefined, ledger: cfg.ledger ? f.ledger : undefined });
+      const payload = {
+        ...f,
+        fromBranch: !isAdmin && cfg.transfer ? (f.fromBranch || myBranch?.id) : f.fromBranch,
+        bankAccount: cfg.bank || f.mode === 'bank' ? f.bankAccount : undefined,
+        ledger: cfg.ledger ? f.ledger : undefined,
+      };
+      if (cfg.transfer && !payload.toBranch) {
+        setErrors({ toBranch: 'Please search and select a branch to transfer to' });
+        toast.error('Please search and select a branch to transfer to');
+        setBusy(false);
+        return;
+      }
+      const r = await api.accounts.create(cfg.post, payload);
       toast.success(`${cfg.title} saved — ${r.voucherNo}`);
       onSaved();
     } catch (err) {
@@ -67,21 +132,120 @@ function EntryForm({ kind, cfg, branches, ledgers, isAdmin, onClose, onSaved }) 
       setBusy(false);
     }
   }
+
   return (
     <Modal open title={cfg.button} onClose={onClose} busy={busy}
       footer={<><button className="btn" onClick={onClose} disabled={busy}>Close</button><button className="btn primary" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save'}</button></>}>
       <div className="form-grid">
         {cfg.transfer ? (
-          <>
-            {branchSelect('afrom', 'fromBranch', 'From branch')}
-            <FormField id="ato" label="To branch" required error={errors.toBranch}>
-              <select id="ato" value={f.toBranch} onChange={set('toBranch')}>
-                <option value="">Select</option>
-                {isAdmin && <option value="ho">Head office</option>}
-                {(ledgers.allBranches || []).map((b) => <option key={b.id} value={b.id}>{b.code} — {b.name}</option>)}
-              </select>
-            </FormField>
-          </>
+          isAdmin ? (
+            <>
+              {branchSelect('afrom', 'fromBranch', 'From branch')}
+              <FormField id="ato" label="To branch" required error={errors.toBranch}>
+                <select id="ato" value={f.toBranch} onChange={set('toBranch')}>
+                  <option value="">Select</option>
+                  <option value="ho">Head office</option>
+                  {(ledgers.allBranches || []).map((b) => <option key={b.id} value={b.id}>{b.code} — {b.name}</option>)}
+                </select>
+              </FormField>
+            </>
+          ) : (
+            <>
+              <FormField
+                id="abranchsearch"
+                label="Branch name Search"
+                required
+                error={errors.toBranch}
+                hint={myBranch ? `Sending from: ${myBranch.code} — ${myBranch.name}` : undefined}
+              >
+                <div ref={searchBoxRef} style={{ position: 'relative' }}>
+                  <input
+                    id="abranchsearch"
+                    type="text"
+                    placeholder="Type branch name or code to search…"
+                    value={searchQuery}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setSearchQuery(val);
+                      setShowResults(true);
+                      if (!val.trim()) {
+                        setF((x) => ({ ...x, toBranch: '' }));
+                      }
+                    }}
+                    onFocus={() => {
+                      if (searchQuery.trim().length >= 1) setShowResults(true);
+                    }}
+                    autoComplete="off"
+                  />
+                  {showResults && searchQuery.trim().length >= 1 && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: '100%',
+                        left: 0,
+                        right: 0,
+                        zIndex: 50,
+                        background: 'var(--bg, #fff)',
+                        border: '1px solid var(--border, #ccc)',
+                        borderRadius: '6px',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                        maxHeight: '180px',
+                        overflowY: 'auto',
+                        marginTop: '4px',
+                      }}
+                    >
+                      {filteredBranches.length === 0 ? (
+                        <div style={{ padding: '8px 12px', color: 'var(--text-muted, #888)', fontSize: '0.9rem' }}>
+                          No branch matching “{searchQuery}”
+                        </div>
+                      ) : (
+                        filteredBranches.map((b) => (
+                          <div
+                            key={b.id}
+                            onClick={() => {
+                              setF((x) => ({ ...x, toBranch: b.id }));
+                              setErrors((x) => ({ ...x, toBranch: undefined }));
+                              setSearchQuery(`${b.code} — ${b.name}`);
+                              setShowResults(false);
+                            }}
+                            style={{
+                              padding: '8px 12px',
+                              cursor: 'pointer',
+                              borderBottom: '1px solid var(--border-subtle, #eee)',
+                              fontSize: '0.9rem',
+                            }}
+                            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-hover, #f0f7ff)')}
+                            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                          >
+                            <strong>{b.code}</strong> — {b.name}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+              </FormField>
+
+              <FormField id="ato" label="To branch" required error={errors.toBranch}>
+                <input
+                  id="ato"
+                  type="text"
+                  readOnly
+                  disabled
+                  value={
+                    selectedToBranch
+                      ? `${selectedToBranch.code} — ${selectedToBranch.name}`
+                      : 'Automatically shows branch selected from search'
+                  }
+                  style={{
+                    background: 'var(--bg-subtle, #f5f5f5)',
+                    color: selectedToBranch ? 'inherit' : 'var(--text-muted, #888)',
+                    fontWeight: selectedToBranch ? 600 : 'normal',
+                  }}
+                />
+              </FormField>
+            </>
+          )
         ) : (branches.length > 1 || isAdmin) && branchSelect('abranch', 'branch', 'Cashbook of')}
         {cfg.ledger && (
           <FormField id="aledger" label={cfg.ledgerLabel} required error={errors.ledger}>
@@ -108,6 +272,7 @@ function EntryForm({ kind, cfg, branches, ledgers, isAdmin, onClose, onSaved }) 
     </Modal>
   );
 }
+
 
 export default function AccountEntries({ kind }) {
   const cfg = CONFIG[kind];

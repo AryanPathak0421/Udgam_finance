@@ -10,7 +10,16 @@ import { useToast } from '../components/ui/Toast.jsx';
 const MODE_LABEL = { cash: 'Cash', bank: 'Bank', upi: 'UPI', cheque: 'Cheque', security: 'Security' };
 const inr = (n) => (n === null || n === undefined || Number.isNaN(n) ? '—' : `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const dmy = (s) => (s ? new Date(`${s}T00:00:00`).toLocaleDateString('en-IN') : '—');
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => {
+  const d = new Date();
+  const localStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  try {
+    const istStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(d);
+    return istStr > localStr ? istStr : localStr;
+  } catch {
+    return localStr;
+  }
+};
 
 // One side of the cashbook: a line for everything that is received (or paid), the amount, and what it is made of when clicked.
 function Side({ title, lines, rows, total, totalLabel, openRow, closeRow, tone, extra, canDelete, onDelete }) {

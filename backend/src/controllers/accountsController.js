@@ -7,7 +7,7 @@ import { Voucher } from '../models/Voucher.js';
 import { assertDayOpen } from '../services/dayOpen.js';
 import { generateCode } from '../services/codeSequence.js';
 import { accountLabel, readBankAccount } from '../services/bankAccountPick.js';
-import { asString, parseDateOnly, HttpError } from '../utils/http.js';
+import { asString, parseDateOnly, startOfToday, HttpError } from '../utils/http.js';
 import { toMinor } from '../utils/money.js';
 import { audit } from '../utils/audit.js';
 import { isAdmin } from './groupController.js';
@@ -22,7 +22,7 @@ const invalid = (errors) => new HttpError(422, 'Please correct the highlighted f
 const DAY = 24 * 3600 * 1000;
 const MODES = ['cash', 'bank', 'upi', 'cheque'];
 const BANKISH = ['bank', 'upi', 'cheque'];
-const startOfToday = () => new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
+
 
 const KINDS = {
   payment_voucher: { seq: 'paymentVoucher', side: 'payment', ledgerType: 'debit', label: 'Payment voucher' },
