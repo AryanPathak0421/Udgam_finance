@@ -61,5 +61,8 @@ loanPaymentSchema.index({ receiptNo: 1 }, { unique: true });
 loanPaymentSchema.index({ loanId: 1 }, { unique: true, partialFilterExpression: { loanId: { $type: 'string' } } });
 loanPaymentSchema.index({ requisition: 1 }, { unique: true, partialFilterExpression: { status: 'paid' } });
 loanPaymentSchema.index({ branch: 1, paidOn: -1 });
+loanPaymentSchema.index({ status: 1, kind: 1, _id: -1 });
+loanPaymentSchema.index({ branch: 1, status: 1, _id: -1 });
+loanPaymentSchema.index({ createdAt: -1 });
 
 export const LoanPayment = mongoose.model('LoanPayment', loanPaymentSchema);

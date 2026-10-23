@@ -16,7 +16,7 @@ const DRY = process.argv.includes('--dry');
 await mongoose.connect(process.env.MONGODB_URI);
 const col = mongoose.connection.db.collection('loanpayments');
 
-const cursor = col.find({ mode: 'daily', status: 'paid' }, { projection: { emiStartDate: 1, emiEndDate: 1, 'schedule.no': 1, 'schedule.dueDate': 1 } }).batchSize(100);
+const cursor = col.find({ status: 'paid' }, { projection: { mode: 1, emiStartDate: 1, emiEndDate: 1, 'schedule.no': 1, 'schedule.dueDate': 1 } }).batchSize(100);
 const stat = { loans: 0, changedLoans: 0, movedInstallments: 0, sundayBefore: 0 };
 let ops = [];
 const flush = async () => {
@@ -29,19 +29,26 @@ for await (const l of cursor) {
   stat.loans += 1;
   const schedule = l.schedule || [];
   if (!schedule.length || !l.emiStartDate) continue;
-  const start = skipSundays(new Date(l.emiStartDate), 0);
+  const isDaily = l.mode === 'daily';
+  const start = isDaily ? skipSundays(new Date(l.emiStartDate), 0) : (new Date(l.emiStartDate).getUTCDay() === 0 ? new Date(new Date(l.emiStartDate).getTime() + 86400000) : new Date(l.emiStartDate));
   const set = {};
   schedule.forEach((s, i) => {
-    if (new Date(s.dueDate).getUTCDay() === 0) stat.sundayBefore += 1;
-    const next = skipSundays(start, (s.no ?? i + 1) - 1);
-    if (new Date(s.dueDate).getTime() !== next.getTime()) {
+    const cur = new Date(s.dueDate);
+    if (cur.getUTCDay() === 0) stat.sundayBefore += 1;
+    let next;
+    if (isDaily) {
+      next = skipSundays(start, (s.no ?? i + 1) - 1);
+    } else {
+      next = cur.getUTCDay() === 0 ? new Date(cur.getTime() + 86400000) : cur;
+    }
+    if (cur.getTime() !== next.getTime()) {
       set[`schedule.${i}.dueDate`] = next;
       stat.movedInstallments += 1;
     }
   });
-  const last = skipSundays(start, Math.max(schedule.length - 1, 0));
+  const last = isDaily ? skipSundays(start, Math.max(schedule.length - 1, 0)) : (l.emiEndDate && new Date(l.emiEndDate).getUTCDay() === 0 ? new Date(new Date(l.emiEndDate).getTime() + 86400000) : (l.emiEndDate ? new Date(l.emiEndDate) : null));
   if (new Date(l.emiStartDate).getTime() !== start.getTime()) set.emiStartDate = start;
-  if (!l.emiEndDate || new Date(l.emiEndDate).getTime() !== last.getTime()) set.emiEndDate = last;
+  if (last && (!l.emiEndDate || new Date(l.emiEndDate).getTime() !== last.getTime())) set.emiEndDate = last;
   if (Object.keys(set).length) {
     stat.changedLoans += 1;
     ops.push({ updateOne: { filter: { _id: l._id }, update: { $set: set } } });
@@ -49,5 +56,5 @@ for await (const l of cursor) {
   }
 }
 await flush();
-console.log(`${DRY ? 'DRY RUN, nothing is written. ' : ''}daily loans: ${stat.loans} · installments that were on a Sunday: ${stat.sundayBefore} · loans changed: ${stat.changedLoans} · due dates moved: ${stat.movedInstallments}`);
+console.log(`${DRY ? 'DRY RUN, nothing is written. ' : ''}loans scanned: ${stat.loans} · installments that were on a Sunday: ${stat.sundayBefore} · loans changed: ${stat.changedLoans} · due dates moved: ${stat.movedInstallments}`);
 await mongoose.disconnect();

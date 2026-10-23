@@ -34,7 +34,7 @@ export async function searchLoans(req, res) {
   const rx = new RegExp(escapeRegex(q), 'i');
   const filter = { status: 'paid', ...branchFilter(req.user), $or: [{ loanId: rx }, { formId: rx }, { receiptNo: rx }, { 'lines.code': rx }, { 'lines.name': rx }, { 'group.code': rx }, { 'group.name': rx }] };
   if (mongoose.isValidObjectId(req.query.branch)) filter.branch = req.query.branch;
-  let items = await LoanPayment.find(filter).populate(POPULATE).sort({ createdAt: -1 }).limit(onlyOpen ? 60 : 20);
+  let items = await LoanPayment.find(filter).populate(POPULATE).sort({ _id: -1 }).limit(onlyOpen ? 60 : 20);
   // a loan is open while some borrower of it still owes EMI (not settled, not fully paid)
   const asOf = startOfToday();
   const openOf = new Map();
@@ -344,8 +344,12 @@ export async function collectEmi(req, res) {
 export async function collectionList(req, res) {
   const kindScope = req.query.kind === 'group' ? 'group' : 'single';
   const dateStr = asString(req.query.date).slice(0, 10);
-  const asOf = /^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? new Date(`${dateStr}T00:00:00.000Z`) : startOfToday();
+  let asOf = /^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? new Date(`${dateStr}T00:00:00.000Z`) : startOfToday();
   if (!asOf || Number.isNaN(asOf.getTime())) throw invalid({ date: 'Enter a valid date' });
+  // Sunday is weekly off: if a Sunday date is requested, advance to Monday
+  if (asOf.getUTCDay() === 0) {
+    asOf = new Date(asOf.getTime() + DAY);
+  }
   const dayStr = iso(asOf);
   const dayStart = new Date(`${dayStr}T00:00:00.000Z`);
   const dayEnd = new Date(`${dayStr}T23:59:59.999Z`);
@@ -356,7 +360,7 @@ export async function collectionList(req, res) {
     filter.branch = own && !own.includes(String(req.query.branch)) ? { $in: [] } : req.query.branch;
   }
   // The loans are worked through in batches of 250, so thousands of loans (each with its whole schedule) are never in memory together.
-  const loanIds = (await LoanPayment.find(filter).sort({ createdAt: -1 }).select('_id').limit(20000).lean()).map((x) => x._id);
+  const loanIds = (await LoanPayment.find(filter).sort({ _id: -1 }).select('_id').limit(20000).lean()).map((x) => x._id);
   const staffSet = new Set();
   const modeSet = new Set();
   const wantStaff = asString(req.query.staff).toUpperCase();
@@ -420,8 +424,8 @@ export async function collectionList(req, res) {
   if (kindScope === 'group') {
     const groups = new Map();
     rows.forEach((r) => {
-      const k = r.group?.code || '—';
-      if (!groups.has(k)) groups.set(k, { code: k, name: r.group?.name || '',  branch: r.branch, employeeCode: r.employeeCode, modeLabel: r.modeLabel, members: [], dueAmount: 0, collected: 0 });
+      const k = `${r.branch?.id || r.branch?.code || ''}|${r.group?.code || '—'}`;
+      if (!groups.has(k)) groups.set(k, { code: r.group?.code || '—', name: r.group?.name || '',  branch: r.branch, employeeCode: r.employeeCode, modeLabel: r.modeLabel, members: [], dueAmount: 0, collected: 0 });
       const g = groups.get(k);
       g.members.push(r);
       g.dueAmount += r.dueAmount;

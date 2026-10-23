@@ -1,4 +1,4 @@
-﻿// Loan schedule engine. Pure functions, integer paise, no I/O — the Loans module will
+// Loan schedule engine. Pure functions, integer paise, no I/O — the Loans module will
 // reuse this so the calculator screen and real loans always agree.
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -26,14 +26,17 @@ export const skipSundays = (s, k) => {
   return d;
 };
 
+// Sunday is the weekly off; any installment that would fall on Sunday moves to Monday.
+const skipIfSunday = (d) => (d.getUTCDay() === 0 ? addDays(d, 1) : d);
+
 export const MODES = {
   daily: { label: 'Daily', unit: 'day', perYear: 365, next: (s, k) => skipSundays(s, k) },
-  weekly: { label: 'Weekly', unit: 'week', perYear: 52, next: (s, k) => addDays(s, 7 * k) },
-  biweekly: { label: 'Bi-weekly (fortnightly)', unit: 'fortnight', perYear: 26, next: (s, k) => addDays(s, 14 * k) },
-  monthly: { label: 'Monthly', unit: 'month', perYear: 12, next: (s, k) => addMonths(s, k) },
-  quarterly: { label: 'Quarterly', unit: 'quarter', perYear: 4, next: (s, k) => addMonths(s, 3 * k) },
-  halfyearly: { label: 'Half-yearly', unit: 'half-year', perYear: 2, next: (s, k) => addMonths(s, 6 * k) },
-  yearly: { label: 'Yearly', unit: 'year', perYear: 1, next: (s, k) => addMonths(s, 12 * k) },
+  weekly: { label: 'Weekly', unit: 'week', perYear: 52, next: (s, k) => skipIfSunday(addDays(s, 7 * k)) },
+  biweekly: { label: 'Bi-weekly (fortnightly)', unit: 'fortnight', perYear: 26, next: (s, k) => skipIfSunday(addDays(s, 14 * k)) },
+  monthly: { label: 'Monthly', unit: 'month', perYear: 12, next: (s, k) => skipIfSunday(addMonths(s, k)) },
+  quarterly: { label: 'Quarterly', unit: 'quarter', perYear: 4, next: (s, k) => skipIfSunday(addMonths(s, 3 * k)) },
+  halfyearly: { label: 'Half-yearly', unit: 'half-year', perYear: 2, next: (s, k) => skipIfSunday(addMonths(s, 6 * k)) },
+  yearly: { label: 'Yearly', unit: 'year', perYear: 1, next: (s, k) => skipIfSunday(addMonths(s, 12 * k)) },
 };
 
 export const CALCULATION_TYPES = ['flat', 'reducing'];
@@ -131,7 +134,9 @@ export function calculateLoan({
   let outstanding = P;
   const schedule = rows.map((r) => {
     outstanding -= r.principal;
-    return { ...r, balance: outstanding, dueDate: m.next(startDate, r.no) };
+    let due = m.next(startDate, r.no);
+    if (due.getUTCDay() === 0) due = addDays(due, 1);
+    return { ...r, balance: outstanding, dueDate: due };
   });
 
   const totalInterest = schedule.reduce((s, r) => s + r.interest, 0);

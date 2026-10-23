@@ -16,6 +16,16 @@ const MODE_LABEL = { cash: 'Cash', bank: 'Bank transfer', upi: 'UPI', cheque: 'C
 const REPAY_LABEL = { daily: 'Daily', weekly: 'Weekly', biweekly: 'Bi-weekly', monthly: 'Monthly', quarterly: 'Quarterly', halfyearly: 'Half-yearly', yearly: 'Yearly' };
 const LOAN_TYPES = [['', 'All loan types'], ['personal', 'Personal'], ['business', 'Business'], ['msme', 'MSME'], ['product', 'Product']];
 const todayISO = () => new Date().toISOString().slice(0, 10);
+// Sunday is weekly off: skip Sunday forward to Monday so calendar never defaults to or displays Sunday.
+const skipSunday = (isoStr) => {
+  const base = isoStr || new Date().toISOString().slice(0, 10);
+  const [y, m, d] = base.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  if (dt.getUTCDay() === 0) {
+    dt.setUTCDate(dt.getUTCDate() + 1);
+  }
+  return dt.toISOString().slice(0, 10);
+};
 const inr = (n) => (n === null || n === undefined || Number.isNaN(n) ? '—' : `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const dmy = (s) => (s ? new Date(`${s}T00:00:00`).toLocaleDateString('en-IN') : '—');
 const key = (r) => `${r.loan}|${r.member}`;
@@ -34,7 +44,7 @@ function Filters({ f, set, branches, staff, modes }) {
       )}
       <label className="small muted" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         EMI due up to
-        <input type="date" value={f.date} onChange={(e) => set({ date: e.target.value || todayISO() })} aria-label="Date" />
+        <input type="date" value={f.date} onChange={(e) => set({ date: skipSunday(e.target.value) })} aria-label="Date" />
       </label>
       <select value={f.staff} onChange={(e) => set({ staff: e.target.value })} aria-label="Staff">
         <option value="">All staff</option>
@@ -60,7 +70,7 @@ function Filters({ f, set, branches, staff, modes }) {
 }
 
 function useCollection(kind) {
-  const [f, setF] = useState({ search: '', branch: '', date: todayISO(), staff: '', mode: '', loanType: '', status: 'unpaid', withType: kind === 'single' });
+  const [f, setF] = useState({ search: '', branch: '', date: skipSunday(todayISO()), staff: '', mode: '', loanType: '', status: 'unpaid', withType: kind === 'single' });
   const [branches, setBranches] = useState([]);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -306,7 +316,7 @@ export function GroupLoanEmi() {
               <thead><tr><th>Group</th><th>Branch</th><th>Staff</th><th>Mode</th><th>Status</th><th className="num">Members (due / all)</th><th className="num">{c.f.status === 'paid' ? 'EMI paid' : 'Total due'}</th><th className="num">Actual collection</th><th className="num">Today received EMI</th><th className="num">Today due EMI</th><th className="actions-col">Actions</th></tr></thead>
               <tbody>
                 {groups.map((g) => (
-                  <tr key={g.code}>
+                  <tr key={`${g.branch?.id || g.branch?.code || ''}|${g.code}`}>
                     <td data-label="Group"><strong>{g.code}</strong> {g.name}</td>
                     <td data-label="Branch">{g.branch?.name || '—'}</td>
                     <td data-label="Staff">{g.employeeCode || '—'}</td>

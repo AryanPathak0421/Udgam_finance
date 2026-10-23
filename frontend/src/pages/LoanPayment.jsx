@@ -17,6 +17,13 @@ const MODE_LABEL = { cash: 'Cash', bank: 'Bank transfer', upi: 'UPI', cheque: 'C
 const inr = (n) => (n === null || n === undefined || Number.isNaN(n) ? '—' : `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const dmy = (s) => (s ? new Date(`${s}T00:00:00`).toLocaleDateString('en-IN') : '—');
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+const skipSunday = (isoStr) => {
+  if (!isoStr) return '';
+  const [y, m, d] = isoStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  if (dt.getUTCDay() === 0) dt.setUTCDate(dt.getUTCDate() + 1);
+  return dt.toISOString().slice(0, 10);
+};
 
 // Opens the receipts in their own window and prints them: one receipt for each member (each on its own page).
 // `only` prints just the member with that code.
@@ -166,8 +173,8 @@ function BatchPayDialog({ batch, onClose, onPaid }) {
             <FormField id="bpaidOn" label="Payment date" required error={errors.paidOn}>
               <input id="bpaidOn" type="date" min={preps.map((p) => p.dates.minPaidOn).sort().pop()} max={new Date().toISOString().slice(0, 10)} value={paidOn} onChange={(e) => { setPaidOn(e.target.value); setEmiStart(''); }} />
             </FormField>
-            <FormField id="bstart" label="First installment date" hint="Leave empty: each member's first installment is one period after the payment date (on the group's collection day). It cannot be earlier." error={errors.emiStartDate}>
-              <input id="bstart" type="date" min={preps.map((p) => p.dates.defaultEmiStartDate).sort().pop()} value={emiStart} onChange={(e) => setEmiStart(e.target.value)} />
+            <FormField id="bstart" label="First installment date" hint="Leave empty: each member's first installment is one period after the payment date (on the group's collection day). It cannot be earlier; no Sundays." error={errors.emiStartDate}>
+              <input id="bstart" type="date" min={preps.map((p) => p.dates.defaultEmiStartDate).sort().pop()} value={emiStart} onChange={(e) => setEmiStart(skipSunday(e.target.value))} />
             </FormField>
             <FormField id="bmode" label="Paid by" required error={errors.payMode}>
               <select id="bmode" value={payMode} onChange={(e) => setPayMode(e.target.value)}>
@@ -299,7 +306,7 @@ function PayDialog({ id, onClose, onPaid }) {
                   {prep.dates.allowedEmiStartDates.map((d) => <option key={d} value={d}>{new Date(`${d}T00:00:00Z`).toLocaleDateString('en-IN', { weekday: 'long', day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' })}</option>)}
                 </select>
               ) : (
-                <input id="pstart" type="date" min={prep.dates.defaultEmiStartDate} value={emiStart} onChange={(e) => setEmiStart(e.target.value)} />
+                <input id="pstart" type="date" min={prep.dates.defaultEmiStartDate} value={emiStart} onChange={(e) => setEmiStart(skipSunday(e.target.value))} />
               )}
             </FormField>
             <FormField id="pend" label="Last installment date" hint="Worked out from the first installment">

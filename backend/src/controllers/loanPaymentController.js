@@ -102,9 +102,11 @@ function emiDates(r, paidOn, startInput, rule) {
   // the dates the first installment can be chosen from
   const allowed = [];
   for (let d = defaultStart; d.getTime() <= defaultStart.getTime() + 31 * DAY && allowed.length < (rule ? 8 : 32); d = addDaysTo(d, 1)) {
-    if (isValidStart(d, rule)) allowed.push(iso(d));
+    if (isValidStart(d, rule) && !isSunday(d)) allowed.push(iso(d));
   }
-  return { start, end: mode.next(start, Math.max(r.term - 1, 0)), defaultStart, allowed, rule };
+  let end = mode.next(start, Math.max(r.term - 1, 0));
+  if (isSunday(end)) end = addDaysTo(end, 1);
+  return { start, end, defaultStart, allowed, rule };
 }
 
 /** The payment can be made on or after the loan date and the day the loan was approved, never in the future. */
@@ -238,7 +240,11 @@ async function pay(req, r, b) {
   const sched = calculateLoan({
     principalPaise: r.amountPaise, annualRateBp: r.annualRateBp, calculationType: r.calculationType, emiType: r.emiType || 'equal', mode: r.mode, term: r.term, startDate: paidOn,
     roundingPaise: (scheme?.installmentRounding ?? 1) * 100,
-  }).schedule.map((s) => ({ no: s.no, dueDate: MODES[r.mode].next(start, s.no - 1), installmentPaise: s.installment, principalPaise: s.principal, interestPaise: s.interest }));
+  }).schedule.map((s) => {
+    let due = MODES[r.mode].next(start, s.no - 1);
+    if (isSunday(due)) due = addDaysTo(due, 1);
+    return { no: s.no, dueDate: due, installmentPaise: s.installment, principalPaise: s.principal, interestPaise: s.interest };
+  });
   let reserved = [];
   let doc;
   try {
