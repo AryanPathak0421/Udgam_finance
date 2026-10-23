@@ -73,15 +73,20 @@ async function loadLoan(req, id) {
  */
 function stateFrom(p, line, received, asOf) {
   const extra = line.extraEmiPaise || 0;
+  const day = iso(asOf);
   const schedule = p.schedule.map((s) => {
     const amountPaise = s.installmentPaise + extra;
     const paidPaise = Math.min(received.get(s.no)?.paid || 0, amountPaise);
     const remainingPaise = amountPaise - paidPaise;
-    const due = new Date(s.dueDate).getTime();
+    const sDay = iso(s.dueDate);
+    const isDue = sDay <= day;
+    const overdueDays = remainingPaise > 0 && sDay < day
+      ? Math.max(0, Math.floor((new Date(`${day}T00:00:00.000Z`).getTime() - new Date(`${sDay}T00:00:00.000Z`).getTime()) / DAY))
+      : 0;
     return {
-      no: s.no, dueDate: iso(s.dueDate), amountPaise, paidPaise, remainingPaise,
-      status: remainingPaise === 0 ? 'paid' : due <= asOf.getTime() ? 'due' : 'upcoming',
-      overdueDays: remainingPaise > 0 && due < asOf.getTime() ? Math.floor((asOf.getTime() - due) / DAY) : 0,
+      no: s.no, dueDate: sDay, amountPaise, paidPaise, remainingPaise,
+      status: remainingPaise === 0 ? 'paid' : isDue ? 'due' : 'upcoming',
+      overdueDays,
       receiptNo: received.get(s.no)?.receipts.join(', ') || '', paidOn: received.get(s.no)?.lastPaidOn || null, paidType: received.get(s.no)?.type || '',
     };
   });
@@ -94,23 +99,25 @@ function stateFrom(p, line, received, asOf) {
 // The same numbers as stateFrom, without building an object per installment (the collection lists go through thousands of borrowers).
 function dueSummary(p, line, received, asOf) {
   const extra = line.extraEmiPaise || 0;
-  const at = asOf.getTime();
   const day = iso(asOf);
   const out = { dueCount: 0, duePaise: 0, outstandingPaise: 0, leftCount: 0, overdueDays: 0, nextDue: '', onDatePaise: 0, onDate: false };
   for (const s of p.schedule) {
     const amountPaise = s.installmentPaise + extra;
-    const due = new Date(s.dueDate).getTime();
-    if (due === at) { out.onDate = true; out.onDatePaise += amountPaise; }
+    const sDay = iso(s.dueDate);
+    if (sDay === day) { out.onDate = true; out.onDatePaise += amountPaise; }
     const remaining = amountPaise - Math.min(received.get(s.no)?.paid || 0, amountPaise);
     if (remaining <= 0) continue;
-    if (!out.leftCount) out.nextDue = iso(s.dueDate);
+    if (!out.leftCount) out.nextDue = sDay;
     out.leftCount += 1;
     out.outstandingPaise += remaining;
-    if (due <= at) {
-      if (!out.dueCount) out.firstDue = iso(s.dueDate);
+    if (sDay <= day) {
+      if (!out.dueCount) out.firstDue = sDay;
       out.dueCount += 1;
       out.duePaise += remaining;
-      if (due < at) out.overdueDays = Math.max(out.overdueDays, Math.floor((at - due) / DAY));
+      if (sDay < day) {
+        const diff = Math.floor((new Date(`${day}T00:00:00.000Z`).getTime() - new Date(`${sDay}T00:00:00.000Z`).getTime()) / DAY);
+        out.overdueDays = Math.max(out.overdueDays, diff);
+      }
     }
   }
   if (out.firstDue) out.nextDue = out.firstDue;
@@ -336,8 +343,12 @@ export async function collectEmi(req, res) {
  */
 export async function collectionList(req, res) {
   const kindScope = req.query.kind === 'group' ? 'group' : 'single';
-  const asOf = req.query.date ? parseDateOnly(asString(req.query.date)) : startOfToday();
-  if (!asOf) throw invalid({ date: 'Enter a valid date' });
+  const dateStr = asString(req.query.date).slice(0, 10);
+  const asOf = /^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? new Date(`${dateStr}T00:00:00.000Z`) : startOfToday();
+  if (!asOf || Number.isNaN(asOf.getTime())) throw invalid({ date: 'Enter a valid date' });
+  const dayStr = iso(asOf);
+  const dayStart = new Date(`${dayStr}T00:00:00.000Z`);
+  const dayEnd = new Date(`${dayStr}T23:59:59.999Z`);
   const filter = { status: 'paid', ...branchFilter(req.user), kind: kindScope === 'group' ? 'group' : { $in: ['personal', 'business', 'product'] } };
   // a chosen branch narrows the user's own branches, it never widens them
   if (mongoose.isValidObjectId(req.query.branch)) {
@@ -378,7 +389,7 @@ export async function collectionList(req, res) {
     // what was actually received on the chosen date (the receipts dated that day; the old system's records stay out)
     // eslint-disable-next-line no-await-in-loop
     const gotToday = new Map((await EmiPayment.aggregate([
-      { $match: { loanPayment: { $in: pick.map((l) => l._id) }, status: 'paid', legacy: { $ne: true }, paidOn: { $gte: asOf, $lt: new Date(asOf.getTime() + DAY) } } },
+      { $match: { loanPayment: { $in: pick.map((l) => l._id) }, status: 'paid', legacy: { $ne: true }, paidOn: { $gte: dayStart, $lte: dayEnd } } },
       { $group: { _id: { lp: '$loanPayment', code: '$memberCode' }, paid: { $sum: '$amountPaise' } } },
     ])).map((r) => [`${r._id.lp}|${r._id.code}`, r.paid]));
 
@@ -417,22 +428,41 @@ export async function collectionList(req, res) {
       g.collected += r.collected;
     });
     // Unpaid: at least one member still owes EMI (the whole group stays here, with its members and the total due).
-    // Paid: nobody owes anything and the group had an installment on the date.
+    // Paid: nobody owes anything and the group had an installment on the date, or was paid today.
     const all = [...groups.values()].sort((a, b) => a.code.localeCompare(b.code)).map((g) => {
       const unpaid = g.members.some((m) => m.status === 'due');
-      // the group's total EMI (what all its members pay for one installment), what falls due on the date, and what was received on it
+      // the group's total EMI (what all its members pay for one installment: Actual collection)
       const totalEmi = g.members.reduce((t, m) => t + (m.emi || 0), 0);
-      const todayDue = g.members.reduce((t, m) => t + (m.dueOnDate ? m.emiOnDate : 0), 0);
-      return { ...g, totalEmi, todayDue, status: unpaid ? 'unpaid' : 'paid', paidAmount: g.members.reduce((t, m) => t + (m.dueOnDate ? m.emiOnDate : 0), 0), dueMembers: g.members.filter((m) => m.status === 'due').length };
-    }).filter((g) => g.status === 'unpaid' || g.members.some((m) => m.dueOnDate));
+      // today due is actual collection minus today received (e.g. 1000 actual - 800 received = 200 today due)
+      const todayDue = Math.max(0, totalEmi - g.collected);
+      return {
+        ...g,
+        totalEmi,
+        todayDue,
+        status: unpaid ? 'unpaid' : 'paid',
+        paidAmount: g.collected > 0 ? g.collected : totalEmi,
+        dueMembers: g.members.filter((m) => m.status === 'due').length,
+      };
+    }).filter((g) => g.status === 'unpaid' || g.members.some((m) => m.dueOnDate) || g.collected > 0);
     const counts = { unpaid: all.filter((g) => g.status === 'unpaid').length, paid: all.filter((g) => g.status === 'paid').length };
     const want = asString(req.query.status) === 'paid' ? 'paid' : 'unpaid';
     const list = all.filter((g) => g.status === want);
-    return res.json({ groups: list, counts, status: want, staff, modes, date: iso(asOf), totalDue: list.reduce((s, g) => s + g.dueAmount, 0), totalCollected: list.reduce((s, g) => s + g.collected, 0), totalEmi: list.reduce((s, g) => s + g.totalEmi, 0), totalTodayDue: list.reduce((s, g) => s + g.todayDue, 0) });
+    return res.json({
+      groups: list,
+      counts,
+      status: want,
+      staff,
+      modes,
+      date: dayStr,
+      totalDue: list.reduce((s, g) => s + g.dueAmount, 0),
+      totalCollected: list.reduce((s, g) => s + g.collected, 0),
+      totalEmi: list.reduce((s, g) => s + g.totalEmi, 0),
+      totalTodayDue: list.reduce((s, g) => s + g.todayDue, 0),
+    });
   }
   const { page, limit, skip } = parsePaging(req.query, { defaultLimit: 25 });
   rows.sort((a, b) => a.nextDueDate.localeCompare(b.nextDueDate) || a.code.localeCompare(b.code));
-  res.json({ items: rows.slice(skip, skip + limit), total: rows.length, page, limit, totalPages: Math.max(Math.ceil(rows.length / limit), 1), staff, modes, date: iso(asOf), totalDue: rows.reduce((s, r) => s + r.dueAmount, 0), totalCollected: rows.reduce((s, r) => s + r.collected, 0) });
+  res.json({ items: rows.slice(skip, skip + limit), total: rows.length, page, limit, totalPages: Math.max(Math.ceil(rows.length / limit), 1), staff, modes, date: dayStr, totalDue: rows.reduce((s, r) => s + r.dueAmount, 0), totalCollected: rows.reduce((s, r) => s + r.collected, 0) });
 }
 
 // aggregate() does not cast strings to ids like find() does

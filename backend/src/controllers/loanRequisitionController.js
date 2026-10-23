@@ -183,27 +183,28 @@ async function civilFor(memberId) {
 }
 
 /**
- * A scheme with "Civil required" needs the civil score of the borrower, at least the minimum of the scheme. The score typed on the form is used,
- * otherwise the newest civil check. Returns { error } or { score, record } (record: the score is new, so it goes into the member's civil checks).
+ * A scheme with "Civil required" needs the civil score of the borrower, at least the minimum of the scheme.
+ * The score comes strictly from the actual CivilCheck on record for the member (not manually entered on requisition).
  */
-async function civilGate({ scheme, member, given }) {
-  if (!scheme.civilRequired) return { skip: true };
-  const latest = await civilSnapshot(member._id);
-  const typed = given === undefined || given === null || String(given).trim() === '' ? null : Number(given);
-  const score = typed ?? latest?.score ?? null;
-  if (score === null) return { error: `${scheme.name} needs the civil score of ${member.code}. Enter it, or do the civil check first.` };
-  if (!Number.isInteger(score) || score < 300 || score > 900) return { error: 'Enter the civil score (300 to 900)' };
-  if (scheme.minCivilScore && score < scheme.minCivilScore) return { error: `The civil score ${score} of ${member.code} is below the ${scheme.minCivilScore} that ${scheme.name} needs` };
-  return { score, record: !latest || latest.score !== score };
+async function civilGate({ scheme, member }) {
+  const latest = member?._id ? await civilSnapshot(member._id) : null;
+  if (!scheme.civilRequired) return { skip: true, score: latest?.score ?? null };
+  const score = latest?.score ?? null;
+  if (score === null || score === undefined) {
+    return { error: `${scheme.name} needs the civil score of ${member?.code || 'borrower'}. No civil check on record; complete the Civil Check first.` };
+  }
+  if (!Number.isInteger(score) || score < 300 || score > 900) {
+    return { error: `The civil score (${score}) of ${member?.code || 'borrower'} is invalid (300 to 900). Please re-check under Civil Check.` };
+  }
+  if (scheme.minCivilScore && score < scheme.minCivilScore) {
+    return { error: `The actual civil score ${score} of ${member?.code || 'borrower'} is below the ${scheme.minCivilScore} that ${scheme.name} needs` };
+  }
+  return { score, record: false };
 }
 
-/** A civil score entered on a loan form is kept in the member's civil checks (and so shows in the Borrower Synopsis). */
-async function recordCivil({ gate, member, branchId, req, formId }) {
-  if (!gate?.record) return;
-  await CivilCheck.create({
-    member: member._id, branch: branchId, score: gate.score, reportDate: new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`), bureau: 'Other',
-    remark: `Entered on the loan requisition${formId ? ` ${formId}` : ''}`, employeeCode: req.user.employeeCode || '', createdBy: req.user._id,
-  });
+/** No civil score entered on a loan requisition is recorded as a fake bureau report. Scores must come from Civil Check. */
+async function recordCivil() {
+  // Scores come strictly from actual CivilCheck records; no-op.
 }
 
 async function previousLoanPaise(memberId) {
@@ -460,7 +461,7 @@ async function buildAdditional({ items, members, capFor, scheme, input, loanDate
     const valuePaise = p.unitPricePaise * qty;
     const maxPaise = capFor(mid);
     if (valuePaise > maxPaise) {
-      throw invalid({ additional: `${gm.code}: the product (₹${valuePaise / 100}) is more than the ${ADDITIONAL_PRODUCT_PERCENT}% of the loan that is allowed (₹${maxPaise / 100})` });
+      throw invalid({ additional: `${gm.code}: product value (₹${valuePaise / 100}) exceeds the ${ADDITIONAL_PRODUCT_PERCENT}% limit of ₹${maxPaise / 100}. Requisition cannot be created.` });
     }
     const e = await productLoanEmi({ schemeId: a.schemeId, valuePaise, mode: input.mode, term: input.term, rate: input.rate, loanDate, code: gm.code });
     out.push({
@@ -664,9 +665,15 @@ async function readBusiness(b, errors, member, req) {
     if (!out.udgamNumber) errors.udgamNumber = 'Udgam number is required for an MSME loan';
     else if (!UDGAM_RE.test(out.udgamNumber)) errors.udgamNumber = 'Enter a valid Udgam number (5 to 30 letters or digits)';
   }
-  const score = Number(x.civilScore);
-  if (!Number.isInteger(score) || score < 300 || score > 900) errors.civilScore = 'Enter the civil score (300 to 900)';
-  else out.civilScore = score;
+  const latest = member?._id ? await civilSnapshot(member._id) : null;
+  const score = latest?.score ?? null;
+  if (score === null || score === undefined) {
+    errors.civilScore = 'No civil check on record for this borrower. Please complete the Civil Check first.';
+  } else if (!Number.isInteger(score) || score < 300 || score > 900) {
+    errors.civilScore = `The civil score (${score}) is invalid (300 to 900)`;
+  } else {
+    out.civilScore = score;
+  }
 
   out.shopPhoto = typeof x.shopPhoto === 'string' ? x.shopPhoto : '';
   if (!out.shopPhoto) errors.shopPhoto = 'Shop photo is required';
@@ -818,7 +825,7 @@ export function createRequisition(kind) {
       throw invalid({ schemeId: `This scheme is a ${scheme.loanType.toUpperCase()} scheme; choose a ${business.loanType.toUpperCase()} scheme` });
     }
     // the scheme may ask for a civil score
-    const civilGateResult = await civilGate({ scheme, member: m, given: business ? business.civilScore : b.civilScore });
+    const civilGateResult = await civilGate({ scheme, member: m });
     if (civilGateResult.error) throw invalid(business ? { 'business.civilScore': civilGateResult.error } : { civilScore: civilGateResult.error });
     // The same scheme is not offered again to a member until that loan is finished.
     const sameScheme = { isDeleted: false, scheme: scheme._id, status: { $in: RUNNING } };
@@ -1414,7 +1421,7 @@ export async function createGroupRequisition(req, res) {
     const modeError = groupModeError(g.meetingType, ev.input.mode);
     if (modeError) { errors[key('mode')] = modeError; continue; }
     // eslint-disable-next-line no-await-in-loop
-    const gate = await civilGate({ scheme, member: m, given: e.civilScore });
+    const gate = await civilGate({ scheme, member: m });
     if (gate.error) { errors[key('civilScore')] = gate.error; continue; }
     const amountPaise = Math.round(ev.input.amount * 100);
     const cashPaise = cashAfterCharges(amountPaise, ev.charges);

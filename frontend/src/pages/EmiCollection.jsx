@@ -107,7 +107,7 @@ export function SingleLoanEmi() {
     if (Number(amount) > r.dueAmount) return toast.error(`Only the due EMI (${inr(r.dueAmount)}) can be collected here. Use Advance EMI Payment for later installments.`);
     setBusy(key(r));
     try {
-      const res = await api.emi.collect({ items: [{ loan: r.loan, member: r.member, amount }], payMode, bankAccount: payMode === 'bank' ? bankAccount : undefined });
+      const res = await api.emi.collect({ items: [{ loan: r.loan, member: r.member, amount }], paidOn: c.f.date || todayISO(), payMode, bankAccount: payMode === 'bank' ? bankAccount : undefined });
       const one = res.results[0];
       if (one.ok) {
         toast.success(`EMI received — receipt ${one.payment.receiptNo}`);
@@ -180,7 +180,7 @@ export function SingleLoanEmi() {
 }
 
 // ---- group loan EMI: choose the group, tick the members, edit the EMI and pay -----------------------------------------
-function GroupCollect({ group, canCollect, onClose, onDone }) {
+function GroupCollect({ group, date, canCollect, onClose, onDone }) {
   const toast = useToast();
   const dueMembers = group.members.filter((m) => m.status === 'due');
   const [ticked, setTicked] = useState(() => new Set(dueMembers.map(key)));
@@ -200,7 +200,7 @@ function GroupCollect({ group, canCollect, onClose, onDone }) {
     if (chosen.some((m) => Number(amountOf(m)) > m.dueAmount)) return toast.error('A member cannot pay more than the EMI due today. Use Advance EMI Payment for later installments.');
     setBusy(true);
     try {
-      const r = await api.emi.collect({ items: chosen.map((m) => ({ loan: m.loan, member: m.member, amount: amountOf(m) })), payMode, bankAccount: payMode === 'bank' ? bankAccount : undefined });
+      const r = await api.emi.collect({ items: chosen.map((m) => ({ loan: m.loan, member: m.member, amount: amountOf(m) })), paidOn: date || todayISO(), payMode, bankAccount: payMode === 'bank' ? bankAccount : undefined });
       setResults(r);
       toast.success(`${r.paidCount} EMI received — ${inr(r.totalAmount)}`);
       if (r.failedCount) toast.error(`${r.failedCount} could not be received`);
@@ -325,7 +325,7 @@ export function GroupLoanEmi() {
           </div>
         )}
       </div>
-      {open && <GroupCollect group={open} canCollect={canCollect} onClose={() => setOpen(null)} onDone={() => { setOpen(null); c.load(); }} />}
+      {open && <GroupCollect group={open} date={c.f.date} canCollect={canCollect} onClose={() => setOpen(null)} onDone={() => { setOpen(null); c.load(); }} />}
     </>
   );
 }

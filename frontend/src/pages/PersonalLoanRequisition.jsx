@@ -205,7 +205,8 @@ export function GroupTopUp({ members, stock, onDone }) {
     if (!e.front) found.front = 'Upload the front photo of the form';
     if (!e.back) found.back = 'Upload the back photo of the form';
     const p = stock.find((x) => x.id === e.id);
-    if (p && p.unitPrice * (Number(e.qty) || 0) > m.runningInGroup.topUpLeft) found.additional = `More than the ${inr(m.runningInGroup.topUpLeft)} that can still be taken`;
+    const value = p ? p.unitPrice * (Number(e.qty) || 0) : 0;
+    if (p && value > m.runningInGroup.topUpLeft) found.additional = `Product value (${inr(value)}) exceeds the 25% limit of ${inr(m.runningInGroup.topUpLeft)}. Product loan cannot be created.`;
     setErrors((x) => ({ ...x, [m.id]: found }));
     if (Object.keys(found).length) return;
     setBusy(m.id);
@@ -245,8 +246,8 @@ export function GroupTopUp({ members, stock, onDone }) {
                 <FormField id={`tp-${m.id}`} label="Product" error={er.additional}>
                   <div style={{ display: 'flex', gap: 6 }}>
                     <SearchableSelect id={`tp-${m.id}`} value={e.id} onChange={(ev) => set(m.id, { id: ev.target.value })}>
-                      <option value="">{stock.length ? 'Select product' : 'No product in stock'}</option>
-                      {stock.map((s) => <option key={s.id} value={s.id}>{s.name} · {inr(s.unitPrice)}</option>)}
+                      <option value="">{stock.filter((s) => s.unitPrice <= l.topUpLeft).length ? 'Select product' : `No product within 25% (${inr(l.topUpLeft)}) limit`}</option>
+                      {stock.filter((s) => s.unitPrice <= l.topUpLeft).map((s) => <option key={s.id} value={s.id}>{s.name} · {inr(s.unitPrice)}</option>)}
                     </SearchableSelect>
                     {e.id && <input aria-label={`Units for ${m.code}`} inputMode="numeric" style={{ width: 64 }} value={e.qty} onChange={(ev) => set(m.id, { qty: ev.target.value.replace(/\D/g, '').slice(0, 4) })} />}
                   </div>
@@ -433,9 +434,8 @@ function RequisitionForm({ kind }) {
   }, [isBusiness, picked]);
   useEffect(() => {
     const cs = detail?.borrower?.civilCheck?.score;
-    if (isBusiness && cs) setBiz((x) => (x.civilScore ? x : { ...x, civilScore: String(cs) }));
-    // a scheme that needs the civil score: the newest civil check is filled in
-    if (!isBusiness && cs) setCivilScore((x) => x || String(cs));
+    if (isBusiness) setBiz((x) => ({ ...x, civilScore: cs != null ? String(cs) : '' }));
+    if (!isBusiness) setCivilScore(cs != null ? String(cs) : '');
   }, [isBusiness, detail]);
 
   // Live EMI.
@@ -504,7 +504,11 @@ function RequisitionForm({ kind }) {
       if (biz.loanType === 'business' && !biz.gstNumber.trim()) found['business.gstNumber'] = 'GST number is required for a business loan';
       else if (biz.gstNumber && gstInfo && gstInfo.ok === false) found['business.gstNumber'] = gstInfo.message;
       const c = Number(biz.civilScore);
-      if (!Number.isInteger(c) || c < 300 || c > 900) found['business.civilScore'] = 'Enter the civil score (300 to 900)';
+      if (!biz.civilScore || !Number.isInteger(c) || c < 300 || c > 900) {
+        found['business.civilScore'] = 'No actual civil check on record. Complete Civil Check first.';
+      } else if (scheme?.minCivilScore && c < scheme.minCivilScore) {
+        found['business.civilScore'] = `The actual score (${c}) is below the ${scheme.minCivilScore} this scheme needs`;
+      }
       if (!biz.shopPhoto) found['business.shopPhoto'] = 'Shop photo is required';
       if (!biz.bankStatement) found['business.bankStatement'] = 'Upload the bank statement';
       if (biz.loanType === 'msme' && !biz.udyamCertificate) found['business.udyamCertificate'] = 'Upload the Udyam certificate';
@@ -515,8 +519,11 @@ function RequisitionForm({ kind }) {
     if (scheme?.civilRequired) {
       const cv = Number(isBusiness ? biz.civilScore : civilScore);
       const key = isBusiness ? 'business.civilScore' : 'civilScore';
-      if (!Number.isInteger(cv) || cv < 300 || cv > 900) found[key] = 'Enter the civil score (300 to 900)';
-      else if (scheme.minCivilScore && cv < scheme.minCivilScore) found[key] = `The score is below the ${scheme.minCivilScore} this scheme needs`;
+      if (!cv || !Number.isInteger(cv) || cv < 300 || cv > 900) {
+        found[key] = 'No actual civil check on record. Complete Civil Check first.';
+      } else if (scheme.minCivilScore && cv < scheme.minCivilScore) {
+        found[key] = `The actual score (${cv}) is below the ${scheme.minCivilScore} this scheme needs`;
+      }
     }
     if (!form.amount) found.amount = isGroup ? 'Enter the amount per member' : 'Enter the request amount';
     if (!form.mode) found.mode = 'Select the repayment mode';
@@ -748,9 +755,10 @@ function RequisitionForm({ kind }) {
                                       <div style={{ minWidth: 220 }}>
                                         <div style={{ display: 'flex', gap: 6 }}>
                                           <SearchableSelect aria-label={`Additional product for ${m.code}`} value={e.id}
-                                            onChange={(ev) => setExtras((x) => ({ ...x, [m.id]: { id: ev.target.value, qty: x[m.id]?.qty || '1' } }))}>
-                                            <option value="">{stock.length ? 'None' : 'No product in stock'}</option>
-                                            {stock.filter((s) => !extraMax || s.unitPrice <= extraMax || s.id === e.id).map((s) => <option key={s.id} value={s.id}>{s.name} · {inr(s.unitPrice)}</option>)}
+                                            onChange={(ev) => setExtras((x) => ({ ...x, [m.id]: { id: ev.target.value, qty: x[m.id]?.qty || '1' } }))}
+                                            disabled={extraMax <= 0}>
+                                            <option value="">{extraMax <= 0 ? 'Enter loan amount first' : stock.filter((s) => s.unitPrice <= extraMax).length ? 'None' : `No product within 25% (${inr(extraMax)})`}</option>
+                                            {extraMax > 0 && stock.filter((s) => s.unitPrice <= extraMax).map((s) => <option key={s.id} value={s.id}>{s.name} · {inr(s.unitPrice)}</option>)}
                                           </SearchableSelect>
                                           {e.id && (
                                             <input aria-label={`Units for ${m.code}`} inputMode="numeric" style={{ width: 64 }} value={e.qty}
@@ -854,9 +862,8 @@ function RequisitionForm({ kind }) {
                 <input id="businessName" value={biz.businessName} onChange={setB('businessName')} maxLength={100} />
               </FormField>
               <FormField id="civilScore" label="Civil score" required error={errors['business.civilScore']}
-                hint={detail?.borrower?.civilCheck ? `From the civil check of ${detail.borrower.civilCheck.reportDate} (300 to 900)` : '300 to 900. Record it under Civil Check'}>
-                <input id="civilScore" inputMode="numeric" value={biz.civilScore} maxLength={3}
-                  onChange={(e) => { setBiz((x) => ({ ...x, civilScore: e.target.value.replace(/\D/g, '').slice(0, 3) })); setErrors((er) => ({ ...er, 'business.civilScore': undefined })); }} />
+                hint={detail?.borrower?.civilCheck ? `Actual check score: ${detail.borrower.civilCheck.score} (${detail.borrower.civilCheck.reportDate})` : 'No civil check on record. Complete Civil Check first.'}>
+                <input id="civilScore" value={biz.civilScore || ''} readOnly disabled placeholder="No civil check on record" />
               </FormField>
               {biz.loanType === 'msme' && (
                 <FormField id="udgamNumber" label="Udgam number" required error={errors['business.udgamNumber']}>
@@ -913,11 +920,11 @@ function RequisitionForm({ kind }) {
                 {visibleSchemes.map((s) => <option key={s.id} value={s.id}>{s.code} — {s.name}</option>)}
               </SearchableSelect>
             </FormField>
-            {scheme?.civilRequired && <div className="span-2"><CivilMatch scheme={scheme} profile={detail?.borrower?.civilCheck} typed={isBusiness ? biz.civilScore : civilScore} /></div>}
+            {scheme?.civilRequired && <div className="span-2"><CivilMatch scheme={scheme} profile={detail?.borrower?.civilCheck} /></div>}
             {scheme?.civilRequired && !isBusiness && (
               <FormField id="civilScoreScheme" label="Civil score" required error={errors.civilScore}
-                hint={`This scheme needs at least ${scheme.minCivilScore}. ${detail?.borrower?.civilCheck ? `Latest civil check: ${detail.borrower.civilCheck.score} (${detail.borrower.civilCheck.reportDate})` : 'No civil check yet: enter the score'}`}>
-                <input id="civilScoreScheme" inputMode="numeric" maxLength={3} value={civilScore} onChange={(e) => { setCivilScore(e.target.value.replace(/\D/g, '').slice(0, 3)); setErrors((er) => ({ ...er, civilScore: undefined })); }} />
+                hint={detail?.borrower?.civilCheck ? `Actual check score: ${detail.borrower.civilCheck.score} (${detail.borrower.civilCheck.reportDate})` : 'No civil check on record. Complete Civil Check first.'}>
+                <input id="civilScoreScheme" value={civilScore || ''} readOnly disabled placeholder="No civil check on record" />
               </FormField>
             )}
             {hiddenSchemes.length > 0 && (

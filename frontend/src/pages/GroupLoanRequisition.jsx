@@ -65,10 +65,10 @@ function MemberLoan({ index, m, e, schemes, productSchemes, stock, errors, onCha
             {schemes.filter((s) => !m.runningSchemeIds?.includes(s.id)).map((s) => <option key={s.id} value={s.id}>{s.code} — {s.name}</option>)}
           </SearchableSelect>
         </FormField>
-        {scheme?.civilRequired && <div className="span-2"><CivilMatch scheme={scheme} profile={m.civilScore} typed={e.civilScore} /></div>}
+        {scheme?.civilRequired && <div className="span-2"><CivilMatch scheme={scheme} profile={m.civilScore} /></div>}
         {scheme?.civilRequired && (
-          <FormField id={`civ-${m.id}`} label="Civil score" required error={err('civilScore')} hint={`This scheme needs at least ${scheme.minCivilScore}. ${m.civilScore != null ? `Latest civil check: ${m.civilScore}` : 'No civil check yet: enter the score'}`}>
-            <input id={`civ-${m.id}`} inputMode="numeric" maxLength={3} value={e.civilScore} onChange={(ev) => onChange({ civilScore: ev.target.value.replace(/\D/g, '').slice(0, 3) })} />
+          <FormField id={`civ-${m.id}`} label="Civil score" required error={err('civilScore')} hint={`This scheme needs at least ${scheme.minCivilScore}. ${m.civilScore != null ? `Actual civil check: ${m.civilScore}` : 'No civil check on record: complete Civil Check first'}`}>
+            <input id={`civ-${m.id}`} value={m.civilScore != null ? String(m.civilScore) : ''} readOnly disabled placeholder="No civil check on record" />
           </FormField>
         )}
         <FormField id={`amt-${m.id}`} label="Loan amount (₹)" required error={err('amount')} hint={scheme ? `Between ${inr(scheme.amountMin)} and ${inr(scheme.amountMax)}` : 'Choose the scheme first'}>
@@ -103,14 +103,14 @@ function MemberLoan({ index, m, e, schemes, productSchemes, stock, errors, onCha
         <div style={{ marginTop: 10 }}>
           <div className="muted small" style={{ marginBottom: 4 }}>Optional: a product on top of this loan, up to {EXTRA_PERCENT}% of it{extraMax ? ` (${inr(extraMax)})` : ''}. Its EMI is worked out on its own value.</div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <SearchableSelect aria-label={`Additional product for ${m.code}`} value={e.extraId} onChange={(ev) => onChange({ extraId: ev.target.value, extraScheme: ev.target.value ? e.extraScheme : '' })}>
-              <option value="">{stock.length ? 'No product' : 'No product in stock'}</option>
-              {/* only the products that fit in the 25% of this loan (the one already chosen stays) */}
-              {stock.filter((p) => !extraMax || p.unitPrice <= extraMax || p.id === e.extraId).map((p) => <option key={p.id} value={p.id}>{p.name} · {inr(p.unitPrice)}</option>)}
+            <SearchableSelect aria-label={`Additional product for ${m.code}`} value={e.extraId} onChange={(ev) => onChange({ extraId: ev.target.value, extraScheme: ev.target.value ? e.extraScheme : '' })} disabled={extraMax <= 0}>
+              <option value="">{extraMax <= 0 ? 'Enter loan amount first' : stock.filter((p) => p.unitPrice <= extraMax).length ? 'No product' : `No product within 25% (${inr(extraMax)}) limit`}</option>
+              {/* only the products that fit in the 25% of this loan */}
+              {extraMax > 0 && stock.filter((p) => p.unitPrice <= extraMax).map((p) => <option key={p.id} value={p.id}>{p.name} · {inr(p.unitPrice)}</option>)}
             </SearchableSelect>
             {extraMax > 0 && stock.some((p) => p.unitPrice > extraMax) && <span className="muted small">Products above {inr(extraMax)} are not offered</span>}
             {e.extraId && <input aria-label={`Units for ${m.code}`} inputMode="numeric" style={{ width: 70 }} value={e.extraQty} onChange={(ev) => onChange({ extraQty: ev.target.value.replace(/\D/g, '').slice(0, 4) })} />}
-            {extraProduct && <span className={extraValue > extraMax ? 'field-error' : 'muted small'}>{inr(extraValue)}{extraValue > extraMax ? ` is more than ${inr(extraMax)}` : ''}</span>}
+            {extraProduct && <span className={extraValue > extraMax ? 'field-error' : 'muted small'}>{inr(extraValue)}{extraValue > extraMax ? ` exceeds maximum 25% limit (${inr(extraMax)})` : ''}</span>}
           </div>
           {e.extraId && extraProduct && (
             <ProductSchemeField id={`psch-${m.id}`} code={m.code} schemes={productSchemes} mode={e.mode} term={e.term} rate={e.rate} value={extraValue} schemeId={e.extraScheme} onChange={(v) => onChange({ extraScheme: v })} error={err('extraScheme')} />
@@ -175,7 +175,7 @@ export default function GroupLoanRequisition() {
       const d = await api.loanRequisitions.group(item.id);
       setDetail(d);
       setChosen(d.group.members.filter(eligible).map((m) => m.id));
-      setEntries(Object.fromEntries(d.group.members.map((m) => [m.id, { ...blank }])));
+      setEntries(Object.fromEntries(d.group.members.map((m) => [m.id, { ...blank, civilScore: m.civilScore != null ? String(m.civilScore) : '' }])));
       if (d.group.employeeCode) setForm((f) => ({ ...f, employeeCode: d.group.employeeCode }));
     } catch (err) {
       toast.error(err.message);
@@ -218,16 +218,19 @@ export default function GroupLoanRequisition() {
       else if (!(Number(x.amount) > 0)) found[k('amount')] = 'Enter the loan amount';
       const sch = usable.find((y) => y.id === x.schemeId);
       if (sch?.civilRequired) {
-        const c = Number(x.civilScore);
-        if (!Number.isInteger(c) || c < 300 || c > 900) found[k('civilScore')] = 'Enter the civil score (300 to 900)';
-        else if (sch.minCivilScore && c < sch.minCivilScore) found[k('civilScore')] = `The score is below the ${sch.minCivilScore} this scheme needs`;
+        if (m.civilScore == null) {
+          found[k('civilScore')] = 'No actual civil check on record. Complete Civil Check first.';
+        } else if (sch.minCivilScore && m.civilScore < sch.minCivilScore) {
+          found[k('civilScore')] = `The actual score (${m.civilScore}) is below the ${sch.minCivilScore} this scheme needs`;
+        }
       }
       if (!x.front) found[k('front')] = `Upload the front photo of the form of ${m.code}`;
       if (!x.back) found[k('back')] = `Upload the back photo of the form of ${m.code}`;
       if (x.extraId) {
         const p = stock.find((s) => s.id === x.extraId);
-        const val = p ? p.unitPrice * (Number(x.extraQty) || 0) : 0;
-        if (val > Math.floor((Number(x.amount) || 0) * EXTRA_PERCENT) / 100) found[k('additional')] = `The product is more than ${EXTRA_PERCENT}% of the loan`;
+        const maxAllowed = Math.floor((Number(x.amount) || 0) * EXTRA_PERCENT) / 100;
+        const val = p ? Math.round(p.unitPrice * (Number(x.extraQty) || 0) * 100) / 100 : 0;
+        if (val > maxAllowed) found[k('additional')] = `Product value (${inr(val)}) exceeds the 25% limit of ${inr(maxAllowed)}. Requisition cannot be created.`;
         else if (p && Number(x.extraQty) > p.stockQty) found[k('additional')] = `Only ${p.stockQty} in stock`;
         if (!x.extraScheme) found[k('extraScheme')] = `Select the product loan scheme of ${m.code}`;
       }
@@ -247,7 +250,7 @@ export default function GroupLoanRequisition() {
         group: picked.id,
         entries: members.map((m) => {
           const x = entries[m.id];
-          return { member: m.id, civilScore: x.civilScore, schemeId: x.schemeId, amount: x.amount, mode: x.mode, term: Number(x.term), rate: x.rate, front: x.front, back: x.back, additional: x.extraId ? { stockProduct: x.extraId, quantity: Number(x.extraQty) || 1, schemeId: x.extraScheme } : undefined };
+          return { member: m.id, civilScore: m.civilScore != null ? String(m.civilScore) : '', schemeId: x.schemeId, amount: x.amount, mode: x.mode, term: Number(x.term), rate: x.rate, front: x.front, back: x.back, additional: x.extraId ? { stockProduct: x.extraId, quantity: Number(x.extraQty) || 1, schemeId: x.extraScheme } : undefined };
         }),
       };
       const r = await api.loanRequisitions.create('group', payload);
