@@ -8,12 +8,13 @@ import { ProductPayment } from '../models/ProductPayment.js';
 import { CashEntry, ENTRY_CATEGORIES, ENTRY_MODES } from '../models/CashEntry.js';
 import { Branch } from '../models/Branch.js';
 import { Ledger } from '../models/Ledger.js';
+import { CivilCheck } from '../models/CivilCheck.js';
 import { assertDayOpen } from '../services/dayOpen.js';
 import { asString, parseDateOnly, startOfToday, HttpError } from '../utils/http.js';
 import { toMinor } from '../utils/money.js';
 import { audit } from '../utils/audit.js';
 import { isAdmin } from './groupController.js';
-import { stateFrom } from './emiController.js';
+import { stateFrom, dueSummary } from './emiController.js';
 
 const iso = (d) => (d ? new Date(d).toISOString().slice(0, 10) : null);
 const MODES = ['cash', 'bank', 'upi', 'cheque'];
@@ -220,31 +221,57 @@ export async function cashbookData(req, query) {
   // today due: the EMI still to be collected up to the end date (information, not cash)
   const asOf = to || new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
   // the books built on the cashbook (trial balance, bank book, day book) do not need the due and skip this slow part
-  const dueIds = query.skipDue ? [] : (await LoanPayment.find({ ...scope, status: 'paid' }).select('_id').limit(20000).lean()).map((x) => x._id);
+  const dueIds = query.skipDue ? [] : (await LoanPayment.find({ ...scope, status: 'paid', emiStartDate: { $lte: asOf } }).select('_id').limit(20000).lean()).map((x) => x._id);
   const dueBy = new Map();
-  for (let at = 0; at < dueIds.length; at += 250) {
-    const idsNow = dueIds.slice(at, at + 250);
-    // eslint-disable-next-line no-await-in-loop
-    const dueLoans = await LoanPayment.find({ _id: { $in: idsNow } }).lean();
-    // eslint-disable-next-line no-await-in-loop
-    const settledSet = new Set((await LoanSettlement.find({ loanPayment: { $in: idsNow }, status: 'active' }).select('loanPayment memberCode').lean()).map((x) => `${x.loanPayment}|${x.memberCode}`));
-    // eslint-disable-next-line no-await-in-loop
-    const recv = await EmiPayment.aggregate([
-      { $match: { loanPayment: { $in: idsNow }, status: 'paid' } },
-      { $unwind: '$items' },
-      { $group: { _id: { lp: '$loanPayment', code: '$memberCode', no: '$items.no' }, paid: { $sum: '$items.amountPaise' } } },
-    ]);
-    const byKey = new Map();
-    recv.forEach((x) => {
-      const k = `${x._id.lp}|${x._id.code}`;
-      if (!byKey.has(k)) byKey.set(k, new Map());
-      byKey.get(k).set(x._id.no, { paid: x.paid, receipts: [] });
-    });
-    dueLoans.forEach((l) => l.lines.forEach((line) => {
-      if (settledSet.has(`${l._id}|${line.code}`)) return;
-      const st = stateFrom(l, line, byKey.get(`${l._id}|${line.code}`) || new Map(), asOf);
-      if (st.totals.due > 0) dueBy.set(dueKey(l), (dueBy.get(dueKey(l)) || 0) + st.totals.due);
-    }));
+  if (dueIds.length > 0) {
+    const BATCH_SIZE = 400;
+    const batches = [];
+    for (let at = 0; at < dueIds.length; at += BATCH_SIZE) {
+      batches.push(dueIds.slice(at, at + BATCH_SIZE));
+    }
+
+    const processBatch = async (idsNow) => {
+      const [dueLoans, settlements, recv] = await Promise.all([
+        LoanPayment.find({ _id: { $in: idsNow } }).lean(),
+        LoanSettlement.find({ loanPayment: { $in: idsNow }, status: 'active' }).select('loanPayment memberCode').lean(),
+        EmiPayment.aggregate([
+          { $match: { loanPayment: { $in: idsNow }, status: 'paid' } },
+          { $unwind: '$items' },
+          { $group: { _id: { lp: '$loanPayment', code: '$memberCode', no: '$items.no' }, paid: { $sum: '$items.amountPaise' } } },
+        ]),
+      ]);
+
+      const settledSet = new Set(settlements.map((x) => `${x.loanPayment}|${x.memberCode}`));
+      const byKey = new Map();
+      recv.forEach((x) => {
+        const k = `${x._id.lp}|${x._id.code}`;
+        if (!byKey.has(k)) byKey.set(k, new Map());
+        byKey.get(k).set(x._id.no, { paid: x.paid, receipts: [] });
+      });
+
+      const batchDue = new Map();
+      dueLoans.forEach((l) => l.lines.forEach((line) => {
+        if (settledSet.has(`${l._id}|${line.code}`)) return;
+        const st = dueSummary(l, line, byKey.get(`${l._id}|${line.code}`) || new Map(), asOf);
+        if (st.duePaise > 0) {
+          const k = dueKey(l);
+          batchDue.set(k, (batchDue.get(k) || 0) + st.duePaise);
+        }
+      }));
+      return batchDue;
+    };
+
+    const CONCURRENCY = 6;
+    for (let i = 0; i < batches.length; i += CONCURRENCY) {
+      const chunk = batches.slice(i, i + CONCURRENCY);
+      // eslint-disable-next-line no-await-in-loop
+      const batchResults = await Promise.all(chunk.map(processBatch));
+      batchResults.forEach((m) => {
+        for (const [k, v] of m.entries()) {
+          dueBy.set(k, (dueBy.get(k) || 0) + v);
+        }
+      });
+    }
   }
   dueBy.forEach((amount, cat) => cur.push({ side: 'payment', cat, date: iso(asOf), particulars: 'EMI due up to this date', ref: '', mode: '', amount, branchId: null }));
 
