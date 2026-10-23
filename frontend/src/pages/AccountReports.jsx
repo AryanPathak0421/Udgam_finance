@@ -5,10 +5,19 @@ import { EmptyState, ErrorState, PageHeader, Spinner } from '../components/ui/Fe
 
 const MODE_LABEL = { cash: 'Cash', bank: 'Bank', upi: 'UPI', cheque: 'Cheque', security: 'Security' };
 const inr = (n) => (n === null || n === undefined || Number.isNaN(n) ? '—' : `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
-const amt = (n) => (n ? inr(n) : '');
+const amt = (n) => (n ? inr(n) : '—');
 const dmy = (s) => (s ? new Date(`${s}T00:00:00`).toLocaleDateString('en-IN') : '—');
-const today = () => new Date().toISOString().slice(0, 10);
-const monthStart = () => `${new Date().toISOString().slice(0, 7)}-01`;
+const today = () => {
+  const d = new Date();
+  const localStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  try {
+    const istStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(d);
+    return istStr > localStr ? istStr : localStr;
+  } catch {
+    return localStr;
+  }
+};
+const monthStart = () => `${today().slice(0, 7)}-01`;
 
 // the branch filter and a loader shared by the books
 function useBook(fetcher, deps) {
@@ -66,25 +75,46 @@ export function TrialBalance() {
         <Body b={b} empty={d && d.rows.length === 0 ? 'No accounts have any balance or entry for this period' : ''}>
           {d && (
             <div className="table-wrap">
-              <table className="data-table">
+              <table className="data-table grid-table">
                 <thead>
-                  <tr><th rowSpan={2}>Account</th><th colSpan={2} style={{ textAlign: 'center' }}>Opening</th><th colSpan={2} style={{ textAlign: 'center' }}>Period</th><th colSpan={2} style={{ textAlign: 'center' }}>Closing</th></tr>
-                  <tr><th className="num">Debit</th><th className="num">Credit</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Debit</th><th className="num">Credit</th></tr>
+                  <tr>
+                    <th rowSpan={2} className="col-divider">Account</th>
+                    <th colSpan={2} className="col-divider" style={{ textAlign: 'center' }}>Opening</th>
+                    <th colSpan={2} className="col-divider" style={{ textAlign: 'center' }}>Period</th>
+                    <th colSpan={2} style={{ textAlign: 'center' }}>Closing</th>
+                  </tr>
+                  <tr>
+                    <th className="num">Debit</th>
+                    <th className="num col-divider">Credit</th>
+                    <th className="num">Debit</th>
+                    <th className="num col-divider">Credit</th>
+                    <th className="num">Debit</th>
+                    <th className="num">Credit</th>
+                  </tr>
                 </thead>
                 <tbody>
                   {d.rows.map((r) => (
                     <tr key={`${r.group}|${r.name}`}>
-                      <td data-label="Account">{r.name}<div className="muted small">{r.group === 'Account' ? 'Cashbook line' : r.group}</div></td>
-                      <td data-label="Opening debit" className="num">{amt(r.open.dr)}</td><td data-label="Opening credit" className="num">{amt(r.open.cr)}</td>
-                      <td data-label="Debit" className="num">{amt(r.debit)}</td><td data-label="Credit" className="num">{amt(r.credit)}</td>
-                      <td data-label="Closing debit" className="num">{amt(r.close.dr)}</td><td data-label="Closing credit" className="num">{amt(r.close.cr)}</td>
+                      <td data-label="Account" className="col-divider">
+                        <strong>{r.name}</strong>
+                        <div className="muted small">{r.group === 'Account' ? 'Cashbook line' : r.group}</div>
+                      </td>
+                      <td data-label="Opening debit" className="num">{amt(r.open.dr)}</td>
+                      <td data-label="Opening credit" className="num col-divider">{amt(r.open.cr)}</td>
+                      <td data-label="Debit" className="num">{amt(r.debit)}</td>
+                      <td data-label="Credit" className="num col-divider">{amt(r.credit)}</td>
+                      <td data-label="Closing debit" className="num">{amt(r.close.dr)}</td>
+                      <td data-label="Closing credit" className="num">{amt(r.close.cr)}</td>
                     </tr>
                   ))}
-                  <tr style={{ borderTop: '2px solid currentColor' }}>
-                    <td><strong>Total</strong></td>
-                    <td className="num"><strong>{inr(d.totals.openDr)}</strong></td><td className="num"><strong>{inr(d.totals.openCr)}</strong></td>
-                    <td className="num"><strong>{inr(d.totals.debit)}</strong></td><td className="num"><strong>{inr(d.totals.credit)}</strong></td>
-                    <td className="num"><strong>{inr(d.totals.closeDr)}</strong></td><td className="num"><strong>{inr(d.totals.closeCr)}</strong></td>
+                  <tr style={{ borderTop: '2px solid var(--text, #111)', background: 'var(--bg-subtle, #f9fafb)', fontWeight: 'bold' }}>
+                    <td className="col-divider"><strong>Total</strong></td>
+                    <td className="num"><strong>{inr(d.totals.openDr)}</strong></td>
+                    <td className="num col-divider"><strong>{inr(d.totals.openCr)}</strong></td>
+                    <td className="num"><strong>{inr(d.totals.debit)}</strong></td>
+                    <td className="num col-divider"><strong>{inr(d.totals.credit)}</strong></td>
+                    <td className="num"><strong>{inr(d.totals.closeDr)}</strong></td>
+                    <td className="num"><strong>{inr(d.totals.closeCr)}</strong></td>
                   </tr>
                 </tbody>
               </table>

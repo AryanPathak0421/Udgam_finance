@@ -103,7 +103,17 @@ function NewOrder({ branches, onClose, onSaved }) {
 // What a branch bought from head office, what it paid, and what it still owes. Head office records the payments.
 function PaymentsDialog({ row, isAdmin, canPay, onClose, onChanged }) {
   const toast = useToast();
-  const today = new Date().toISOString().slice(0, 10);
+  const getToday = () => {
+    const d = new Date();
+    const localStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    try {
+      const istStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(d);
+      return istStr > localStr ? istStr : localStr;
+    } catch {
+      return localStr;
+    }
+  };
+  const today = getToday();
   const [items, setItems] = useState(null);
   const [form, setForm] = useState({ amount: '', paidOn: today, mode: 'bank', bankAccount: '', reference: '' });
   const [errors, setErrors] = useState({});
@@ -228,7 +238,14 @@ function PaymentsDialog({ row, isAdmin, canPay, onClose, onChanged }) {
                 <tr key={p.id}>
                   <td data-label="Date">{p.paidOn}</td>
                   <td data-label="Amount" className="num">{inr(p.amount)}</td>
-                  <td data-label="Mode">{cap(p.mode)}</td>
+                  <td data-label="Mode">
+                    {cap(p.mode)}
+                    {p.bankAccount && (
+                      <div className="muted small" style={{ fontSize: '11.5px', marginTop: 2 }}>
+                        {p.bankAccount.bankName} · A/c ••••{String(p.bankAccount.accountNumber || '').slice(-4)}
+                      </div>
+                    )}
+                  </td>
                   <td data-label="Reference">{p.reference || '—'}</td>
                   <td data-label="Status">
                     {p.status === 'paid' ? <span className="badge grey">Waiting for the admin</span> : p.status === 'rejected' ? <span className="badge danger">Rejected</span> : <span className="badge green">Received</span>}

@@ -17,6 +17,7 @@ export default function DayCloseApproval() {
   const [status, setStatus] = useState('submitted');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [search, setSearch] = useState('');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -39,6 +40,25 @@ export default function DayCloseApproval() {
     }
   }, [branch, status, from, to]);
   useEffect(() => { load(); }, [load]);
+
+  const shownItems = (data?.items || []).filter((c) => {
+    if (!search.trim()) return true;
+    const q = search.toLowerCase().trim();
+    const branchCode = (c.branch?.code || '').toLowerCase();
+    const branchName = (c.branch?.name || '').toLowerCase();
+    const submittedBy = (c.submittedBy || '').toLowerCase();
+    const dateStr = (c.date || '').toLowerCase();
+    const dmyStr = dmy(c.date).toLowerCase();
+    const statusStr = (c.status || '').toLowerCase();
+    return (
+      branchCode.includes(q) ||
+      branchName.includes(q) ||
+      submittedBy.includes(q) ||
+      dateStr.includes(q) ||
+      dmyStr.includes(q) ||
+      statusStr.includes(q)
+    );
+  });
 
   async function approve(c) {
     setBusy(c.id);
@@ -73,6 +93,15 @@ export default function DayCloseApproval() {
       <PageHeader title="Denomination & Cashbook Approval" description="The Cashbook closing and the denomination of every branch and day, side by side. Approve to let the branch move to the next date; it can only be approved when the two match." />
       <div className="panel">
         <div className="toolbar" style={{ flexWrap: 'wrap' }}>
+          <input
+            type="search"
+            className="toolbar-search"
+            placeholder="Search branch, employee, date…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            aria-label="Search day closes"
+            style={{ minWidth: 230 }}
+          />
           <select value={branch} onChange={(e) => setBranch(e.target.value)} aria-label="Branch">
             <option value="">All branches</option>
             {branches.map((b) => <option key={b.id} value={b.id}>{b.code} — {b.name}</option>)}
@@ -89,12 +118,14 @@ export default function DayCloseApproval() {
         </div>
         {loading && !data ? <Spinner label="Loading…" /> : error ? <ErrorState message={error} onRetry={load} /> : !data || data.items.length === 0 ? (
           <EmptyState title="Nothing here" description="No day close for these filters." />
+        ) : shownItems.length === 0 ? (
+          <EmptyState title="No matching records" description={`Nothing matches “${search}”.`} />
         ) : (
           <div className="table-wrap">
             <table className="data-table">
               <thead><tr><th>Branch</th><th>Day</th><th className="num">Cashbook closing</th><th className="num">Denomination</th><th className="num">Difference</th><th>Status</th><th /></tr></thead>
               <tbody>
-                {data.items.map((c) => (
+                {shownItems.map((c) => (
                   <Fragment key={c.id}>
                     <tr>
                       <td data-label="Branch">{c.branch ? `${c.branch.code} — ${c.branch.name}` : '—'}<div className="muted small">{c.submittedBy ? `by ${c.submittedBy}` : ''}</div></td>

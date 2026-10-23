@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 import { DayClose, DENOMINATIONS } from '../models/DayClose.js';
 import { Branch } from '../models/Branch.js';
-import { asString, parseDateOnly, HttpError } from '../utils/http.js';
+import { asString, parseDateOnly, startOfToday, escapeRegex, HttpError } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
 import { isAdmin } from './groupController.js';
 import { cashbookData } from './cashbookController.js';
@@ -15,7 +15,6 @@ import { cashbookData } from './cashbookController.js';
 const DAY = 24 * 3600 * 1000;
 const iso = (d) => (d ? new Date(d).toISOString().slice(0, 10) : null);
 const invalid = (errors) => new HttpError(422, 'Please correct the highlighted fields', errors);
-const startOfToday = () => new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
 const paise = (rupees) => Math.round(rupees * 100);
 
 /** The branch of a request: admin chooses any, others one of their own (the only one when they have one). */
@@ -128,6 +127,11 @@ export async function list(req, res) {
   const from = parseDateOnly(asString(req.query.from));
   const to = parseDateOnly(asString(req.query.to));
   if (from || to) filter.date = { ...(from ? { $gte: from } : {}), ...(to ? { $lte: to } : {}) };
+  const q = asString(req.query.q);
+  if (q) {
+    const rx = new RegExp(escapeRegex(q), 'i');
+    filter.$or = [{ submittedByCode: rx }, { remark: rx }];
+  }
   const rows = await DayClose.find(filter).sort({ date: -1, createdAt: -1 }).limit(300).populate('branch', 'code name');
   res.json({ items: rows.map((c) => present(c, null)), denominations: DENOMINATIONS });
 }

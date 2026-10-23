@@ -6,13 +6,15 @@ import { StockProduct } from '../models/StockProduct.js';
 import { Branch } from '../models/Branch.js';
 import { ProductPayment, PAYMENT_MODES } from '../models/ProductPayment.js';
 import { toMinor } from '../utils/money.js';
-import { parseDateOnly } from '../utils/http.js';
+import { parseDateOnly, startOfToday, asString, parsePaging, HttpError } from '../utils/http.js';
 import { generateCode } from '../services/codeSequence.js';
-import { asString, parsePaging, HttpError } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
 import { isAdmin } from './groupController.js';
 
-const POPULATE = { path: 'branch', select: 'code name' };
+const POPULATE = [
+  { path: 'branch', select: 'code name' },
+  { path: 'bankAccount', select: 'bankName accountHolderName accountNumber' },
+];
 const scope = (user) => (isAdmin(user) ? {} : { branch: { $in: user.branches || [] } });
 const invalid = (errors) => new HttpError(422, 'Please correct the highlighted fields', errors);
 
@@ -334,6 +336,12 @@ const presentPayment = (p) => ({
   amount: p.amountPaise / 100,
   paidOn: p.paidOn.toISOString().slice(0, 10),
   mode: p.mode,
+  bankAccount: p.bankAccount?._id ? {
+    id: p.bankAccount._id,
+    bankName: p.bankAccount.bankName,
+    accountHolderName: p.bankAccount.accountHolderName,
+    accountNumber: p.bankAccount.accountNumber,
+  } : null,
   reference: p.reference || '',
   note: p.note || '',
   status: p.status || 'received',
@@ -364,7 +372,6 @@ async function readPayment(req, b, { today }) {
   const bankAccount = await readBankAccount(b, mode);
   return { amountPaise, paidOn, mode, bankAccount, reference: asString(b.reference).slice(0, 60), note: asString(b.note).slice(0, 200) };
 }
-const startOfToday = () => new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
 
 /** A branch pays for the products it bought. It waits for the admin to receive it; it shows on the branch cashbook (payment side). */
 export async function payToHeadOffice(req, res) {
