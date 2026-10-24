@@ -46,11 +46,11 @@ const COLS = {
 };
 const borrowerCols = (extra) => [
   ['Loan ID', (r) => <strong>{r.loanId}</strong>], ['Borrower', (r) => <>{r.memberCode} {r.memberName}{r.mobile && <div className="muted small">{r.mobile}</div>}{r.group && <div className="muted small">{r.group}</div>}</>],
-  ['Branch', (r) => r.branch], ['Scheme', (r) => <>{r.scheme}<div className="muted small">{cap(r.mode)} · {r.term} installments</div></>], ['EMI', (r) => inr(r.emi), true], ...extra,
+  ['Branch', (r) => (r.branchName ? <>{r.branch}<div className="muted small">{r.branchName}</div></> : r.branch)], ['Scheme', (r) => <>{r.scheme}<div className="muted small">{cap(r.mode)} · {r.term} installments</div></>], ['EMI', (r) => inr(r.emi), true], ...extra,
 ];
 COLS.due = borrowerCols([['Due today', (r) => inr(r.due), true], ['Outstanding', (r) => inr(r.outstanding), true]]);
 COLS.overdue = borrowerCols([['Overdue amount', (r) => inr(r.due), true], ['Installments', (r) => r.dueCount, true], ['Oldest due', (r) => dmy(r.firstDue)], ['Days overdue', (r) => <span className="badge danger">{r.overdueDays}</span>], ['Outstanding', (r) => inr(r.outstanding), true]]);
-COLS.outstanding = borrowerCols([['Loan amount', (r) => inr(r.loanAmount), true], ['Total payable', (r) => inr(r.scheduled), true], ['Paid', (r) => inr(r.paid), true], ['Outstanding', (r) => <strong>{inr(r.outstanding)}</strong>, true], ['Due now', (r) => inr(r.due), true]]);
+COLS.outstanding = borrowerCols([['Loan amount', (r) => inr(r.loanAmount), true], ['Total payable', (r) => inr(r.scheduled), true, 'scheduled'], ['Paid', (r) => inr(r.paid), true], ['Outstanding', (r) => <strong>{inr(r.outstanding)}</strong>, true], ['Due now', (r) => inr(r.due), true]]);
 COLS.npa = borrowerCols([['Staff', (r) => r.staff || '—'], ['Loan amount', (r) => inr(r.loanAmount), true], ['Last installment', (r) => dmy(r.lastInstallment)], ['Days after term', (r) => <span className="badge danger">{r.daysPastEnd}</span>], ['Outstanding', (r) => <strong>{inr(r.outstanding)}</strong>, true]]);
 const blank = () => <span style={{ display: 'inline-block', width: 90, borderBottom: '1px solid currentColor' }}>&nbsp;</span>;
 const dueDatesText = (r) => { const d = r.dueDates || []; return d.length ? `${d.slice(0, 4).map((x) => dmy(x).slice(0, 5)).join(', ')}${d.length > 4 ? ` +${d.length - 4}` : ''}` : '—'; };
@@ -58,16 +58,23 @@ const dayName = (n) => ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 
 // the collection sheet: [label, text of the cell, numeric?] (the printed sheet uses the same list)
 const SHEET = [
   ['SR No', (r) => r.sr], ['Member code', (r) => r.memberCode], ['Member name', (r) => r.memberName], ['Father / Husband', (r) => r.fatherHusband || '—'], ['Mobile', (r) => r.mobile || '—'],
-  ['Loan name', (r) => `${r.scheme || '—'} (${r.mode === 'weekly' ? `weekly, ${dayName(r.weekday)}` : 'daily'})`], ['Loan amount', (r) => inr(r.loanAmount), true], ['Disbursed date', (r) => dmy(r.disbursed)],
+  ['Loan name', (r) => `${r.scheme || '—'} (${r.mode === 'weekly' ? `weekly, ${dayName(r.weekday)}` : 'daily'})`], ['Loan amount', (r) => inr(r.loanAmount), true, 'loanAmount'], ['Disbursed date', (r) => dmy(r.disbursed)],
   ['Loan ID', (r) => r.loanId], ['Total installments', (r) => r.term, true], ['EMI amount', (r) => inr(r.emi), true], ['Total payable', (r) => inr(r.scheduled), true], ['Paid installments', (r) => r.paidInstallments, true],
-  ['Due installments', (r) => r.dueCount, true], ['Next due date', (r) => dmy(r.nextDue)], ['Previous due', (r) => inr(r.previousDue), true], ['Today due', (r) => inr(r.todayDue), true],
-  ['Today receive', (r) => (r.todayReceive ? inr(r.todayReceive) : ''), true], ['Total paid', (r) => inr(r.totalPaid), true], ['Remaining installments', (r) => r.remainingInstallments, true],
-  ['Outstanding', (r) => inr(r.outstanding), true], ['All due dates', dueDatesText], ['Advance', (r) => (r.advance ? inr(r.advance) : '—'), true], ['Branch', (r) => r.branch], ['Sign customer', () => ''],
+  ['Due installments', (r) => r.dueCount, true], ['Next due date', (r) => dmy(r.nextDue)], ['Previous due', (r) => inr(r.previousDue), true, 'previousDue'], ['Today due', (r) => inr(r.todayDue), true, 'todayDue'],
+  ['Today receive', (r) => (r.todayReceive ? inr(r.todayReceive) : ''), true, 'todayReceive'], ['Total paid', (r) => inr(r.totalPaid), true, 'totalPaid'], ['Remaining installments', (r) => r.remainingInstallments, true],
+  ['Outstanding', (r) => inr(r.outstanding), true, 'outstanding'], ['All due dates', dueDatesText], ['Advance', (r) => (r.advance ? inr(r.advance) : '—'), true], ['Branch', (r) => r.branch], ['Sign customer', () => ''],
 ];
-const sheetCols = SHEET.map(([l, f, n]) => [l, (r) => { const v = f(r); return l === 'Today receive' || l === 'Sign customer' ? (v || blank()) : v; }, n]);
-COLS['personal-collection-sheet'] = sheetCols;
-COLS['msme-collection-sheet'] = sheetCols;
-const KIND_LABEL = { death: 'Death settlement', auto: 'Auto settle', loan: 'Loan settlement' };
+// the MSME / business sheet is the same, with the shop (business) name after the loan name
+const SHEET_MSME = SHEET.flatMap((c) => (c[0] === 'Loan name' ? [c, ['Shop name', (r) => r.shop || '—']] : [c]));
+const NPA_PRINT = [
+  ['SR No', (r) => r.sr], ['Member code', (r) => r.memberCode], ['Member name', (r) => r.memberName], ['Mobile', (r) => r.mobile || '—'], ['Loan ID', (r) => r.loanId],
+  ['Branch', (r) => (r.branchName ? `${r.branch} — ${r.branchName}` : r.branch)], ['Staff', (r) => r.staff || '—'], ['Loan amount', (r) => inr(r.loanAmount), true, 'loanAmount'],
+  ['Last installment', (r) => dmy(r.lastInstallment)], ['Days after term', (r) => r.daysPastEnd, true], ['Outstanding', (r) => inr(r.outstanding), true, 'outstanding'], ['Sign customer', () => ''],
+];
+const asScreen = (list) => list.map(([l, f, n]) => [l, (r) => { const v = f(r); return l === 'Today receive' || l === 'Sign customer' ? (v || blank()) : v; }, n]);
+COLS['personal-collection-sheet'] = asScreen(SHEET);
+COLS['msme-collection-sheet'] = asScreen(SHEET_MSME);
+const KIND_LABEL = { death: 'Death settlement', auto: 'Auto settle', loan: 'Loan settlement', auto_npa: 'Auto write-off (3 years)' };
 COLS['write-off'] = [
   ['Receipt', (r) => <strong>{r.receiptNo}</strong>], ['Date', (r) => dmy(r.date)], ['Kind', (r) => KIND_LABEL[r.kind] || r.kind], ['Loan ID', (r) => r.loanId], ['Borrower', (r) => <>{r.memberCode} {r.memberName}{r.group && <div className="muted small">{r.group}</div>}</>],
   ['Branch', (r) => r.branch], ['Outstanding', (r) => inr(r.outstanding), true], ['Received', (r) => inr(r.received), true], ['Written off', (r) => <strong>{inr(r.writtenOff)}</strong>, true], ['Remark', (r) => r.remark || '—'],
@@ -87,12 +94,12 @@ const REPORTS = {
   outstanding: { title: 'Loan Outstanding Report', description: 'What every running borrower still has to pay as on the chosen date.', asOf: true },
   'emi-collection': { title: 'Loan EMI Collection Report', description: 'EMI received, by the date it was paid.', range: true, from: today },
   'member-joining': { title: 'Member Joining Report', description: 'Members who joined, by the joining date.', range: true, from: monthStart },
-  npa: { title: 'NPA Report / Pay', description: 'Borrowers of a 120-day loan who still owe after the 121st day: the last installment is behind them and the loan is not paid. NPA payment takes the money received from the borrower.', asOf: true, npaPay: true },
+  npa: { title: 'NPA Report / Pay', description: 'Borrowers of a 120-day loan who still owe after the 121st day: the last installment is behind them and the loan is not paid. NPA payment takes the money received from the borrower.', asOf: true, npaPay: true, print: true, staffFilter: true },
   'personal-collection-sheet': { title: 'Personal Loan Collection Sheet', description: 'Personal loan borrowers with an EMI to collect as on the date. Print it for the field.', asOf: true, print: true, sheet: true },
   'msme-collection-sheet': { title: 'MSME / Business Loan Collection Sheet', description: 'MSME and business loan borrowers with an EMI to collect as on the date. Print it for the field.', asOf: true, print: true, sheet: true },
-  'write-off': { title: 'Write-off Report', description: 'Balance given up on loans: death settlements, automatic settlements and loan settlements with a waiver, by the settlement date.', range: true, status: ['death', 'auto', 'loan'], statusLabel: KIND_LABEL, from: monthStart },
-  'staff-npa': { title: 'Staff wise NPA Report', description: 'NPA borrowers and what is outstanding on them, for every staff member (the staff of the loan).', asOf: true, noCall: true },
-  'staff-npa-payment': { title: 'Staff wise NPA Payment Report', description: 'What every staff member collected on NPA loans (NPA payment), by the date it was received.', range: true, from: monthStart, noCall: true },
+  'write-off': { title: 'Write-off Report', description: 'Balance given up on loans: death settlements, automatic settlements and loan settlements with a waiver, by the settlement date. A loan that is 3 years past its last installment and still owes money (NPA) is written off by itself and shows here (Auto write-off) with what was still due.', range: true, status: ['death', 'auto', 'loan', 'auto_npa'], statusLabel: KIND_LABEL, from: monthStart },
+  'staff-npa': { title: 'Staff wise NPA Report', description: 'NPA borrowers and what is outstanding on them, for every staff member (the staff of the loan). Search a staff member and choose a branch to narrow it.', asOf: true, noCall: true, staffFilter: true },
+  'staff-npa-payment': { title: 'Staff wise NPA Payment Report', description: 'What every staff member collected on NPA loans (NPA payment), by the date it was received.', range: true, from: monthStart, noCall: true, staffFilter: true },
   'staff-disbursement': { title: 'Staff wise Disbursement Report', description: 'Loans paid out for every staff member, by the payment date.', range: true, from: monthStart, noCall: true },
   'group-collection': { title: 'Group wise Collection & CDS Report', description: 'For every group: the EMI that fell due in the period (demand), what was collected and the share collected (Collection and Demand Statement).', range: true, from: monthStart, noCall: true },
 };
@@ -207,11 +214,13 @@ function RevertDialog({ row, onClose, onDone }) {
 
 const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 /** The collection sheet on paper: landscape, a header with the company, the date and the filters, a small table that repeats its heading on every page, totals and a sign column. */
-function printSheet({ title, company, rows, summary, asOf, filters }) {
+function printSheet({ title, company, rows, asOf, filters, columns }) {
   const w = window.open('', '_blank', 'width=1200,height=900');
   if (!w) return false;
-  const head = SHEET.map(([l, , n]) => `<th class="${n ? 'n' : ''}${l === 'Sign customer' ? ' sign' : ''}">${esc(l)}</th>`).join('');
-  const body = rows.map((r) => `<tr>${SHEET.map(([l, f, n]) => `<td class="${n ? 'n' : ''}">${esc(f(r))}</td>`).join('')}</tr>`).join('');
+  const head = columns.map(([l, , n]) => `<th class="${n ? 'n' : ''}${l === 'Sign customer' ? ' sign' : ''}">${esc(l)}</th>`).join('');
+  const body = rows.map((r) => `<tr>${columns.map(([, f, n]) => `<td class="${n ? 'n' : ''}">${esc(f(r))}</td>`).join('')}</tr>`).join('');
+  // totals under the money columns
+  const foot = columns.map(([, , n, key], i) => (i === 0 ? `<td>Total (${rows.length})</td>` : key ? `<td class="n">${esc(inr(rows.reduce((t, r) => t + (r[key] || 0), 0)))}</td>` : n ? '<td></td>' : '<td></td>')).join('');
   w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>
     @page { size: A3 landscape; margin: 8mm }
     *{box-sizing:border-box} body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:9px;margin:0}
@@ -222,8 +231,7 @@ function printSheet({ title, company, rows, summary, asOf, filters }) {
   </style></head><body>
   <h1>${esc(company?.name || '')} — ${esc(title)}</h1>
   <div class="sub">As on ${esc(dmy(asOf))} · ${esc(filters)} · ${rows.length} borrower${rows.length === 1 ? '' : 's'}</div>
-  <table><thead><tr>${head}</tr></thead><tbody>${body}</tbody>
-  <tfoot><tr><td colspan="${SHEET.findIndex(([l]) => l === 'Total payable')}">Total (${rows.length})</td><td class="n">${esc(inr(rows.reduce((s, r) => s + (r.scheduled || 0), 0)))}</td><td colspan="${SHEET.findIndex(([l]) => l === 'Previous due') - SHEET.findIndex(([l]) => l === 'Total payable') - 1}"></td><td class="n">${esc(inr(rows.reduce((s, r) => s + (r.previousDue || 0), 0)))}</td><td class="n">${esc(inr(rows.reduce((s, r) => s + (r.todayDue || 0), 0)))}</td><td class="n">${esc(inr(rows.reduce((s, r) => s + (r.todayReceive || 0), 0)))}</td><td class="n">${esc(inr(rows.reduce((s, r) => s + (r.totalPaid || 0), 0)))}</td><td></td><td class="n">${esc(inr(rows.reduce((s, r) => s + (r.outstanding || 0), 0)))}</td><td colspan="4"></td></tr></tfoot></table>
+  <table><thead><tr>${head}</tr></thead><tbody>${body}</tbody><tfoot><tr>${foot}</tr></tfoot></table>
   <script>window.onload=function(){window.print()}</script></body></html>`);
   w.document.close();
   return true;
@@ -270,15 +278,15 @@ export function ReportPage({ name }) {
   const [staff, setStaff] = useState('');
   const staffQ = useDebounce(staff, 350);
   const [staffList, setStaffList] = useState([]);
-  useEffect(() => { if (cfg.sheet && branch) api.members.employees(branch).then((r) => setStaffList(r.items)).catch(() => setStaffList([])); else setStaffList([]); }, [branch]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if ((cfg.sheet || cfg.staffFilter) && branch) api.members.employees(branch).then((r) => setStaffList(r.items)).catch(() => setStaffList([])); else setStaffList([]); }, [branch]); // eslint-disable-line react-hooks/exhaustive-deps
   const callDate = cfg.range ? to : date; // a call is marked for the date of the report
 
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const res = await api.reports.get(name, { branch, q, ...(cfg.sheet ? { mode, weekday, staff: staffQ } : {}), ...(cfg.range ? { from, to, status: status || undefined } : { date }) });
-      if (cfg.sheet) res.rows.forEach((r, i) => { r.sr = i + 1; });
+      const res = await api.reports.get(name, { branch, q, ...(cfg.sheet ? { mode, weekday } : {}), ...(cfg.sheet || cfg.staffFilter ? { staff: staffQ } : {}), ...(cfg.range ? { from, to, status: status || undefined } : { date }) });
+      if (cfg.sheet || cfg.print) res.rows.forEach((r, i) => { r.sr = i + 1; });
       setData(res);
       setPage(1);
     } catch (err) {
@@ -313,10 +321,10 @@ export function ReportPage({ name }) {
               {cfg.status.map((s) => <option key={s} value={s}>{cfg.statusLabel?.[s] || cap(s)}</option>)}
             </select>
           )}
-          {cfg.sheet && (
+          {(cfg.sheet || cfg.staffFilter) && (
             <>
-              <select value={mode} onChange={(e) => { setMode(e.target.value); if (e.target.value === 'daily') setWeekday(''); }} aria-label="Daily or weekly"><option value="">Daily and weekly</option><option value="daily">Daily</option><option value="weekly">Weekly</option></select>
-              {mode !== 'daily' && <select value={weekday} onChange={(e) => setWeekday(e.target.value)} aria-label="Day of the week"><option value="">All days</option>{[1, 2, 3, 4, 5, 6, 0].map((d) => <option key={d} value={d}>{dayName(d)}</option>)}</select>}
+              {cfg.sheet && <select value={mode} onChange={(e) => { setMode(e.target.value); if (e.target.value === 'daily') setWeekday(''); }} aria-label="Daily or weekly"><option value="">Daily and weekly</option><option value="daily">Daily</option><option value="weekly">Weekly</option></select>}
+              {cfg.sheet && mode !== 'daily' && <select value={weekday} onChange={(e) => setWeekday(e.target.value)} aria-label="Day of the week"><option value="">All days</option>{[1, 2, 3, 4, 5, 6, 0].map((d) => <option key={d} value={d}>{dayName(d)}</option>)}</select>}
               <input type="search" list="sheetstaff" placeholder="Employee (code), optional" value={staff} onChange={(e) => setStaff(e.target.value)} aria-label="Employee" style={{ minWidth: 190 }} />
               <datalist id="sheetstaff">{staffList.map((s) => <option key={s.code} value={s.code}>{s.name}</option>)}</datalist>
             </>
@@ -326,8 +334,9 @@ export function ReportPage({ name }) {
           {cfg.print && <button className="btn" onClick={async () => {
             let company = null;
             try { company = (await api.hr.letterhead()).company; } catch { /* printed without the letterhead */ }
-            const filters = [mode ? cap(mode) : 'Daily and weekly', mode !== 'daily' && weekday !== '' ? dayName(Number(weekday)) : 'All days', staff ? `Employee ${staff.toUpperCase()}` : 'All employees', branch ? 'One branch' : 'All branches'].join(' · ');
-            if (!printSheet({ title: cfg.title, company, rows, summary: data.summary, asOf: data.asOf || date, filters })) toast.error('Allow pop-ups to print the sheet');
+            const filters = [...(cfg.sheet ? [mode ? cap(mode) : 'Daily and weekly', mode !== 'daily' && weekday !== '' ? dayName(Number(weekday)) : 'All days'] : []), staff ? `Employee ${staff.toUpperCase()}` : 'All employees', branch ? 'One branch' : 'All branches'].join(' · ');
+            const columns = name === 'npa' ? NPA_PRINT : name === 'msme-collection-sheet' ? SHEET_MSME : SHEET;
+            if (!printSheet({ title: cfg.title, company, rows, asOf: data.asOf || date, filters, columns })) toast.error('Allow pop-ups to print the sheet');
           }} disabled={!rows.length}>Print the sheet</button>}
         </div>
         {loading && !data ? <Spinner label="Loading…" /> : error ? <ErrorState message={error} onRetry={load} /> : !data || rows.length === 0 ? (

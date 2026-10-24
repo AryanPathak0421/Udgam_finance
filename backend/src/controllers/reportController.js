@@ -71,12 +71,12 @@ const matches = (q, ...vals) => !q || vals.some((v) => String(v || '').toLowerCa
  * opts.light: no mobile numbers (a summary does not need them). opts.split: also the outstanding principal and interest of every borrower.
  */
 export async function scanBorrowers(req, asOf, pick, opts = {}) {
-  const ids = (await LoanPayment.find({ status: 'paid', ...branchScope(req), ...(opts.dueOn ? { 'schedule.dueDate': opts.dueOn } : {}) }).sort({ createdAt: -1 }).select('_id').limit(20000).lean()).map((x) => x._id);
-  const branches = new Map((await Branch.find({}).select('code name').lean()).map((b) => [String(b._id), b.code]));
+  const ids = (await LoanPayment.find({ status: 'paid', ...branchScope(req), ...(opts.dueOn ? { 'schedule.dueDate': opts.dueOn } : {}), ...(opts.ended ? { emiEndDate: opts.ended } : {}) }).sort({ createdAt: -1 }).select('_id').limit(20000).lean()).map((x) => x._id);
+  const branches = new Map((await Branch.find({}).select('code name').lean()).map((b) => [String(b._id), b]));
   const rows = [];
   const doBatch = async (part) => {
     const [loans, recv, settled, todayRecv] = await Promise.all([
-      LoanPayment.find({ _id: { $in: part } }).select('loanId formId kind loanType mode installments emiStartDate emiEndDate paidOn branch group schemeName employeeCode lines schedule').lean(),
+      LoanPayment.find({ _id: { $in: part } }).select('loanId formId kind loanType mode installments emiStartDate emiEndDate paidOn branch group schemeName employeeCode lines schedule requisition').lean(),
       EmiPayment.aggregate([
         { $match: { loanPayment: { $in: part }, status: 'paid' } },
         { $unwind: '$items' },
@@ -99,6 +99,12 @@ export async function scanBorrowers(req, asOf, pick, opts = {}) {
       (await Member.find({ code: { $in: codes } }).select('code mobile husbandName').lean()).forEach((m) => { mobiles.set(m.code, m.mobile); husbands.set(m.code, m.husbandName || ''); });
     }
     const todayBy = new Map(todayRecv.map((x) => [`${x._id.lp}|${x._id.code}`, x.t]));
+    // the shop (business name) of a business / MSME loan
+    const shopOf = new Map();
+    if (opts.sheet) {
+      const biz = loans.filter((l) => ['business', 'msme'].includes(l.loanType) && l.requisition);
+      if (biz.length) (await LoanRequisition.find({ _id: { $in: biz.map((l) => l.requisition) } }).select('business.businessName').lean()).forEach((x) => shopOf.set(String(x._id), x.business?.businessName || ''));
+    }
     const out = [];
     for (const l of loans) {
       for (const line of l.lines) {
@@ -144,13 +150,13 @@ export async function scanBorrowers(req, asOf, pick, opts = {}) {
             }
           }
           sheet = {
-            fatherHusband: husbands.get(line.code) || '', disbursed: iso(l.paidOn), branchId: String(l.branch), weekday: l.mode === 'weekly' && l.schedule[0] ? new Date(l.schedule[0].dueDate).getUTCDay() : null,
+            shop: shopOf.get(String(l.requisition)) || '', fatherHusband: husbands.get(line.code) || '', disbursed: iso(l.paidOn), branchId: String(l.branch), weekday: l.mode === 'weekly' && l.schedule[0] ? new Date(l.schedule[0].dueDate).getUTCDay() : null,
             paidInstallments: paidInst, remainingInstallments: l.schedule.length - paidInst, previousDue: rupees(prev), todayDue: rupees(todayDue), todayReceive: rupees(todayBy.get(key) || 0), totalPaid: rupees(paidTotal),
             advance: rupees(Math.max(paidTotal - upTo, 0)), nextDue: next, dueDates: pending,
           };
         }
         const row = {
-          ...sheet, branchId: String(l.branch), key, loanPaymentId: l._id, loanId: l.loanId || l.formId, branch: branches.get(String(l.branch)) || '', group: l.group?.code ? `${l.group.code} — ${l.group.name}` : '',
+          ...sheet, branchId: String(l.branch), branchName: branches.get(String(l.branch))?.name || '', key, loanPaymentId: l._id, loanId: l.loanId || l.formId, branch: branches.get(String(l.branch))?.code || '', group: l.group?.code ? `${l.group.code} — ${l.group.name}` : '',
           memberCode: line.code, memberName: line.name, mobile: opts.light ? '' : showMobile(req.user, mobiles.get(line.code)), loanType: l.kind === 'group' ? 'group' : l.loanType || l.kind, scheme: l.schemeName || '',
           mode: l.mode, term: l.installments, loanAmount: rupees(line.amountPaise), emi: rupees((l.schedule[0]?.installmentPaise || 0) + extra), scheduled: rupees(scheduled),
           paid: rupees(scheduled - sum.outstandingPaise), outstanding: rupees(sum.outstandingPaise), due: rupees(sum.duePaise), dueCount: sum.dueCount, overdueDays: sum.overdueDays,
@@ -202,7 +208,8 @@ const REPORTS = {
   async npa(req) {
     const asOf = parseDateOnly(asString(req.query.date)) || startOfToday();
     const q = asString(req.query.q).toLowerCase();
-    const rows = (await scanBorrowers(req, asOf, (r) => (r.npaTerm && r.outstanding > 0 && r.daysPastEnd >= 1 && borrowerMatch(q)(r) ? r : null))).sort((a, b) => b.daysPastEnd - a.daysPastEnd);
+    const staff = asString(req.query.staff).trim().toUpperCase();
+    const rows = (await scanBorrowers(req, asOf, (r) => (r.npaTerm && r.outstanding > 0 && r.daysPastEnd >= 1 && borrowerMatch(q)(r) && (!staff || String(r.staff || '').toUpperCase().includes(staff)) ? r : null))).sort((a, b) => a.branch.localeCompare(b.branch) || b.daysPastEnd - a.daysPastEnd);
     // the last NPA payment of each borrower, so that the admin can revert it
     const last = await EmiPayment.find({ npa: true, status: 'paid', loanPayment: { $in: rows.map((r) => r.loanPaymentId) } }).sort({ createdAt: -1 }).select('loanPayment memberCode receiptNo amountPaise paidOn employeeCode').lean();
     const lastBy = new Map();
@@ -268,6 +275,11 @@ const REPORTS = {
 };
 const isNpa = (r) => r.npaTerm && r.outstanding > 0 && r.daysPastEnd >= 1;
 const staffNames = async (codes) => new Map((await User.find({ employeeCode: { $in: codes } }).select('employeeCode name').lean()).map((u) => [u.employeeCode, u.name]));
+/** The staff wise reports narrowed to the staff searched (code or name). */
+const staffFilter = (req, rows) => {
+  const t = asString(req.query.staff).trim().toLowerCase();
+  return t ? rows.filter((r) => `${r.staff} ${r.staffName}`.toLowerCase().includes(t)) : rows;
+};
 const rowsByStaff = async (map) => {
   const names = await staffNames([...map.keys()].filter(Boolean));
   return [...map.entries()].map(([code, v]) => ({ key: code || 'none', staff: code || 'Not recorded', staffName: names.get(code) || '', ...v })).sort((a, b) => (b.amount ?? b.outstanding ?? 0) - (a.amount ?? a.outstanding ?? 0));
@@ -290,13 +302,30 @@ Object.assign(REPORTS, {
   // balance given up: death settlements, automatic settlements and loan settlements with a waiver
   async writeOff(req) {
     const q = asString(req.query.q).toLowerCase();
-    const kind = ['death', 'auto', 'loan'].includes(asString(req.query.status)) ? asString(req.query.status) : '';
-    const sets = await LoanSettlement.find({ status: 'active', waiverPaise: { $gt: 0 }, ...(kind ? { kind } : {}), ...branchScope(req), ...dateRange(req, 'settledOn') }).sort({ settledOn: -1 }).limit(20000).populate('branch', 'code').lean();
+    const kind = ['death', 'auto', 'loan', 'auto_npa'].includes(asString(req.query.status)) ? asString(req.query.status) : '';
+    const sets = kind === 'auto_npa' ? [] : await LoanSettlement.find({ status: 'active', waiverPaise: { $gt: 0 }, ...(kind ? { kind } : {}), ...branchScope(req), ...dateRange(req, 'settledOn') }).sort({ settledOn: -1 }).limit(20000).populate('branch', 'code').lean();
     const mobiles = await mobileMap(req, sets.map((x) => x.memberCode));
     const rows = sets.filter((x) => matches(q, x.receiptNo, x.loanId, x.formId, x.memberCode, x.memberName, x.group)).map((x) => ({
       mobile: mobiles.get(x.memberCode) || '', key: String(x._id), receiptNo: x.receiptNo, date: iso(x.settledOn), kind: x.kind, loanId: x.loanId || x.formId, memberCode: x.memberCode, memberName: x.memberName, group: x.group || '', branch: x.branch?.code || '',
       outstanding: rupees(x.outstandingPaise), received: rupees(x.amountPaise), writtenOff: rupees(x.waiverPaise), remark: x.remark || x.claimRef || '',
     }));
+    // A loan that is 3 years past its last installment and still owes money is written off by itself (NPA, auto): it shows here on that date with what was still due.
+    if (!kind || kind === 'auto_npa') {
+      const from = parseDateOnly(asString(req.query.from));
+      const to = parseDateOnly(asString(req.query.to)) || startOfToday();
+      const back = (d) => new Date(Date.UTC(d.getUTCFullYear() - 3, d.getUTCMonth(), d.getUTCDate()));
+      const ended = { $lte: back(to), ...(from ? { $gte: back(from) } : {}) };
+      const auto = await scanBorrowers(req, to, (r) => (r.outstanding > 0 && r.lastInstallment && matches(q, r.loanId, r.memberCode, r.memberName, r.group) ? r : null), { ended });
+      auto.forEach((r) => {
+        const end = new Date(`${r.lastInstallment}T00:00:00.000Z`);
+        const on = new Date(Date.UTC(end.getUTCFullYear() + 3, end.getUTCMonth(), end.getUTCDate()));
+        rows.push({
+          mobile: r.mobile, key: `auto3|${r.key}`, receiptNo: '—', date: iso(on), kind: 'auto_npa', loanId: r.loanId, memberCode: r.memberCode, memberName: r.memberName, group: r.group || '', branch: r.branch,
+          outstanding: r.outstanding, received: 0, writtenOff: r.outstanding, remark: 'Written off by itself: 3 years after the last installment (still due)',
+        });
+      });
+      rows.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    }
     return { rows, summary: { loans: rows.length, outstanding: sumOf(rows, 'outstanding'), received: sumOf(rows, 'received'), writtenOff: sumOf(rows, 'writtenOff') } };
   },
   async staffNpa(req) {
@@ -308,7 +337,7 @@ Object.assign(REPORTS, {
       v.borrowers += 1; v.loanAmount += r.loanAmount; v.outstanding += r.outstanding; v.oldest = Math.max(v.oldest, r.daysPastEnd);
       by.set(r.staff, v);
     });
-    const rows = await rowsByStaff(by);
+    const rows = staffFilter(req, await rowsByStaff(by));
     rows.forEach((r) => { r.loanAmount = Math.round(r.loanAmount * 100) / 100; r.outstanding = Math.round(r.outstanding * 100) / 100; });
     return { asOf: iso(asOf), rows, noCall: true, summary: { staff: rows.length, borrowers: sumOf(rows, 'borrowers'), outstanding: sumOf(rows, 'outstanding') } };
   },
@@ -319,7 +348,7 @@ Object.assign(REPORTS, {
       { $group: { _id: '$employeeCode', receipts: { $sum: 1 }, amount: { $sum: '$amountPaise' } } },
     ]);
     const by = new Map(agg.map((a) => [a._id || '', { receipts: a.receipts, amount: rupees(a.amount) }]));
-    const rows = await rowsByStaff(by);
+    const rows = staffFilter(req, await rowsByStaff(by));
     return { rows, noCall: true, summary: { staff: rows.length, receipts: sumOf(rows, 'receipts'), amount: sumOf(rows, 'amount') } };
   },
   async staffDisbursement(req) {
