@@ -89,6 +89,11 @@ const complaintSchema = new mongoose.Schema(
     branch: ref('Branch'),
     memberCode: String,
     category: { type: String, enum: ['loan', 'emi', 'staff', 'insurance', 'other'], default: 'other' },
+    // what the caller can tell about the member (all optional)
+    husbandName: { type: String, trim: true },
+    groupCode: { type: String, trim: true, uppercase: true },
+    groupName: { type: String, trim: true },
+    groupLeaderName: { type: String, trim: true },
     description: { type: String, required: true },
     assignedTo: ref('Employee'),
     assignedToCode: String,
@@ -115,6 +120,7 @@ const requirementSchema = new mongoose.Schema(
     count: { type: Number, required: true, min: 1 },
     reason: String,
     requiredBy: Date,
+    expectedTime: { type: String, trim: true }, // in what time the employees are expected to join (e.g. 15 days)
     status: { type: String, enum: REQUIREMENT_STATUS, default: 'pending' },
     remark: String,
     decidedByCode: String,
@@ -196,3 +202,23 @@ const changeSchema = new mongoose.Schema(
 changeSchema.index({ letterNo: 1 }, { unique: true });
 changeSchema.index({ employee: 1, effectiveDate: -1 });
 export const EmployeeChange = mongoose.model('EmployeeChange', changeSchema);
+
+// A target task: for a period (from date to date) the employees of a rank (or chosen employees) get targets: new members, D6, new groups and NPA recovery.
+// What is achieved is counted from the work in the system (D6 is entered by hand); what is still to do shows as pending (−).
+const targetTaskSchema = new mongoose.Schema(
+  {
+    fromDate: { type: Date, required: true },
+    toDate: { type: Date, required: true },
+    rank: ref('Rank'),
+    rankName: String,
+    branch: ref('Branch'),
+    employees: [{ _id: false, employee: ref('Employee'), code: String, name: String, branch: ref('Branch'), d6Achieved: { type: Number, default: 0 } }],
+    targets: { newMember: { type: Number, default: 0 }, d6: { type: Number, default: 0 }, newGroup: { type: Number, default: 0 }, npaRecoveryPaise: { type: Number, default: 0 } },
+    remark: String,
+    status: { type: String, enum: ['active', 'cancelled'], default: 'active' },
+    createdByCode: String,
+  },
+  { timestamps: true }
+);
+targetTaskSchema.index({ fromDate: -1 });
+export const TargetTask = mongoose.model('TargetTask', targetTaskSchema);

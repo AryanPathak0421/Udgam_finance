@@ -240,7 +240,7 @@ export const NAV_SECTIONS = [
           { label: 'Salary Payment', path: '/hr/salary-payment', icon: 'cash', roles: [...ALL_ADMIN, 'accountant', 'branch_manager'] },
           { label: 'Branch wise Salary', path: '/hr/branch-salary', icon: 'branch' },
           { label: 'Room / Messenger Rent', path: '/hr/room-rent', icon: 'building' },
-          { label: 'Task', path: '/hr/tasks', icon: 'check' },
+          { label: 'Task / Target Task', path: '/hr/tasks', icon: 'check' },
           { label: 'Toll Free Complaint Entry', path: '/hr/complaints', icon: 'alert' },
           { label: 'Employee Requirement', path: '/hr/requirements', icon: 'userplus' },
           { label: 'Leave Apply', path: '/hr/leave-apply', icon: 'calendar' },

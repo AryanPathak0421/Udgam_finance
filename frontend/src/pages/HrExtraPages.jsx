@@ -259,7 +259,115 @@ export function RoomRent() {
 // ---------------------------------------------------------------------------------------------------------------------------
 // Task
 const TASK_NEXT = { open: ['in_progress', 'done', 'cancelled'], in_progress: ['done', 'cancelled', 'open'], done: ['open'], cancelled: ['open'] };
+const pendingBadge = (p, unit) => (p.pending > 0 ? <span className="badge danger">−{unit === 'inr' ? inr(p.pending) : p.pending}</span> : p.target > 0 ? <span className="badge green">done</span> : <span className="muted">—</span>);
+
+function TargetForm({ onClose, onSaved }) {
+  const toast = useToast();
+  const [ranks, setRanks] = useState([]);
+  const [f, setF] = useState({ fromDate: today(), toDate: today(), rank: '', newMember: '', d6: '', newGroup: '', npaRecovery: '', remark: '' });
+  const sv = useSaver(toast, onSaved);
+  useEffect(() => { api.hr.targetOptions().then((r) => setRanks(r.ranks)).catch(() => {}); }, []);
+  const set = (k) => (e) => { setF((x) => ({ ...x, [k]: e.target.value })); sv.setErrors((x) => ({ ...x, [k]: undefined })); };
+  const whole = (k) => (e) => { setF((x) => ({ ...x, [k]: e.target.value.replace(/\D/g, '').slice(0, 6) })); sv.setErrors((x) => ({ ...x, [k]: undefined })); };
+  return (
+    <FormModal title="Give a target task" onClose={onClose} busy={sv.busy} onSave={() => sv.run(() => api.hr.createTargetTask(f), (r) => `Task given to ${r.item.employees.length} employee${r.item.employees.length === 1 ? '' : 's'}`)}>
+      <div className="form-grid">
+        <FormField id="ttf" label="From date" required error={sv.errors.fromDate}><input id="ttf" type="date" value={f.fromDate} onChange={set('fromDate')} /></FormField>
+        <FormField id="ttt" label="To date" required error={sv.errors.toDate}><input id="ttt" type="date" min={f.fromDate} value={f.toDate} onChange={set('toDate')} /></FormField>
+        <FormField id="ttr" label="Rank" required className="span-2" error={sv.errors.rank} hint="Every working employee of this rank (in your branches) gets the task"><select id="ttr" value={f.rank} onChange={set('rank')}><option value="">Select rank</option>{ranks.map((r) => <option key={r.id} value={r.id}>{r.code} — {r.name}</option>)}</select></FormField>
+        <FormField id="ttm" label="New member — target" error={sv.errors.newMember}><input id="ttm" inputMode="numeric" value={f.newMember} onChange={whole('newMember')} /></FormField>
+        <FormField id="ttd" label="D6 — target" error={sv.errors.d6} hint="Counted by hand"><input id="ttd" inputMode="numeric" value={f.d6} onChange={whole('d6')} /></FormField>
+        <FormField id="ttg" label="New group — target" error={sv.errors.newGroup}><input id="ttg" inputMode="numeric" value={f.newGroup} onChange={whole('newGroup')} /></FormField>
+        <FormField id="ttn" label="NPA recovery — target (₹)" error={sv.errors.npaRecovery}><input id="ttn" inputMode="decimal" value={f.npaRecovery} onChange={(e) => setF((x) => ({ ...x, npaRecovery: e.target.value.replace(/[^\d.]/g, '') }))} /></FormField>
+        <FormField id="ttk" label="Remark" className="span-2"><input id="ttk" value={f.remark} maxLength={300} onChange={set('remark')} /></FormField>
+      </div>
+    </FormModal>
+  );
+}
+
+function TargetTasks() {
+  const toast = useToast();
+  const [month, setMonth] = useState(monthNow());
+  const list = useLoad(() => api.hr.targetTasks({ month }), [month]);
+  const old = useLoad(() => api.hr.pendingOldTargets(), []);
+  const [adding, setAdding] = useState(false);
+  const [showOld, setShowOld] = useState(false);
+  const items = list.data?.items || [];
+  async function d6(task, e, value) {
+    try { await api.hr.setTargetD6(task.id, { employee: e.id, achieved: value }); list.load(); old.load(); } catch (err) { toast.error(err.errors?.achieved || err.message); }
+  }
+  async function cancel(task) {
+    try { await api.hr.cancelTargetTask(task.id); toast.success('Task cancelled'); list.load(); old.load(); } catch (err) { toast.error(err.message); }
+  }
+  const oldItems = old.data?.items || [];
+  return (
+    <>
+      <PageHeader title="Target Task" description="Give a task for a period (from date to date) rank wise: new member, D6, new group and NPA recovery targets. What an employee has achieved is counted from the work done under the employee code; what is still to be done shows as pending (−) and goes down as the work is done." />
+      <div className="panel">
+        <div className="toolbar" style={{ flexWrap: 'wrap' }}>
+          <label className="small muted" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>Month <input type="month" value={month} onChange={(e) => setMonth(e.target.value || monthNow())} aria-label="Month" /></label>
+          <Refresh onClick={() => { list.load(); old.load(); }} loading={list.loading} />
+          <button className="btn" onClick={() => setShowOld((x) => !x)}>Old tasks pending{oldItems.length ? ` (${oldItems.length})` : ''}</button>
+          <button className="btn primary" onClick={() => setAdding(true)}>Give a target task</button>
+        </div>
+        {showOld && (
+          <div className="notice" style={{ marginBottom: 12 }}>
+            <strong>Employees with an old task still pending</strong>
+            {oldItems.length === 0 ? <div className="muted small">None: every ended task is done.</div> : (
+              <div className="table-wrap"><table className="data-table"><thead><tr><th>Employee</th><th>Period</th><th className="num">New member</th><th className="num">D6</th><th className="num">New group</th><th className="num">NPA recovery</th></tr></thead><tbody>
+                {oldItems.flatMap((e) => e.tasks.map((t, i) => (
+                  <tr key={`${e.code}${t.id}`}><td data-label="Employee">{i === 0 ? <><strong>{e.code}</strong> {e.name}</> : ''}</td><td data-label="Period">{dmy(t.from)} – {dmy(t.to)}</td><td data-label="New member" className="num">{t.newMember ? `−${t.newMember}` : '—'}</td><td data-label="D6" className="num">{t.d6 ? `−${t.d6}` : '—'}</td><td data-label="New group" className="num">{t.newGroup ? `−${t.newGroup}` : '—'}</td><td data-label="NPA recovery" className="num">{t.npaRecovery ? `−${inr(t.npaRecovery)}` : '—'}</td></tr>
+                )))}
+              </tbody></table></div>
+            )}
+          </div>
+        )}
+        <Body list={list} empty={`No target task in ${month}.`}>{() => items.map((t) => (
+          <div key={t.id} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12, marginBottom: 12, opacity: t.status === 'cancelled' ? 0.6 : 1 }}>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div><strong>{dmy(t.fromDate)} – {dmy(t.toDate)}</strong> · {t.rank || 'Chosen employees'} <span className="muted small">by {t.by}</span>{t.remark && <div className="muted small">{t.remark}</div>}</div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <span className="badge green">{t.summary.done} done</span><span className="badge danger">{t.summary.pending} pending</span>{t.status === 'cancelled' ? <Badge s="cancelled" /> : <button className="btn sm danger-outline" onClick={() => cancel(t)}>Cancel</button>}
+              </div>
+            </div>
+            <div className="muted small" style={{ margin: '6px 0' }}>Target: New member {t.targets.newMember} · D6 {t.targets.d6} · New group {t.targets.newGroup} · NPA recovery {inr(t.targets.npaRecovery)}</div>
+            <div className="table-wrap"><table className="data-table">
+              <thead><tr><th>Employee</th><th className="num">New member</th><th className="num">D6</th><th className="num">New group</th><th className="num">NPA recovery</th><th>Status</th></tr></thead>
+              <tbody>
+                {t.employees.map((e) => (
+                  <tr key={e.id}>
+                    <td data-label="Employee"><strong>{e.code}</strong> {e.name}</td>
+                    <td data-label="New member" className="num">{e.newMember.achieved}/{e.newMember.target} {pendingBadge(e.newMember)}</td>
+                    <td data-label="D6" className="num"><input aria-label={`D6 of ${e.code}`} inputMode="numeric" defaultValue={e.d6.achieved} disabled={t.status === 'cancelled'} onBlur={(ev) => { const v = ev.target.value.replace(/\D/g, ''); if (v !== '' && Number(v) !== e.d6.achieved) d6(t, e, Number(v)); }} style={{ width: 56, textAlign: 'right' }} />/{e.d6.target} {pendingBadge(e.d6)}</td>
+                    <td data-label="New group" className="num">{e.newGroup.achieved}/{e.newGroup.target} {pendingBadge(e.newGroup)}</td>
+                    <td data-label="NPA recovery" className="num">{inr(e.npaRecovery.achieved)}/{inr(e.npaRecovery.target)} {pendingBadge(e.npaRecovery, 'inr')}</td>
+                    <td data-label="Status"><span className={`badge ${e.status === 'done' ? 'green' : 'amber'}`}>{e.status === 'done' ? 'Done' : 'Pending'}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table></div>
+          </div>
+        ))}</Body>
+      </div>
+      {adding && <TargetForm onClose={() => setAdding(false)} onSaved={() => { setAdding(false); list.load(); old.load(); }} />}
+    </>
+  );
+}
+
 export function Tasks() {
+  const [tab, setTab] = useState('target');
+  return (
+    <>
+      <div className="toolbar" style={{ gap: 8, marginBottom: 8 }}>
+        <button className={`btn ${tab === 'target' ? 'primary' : ''}`} onClick={() => setTab('target')}>Target tasks</button>
+        <button className={`btn ${tab === 'task' ? 'primary' : ''}`} onClick={() => setTab('task')}>Other tasks</button>
+      </div>
+      {tab === 'target' ? <TargetTasks /> : <PlainTasks />}
+    </>
+  );
+}
+
+function PlainTasks() {
   const toast = useToast();
   const [branch, setBranch] = useState('');
   const [status, setStatus] = useState('active');
@@ -361,7 +469,7 @@ export function Complaints() {
           <Dates from={from} setFrom={setFrom} to={to} setTo={setTo} />
           <input type="search" placeholder="Search" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search" />
           <Refresh onClick={list.load} loading={list.loading} />
-          <button className="btn primary" onClick={() => { setF({ date: today(), callerName: '', callerMobile: '', branch: '', memberCode: '', category: 'other', description: '', assignedTo: '' }); sv.setErrors({}); setAdding(true); }}>New complaint</button>
+          <button className="btn primary" onClick={() => { setF({ date: today(), callerName: '', callerMobile: '', branch: '', memberCode: '', husbandName: '', groupCode: '', groupName: '', groupLeaderName: '', category: 'other', description: '', assignedTo: '' }); sv.setErrors({}); setAdding(true); }}>New complaint</button>
         </div>
         <Body list={list} empty="No complaint for these dates.">{() => (<>
           <Summary items={[['Complaints', s.complaints], ['Open', s.open], ['In progress', s.inProgress], ['Resolved', s.resolved]]} />
@@ -372,7 +480,7 @@ export function Complaints() {
                 {items.map((c) => (
                   <tr key={c.id}>
                     <td data-label="Complaint"><strong>{c.complaintNo}</strong><div className="muted small">{dmy(c.date)}</div></td>
-                    <td data-label="Caller">{c.callerName}<div className="muted small">{c.callerMobile}</div></td>
+                    <td data-label="Caller">{c.callerName}<div className="muted small">{c.callerMobile}</div>{c.husbandName && <div className="muted small">Husband: {c.husbandName}</div>}{(c.groupCode || c.groupName) && <div className="muted small">Group: {[c.groupCode, c.groupName].filter(Boolean).join(' · ')}{c.groupLeaderName ? ` · Leader ${c.groupLeaderName}` : ''}</div>}</td>
                     <td data-label="About">{cap(c.category)}{c.memberCode ? ` · ${c.memberCode}` : ''}<div className="muted small">{c.description}</div></td>
                     <td data-label="Branch">{c.branch?.code || '—'}</td><td data-label="Looked into by">{c.assignedTo || '—'}</td>
                     <td data-label="Status"><Badge s={c.status} />{c.resolution && <div className="muted small">{c.resolution}</div>}</td>
@@ -392,6 +500,10 @@ export function Complaints() {
             <FormField id="cpm" label="Caller mobile" error={sv.errors.callerMobile}><input id="cpm" inputMode="numeric" value={f.callerMobile} onChange={(e) => { setF((x) => ({ ...x, callerMobile: e.target.value.replace(/\D/g, '').slice(0, 10) })); sv.setErrors((x) => ({ ...x, callerMobile: undefined })); }} /></FormField>
             <FormField id="cpb" label="Branch" error={sv.errors.branch}><select id="cpb" value={f.branch} onChange={set('branch')}><option value="">Not known</option>{branches.map((b) => <option key={b.id} value={b.id}>{b.code} — {b.name}</option>)}</select></FormField>
             <FormField id="cpmem" label="Member code" hint="Optional"><input id="cpmem" value={f.memberCode} maxLength={30} onChange={(e) => setF((x) => ({ ...x, memberCode: e.target.value.toUpperCase() }))} /></FormField>
+            <FormField id="cphus" label="Husband name" hint="Optional"><input id="cphus" value={f.husbandName} maxLength={80} onChange={set('husbandName')} /></FormField>
+            <FormField id="cpgc" label="Group code" hint="Optional"><input id="cpgc" value={f.groupCode} maxLength={30} onChange={(e) => setF((x) => ({ ...x, groupCode: e.target.value.toUpperCase() }))} /></FormField>
+            <FormField id="cpgn" label="Group name" hint="Optional"><input id="cpgn" value={f.groupName} maxLength={80} onChange={set('groupName')} /></FormField>
+            <FormField id="cpgl" label="Group leader name" hint="Optional"><input id="cpgl" value={f.groupLeaderName} maxLength={80} onChange={set('groupLeaderName')} /></FormField>
             <FormField id="cpc" label="About" error={sv.errors.category}><select id="cpc" value={f.category} onChange={set('category')}>{CATS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></FormField>
             <FormField id="cpx" label="Complaint" required className="span-2" error={sv.errors.description}><input id="cpx" value={f.description} maxLength={1000} onChange={set('description')} /></FormField>
             {f.branch && <EmployeePick id="cpa" branch={f.branch} value={f.assignedTo} onChange={(v) => setF((x) => ({ ...x, assignedTo: v }))} label="Looked into by" error={sv.errors.assignedTo} />}
@@ -437,18 +549,18 @@ export function Requirements() {
           <BranchSelect value={branch} onChange={setBranch} />
           <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status"><option value="">All</option><option value="pending">Waiting</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="filled">Filled</option></select>
           <Refresh onClick={list.load} loading={list.loading} />
-          <button className="btn primary" onClick={() => { setF({ branch: '', department: '', designation: '', count: '1', reason: '', requiredBy: '' }); sv.setErrors({}); setAdding(true); }}>New requirement</button>
+          <button className="btn primary" onClick={() => { setF({ branch: '', department: '', designation: '', count: '1', reason: '', requiredBy: '', expectedTime: '' }); sv.setErrors({}); setAdding(true); }}>New requirement</button>
         </div>
         <Body list={list} empty="No requirement for this filter.">{() => (<>
           <Summary items={[['Requirements', s.requirements], ['Waiting', s.pending], ['Approved', s.approved], ['Posts open', s.positions]]} />
           <div className="table-wrap">
             <table className="data-table">
-              <thead><tr><th>Requirement</th><th>Branch</th><th>Post</th><th className="num">Needed</th><th>Required by</th><th>Status</th><th /></tr></thead>
+              <thead><tr><th>Requirement</th><th>Branch</th><th>Post</th><th className="num">Needed</th><th>Required by</th><th>Expected time</th><th>Status</th><th /></tr></thead>
               <tbody>
                 {items.map((r) => (
                   <tr key={r.id}>
                     <td data-label="Requirement"><strong>{r.reqNo}</strong><div className="muted small">{r.reason}</div></td><td data-label="Branch">{r.branch?.code}</td>
-                    <td data-label="Post">{r.designation || '—'}<div className="muted small">{r.department}</div></td><td data-label="Needed" className="num">{r.count}</td><td data-label="Required by">{dmy(r.requiredBy)}</td>
+                    <td data-label="Post">{r.designation || '—'}<div className="muted small">{r.department}</div></td><td data-label="Needed" className="num">{r.count}</td><td data-label="Required by">{dmy(r.requiredBy)}</td><td data-label="Expected time">{r.expectedTime || '—'}</td>
                     <td data-label="Status"><Badge s={r.status} />{r.remark && <div className="muted small">{r.remark}</div>}</td>
                     <td>
                       {r.status === 'pending' && <div style={{ display: 'flex', gap: 6 }}><button className="btn sm primary" onClick={() => decide(r, 'approved')}>Approve</button><button className="btn sm danger-outline" onClick={() => setRejecting(r)}>Reject</button></div>}
@@ -469,6 +581,7 @@ export function Requirements() {
             <FormField id="rqs" label="Designation" error={sv.errors.designation}><select id="rqs" value={f.designation} onChange={set('designation')}><option value="">Any</option>{opts.designations.filter((d) => !f.department || !d.department || d.department === f.department).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></FormField>
             <FormField id="rqc" label="How many" required error={sv.errors.count}><input id="rqc" inputMode="numeric" value={f.count} onChange={(e) => setF((x) => ({ ...x, count: e.target.value.replace(/\D/g, '').slice(0, 3) }))} /></FormField>
             <FormField id="rqby" label="Needed by" error={sv.errors.requiredBy}><input id="rqby" type="date" value={f.requiredBy} onChange={set('requiredBy')} /></FormField>
+            <FormField id="rqet" label="Expected time" error={sv.errors.expectedTime} hint="In what time the employees should join, e.g. 15 days"><input id="rqet" value={f.expectedTime} maxLength={60} onChange={set('expectedTime')} /></FormField>
             <FormField id="rqr" label="Why" required className="span-2" error={sv.errors.reason}><input id="rqr" value={f.reason} maxLength={300} onChange={set('reason')} /></FormField>
           </div>
         </FormModal>
@@ -485,23 +598,38 @@ export function LeaveApply() {
   const toast = useToast();
   const [branch, setBranch] = useState('');
   const list = useLoad(() => api.hr.leaves({ branch, from: '' }), [branch]);
-  const [f, setF] = useState({ employee: '', type: 'casual', from: today(), to: today(), reason: '' });
-  const sv = useSaver(toast, () => { setF((x) => ({ ...x, employee: '', reason: '' })); list.load(); });
+  const [f, setF] = useState({ employee: '', type: 'earned', from: today(), to: today(), reason: '' });
+  const [bal, setBal] = useState(null);
+  const balances = useLoad(() => api.hr.leaveBalances({ branch }), [branch]);
+  const sv = useSaver(toast, () => { setF((x) => ({ ...x, employee: '', reason: '' })); setBal(null); list.load(); balances.load(); });
+  useEffect(() => { if (!f.employee) { setBal(null); return; } api.hr.leaveBalance(f.employee).then((r) => setBal(r.balance)).catch(() => setBal(null)); }, [f.employee]);
   const set = (k) => (e) => { setF((x) => ({ ...x, [k]: e.target.value })); sv.setErrors((x) => ({ ...x, [k]: undefined })); };
   const items = list.data?.items || [];
   return (
     <>
-      <PageHeader title="Leave Apply" description="Apply leave for an employee of a branch. Sundays are the weekly off and are not counted. The leave waits for approval under Leave Approval." />
+      <PageHeader title="Leave Apply" description="The company gives Earned Leave (EL) only: 1 for every month, 12 in a financial year (April to March). Joined after the 15th of a month: EL starts from the next month. Old pending EL can be taken together, but no EL is given in advance. Sundays are the weekly off and are not counted. The leave waits for approval under Leave Approval." />
       <div className="panel" style={{ padding: 16 }}>
         <h3 className="section-title">Apply for leave</h3>
         <div className="form-grid">
           <EmployeePick id="lvemp" value={f.employee} onChange={(v) => setF((x) => ({ ...x, employee: v }))} error={sv.errors.employee} onBranch={setBranch} />
-          <FormField id="lvt" label="Kind of leave" error={sv.errors.type}><select id="lvt" value={f.type} onChange={set('type')}>{LEAVE_TYPES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></FormField>
+          <FormField id="lvt" label="Kind of leave" error={sv.errors.type}><input id="lvt" value="Earned leave (EL)" readOnly /></FormField>
+          {bal && <p className="span-2" style={{ margin: 0 }}><strong>EL {bal.financialYear}:</strong> carried {bal.opening} + earned {bal.earned} − taken {bal.used} = <strong>{bal.available} available</strong>{!bal.joiningKnown && <span className="muted small"> (joining date not set: counted from the start of this financial year)</span>}</p>}
           <FormField id="lvf" label="From" required error={sv.errors.from}><input id="lvf" type="date" value={f.from} onChange={set('from')} /></FormField>
           <FormField id="lvto" label="To" required error={sv.errors.to}><input id="lvto" type="date" min={f.from} value={f.to} onChange={set('to')} /></FormField>
           <FormField id="lvr" label="Reason" required className="span-2" error={sv.errors.reason}><input id="lvr" value={f.reason} maxLength={300} onChange={set('reason')} /></FormField>
         </div>
         <button className="btn primary" onClick={() => sv.run(() => api.hr.applyLeave(f), (r) => `Leave of ${r.item.days} day${r.item.days === 1 ? '' : 's'} sent for approval`)} disabled={sv.busy || !f.employee}>{sv.busy ? 'Saving…' : 'Apply'}</button>
+      </div>
+      <div className="panel">
+        <h3 className="section-title">EL balance{balances.data?.financialYear ? ` — financial year ${balances.data.financialYear}` : ''}</h3>
+        <Body list={balances} empty="No employee.">{() => (
+          <div className="table-wrap" style={{ maxHeight: 260, overflow: 'auto' }}>
+            <table className="data-table">
+              <thead><tr><th>Employee</th><th>Branch</th><th className="num">Carried</th><th className="num">Earned</th><th className="num">Taken</th><th className="num">Available</th></tr></thead>
+              <tbody>{balances.data.items.map((b) => <tr key={b.id}><td data-label="Employee"><strong>{b.employeeCode}</strong> {b.name}</td><td data-label="Branch">{b.branch?.code}</td><td data-label="Carried" className="num">{b.opening}</td><td data-label="Earned" className="num">{b.earned}</td><td data-label="Taken" className="num">{b.used}</td><td data-label="Available" className="num"><strong>{b.available}</strong></td></tr>)}</tbody>
+            </table>
+          </div>
+        )}</Body>
       </div>
       <div className="panel">
         <h3 className="section-title">Leave applications</h3>

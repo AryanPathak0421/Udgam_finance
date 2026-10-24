@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler as h } from '../utils/http.js';
 import {
-  listRoomRents, createRoomRent, cancelRoomRent, roomRentPhoto, listRentParties, getRentParty, createRentParty, updateRentParty, deleteRentParty, listTasks, createTask, setTaskStatus, listComplaints, createComplaint, setComplaintStatus,
+  leaveBalance, leaveBalances, targetOptions, createTargetTask, listTargetTasks, pendingOldTargets, setTargetD6, cancelTargetTask, listRoomRents, createRoomRent, cancelRoomRent, roomRentPhoto, listRentParties, getRentParty, createRentParty, updateRentParty, deleteRentParty, listTasks, createTask, setTaskStatus, listComplaints, createComplaint, setComplaintStatus,
   listRequirements, createRequirement, decideRequirement, listLeaves, applyLeave, decideLeave, listResignations, applyResignation, decideResignation,
   listChanges, createChange, letterhead, blockEmployee,
 } from '../controllers/hrExtraController.js';
@@ -15,6 +15,14 @@ const HR = ['super_admin', 'admin', 'branch_manager', 'accountant'];
 router.get('/hr/room-rents', requireAuth, requireRole(...HR), h(listRoomRents));
 router.post('/hr/room-rents', requireAuth, requireRole(...HR), h(createRoomRent));
 router.get('/hr/room-rents/:id/photo', requireAuth, requireRole(...HR), h(roomRentPhoto));
+router.get('/hr/leave-balance', requireAuth, requireRole(...HR), h(leaveBalance));
+router.get('/hr/leave-balances', requireAuth, requireRole(...HR), h(leaveBalances));
+router.get('/hr/target-tasks/options', requireAuth, requireRole(...MGMT), h(targetOptions));
+router.get('/hr/target-tasks/pending-old', requireAuth, requireRole(...HR), h(pendingOldTargets));
+router.get('/hr/target-tasks', requireAuth, requireRole(...HR), h(listTargetTasks));
+router.post('/hr/target-tasks', requireAuth, requireRole(...MGMT), h(createTargetTask));
+router.patch('/hr/target-tasks/:id/d6', requireAuth, requireRole(...MGMT), h(setTargetD6));
+router.post('/hr/target-tasks/:id/cancel', requireAuth, requireRole(...MGMT), h(cancelTargetTask));
 router.get('/hr/rent-parties', requireAuth, requireRole(...HR), h(listRentParties));
 router.get('/hr/rent-parties/:id', requireAuth, requireRole(...ADMIN), h(getRentParty));
 router.post('/hr/rent-parties', requireAuth, requireRole(...ADMIN), h(createRentParty));

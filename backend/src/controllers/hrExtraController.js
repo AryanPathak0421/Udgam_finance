@@ -1,7 +1,12 @@
 import mongoose from 'mongoose';
 import { Employee, Attendance, Department, Designation } from '../models/Hr.js';
-import { RoomRent, RentParty, Task, TASK_STATUS, Complaint, COMPLAINT_STATUS, Requirement, REQUIREMENT_STATUS, Leave, LEAVE_TYPES, Resignation, EmployeeChange } from '../models/HrExtra.js';
+import { TargetTask, RoomRent, RentParty, Task, TASK_STATUS, Complaint, COMPLAINT_STATUS, Requirement, REQUIREMENT_STATUS, Leave, LEAVE_TYPES, Resignation, EmployeeChange } from '../models/HrExtra.js';
 import { User } from '../models/User.js';
+import { Rank } from '../models/Rank.js';
+import { Member } from '../models/Member.js';
+import { Group } from '../models/Group.js';
+import { EmiPayment } from '../models/EmiPayment.js';
+import { elBalance, elBalances } from '../services/earnedLeave.js';
 import { AppUser } from '../models/AppUser.js';
 import { Branch } from '../models/Branch.js';
 import { Company } from '../models/Company.js';
@@ -292,7 +297,7 @@ export async function setTaskStatus(req, res) {
 
 // ---- Toll free complaint entry ----------------------------------------------------------------------------------------------
 
-const presentComplaint = (c) => ({ id: c._id, complaintNo: c.complaintNo, date: iso(c.date), callerName: c.callerName, callerMobile: c.callerMobile || '', branch: brRef(c.branch), memberCode: c.memberCode || '', category: c.category, description: c.description, assignedTo: c.assignedToCode || '', status: c.status, resolution: c.resolution || '', resolvedAt: c.resolvedAt, history: (c.history || []).map((h) => ({ status: h.status, remark: h.remark || '', by: h.byCode || '', at: h.at })), enteredBy: c.enteredByCode || '' });
+const presentComplaint = (c) => ({ id: c._id, complaintNo: c.complaintNo, date: iso(c.date), callerName: c.callerName, callerMobile: c.callerMobile || '', branch: brRef(c.branch), memberCode: c.memberCode || '', husbandName: c.husbandName || '', groupCode: c.groupCode || '', groupName: c.groupName || '', groupLeaderName: c.groupLeaderName || '', category: c.category, description: c.description, assignedTo: c.assignedToCode || '', status: c.status, resolution: c.resolution || '', resolvedAt: c.resolvedAt, history: (c.history || []).map((h) => ({ status: h.status, remark: h.remark || '', by: h.byCode || '', at: h.at })), enteredBy: c.enteredByCode || '' });
 
 export async function listComplaints(req, res) {
   const filter = { ...dateRange(req, 'date') };
@@ -322,7 +327,7 @@ export async function createComplaint(req, res) {
   let assigned;
   if (asString(b.assignedTo)) assigned = await employeeOf(req, b.assignedTo, 'assignedTo');
   const c = await Complaint.create({
-    complaintNo: await generateCode('complaint'), date: b.date ? readDate(b.date, 'date', { future: false }) : startOfToday(), callerName, callerMobile, branch, memberCode: asString(b.memberCode).toUpperCase().slice(0, 30), category, description,
+    complaintNo: await generateCode('complaint'), date: b.date ? readDate(b.date, 'date', { future: false }) : startOfToday(), callerName, callerMobile, branch, memberCode: asString(b.memberCode).toUpperCase().slice(0, 30), husbandName: asString(b.husbandName).replace(/\s+/g, ' ').slice(0, 80), groupCode: asString(b.groupCode).toUpperCase().slice(0, 30), groupName: asString(b.groupName).replace(/\s+/g, ' ').slice(0, 80), groupLeaderName: asString(b.groupLeaderName).replace(/\s+/g, ' ').slice(0, 80), category, description,
     assignedTo: assigned?._id, assignedToCode: assigned?.employeeCode, status: 'open', history: [{ status: 'open', remark: 'Complaint entered', byCode: req.user.employeeCode || '', at: new Date() }], enteredByCode: req.user.employeeCode || '',
   });
   await c.populate(POP_BRANCH);
@@ -351,7 +356,7 @@ export async function setComplaintStatus(req, res) {
 
 // ---- Employee requirement ---------------------------------------------------------------------------------------------------
 
-const presentReq = (r) => ({ id: r._id, reqNo: r.reqNo, branch: brRef(r.branch), department: r.department?.name || '', designation: r.designation?.name || '', count: r.count, reason: r.reason || '', requiredBy: iso(r.requiredBy), status: r.status, remark: r.remark || '', decidedBy: r.decidedByCode || '', requestedBy: r.requestedByCode || '', createdAt: r.createdAt });
+const presentReq = (r) => ({ id: r._id, reqNo: r.reqNo, branch: brRef(r.branch), department: r.department?.name || '', designation: r.designation?.name || '', count: r.count, reason: r.reason || '', requiredBy: iso(r.requiredBy), expectedTime: r.expectedTime || '', status: r.status, remark: r.remark || '', decidedBy: r.decidedByCode || '', requestedBy: r.requestedByCode || '', createdAt: r.createdAt });
 const REQ_POP = [POP_BRANCH, { path: 'department', select: 'name' }, { path: 'designation', select: 'name' }];
 
 export async function listRequirements(req, res) {
@@ -375,7 +380,7 @@ export async function createRequirement(req, res) {
   }
   const reason = asString(b.reason).slice(0, 300);
   if (reason.length < 3) throw invalid({ reason: 'Write why the employees are needed' });
-  const r = await Requirement.create({ reqNo: await generateCode('empRequirement'), branch, ...ids, count, reason, requiredBy: b.requiredBy ? readDate(b.requiredBy, 'requiredBy') : undefined, requestedByCode: req.user.employeeCode || '' });
+  const r = await Requirement.create({ reqNo: await generateCode('empRequirement'), branch, ...ids, count, reason, requiredBy: b.requiredBy ? readDate(b.requiredBy, 'requiredBy') : undefined, expectedTime: asString(b.expectedTime).replace(/\s+/g, ' ').slice(0, 60), requestedByCode: req.user.employeeCode || '' });
   await r.populate(REQ_POP);
   await audit(req, { action: 'requirement.create', entity: 'Requirement', entityId: r._id, after: { reqNo: r.reqNo, count } });
   res.status(201).json({ item: presentReq(r) });
@@ -418,10 +423,12 @@ export async function applyLeave(req, res) {
   const to = readDate(b.to, 'to');
   if (to < from) throw invalid({ to: 'The last day cannot be before the first day' });
   if ((to.getTime() - from.getTime()) / DAY > 90) throw invalid({ to: 'A leave can be up to 90 days' });
-  const type = asString(b.type) || 'casual';
-  if (!LEAVE_TYPES.includes(type)) throw invalid({ type: 'Choose the kind of leave' });
+  const type = asString(b.type) || 'earned';
+  if (type !== 'earned') throw invalid({ type: 'Only earned leave (EL) is given: 1 for every month, 12 in a financial year' });
   const days = leaveDates(from, to).length;
   if (!days) throw invalid({ to: 'These dates are only Sundays (the weekly off)' });
+  const bal = await elBalance(e);
+  if (days > bal.available) throw new HttpError(422, `Only ${bal.available} EL available (carried ${bal.opening} + earned ${bal.earned} − taken ${bal.used}). EL is not given in advance.`, { to: `Only ${bal.available} EL available` });
   const clash = await Leave.findOne({ employee: e._id, status: { $in: ['pending', 'approved'] }, from: { $lte: to }, to: { $gte: from } }).select('from to status').lean();
   if (clash) throw new HttpError(409, `The employee already has a ${clash.status} leave from ${iso(clash.from)} to ${iso(clash.to)}`, { from: 'Overlaps another leave' });
   const reason = asString(b.reason).slice(0, 300);
@@ -586,4 +593,161 @@ export async function blockEmployee(req, res) {
   }
   await audit(req, { action: block ? 'employee.block' : 'employee.unblock', entity: 'Employee', entityId: e._id, after: { employeeCode: e.employeeCode, reason } });
   res.json({ isBlocked: e.isBlocked });
+}
+
+// ---- Earned leave balance -------------------------------------------------------------------------------------------------------
+
+/** The EL of one employee: carried from the earlier years, earned this financial year, taken, and what can be taken now. */
+export async function leaveBalance(req, res) {
+  const e = await employeeOf(req, req.query.employee);
+  res.json({ balance: await elBalance(e) });
+}
+
+/** The EL of every working employee of the branch(es). */
+export async function leaveBalances(req, res) {
+  const emps = await Employee.find({ isDeleted: false, status: 'active', ...scope(req) }).select('employeeCode name branch joiningDate').populate(POP_BRANCH).sort({ employeeCode: 1 }).limit(2000).lean();
+  const bal = await elBalances(emps);
+  const q = asString(req.query.q).toLowerCase();
+  const items = emps.map((e) => ({ id: e._id, employeeCode: e.employeeCode, name: e.name, branch: brRef(e.branch), joiningDate: iso(e.joiningDate), ...bal.get(String(e._id)) })).filter((x) => !q || [x.employeeCode, x.name].some((v) => String(v).toLowerCase().includes(q)));
+  res.json({ items, financialYear: items[0]?.financialYear || '' });
+}
+
+// ---- Target tasks ---------------------------------------------------------------------------------------------------------------------
+
+const TARGET_KEYS = ['newMember', 'd6', 'newGroup', 'npaRecovery'];
+
+/** What the employees of a target task achieved in its period: members registered, groups opened and NPA recovered under their employee code. */
+async function achievements(task) {
+  const codes = task.employees.map((e) => e.code);
+  const range = { $gte: task.fromDate, $lte: task.toDate };
+  const [mem, grp, npa] = await Promise.all([
+    Member.aggregate([{ $match: { isDeleted: false, employeeCode: { $in: codes }, joiningDate: range } }, { $group: { _id: '$employeeCode', n: { $sum: 1 } } }]),
+    Group.aggregate([{ $match: { isDeleted: false, employeeCode: { $in: codes }, openingDate: range } }, { $group: { _id: '$employeeCode', n: { $sum: 1 } } }]),
+    EmiPayment.aggregate([{ $match: { status: 'paid', npa: true, employeeCode: { $in: codes }, paidOn: range } }, { $group: { _id: '$employeeCode', t: { $sum: '$amountPaise' } } }]),
+  ]);
+  return { mem: new Map(mem.map((r) => [r._id, r.n])), grp: new Map(grp.map((r) => [r._id, r.n])), npa: new Map(npa.map((r) => [r._id, r.t])) };
+}
+
+/** One task with the result of every employee: target, achieved and what is pending (shown as −). */
+async function presentTarget(t, allowed) {
+  const a = await achievements(t);
+  const tg = t.targets || {};
+  const employees = t.employees.filter((e) => !allowed || allowed.has(String(e.branch))).map((e) => {
+    const line = (target, achieved) => ({ target, achieved, pending: Math.max(target - achieved, 0) });
+    const r = {
+      newMember: line(tg.newMember || 0, a.mem.get(e.code) || 0), d6: line(tg.d6 || 0, e.d6Achieved || 0), newGroup: line(tg.newGroup || 0, a.grp.get(e.code) || 0), npaRecovery: line(rupees(tg.npaRecoveryPaise), rupees(a.npa.get(e.code) || 0)),
+    };
+    const done = TARGET_KEYS.every((k) => r[k].pending === 0);
+    return { id: e.employee, code: e.code, name: e.name, branch: String(e.branch || ''), ...r, status: done ? 'done' : 'pending' };
+  });
+  return {
+    id: t._id, fromDate: iso(t.fromDate), toDate: iso(t.toDate), rank: t.rankName || '', status: t.status, remark: t.remark || '', by: t.createdByCode || '', ended: t.toDate < startOfToday(),
+    targets: { newMember: tg.newMember || 0, d6: tg.d6 || 0, newGroup: tg.newGroup || 0, npaRecovery: rupees(tg.npaRecoveryPaise) }, employees,
+    summary: { employees: employees.length, done: employees.filter((x) => x.status === 'done').length, pending: employees.filter((x) => x.status === 'pending').length },
+  };
+}
+
+const allowedBranches = (req) => { const f = branchFilter(req.user); return f.branch ? new Set(f.branch.$in.map(String)) : null; };
+
+export async function targetOptions(_req, res) {
+  const ranks = await Rank.find({ isDeleted: false, isActive: true }).select('code name level').sort({ level: 1 }).lean();
+  res.json({ ranks: ranks.map((r) => ({ id: r._id, code: r.code, name: r.name })) });
+}
+
+export async function createTargetTask(req, res) {
+  const b = req.body || {};
+  const fromDate = readDate(b.fromDate, 'fromDate');
+  const toDate = readDate(b.toDate, 'toDate');
+  if (toDate < fromDate) throw invalid({ toDate: 'The last date cannot be before the first date' });
+  const count = (v, label) => {
+    const n = v === '' || v === undefined ? 0 : Number(v);
+    if (!Number.isInteger(n) || n < 0 || n > 100000) throw invalid({ [label]: 'Enter a whole number' });
+    return n;
+  };
+  const npaRecoveryPaise = b.npaRecovery === '' || b.npaRecovery === undefined ? 0 : toMinor(typeof b.npaRecovery === 'number' ? String(b.npaRecovery) : asString(b.npaRecovery));
+  if (npaRecoveryPaise === null || npaRecoveryPaise < 0) throw invalid({ npaRecovery: 'Enter the target amount (₹)' });
+  const targets = { newMember: count(b.newMember, 'newMember'), d6: count(b.d6, 'd6'), newGroup: count(b.newGroup, 'newGroup'), npaRecoveryPaise };
+  if (!targets.newMember && !targets.d6 && !targets.newGroup && !targets.npaRecoveryPaise) throw invalid({ newMember: 'Give at least one target' });
+  // the employees: every working employee of the rank (their staff login has the rank), and/or the ones chosen
+  const filter = { isDeleted: false, status: 'active', ...branchFilter(req.user) };
+  if (oid(asString(b.branch))) filter.branch = new mongoose.Types.ObjectId(asString(b.branch));
+  let rank;
+  const ors = [];
+  if (asString(b.rank)) {
+    rank = oid(b.rank) ? await Rank.findOne({ _id: b.rank, isDeleted: false }).select('name') : null;
+    if (!rank) throw invalid({ rank: 'Select the rank from the list' });
+    const users = (await User.find({ rank: rank._id }).select('_id').lean()).map((u) => u._id);
+    ors.push({ user: { $in: users } });
+  }
+  const chosen = (Array.isArray(b.employees) ? b.employees : []).filter(oid);
+  if (chosen.length) ors.push({ _id: { $in: chosen } });
+  if (!ors.length) throw invalid({ rank: 'Select the rank (or the employees) the task is for' });
+  const emps = await Employee.find({ ...filter, $or: ors }).select('employeeCode name branch').lean();
+  if (!emps.length) throw invalid({ rank: 'No working employee found for this rank in your branches' });
+  const t = await TargetTask.create({
+    fromDate, toDate, rank: rank?._id, rankName: rank?.name || '', branch: filter.branch instanceof mongoose.Types.ObjectId ? filter.branch : undefined, targets, remark: asString(b.remark).slice(0, 300),
+    employees: emps.map((e) => ({ employee: e._id, code: e.employeeCode, name: e.name, branch: e.branch })), createdByCode: req.user.employeeCode || '',
+  });
+  await audit(req, { action: 'targetTask.create', entity: 'TargetTask', entityId: t._id, after: { from: iso(fromDate), to: iso(toDate), employees: emps.length } });
+  res.status(201).json({ item: await presentTarget(t, allowedBranches(req)) });
+}
+
+/** The target tasks of a month (the ones that run in it), with the result of each employee. */
+export async function listTargetTasks(req, res) {
+  const month = asString(req.query.month);
+  const filter = {};
+  if (/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
+    const [y, m] = month.split('-').map(Number);
+    filter.fromDate = { $lte: new Date(Date.UTC(y, m, 0)) };
+    filter.toDate = { $gte: new Date(Date.UTC(y, m - 1, 1)) };
+  }
+  const allowed = allowedBranches(req);
+  if (allowed) filter['employees.branch'] = { $in: [...allowed].map((x) => new mongoose.Types.ObjectId(x)) };
+  const rows = await TargetTask.find(filter).sort({ fromDate: -1, createdAt: -1 }).limit(100);
+  const items = [];
+  for (const t of rows) items.push(await presentTarget(t, allowed)); // eslint-disable-line no-await-in-loop
+  res.json({ items });
+}
+
+/** The employees whose earlier (ended) tasks are still pending, with what they owe. */
+export async function pendingOldTargets(req, res) {
+  const allowed = allowedBranches(req);
+  const filter = { status: 'active', toDate: { $lt: startOfToday() } };
+  if (allowed) filter['employees.branch'] = { $in: [...allowed].map((x) => new mongoose.Types.ObjectId(x)) };
+  const rows = await TargetTask.find(filter).sort({ toDate: -1 }).limit(60);
+  const by = new Map();
+  for (const t of rows) {
+    // eslint-disable-next-line no-await-in-loop
+    const p = await presentTarget(t, allowed);
+    p.employees.filter((e) => e.status === 'pending').forEach((e) => {
+      const v = by.get(e.code) || { code: e.code, name: e.name, tasks: [] };
+      v.tasks.push({ id: p.id, from: p.fromDate, to: p.toDate, newMember: e.newMember.pending, d6: e.d6.pending, newGroup: e.newGroup.pending, npaRecovery: e.npaRecovery.pending });
+      by.set(e.code, v);
+    });
+  }
+  res.json({ items: [...by.values()].sort((a, b) => b.tasks.length - a.tasks.length) });
+}
+
+/** D6 has no figure in the system: what an employee did is entered by hand. */
+export async function setTargetD6(req, res) {
+  if (!oid(req.params.id)) throw new HttpError(404, 'Task not found');
+  const n = Number(req.body?.achieved);
+  if (!Number.isInteger(n) || n < 0) throw invalid({ achieved: 'Enter a whole number' });
+  const t = await TargetTask.findById(req.params.id);
+  const allowed = allowedBranches(req);
+  const e = t?.employees.find((x) => String(x.employee) === String(req.body?.employee) && (!allowed || allowed.has(String(x.branch))));
+  if (!e) throw new HttpError(404, 'Task or employee not found');
+  e.d6Achieved = n;
+  await t.save();
+  res.json({ item: await presentTarget(t, allowed) });
+}
+
+export async function cancelTargetTask(req, res) {
+  if (!oid(req.params.id)) throw new HttpError(404, 'Task not found');
+  const t = await TargetTask.findById(req.params.id);
+  if (!t) throw new HttpError(404, 'Task not found');
+  t.status = 'cancelled';
+  await t.save();
+  await audit(req, { action: 'targetTask.cancel', entity: 'TargetTask', entityId: t._id });
+  res.json({ status: 'cancelled' });
 }
