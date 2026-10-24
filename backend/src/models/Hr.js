@@ -77,6 +77,21 @@ const employeeSchema = new mongoose.Schema(
     previousPost: { type: String, trim: true },
     relievingLetter: { type: String, select: false },
     salarySlipCopy: { type: String, select: false },
+    // salary set-up (Set Salary): the fixed components of the monthly salary, in paise
+    salaryStructure: {
+      basic: { type: Number, default: 0 }, hra: { type: Number, default: 0 }, ta: { type: Number, default: 0 }, allowance: { type: Number, default: 0 }, da: { type: Number, default: 0 },
+      fuel: { type: Number, default: 0 }, transport: { type: Number, default: 0 }, bike: { type: Number, default: 0 }, otherAllowance: { type: Number, default: 0 },
+    },
+    pfPercent: { type: Number, default: 12 }, // of the basic, when PF deduction is on
+    esiPercent: { type: Number, default: 0.75 }, // of the basic, when ESI deduction is on
+    professionalTaxPaise: { type: Number, default: 0 },
+    advanceDeductionPaise: { type: Number, default: 0 }, // monthly cut for an advance
+    securityAmountPaise: { type: Number, default: 0 }, // security kept from the salary: cut in 1 to 5 equal months once the verification is complete
+    securityMonths: { type: Number, default: 1, min: 1, max: 5 },
+    // verification: mobile and email by OTP, documents by hand
+    mobileVerifiedAt: Date,
+    emailVerifiedAt: Date,
+    documentsVerifiedAt: Date,
     status: { type: String, enum: ['active', 'left'], default: 'active' },
     leftOn: Date,
     isBlocked: { type: Boolean, default: false }, // a blocked employee cannot sign in (staff login and app)
@@ -138,6 +153,11 @@ const salarySchema = new mongoose.Schema(
     bonusPaise: { type: Number, default: 0 },
     otherDeductionPaise: { type: Number, default: 0 },
     netPaise: Number,
+    // the slip line by line (see services/salaryLines.js); the fields above stay as the totals the lists use
+    lines: [{ _id: false, key: String, label: String, side: { type: String, enum: ['earn', 'ded'] }, amountPaise: { type: Number, default: 0 }, manual: { type: Boolean, default: false } }],
+    totalEarningPaise: Number,
+    totalDeductionPaise: Number,
+    securityCutPaise: { type: Number, default: 0 },
     remark: String,
     status: { type: String, enum: SALARY_STATUS, default: 'generated' },
     sentAt: Date,

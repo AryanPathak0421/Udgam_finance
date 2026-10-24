@@ -12,6 +12,11 @@ import { sendSms } from '../services/sms.js';
 import { asString, parseDateOnly, HttpError } from '../utils/http.js';
 import { toMinor } from '../utils/money.js';
 import { lookupPincode } from '../services/lookup.js';
+import crypto from 'crypto';
+import { OtpChallenge } from '../models/OtpChallenge.js';
+import { issueOtp, hashOtp } from '../services/otpChallenges.js';
+import { sendMail, mailConfigured } from '../services/mailer.js';
+import { EARN_FIXED, ALL_LINES, loadVariable, buildLines, totalsOf, legacyLines, fixedOf, isVerified } from '../services/salaryLines.js';
 import { audit } from '../utils/audit.js';
 import { branchFilter, isAdmin, showMobile } from './groupController.js';
 
@@ -133,6 +138,11 @@ const presentEmployee = (e, user) => ({
   aadhaarNo: e.aadhaarNo || '', panNo: e.panNo || '', drivingLicenceNo: e.drivingLicenceNo || '', voterIdNo: e.voterIdNo || '',
   hasExperience: Boolean(e.hasExperience), previousCompany: e.previousCompany || '', previousPost: e.previousPost || '',
   supervisor: e.supervisor?._id ? { id: e.supervisor._id, code: e.supervisor.employeeCode, name: e.supervisor.name } : null,
+  mobileVerified: Boolean(e.mobileVerifiedAt), emailVerified: Boolean(e.emailVerifiedAt), documentsVerified: Boolean(e.documentsVerifiedAt), verified: isVerified(e),
+  salarySetup: {
+    ...Object.fromEntries(EARN_FIXED.map(([k]) => [k, rupees(fixedOf(e)[k])])), pfPercent: e.pfPercent ?? 12, esiPercent: e.esiPercent ?? 0.75, professionalTax: rupees(e.professionalTaxPaise),
+    advanceDeduction: rupees(e.advanceDeductionPaise), securityAmount: rupees(e.securityAmountPaise), securityMonths: e.securityMonths || 1,
+  },
 });
 const EMP_POPULATE = [{ path: 'department', select: 'name' }, { path: 'designation', select: 'name' }, { path: 'branch', select: 'code name' }, { path: 'supervisor', select: 'employeeCode name' }];
 
@@ -161,6 +171,140 @@ export async function employeePincode(req, res) {
   const pin = String(req.params.pin || '');
   if (!/^[1-9]\d{5}$/.test(pin)) throw new HttpError(422, 'Enter a valid 6-digit pincode');
   res.json(await lookupPincode(pin));
+}
+
+// ---- Verification: mobile and email by OTP, documents by hand; the security is cut from the salary once it is complete ----------------
+
+async function loadEmployee(req, extra = '') {
+  if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Employee not found');
+  const e = await Employee.findOne({ _id: req.params.id, isDeleted: false, ...scope(req) }).select(extra);
+  if (!e) throw new HttpError(404, 'Employee not found');
+  return e;
+}
+
+/** The employees whose verification is not complete, with what is pending for each. */
+export async function pendingVerification(req, res) {
+  const filter = { isDeleted: false, status: 'active', ...scope(req) };
+  const rows = await Employee.find(filter).sort({ employeeCode: 1 }).limit(3000).populate(EMP_POPULATE).lean();
+  const flags = new Map((await Employee.aggregate([
+    { $match: { _id: { $in: rows.map((r) => r._id) } } },
+    { $project: { photo: { $gt: [{ $strLenCP: { $ifNull: ['$photo', ''] } }, 0] }, aadhaar: { $gt: [{ $strLenCP: { $ifNull: ['$aadhaarCopy', ''] } }, 0] }, pan: { $gt: [{ $strLenCP: { $ifNull: ['$panCopy', ''] } }, 0] } } },
+  ])).map((r) => [String(r._id), r]));
+  const q = asString(req.query.q).toLowerCase();
+  const all = asString(req.query.all) === '1';
+  const items = rows.map((e) => {
+    const fl = flags.get(String(e._id)) || {};
+    const pending = [];
+    if (e.mobile && !e.mobileVerifiedAt) pending.push('mobile');
+    if (e.email && !e.emailVerifiedAt) pending.push('email');
+    if (!e.documentsVerifiedAt) pending.push('documents');
+    return {
+      id: e._id, employeeCode: e.employeeCode, name: e.name, branch: e.branch?.code || '', mobile: e.mobile || '', email: e.email || '', pending,
+      mobileVerified: Boolean(e.mobileVerifiedAt), emailVerified: Boolean(e.emailVerifiedAt), documentsVerified: Boolean(e.documentsVerifiedAt),
+      has: { photo: Boolean(fl.photo), aadhaar: Boolean(fl.aadhaar), pan: Boolean(fl.pan) }, securityAmount: rupees(e.securityAmountPaise), securityMonths: e.securityMonths || 1,
+    };
+  }).filter((x) => (all || x.pending.length) && (!q || [x.employeeCode, x.name, x.mobile, x.email].some((v) => String(v).toLowerCase().includes(q))));
+  res.json({ items, summary: { pending: items.filter((x) => x.pending.length).length, mobile: items.filter((x) => x.pending.includes('mobile')).length, email: items.filter((x) => x.pending.includes('email')).length, documents: items.filter((x) => x.pending.includes('documents')).length } });
+}
+
+const channelOf = (req) => {
+  const c = asString(req.body?.channel);
+  if (!['mobile', 'email'].includes(c)) throw invalid({ channel: 'Choose mobile or email' });
+  return c;
+};
+
+/** Sends an OTP to the mobile number or the email of the employee. */
+export async function sendEmployeeOtp(req, res) {
+  const e = await loadEmployee(req);
+  const channel = channelOf(req);
+  const to = channel === 'mobile' ? e.mobile : e.email;
+  if (!to) throw invalid({ channel: `This employee has no ${channel === 'mobile' ? 'mobile number' : 'email'}. Edit the employee first.` });
+  const { challenge, otp } = await issueOtp({ user: req.user, purpose: channel === 'mobile' ? 'employee_mobile' : 'employee_email', subject: `${e._id}:${to}`, sentTo: to });
+  let dev = false;
+  if (channel === 'mobile') {
+    const sms = await sendSms({ to, text: `Udgam Microfinance: OTP ${otp} to verify your mobile number. Valid for 5 minutes. Do not share this OTP.` });
+    dev = Boolean(sms.dev);
+  } else {
+    const sent = await sendMail({ to, subject: 'Udgam Microfinance: email verification OTP', text: `Your OTP to verify your email is ${otp}. It is valid for 5 minutes. Do not share this OTP.` });
+    dev = !sent;
+  }
+  res.json({ challengeId: challenge._id, sentTo: to, expiresAt: challenge.expiresAt, ...(dev && process.env.NODE_ENV !== 'production' ? { devOtp: otp } : {}) });
+}
+
+/** Checks the OTP and marks the mobile number or the email verified. */
+export async function verifyEmployeeOtp(req, res) {
+  const e = await loadEmployee(req);
+  const channel = channelOf(req);
+  const otp = asString(req.body?.otp);
+  if (!mongoose.isValidObjectId(asString(req.body?.challengeId))) throw new HttpError(422, 'Send an OTP first');
+  if (!/^\d{6}$/.test(otp)) throw invalid({ otp: 'Enter the 6-digit OTP' });
+  const to = channel === 'mobile' ? e.mobile : e.email;
+  const purpose = channel === 'mobile' ? 'employee_mobile' : 'employee_email';
+  const ch = await OtpChallenge.findOne({ _id: req.body.challengeId, createdBy: req.user._id, purpose, subject: `${e._id}:${to}` }).select('+hash');
+  if (!ch) throw new HttpError(404, 'OTP request not found. Please send a new OTP.');
+  if (ch.consumedAt) throw new HttpError(409, 'This OTP has already been used. Please send a new OTP.');
+  if (ch.expiresAt.getTime() < Date.now()) throw new HttpError(410, 'The OTP has expired. Please send a new OTP.');
+  if (ch.attempts >= 5) throw new HttpError(429, 'Too many wrong attempts. Please send a new OTP.');
+  const given = Buffer.from(hashOtp(ch._id, otp), 'hex');
+  const stored = Buffer.from(ch.hash, 'hex');
+  if (!(given.length === stored.length && crypto.timingSafeEqual(given, stored))) {
+    ch.attempts += 1;
+    await ch.save();
+    throw invalid({ otp: 'Incorrect OTP' });
+  }
+  ch.verifiedAt = new Date();
+  ch.consumedAt = new Date();
+  await ch.save();
+  e[channel === 'mobile' ? 'mobileVerifiedAt' : 'emailVerifiedAt'] = new Date();
+  await e.save();
+  await audit(req, { action: 'employee.verify', entity: 'Employee', entityId: e._id, after: { channel } });
+  res.json({ verified: true, channel, complete: isVerified(e) });
+}
+
+/** The documents (photo and Aadhaar copy at least) are checked by hand and marked verified, or the mark is taken back. */
+export async function verifyEmployeeDocuments(req, res) {
+  const e = await loadEmployee(req, '+photo +aadhaarCopy');
+  const on = yes(req.body?.verified);
+  if (on && (!e.photo || !e.aadhaarCopy)) throw invalid({ documents: 'Upload the photo and the Aadhaar copy of the employee first (Edit)' });
+  e.documentsVerifiedAt = on ? new Date() : undefined;
+  await e.save();
+  await audit(req, { action: 'employee.documents', entity: 'Employee', entityId: e._id, after: { verified: on } });
+  res.json({ documentsVerified: on, complete: isVerified(e) });
+}
+
+// ---- Set Salary: the fixed components, PF / ESI, professional tax, advance and security of an employee --------------------------
+
+export async function saveSalarySetup(req, res) {
+  const e = await loadEmployee(req);
+  const b = req.body || {};
+  const money = (v, label) => {
+    const p = v === '' || v === undefined || v === null ? 0 : toMinor(typeof v === 'number' ? String(v) : asString(v));
+    if (p === null || p < 0) throw invalid({ [label]: 'Enter an amount (₹, up to 2 decimals)' });
+    return p;
+  };
+  const pct = (v, label, def) => {
+    const n = v === '' || v === undefined || v === null ? def : Number(v);
+    if (!Number.isFinite(n) || n < 0 || n > 100) throw invalid({ [label]: 'Enter a percentage between 0 and 100' });
+    return n;
+  };
+  const st = {};
+  for (const [k] of EARN_FIXED) st[k] = money(b[k], k);
+  e.salaryStructure = st;
+  e.monthlySalaryPaise = Object.values(st).reduce((s, x) => s + x, 0);
+  e.pfPercent = pct(b.pfPercent, 'pfPercent', 12);
+  e.esiPercent = pct(b.esiPercent, 'esiPercent', 0.75);
+  e.professionalTaxPaise = money(b.professionalTax, 'professionalTax');
+  e.advanceDeductionPaise = money(b.advanceDeduction, 'advanceDeduction');
+  e.securityAmountPaise = money(b.securityAmount, 'securityAmount');
+  const months = Number(b.securityMonths || 1);
+  if (!Number.isInteger(months) || months < 1 || months > 5) throw invalid({ securityMonths: 'The security is cut in 1 to 5 months' });
+  e.securityMonths = months;
+  if (b.pfDeduction !== undefined) e.pfDeduction = yes(b.pfDeduction);
+  if (b.esiDeduction !== undefined) e.esiDeduction = yes(b.esiDeduction);
+  await e.save();
+  await e.populate(EMP_POPULATE);
+  await audit(req, { action: 'employee.salary-setup', entity: 'Employee', entityId: e._id, after: { employeeCode: e.employeeCode, monthlySalary: rupees(e.monthlySalaryPaise) } });
+  res.json({ item: presentEmployee(e, req.user) });
 }
 
 /** Staff logins that have no HR record yet. */
@@ -275,6 +419,8 @@ export async function updateEmployee(req, res) {
   const e = await Employee.findOne({ _id: req.params.id, isDeleted: false });
   if (!e) throw new HttpError(404, 'Employee not found');
   const data = await readEmployee(req.body || {});
+  if ((data.mobile || '') !== (e.mobile || '')) e.mobileVerifiedAt = undefined;
+  if ((data.email || '') !== (e.email || '')) e.emailVerifiedAt = undefined;
   if (data.supervisor && String(data.supervisor) === String(e._id)) throw invalid({ supervisor: 'An employee cannot be their own supervisor' });
   Object.assign(e, data);
   await e.save();
@@ -431,6 +577,8 @@ const presentSalary = (s, user) => ({
   department: s.department || '', designation: s.designation || '', month: s.month, daysInMonth: s.daysInMonth, sundays: s.sundays, presentDays: s.presentDays, halfDays: s.halfDays, leaveDays: s.leaveDays, holidayDays: s.holidayDays,
   absentDays: s.absentDays, unmarkedDays: s.unmarkedDays, payableDays: s.payableDays, gross: rupees(s.grossPaise), earned: rupees(s.earnedPaise), bonus: rupees(s.bonusPaise), otherDeduction: rupees(s.otherDeductionPaise), net: rupees(s.netPaise),
   remark: s.remark || '', status: s.status, sentAt: s.sentAt, paidOn: iso(s.paidOn), payMode: s.payMode || '',
+  lines: (s.lines?.length ? s.lines : legacyLines(s)).map((l) => ({ key: l.key, label: l.label, side: l.side, amount: rupees(l.amountPaise), manual: Boolean(l.manual) })),
+  totalEarning: rupees(s.totalEarningPaise ?? (s.earnedPaise || 0) + (s.bonusPaise || 0)), totalDeduction: rupees(s.totalDeductionPaise ?? s.otherDeductionPaise), securityCut: rupees(s.securityCutPaise),
 });
 
 /** Generates (or works out again) the salary of a month from the attendance, for the active employees of the branch(es). Paid salaries are left as they are. */
@@ -445,6 +593,8 @@ export async function generateSalary(req, res) {
   const marks = new Map();
   marksAll.forEach((a) => { const k = String(a.employee); if (!marks.has(k)) marks.set(k, new Map()); marks.get(k).set(iso(a.date), a.status); });
   const existing = new Map((await Salary.find({ month, employee: { $in: emps.map((e) => e._id) } }).lean()).map((s) => [String(s.employee), s]));
+  const supIds = new Set((await Employee.distinct('supervisor', { isDeleted: false, supervisor: { $ne: null } })).map(String));
+  const { by: variable, securityCut } = await loadVariable(month, range, emps.map((e) => e.employeeCode), new Set(emps.filter((e) => supIds.has(String(e._id))).map((e) => e.employeeCode)));
   const holidayRows = await Holiday.find({ isDeleted: false, isActive: true, date: { $gte: range.from, $lte: range.to } }).select('date branch').lean();
   const holidaysOf = (e) => new Set(holidayRows.filter((h) => !h.branch || String(h.branch) === String(e.branch?._id)).map((h) => iso(h.date)));
   let made = 0; let updated = 0; let keptPaid = 0; let noSalary = 0;
@@ -453,12 +603,16 @@ export async function generateSalary(req, res) {
     const ex = existing.get(String(e._id));
     if (ex?.status === 'paid') { keptPaid += 1; continue; }
     if (!e.monthlySalaryPaise) noSalary += 1;
-    const c = compute(e, marks.get(String(e._id)) || new Map(), range, ex?.bonusPaise || 0, ex?.otherDeductionPaise || 0, holidaysOf(e));
+    const c = compute(e, marks.get(String(e._id)) || new Map(), range, 0, 0, holidaysOf(e));
+    // what was changed by hand on the slip stays; a slip from before the lines existed keeps its bonus and other deduction
+    const kept = new Map((ex?.lines || []).filter((l) => l.manual).map((l) => [l.key, l.amountPaise]));
+    if (ex && !ex.lines?.length) { if (ex.bonusPaise) kept.set('bonus', ex.bonusPaise); if (ex.otherDeductionPaise) kept.set('other', ex.otherDeductionPaise); }
+    const lines = buildLines(e, c.payableDays / range.days, variable.get(e.employeeCode), securityCut.get(String(e._id)) || 0, kept);
     const doc = {
-      employee: e._id, employeeCode: e.employeeCode, name: e.name, mobile: e.mobile, branch: e.branch?._id, department: e.department?.name || '', designation: e.designation?.name || '', month, daysInMonth: range.days, ...c, generatedByCode: req.user.employeeCode || '',
+      employee: e._id, employeeCode: e.employeeCode, name: e.name, mobile: e.mobile, branch: e.branch?._id, department: e.department?.name || '', designation: e.designation?.name || '', month, daysInMonth: range.days, ...c, lines, ...totalsOf(lines), generatedByCode: req.user.employeeCode || '',
     };
     if (ex) updated += 1; else made += 1;
-    ops.push({ updateOne: { filter: { employee: e._id, month }, update: { $set: doc, $setOnInsert: { status: 'generated', bonusPaise: 0, otherDeductionPaise: 0 } }, upsert: true } });
+    ops.push({ updateOne: { filter: { employee: e._id, month }, update: { $set: doc, $setOnInsert: { status: 'generated' } }, upsert: true } });
   }
   if (ops.length) await Salary.bulkWrite(ops);
   await audit(req, { action: 'salary.generate', entity: 'Salary', after: { month, made, updated, keptPaid } });
@@ -485,19 +639,29 @@ async function loadSlip(req) {
   return s;
 }
 
-/** Bonus / other deduction on a salary that is not paid yet. */
+/** Changes lines of a salary that is not paid yet: any line (bonus, incentives, PF, recovery, security ...) can be set by hand; it then stays when the salary is generated again. */
 export async function adjustSalary(req, res) {
   const s = await loadSlip(req);
   if (s.status === 'paid') throw new HttpError(409, 'This salary is already paid');
   const read = (v, label) => {
-    const p = v === '' || v === undefined || v === null ? 0 : toMinor(typeof v === 'number' ? String(v) : asString(v));
+    const p = typeof v === 'number' ? toMinor(String(v)) : toMinor(asString(v));
     if (p === null || p < 0) throw invalid({ [label]: 'Enter an amount (₹, up to 2 decimals)' });
     return p;
   };
-  s.bonusPaise = read(req.body?.bonus, 'bonus');
-  s.otherDeductionPaise = read(req.body?.otherDeduction, 'otherDeduction');
+  let lines = (s.lines?.length ? s.lines : legacyLines(s)).map((l) => ({ key: l.key, label: l.label, side: l.side, amountPaise: l.amountPaise || 0, manual: Boolean(l.manual) }));
+  const input = { ...(req.body?.lines || {}) };
+  if (req.body?.bonus !== undefined) input.bonus = req.body.bonus; // the older form of the request
+  if (req.body?.otherDeduction !== undefined) input.other = req.body.otherDeduction;
+  const known = new Set(ALL_LINES.map(([k]) => k));
+  for (const [key, v] of Object.entries(input)) {
+    if (!known.has(key) || v === '' || v === undefined || v === null) continue;
+    const line = lines.find((l) => l.key === key);
+    const paise = read(v, key);
+    if (line.amountPaise !== paise || line.manual) { line.amountPaise = paise; line.manual = true; }
+  }
+  Object.assign(s, totalsOf(lines));
+  s.lines = lines;
   s.remark = asString(req.body?.remark).slice(0, 200);
-  s.netPaise = Math.max((s.earnedPaise || 0) + s.bonusPaise - s.otherDeductionPaise, 0);
   if (s.status === 'sent') s.status = 'generated'; // the slip that was sent is out of date
   await s.save();
   await s.populate('branch', 'code name');

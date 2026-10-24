@@ -39,7 +39,7 @@ import { AppUsers, MemberApproval, EmiApproval } from './pages/AppSection.jsx';
 import { StockEntry, QuantityReport } from './pages/StockEntryPages.jsx';
 import { BulkNotification, HolidayMaster, ProfitLoss, ComplaintOverview, CompanySummary, Monitoring, CompanyGraph } from './pages/SuperAdminPages.jsx';
 import { RoomRent, Tasks, Complaints, Requirements, LeaveApply, LeaveApproval, Resignations, PromotionTransfer, Letters, EmployeeList } from './pages/HrExtraPages.jsx';
-import { DepartmentMaster, DesignationMaster, EmployeeRegistration, Attendance, SalaryGenerate, SalaryPayment, BranchSalary } from './pages/HrPages.jsx';
+import { DepartmentMaster, DesignationMaster, EmployeeRegistration, SetSalary, Attendance, SalaryGenerate, SalaryPayment, BranchSalary } from './pages/HrPages.jsx';
 import DayClose from './pages/DayClose.jsx';
 import DayCloseApproval from './pages/DayCloseApproval.jsx';
 import { TrialBalance, BankBook, DayBook, ProductBranchDue } from './pages/AccountReports.jsx';
@@ -86,6 +86,7 @@ const PAGES = {
   '/hr/departments': DepartmentMaster,
   '/hr/designations': DesignationMaster,
   '/hr/employees': EmployeeRegistration,
+  '/hr/set-salary': SetSalary,
   '/hr/attendance': Attendance,
   '/hr/salary': SalaryGenerate,
   '/hr/salary-payment': SalaryPayment,

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api/client.js';
 import FormField from '../components/ui/FormField.jsx';
 import Modal from '../components/ui/Modal.jsx';
@@ -307,6 +307,89 @@ function TeamModal({ supervisor, onClose }) {
   );
 }
 
+// One channel (mobile or email) of one employee: send the OTP, type it, verified.
+function OtpCell({ emp, channel, onDone }) {
+  const toast = useToast();
+  const [step, setStep] = useState(null); // { challengeId, devOtp }
+  const [otp, setOtp] = useState('');
+  const [busy, setBusy] = useState(false);
+  const verified = channel === 'mobile' ? emp.mobileVerified : emp.emailVerified;
+  const value = channel === 'mobile' ? emp.mobile : emp.email;
+  if (!value) return <span className="muted small">None</span>;
+  if (verified) return <span className="badge green">Verified</span>;
+  async function send() {
+    setBusy(true);
+    try { const r = await api.hr.sendEmployeeOtp(emp.id, { channel }); setStep(r); setOtp(''); toast.success(`OTP sent to ${r.sentTo}`); } catch (err) { toast.error(err.errors?.channel || err.message); } finally { setBusy(false); }
+  }
+  async function verify() {
+    setBusy(true);
+    try { await api.hr.verifyEmployeeOtp(emp.id, { channel, challengeId: step.challengeId, otp }); toast.success(channel === 'mobile' ? 'Mobile verified' : 'Email verified'); setStep(null); onDone(); } catch (err) { toast.error(err.errors?.otp || err.message); } finally { setBusy(false); }
+  }
+  return (
+    <div>
+      <div className="muted small">{value}</div>
+      {!step ? <button className="btn sm" onClick={send} disabled={busy}>{busy ? 'Sending…' : 'Send OTP'}</button> : (
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+          <input aria-label={`OTP for ${emp.employeeCode} ${channel}`} inputMode="numeric" maxLength={6} value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} style={{ width: 90 }} placeholder="OTP" />
+          <button className="btn sm primary" onClick={verify} disabled={busy || otp.length !== 6}>Verify</button>
+          <button className="btn sm" onClick={send} disabled={busy}>Resend</button>
+          {step.devOtp && <span className="muted small">dev OTP {step.devOtp}</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PendingVerification({ onClose }) {
+  const toast = useToast();
+  const [search, setSearch] = useState('');
+  const [all, setAll] = useState(false);
+  const q = useDebounce(search, 300);
+  const list = useLoad(() => api.hr.pendingVerification({ q, all: all ? 1 : '' }), [q, all]);
+  const items = list.data?.items || [];
+  const s = list.data?.summary;
+  async function docs(e, verified) {
+    try { await api.hr.verifyDocuments(e.id, { verified }); toast.success(verified ? 'Documents verified' : 'Verification taken back'); list.load(); } catch (err) { toast.error(err.errors?.documents || err.message); }
+  }
+  return (
+    <Modal open title="Pending verification" onClose={onClose} size="xl" footer={<button className="btn" onClick={onClose}>Close</button>}>
+      <p className="muted small" style={{ marginTop: 0 }}>The mobile number and the email are verified by an OTP, the documents (photo and Aadhaar copy) by hand. Once all are done the security amount is cut from the salary, in 1 to 5 months as set in Set Salary.</p>
+      <div className="toolbar" style={{ flexWrap: 'wrap' }}>
+        <input type="search" placeholder="Search name, code, mobile, email" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search" style={{ minWidth: 220 }} />
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}><input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} /> Show verified too</label>
+        <Refresh onClick={list.load} loading={list.loading} />
+      </div>
+      {s && <Summary items={[['Pending', s.pending], ['Mobile OTP pending', s.mobile], ['Email OTP pending', s.email], ['Documents pending', s.documents]]} />}
+      {list.loading && !list.data ? <Spinner label="Loading…" /> : list.error ? <ErrorState message={list.error} onRetry={list.load} /> : items.length === 0 ? <EmptyState title="Nothing pending" description="The verification of every employee is complete." /> : (
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead><tr><th>Employee</th><th>Branch</th><th>Mobile OTP</th><th>Email OTP</th><th>Documents</th><th className="num">Security</th></tr></thead>
+            <tbody>
+              {items.map((e) => (
+                <tr key={e.id}>
+                  <td data-label="Employee"><strong>{e.employeeCode}</strong> {e.name}</td>
+                  <td data-label="Branch">{e.branch || '—'}</td>
+                  <td data-label="Mobile OTP"><OtpCell emp={e} channel="mobile" onDone={list.load} /></td>
+                  <td data-label="Email OTP"><OtpCell emp={e} channel="email" onDone={list.load} /></td>
+                  <td data-label="Documents">
+                    {e.documentsVerified ? <><span className="badge green">Verified</span> <button className="btn sm" onClick={() => docs(e, false)}>Undo</button></> : (
+                      <>
+                        <div className="muted small">{['photo', 'aadhaar', 'pan'].map((k) => `${k === 'aadhaar' ? 'Aadhaar' : k === 'pan' ? 'PAN' : 'Photo'} ${e.has[k] ? '✓' : '✗'}`).join(' · ')}</div>
+                        <button className="btn sm" onClick={() => docs(e, true)} disabled={!e.has.photo || !e.has.aadhaar} title={!e.has.photo || !e.has.aadhaar ? 'Upload the photo and the Aadhaar copy first (Edit)' : ''}>Mark verified</button>
+                      </>
+                    )}
+                  </td>
+                  <td data-label="Security" className="num">{e.securityAmount ? <>{inr(e.securityAmount)}<div className="muted small">in {e.securityMonths} month{e.securityMonths === 1 ? '' : 's'}</div></> : <span className="muted">not set</span>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 export function EmployeeRegistration() {
   const toast = useToast();
   const [branch, setBranch] = useState('');
@@ -316,6 +399,7 @@ export function EmployeeRegistration() {
   const list = useLoad(() => api.hr.employees({ branch, status, q }), [branch, status, q]);
   const [form, setForm] = useState(null);
   const [team, setTeam] = useState(null);
+  const [pending, setPending] = useState(false);
   const [syncing, setSyncing] = useState(false);
   async function sync() {
     setSyncing(true);
@@ -335,6 +419,7 @@ export function EmployeeRegistration() {
           <input type="search" placeholder="Search name, code, mobile" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search" style={{ minWidth: 200 }} />
           <Refresh onClick={list.load} loading={list.loading} />
           <button className="btn" onClick={sync} disabled={syncing} title="Makes an employee record of every staff login that has none">{syncing ? 'Adding…' : 'Add all staff logins'}</button>
+          <button className="btn" onClick={() => setPending(true)}>Pending verification</button>
           <button className="btn primary" onClick={() => setForm({})}>Register employee</button>
         </div>
         {list.loading && !list.data ? <Spinner label="Loading…" /> : list.error ? <ErrorState message={list.error} onRetry={list.load} /> : items.length === 0 ? <EmptyState title="No employee" description="Register an employee, or use Add all staff logins." /> : (
@@ -364,7 +449,112 @@ export function EmployeeRegistration() {
         )}
       </div>
       {team && <TeamModal supervisor={team} onClose={() => setTeam(null)} />}
+      {pending && <PendingVerification onClose={() => { setPending(false); list.load(); }} />}
       {form && <EmployeeForm item={form.id ? form : null} onClose={() => setForm(null)} onSaved={() => { setForm(null); list.load(); }} />}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------
+// Set Salary: the fixed components, PF / ESI, professional tax, advance and security of one employee (saved as you type)
+const SETUP_EARN = [['basic', 'Basic'], ['hra', 'HRA'], ['ta', 'TA'], ['allowance', 'Allowance'], ['da', 'DA'], ['fuel', 'Fuel'], ['transport', 'Transport allowance'], ['bike', 'Bike repair'], ['otherAllowance', 'Other allowance']];
+const moneyField = (v) => v.replace(/[^\d.]/g, '');
+const num = (v) => Number(v) || 0;
+
+export function SetSalary() {
+  const toast = useToast();
+  const [search, setSearch] = useState('');
+  const q = useDebounce(search, 300);
+  const list = useLoad(() => api.hr.employees({ q, status: 'active' }), [q]);
+  const [picked, setPicked] = useState(null);
+  const [f, setF] = useState(null);
+  const [errors, setErrors] = useState({});
+  const [state, setState] = useState(''); // '', saving, saved
+  const first = useRef(true);
+  const items = list.data?.items || [];
+  function choose(e) {
+    first.current = true;
+    setPicked(e);
+    setErrors({});
+    setState('');
+    const st = e.salarySetup;
+    setF({ ...Object.fromEntries(SETUP_EARN.map(([k]) => [k, st[k] ? String(st[k]) : ''])), pfPercent: String(st.pfPercent), esiPercent: String(st.esiPercent), professionalTax: st.professionalTax ? String(st.professionalTax) : '', advanceDeduction: st.advanceDeduction ? String(st.advanceDeduction) : '', securityAmount: st.securityAmount ? String(st.securityAmount) : '', securityMonths: String(st.securityMonths || 1), pfDeduction: e.pfDeduction, esiDeduction: e.esiDeduction });
+  }
+  // every change is saved by itself a moment after it was made; what is typed can be corrected by hand any time
+  useEffect(() => {
+    if (!picked || !f) return undefined;
+    if (first.current) { first.current = false; return undefined; }
+    setState('saving');
+    const t = setTimeout(async () => {
+      try { const r = await api.hr.saveSalarySetup(picked.id, f); setErrors({}); setState('saved'); setPicked(r.item); list.load(); } catch (err) { setErrors(err.errors || {}); setState(''); toast.error(err.message); }
+    }, 900);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [f]);
+  const set = (k) => (e) => { first.current = false; setF((x) => ({ ...x, [k]: e.target.value })); };
+  const setMoney = (k) => (e) => { first.current = false; setF((x) => ({ ...x, [k]: moneyField(e.target.value) })); };
+  const setFlag = (k) => (e) => { first.current = false; setF((x) => ({ ...x, [k]: e.target.checked })); };
+  const gross = f ? SETUP_EARN.reduce((s, [k]) => s + num(f[k]), 0) : 0;
+  const pf = f && f.pfDeduction ? Math.round((num(f.basic) * num(f.pfPercent))) / 100 : 0;
+  const esi = f && f.esiDeduction ? Math.round((num(f.basic) * num(f.esiPercent))) / 100 : 0;
+  const ded = f ? pf + esi + num(f.professionalTax) + num(f.advanceDeduction) : 0;
+  const secCut = f && num(f.securityAmount) ? Math.ceil(num(f.securityAmount) / Math.max(num(f.securityMonths), 1)) : 0;
+  return (
+    <>
+      <PageHeader title="Set Salary" description="Search an employee and set the salary: the fixed components, PF / ESI, professional tax, advance and the security that is cut from the salary. Every change is saved by itself and can be edited by hand any time. Loan incentive, product sell incentive, GRT commission, senior commission (supervisors) and NPA recovery 10% come in automatically when the salary is generated." />
+      <div className="panel">
+        <div className="toolbar" style={{ flexWrap: 'wrap' }}>
+          <input type="search" placeholder="Search employee: name, code, mobile" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search employee" style={{ minWidth: 260 }} />
+          <Refresh onClick={list.load} loading={list.loading} />
+        </div>
+        {list.loading && !list.data ? <Spinner label="Loading…" /> : list.error ? <ErrorState message={list.error} onRetry={list.load} /> : items.length === 0 ? <EmptyState title="No employee" description="Register the employee first (Employee Registration)." /> : (
+          <div className="table-wrap" style={{ maxHeight: 220, overflow: 'auto' }}>
+            <table className="data-table">
+              <thead><tr><th>Employee</th><th>Branch</th><th>Designation</th><th className="num">Monthly salary</th><th /></tr></thead>
+              <tbody>
+                {items.slice(0, 100).map((e) => (
+                  <tr key={e.id} style={picked?.id === e.id ? { background: 'var(--surface-2, #f6f8f8)' } : undefined}>
+                    <td data-label="Employee"><strong>{e.employeeCode}</strong> {e.name}</td><td data-label="Branch">{e.branch?.code || '—'}</td><td data-label="Designation">{e.designation?.name || '—'}</td>
+                    <td data-label="Monthly salary" className="num">{e.monthlySalary ? inr(e.monthlySalary) : <span className="muted">not set</span>}</td>
+                    <td><button className="btn sm" onClick={() => choose(e)}>{picked?.id === e.id ? 'Selected' : 'Set salary'}</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+      {picked && f && (
+        <div className="panel" style={{ marginTop: 16 }}>
+          <h3 className="section-title">{picked.employeeCode} — {picked.name} <span className="muted small" style={{ marginLeft: 8 }}>{state === 'saving' ? 'Saving…' : state === 'saved' ? 'Saved' : ''}</span></h3>
+          <div className="panel-grid" style={{ marginTop: 0 }}>
+            <div>
+              <h4>Receive side</h4>
+              <div className="form-grid">
+                {SETUP_EARN.map(([k, label], i) => <FormField key={k} id={`ss${k}`} label={`${i + 1}. ${label} (₹)`} error={errors[k]}><input id={`ss${k}`} inputMode="decimal" value={f[k]} onChange={setMoney(k)} /></FormField>)}
+              </div>
+              <p className="muted small">Automatic when the salary is generated: loan incentive, product sell incentive, GRT commission (a new group opened with 5 new members, in the employee's name), senior commission (only for a supervisor) and 10% of the NPA recovery.</p>
+              <p style={{ margin: '8px 0 0' }}><strong>Total fixed salary: {inr(gross)}</strong></p>
+            </div>
+            <div>
+              <h4>Payment side</h4>
+              <div className="form-grid">
+                <label className="span-2" style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input type="checkbox" checked={f.pfDeduction} onChange={setFlag('pfDeduction')} /> PF deduction</label>
+                <FormField id="sspf" label="PF % of basic" error={errors.pfPercent}><input id="sspf" inputMode="decimal" value={f.pfPercent} onChange={setMoney('pfPercent')} disabled={!f.pfDeduction} /></FormField>
+                <label className="span-2" style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input type="checkbox" checked={f.esiDeduction} onChange={setFlag('esiDeduction')} /> ESI deduction</label>
+                <FormField id="ssesi" label="ESI % of basic" error={errors.esiPercent}><input id="ssesi" inputMode="decimal" value={f.esiPercent} onChange={setMoney('esiPercent')} disabled={!f.esiDeduction} /></FormField>
+                <FormField id="sspt" label="Professional tax (₹ a month)" error={errors.professionalTax}><input id="sspt" inputMode="decimal" value={f.professionalTax} onChange={setMoney('professionalTax')} /></FormField>
+                <FormField id="ssadv" label="Advance deduction (₹ a month)" error={errors.advanceDeduction}><input id="ssadv" inputMode="decimal" value={f.advanceDeduction} onChange={setMoney('advanceDeduction')} /></FormField>
+                <FormField id="sssec" label="Security amount (₹)" error={errors.securityAmount} hint="Cut after the verification is complete"><input id="sssec" inputMode="decimal" value={f.securityAmount} onChange={setMoney('securityAmount')} /></FormField>
+                <FormField id="sssecm" label="Security cut in months" error={errors.securityMonths}><select id="sssecm" value={f.securityMonths} onChange={set('securityMonths')}>{[1, 2, 3, 4, 5].map((m) => <option key={m} value={m}>{m} month{m === 1 ? '' : 's'}</option>)}</select></FormField>
+              </div>
+              <p className="muted small">Leave (the pay cut for days not worked), recovery amount and other deduction are worked out or entered on the salary slip.</p>
+              <p style={{ margin: '8px 0 0' }}><strong>Fixed deductions a month: {inr(ded + secCut)}</strong> <span className="muted small">(PF {inr(pf)} · ESI {inr(esi)}{secCut ? ` · security ${inr(secCut)}` : ''})</span></p>
+            </div>
+          </div>
+          <p style={{ margin: '12px 0 0' }}><strong>Total − total deduction = {inr(gross - ded - secCut)}</strong> <span className="muted small">(before leave, incentives and recovery)</span></p>
+        </div>
+      )}
     </>
   );
 }
@@ -381,7 +571,11 @@ export function Attendance() {
   const list = useLoad(() => api.hr.attendance({ branch, date }), [branch, date]);
   const [edits, setEdits] = useState({});
   const [busy, setBusy] = useState('');
-  useEffect(() => { setEdits({}); }, [list.data]);
+  const [filter, setFilter] = useState('');
+  const [search, setSearch] = useState('');
+  const [picked, setPicked] = useState(new Set());
+  const [bulk, setBulk] = useState('leave');
+  useEffect(() => { setEdits({}); setPicked(new Set()); }, [list.data]);
   const items = list.data?.items || [];
   const changed = Object.keys(edits).length;
   async function save() {
@@ -398,6 +592,21 @@ export function Attendance() {
   }
   const setRow = (id, patch) => setEdits((e) => ({ ...e, [id]: { status: e[id]?.status ?? items.find((i) => i.id === id)?.status ?? '', remark: e[id]?.remark ?? items.find((i) => i.id === id)?.remark ?? '', ...patch } }));
   const s = list.data?.summary;
+  const statusOf = (i) => edits[i.id]?.status ?? i.status;
+  const needle = search.trim().toLowerCase();
+  const shown = items.filter((i) => (!filter || (filter === 'none' ? !statusOf(i) : statusOf(i) === filter)) && (!needle || [i.employeeCode, i.name, i.designation, i.branch].some((v) => String(v || '').toLowerCase().includes(needle))));
+  const allPicked = shown.length > 0 && shown.every((i) => picked.has(i.id));
+  const unmarked = shown.filter((i) => !statusOf(i));
+  // one tick marks everyone shown who has no mark yet as present; ticking again takes those marks back
+  const markAllPresent = (on) => setEdits((e) => {
+    const n = { ...e };
+    shown.forEach((i) => {
+      if (on && !(n[i.id]?.status ?? i.status)) n[i.id] = { status: 'present', remark: n[i.id]?.remark ?? i.remark ?? '' };
+      if (!on && !i.status && n[i.id]?.status === 'present') delete n[i.id];
+    });
+    return n;
+  });
+  const applyBulk = () => { picked.forEach((id) => setRow(id, { status: bulk })); toast.success(`${picked.size} employee${picked.size === 1 ? '' : 's'} set to ${(ATT.find(([k]) => k === bulk) || [])[1] || 'Not marked'}. Save to keep it.`); setPicked(new Set()); };
   return (
     <>
       <PageHeader title="Attendance" description="Present is marked automatically for employees with a staff login who worked in the system that day. Mark the others by hand; what you mark replaces the automatic mark. Sunday is the weekly off and is paid." />
@@ -405,6 +614,8 @@ export function Attendance() {
         <div className="toolbar" style={{ flexWrap: 'wrap' }}>
           <BranchSelect value={branch} onChange={setBranch} />
           <label className="small muted" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>Date <input type="date" value={date} max={today()} onChange={(e) => setDate(e.target.value || today())} aria-label="Date" /></label>
+          <select value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Show"><option value="">All</option><option value="present">Present</option><option value="absent">Absent</option><option value="half_day">Half day</option><option value="leave">Leave</option><option value="holiday">Holiday</option><option value="none">Not marked</option></select>
+          <input type="search" placeholder="Search name, code, branch" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search" style={{ minWidth: 180 }} />
           <Refresh onClick={list.load} loading={list.loading} />
           <button className="btn" onClick={auto} disabled={busy === 'auto'}>{busy === 'auto' ? 'Marking…' : 'Auto attendance'}</button>
           <button className="btn primary" onClick={save} disabled={!changed || busy === 'save'}>{busy === 'save' ? 'Saving…' : `Save${changed ? ` (${changed})` : ''}`}</button>
@@ -414,14 +625,22 @@ export function Attendance() {
             <Summary items={[['Employees', s.employees], ['Present', s.present], ['Half day', s.half_day], ['Leave', s.leave], ['Holiday', s.holiday], ['Absent', s.absent], ['Not marked', s.notMarked]]} />
             {list.data.sunday && <div className="notice">Sunday: the weekly off. It is paid even when nobody is marked.</div>}
             {list.data.holidays?.length > 0 && <div className="notice">Holiday: {list.data.holidays.join(', ')}. It is paid even when nobody is marked.</div>}
+            <div className="toolbar" style={{ flexWrap: 'wrap', gap: 12 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}><input type="checkbox" disabled={!unmarked.length && !shown.some((i) => !i.status && edits[i.id]?.status === 'present')} checked={unmarked.length === 0 && shown.some((i) => !i.status && edits[i.id]?.status === 'present')} onChange={(e) => markAllPresent(e.target.checked)} /> Mark all not marked as present (one tick)</label>
+              <span className="muted small">Selected: {picked.size}</span>
+              <select value={bulk} onChange={(e) => setBulk(e.target.value)} aria-label="Mark selected as">{ATT.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+              <button className="btn" onClick={applyBulk} disabled={!picked.size}>Mark selected</button>
+            </div>
+            {shown.length === 0 && <div className="muted" style={{ padding: 12 }}>No employee matches the filter.</div>}
             <div className="table-wrap">
               <table className="data-table">
-                <thead><tr><th>Employee</th><th>Branch</th><th>Attendance</th><th>Marked</th><th>Remark</th></tr></thead>
+                <thead><tr><th><input type="checkbox" aria-label="Select all shown" checked={allPicked} onChange={() => setPicked(allPicked ? new Set() : new Set(shown.map((i) => i.id)))} /></th><th>Employee</th><th>Branch</th><th>Attendance</th><th>Marked</th><th>Remark</th></tr></thead>
                 <tbody>
-                  {items.map((i) => {
+                  {shown.map((i) => {
                     const cur = edits[i.id]?.status ?? i.status;
                     return (
                       <tr key={i.id} style={edits[i.id] ? { background: 'var(--surface-2, #f6f8f8)' } : undefined}>
+                        <td><input type="checkbox" aria-label={`Select ${i.employeeCode}`} checked={picked.has(i.id)} onChange={() => setPicked((p) => { const n = new Set(p); if (n.has(i.id)) n.delete(i.id); else n.add(i.id); return n; })} /></td>
                         <td data-label="Employee"><strong>{i.employeeCode}</strong> {i.name}<div className="muted small">{i.designation || '—'}</div></td>
                         <td data-label="Branch">{i.branch || '—'}</td>
                         <td data-label="Attendance"><select aria-label={`Attendance of ${i.employeeCode}`} value={cur} onChange={(e) => setRow(i.id, { status: e.target.value })}>{ATT.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></td>
@@ -447,40 +666,57 @@ const SalBadge = ({ s }) => <span className={`badge ${SAL_BADGE[s]?.[1] || 'grey
 
 function SlipDialog({ slip, onClose, onSaved }) {
   const toast = useToast();
-  const [f, setF] = useState({ bonus: String(slip.bonus || ''), otherDeduction: String(slip.otherDeduction || ''), remark: slip.remark || '' });
+  const [vals, setVals] = useState(() => Object.fromEntries(slip.lines.map((l) => [l.key, l.amount ? String(l.amount) : ''])));
+  const [remark, setRemark] = useState(slip.remark || '');
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
   const paid = slip.status === 'paid';
-  const net = Math.max(slip.earned + (Number(f.bonus) || 0) - (Number(f.otherDeduction) || 0), 0);
+  const sumSide = (side) => slip.lines.filter((l) => l.side === side).reduce((s, l) => s + num(vals[l.key]), 0);
+  const totalEarn = sumSide('earn');
+  const totalDed = sumSide('ded');
+  const net = Math.max(totalEarn - totalDed, 0);
   async function save() {
     setBusy(true);
     setErrors({});
-    try { await api.hr.adjustSalary(slip.id, f); toast.success('Salary updated'); onSaved(); } catch (err) { setErrors(err.errors || {}); toast.error(err.message); } finally { setBusy(false); }
+    try { await api.hr.adjustSalary(slip.id, { lines: vals, remark }); toast.success('Salary updated'); onSaved(); } catch (err) { setErrors(err.errors || {}); toast.error(err.message); } finally { setBusy(false); }
   }
   const row = (l, v) => <tr><td>{l}</td><td className="num">{v}</td></tr>;
+  const side = (title, which) => (
+    <div>
+      <h4 style={{ margin: '8px 0 4px' }}>{title}</h4>
+      <table className="data-table">
+        <tbody>
+          {slip.lines.filter((l) => l.side === which).map((l, i) => (
+            <tr key={l.key}>
+              <td>{i + 1}. {l.label}{l.manual && <span className="badge amber" style={{ marginLeft: 6 }}>edited</span>}</td>
+              <td className="num">{paid ? inr(l.amount) : <input aria-label={l.label} inputMode="decimal" value={vals[l.key]} onChange={(e) => setVals((x) => ({ ...x, [l.key]: moneyField(e.target.value) }))} style={{ width: 110, textAlign: 'right' }} />}{errors[l.key] && <div className="field-error small">{errors[l.key]}</div>}</td>
+            </tr>
+          ))}
+          <tr style={{ borderTop: '2px solid currentColor' }}><td><strong>Total {which === 'earn' ? '' : 'deduction'}</strong></td><td className="num"><strong>{inr(which === 'earn' ? totalEarn : totalDed)}</strong></td></tr>
+        </tbody>
+      </table>
+    </div>
+  );
   return (
-    <Modal open title={`Salary slip — ${slip.employeeCode} ${slip.name}`} onClose={onClose} busy={busy}
-      footer={<><button className="btn" onClick={() => window.print()}>Print</button><button className="btn" onClick={onClose} disabled={busy}>Close</button>{!paid && <button className="btn primary" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save adjustment'}</button>}</>}>
+    <Modal open title={`Salary slip — ${slip.employeeCode} ${slip.name}`} onClose={onClose} busy={busy} size="lg"
+      footer={<><button className="btn" onClick={() => window.print()}>Print</button><button className="btn" onClick={onClose} disabled={busy}>Close</button>{!paid && <button className="btn primary" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>}</>}>
       <p className="muted">{monthLabel(slip.month)} · {slip.branch?.code} · {slip.designation || slip.department || ''}</p>
       <div className="table-wrap">
         <table className="data-table">
           <tbody>
             {row('Days in the month', slip.daysInMonth)}{row('Present', slip.presentDays)}{row('Half days', slip.halfDays)}{row('Leave (paid)', slip.leaveDays)}{row('Holiday', slip.holidayDays)}{row('Sundays (weekly off)', slip.sundays)}
             {row('Absent', `${slip.absentDays}${slip.unmarkedDays ? ` (${slip.unmarkedDays} not marked)` : ''}`)}{row('Payable days', slip.payableDays)}
-            {row('Monthly salary', inr(slip.gross))}{row('Salary for the payable days', inr(slip.earned))}
-            {row('Bonus / addition', inr(Number(f.bonus) || 0))}{row('Other deduction', inr(Number(f.otherDeduction) || 0))}
-            <tr style={{ borderTop: '2px solid currentColor' }}><td><strong>Net salary</strong></td><td className="num"><strong>{inr(net)}</strong></td></tr>
           </tbody>
         </table>
       </div>
+      <div className="panel-grid" style={{ marginTop: 8 }}>
+        {side('Receive side', 'earn')}
+        {side('Payment side', 'ded')}
+      </div>
+      <p style={{ margin: '12px 0 0' }}><strong>Net salary = total − total deduction = {inr(net)}</strong></p>
+      <p className="muted small">A line you change by hand stays as you set it when the salary is generated again.</p>
       {slip.unmarkedDays > 0 && <div className="notice" style={{ marginTop: 8 }}>{slip.unmarkedDays} day{slip.unmarkedDays === 1 ? ' was' : 's were'} not marked and counted as absent. Mark the attendance and generate the salary again to correct it.</div>}
-      {!paid && (
-        <div className="form-grid" style={{ marginTop: 8 }}>
-          <FormField id="slbonus" label="Bonus / addition (₹)" error={errors.bonus}><input id="slbonus" inputMode="decimal" value={f.bonus} onChange={(e) => setF((x) => ({ ...x, bonus: e.target.value.replace(/[^\d.]/g, '') }))} /></FormField>
-          <FormField id="sldeduct" label="Other deduction (₹)" error={errors.otherDeduction}><input id="sldeduct" inputMode="decimal" value={f.otherDeduction} onChange={(e) => setF((x) => ({ ...x, otherDeduction: e.target.value.replace(/[^\d.]/g, '') }))} /></FormField>
-          <FormField id="slrem" label="Remark" className="span-2"><input id="slrem" value={f.remark} maxLength={200} onChange={(e) => setF((x) => ({ ...x, remark: e.target.value }))} /></FormField>
-        </div>
-      )}
+      {!paid && <FormField id="slrem" label="Remark" className="span-2"><input id="slrem" value={remark} maxLength={200} onChange={(e) => setRemark(e.target.value)} /></FormField>}
       {paid && <div className="muted small" style={{ marginTop: 8 }}>Paid on {dmy(slip.paidOn)} by {MODE_LABEL[slip.payMode] || slip.payMode}.</div>}
     </Modal>
   );

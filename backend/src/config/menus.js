@@ -96,6 +96,7 @@ export const MENU_CATALOGUE = [
   { key: '/hr/departments', label: 'Department Master', group: 'HR Department', adminOnly: true },
   { key: '/hr/designations', label: 'Designation Master', group: 'HR Department', adminOnly: true },
   { key: '/hr/employees', label: 'Employee Registration', group: 'HR Department', adminOnly: true },
+  { key: '/hr/set-salary', label: 'Set Salary', group: 'HR Department', adminOnly: true },
   { key: '/hr/attendance', label: 'Attendance', group: 'HR Department' },
   { key: '/hr/salary', label: 'Employee Salary Generate & Send', group: 'HR Department' },
   { key: '/hr/salary-payment', label: 'Salary Payment', group: 'HR Department' },
