@@ -287,7 +287,7 @@ export const NAV_SECTIONS = [
           { label: 'Loan Outstanding Report', path: '/reports/outstanding', icon: 'loan' },
           { label: 'Loan EMI Collection Report', path: '/reports/emi-collection', icon: 'collect' },
           { label: 'Member Joining Report', path: '/reports/member-joining', icon: 'userplus' },
-          { label: 'NPA Report', path: '/reports/npa', icon: 'shield' },
+          { label: 'NPA Report / Pay', path: '/reports/npa', icon: 'shield' },
           { label: 'Personal Loan Collection Sheet', path: '/reports/personal-collection-sheet', icon: 'file' },
           { label: 'MSME / Business Loan Collection Sheet', path: '/reports/msme-collection-sheet', icon: 'file' },
           { label: 'Write-off Report', path: '/reports/write-off', icon: 'alert' },

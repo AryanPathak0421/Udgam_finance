@@ -6,7 +6,7 @@ import { listSurveys, createSurvey, updateSurveyStatus } from '../controllers/su
 
 const router = Router();
 const READ = ['super_admin', 'admin', 'branch_manager', 'accountant', 'loan_officer', 'collection_officer', 'field_officer', 'viewer'];
-const CALL = ['super_admin', 'admin', 'branch_manager', 'accountant', 'loan_officer', 'collection_officer', 'field_officer'];
+const CALL = ['super_admin', 'admin']; // the Call option is in the admin panel only
 
 const MGMT = ['super_admin', 'admin', 'branch_manager'];
 router.get('/center-surveys', requireAuth, requireRole(...READ), h(listSurveys));

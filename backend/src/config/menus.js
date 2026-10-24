@@ -81,7 +81,7 @@ export const MENU_CATALOGUE = [
   { key: '/reports/outstanding', label: 'Loan Outstanding Report', group: 'Reports' },
   { key: '/reports/emi-collection', label: 'Loan EMI Collection Report', group: 'Reports' },
   { key: '/reports/member-joining', label: 'Member Joining Report', group: 'Reports' },
-  { key: '/reports/npa', label: 'NPA Report', group: 'Reports' },
+  { key: '/reports/npa', label: 'NPA Report / Pay', group: 'Reports' },
   { key: '/reports/personal-collection-sheet', label: 'Personal Loan Collection Sheet', group: 'Reports' },
   { key: '/reports/msme-collection-sheet', label: 'MSME / Business Loan Collection Sheet', group: 'Reports' },
   { key: '/reports/write-off', label: 'Write-off Report', group: 'Reports' },

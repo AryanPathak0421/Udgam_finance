@@ -211,7 +211,7 @@ async function readPaidOn(req, p, input) {
  * part paid). The receipt is "regular" when only installments that are due were paid, "advance" when it reached
  * installments that are not due yet.
  */
-export async function receive(req, p, line, { amountPaise, count, type, paidOn, payMode, reference, bankAccount, npa = false, dueOnly = false }) {
+export async function receive(req, p, line, { amountPaise, count, type, paidOn, payMode, reference, bankAccount, npa = false, dueOnly = false, employeeCode = '' }) {
   // a branch whose day is closed (denomination made) takes no EMI for that day
   await assertDayOpen(p.branch?._id || p.branch, paidOn, req.user);
   const st = await borrowerState(p, line, paidOn);
@@ -251,7 +251,7 @@ export async function receive(req, p, line, { amountPaise, count, type, paidOn, 
   const doc = await EmiPayment.create({
     receiptNo: await generateCode('emiReceipt'), loanPayment: p._id, loanId: p.loanId, formId: p.formId, branch: p.branch._id, type: kind, member: line.member, memberCode: line.code, memberName: line.name,
     group: p.group?.code ? `${p.group.code} — ${p.group.name}` : '', installments: items.map((i) => i.no), items: items.map(({ no, dueDate, amountPaise: a }) => ({ no, dueDate, amountPaise: a })), amountPaise: pay,
-    paidOn, payMode, reference: asString(reference).slice(0, 60), bankAccount, npa, employeeCode: req.user.employeeCode || '', createdBy: req.user._id, createdByCode: req.user.employeeCode || '',
+    paidOn, payMode, reference: asString(reference).slice(0, 60), bankAccount, npa, employeeCode: employeeCode || req.user.employeeCode || '', createdBy: req.user._id, createdByCode: req.user.employeeCode || '',
   });
   // Two collectors paying the same borrower at the same moment: the later one is undone, never over-collected.
   const total = (await EmiPayment.aggregate([{ $match: { loanPayment: p._id, memberCode: line.code, status: 'paid' } }, { $group: { _id: null, t: { $sum: '$amountPaise' } } }]))[0]?.t || 0;

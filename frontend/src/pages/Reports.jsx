@@ -7,6 +7,8 @@ import Pagination from '../components/ui/Pagination.jsx';
 import { EmptyState, ErrorState, PageHeader, Spinner } from '../components/ui/Feedback.jsx';
 import { useToast } from '../components/ui/Toast.jsx';
 import useDebounce from '../hooks/useDebounce.js';
+import { useAuth } from '../context/AuthContext.jsx';
+import { EmployeeSelect } from './NewBorrower.jsx';
 
 const MODE_LABEL = { cash: 'Cash', bank: 'Bank', upi: 'UPI', cheque: 'Cheque' };
 const inr = (n) => (n === null || n === undefined || Number.isNaN(n) ? '—' : `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
@@ -51,7 +53,18 @@ COLS.overdue = borrowerCols([['Overdue amount', (r) => inr(r.due), true], ['Inst
 COLS.outstanding = borrowerCols([['Loan amount', (r) => inr(r.loanAmount), true], ['Total payable', (r) => inr(r.scheduled), true], ['Paid', (r) => inr(r.paid), true], ['Outstanding', (r) => <strong>{inr(r.outstanding)}</strong>, true], ['Due now', (r) => inr(r.due), true]]);
 COLS.npa = borrowerCols([['Staff', (r) => r.staff || '—'], ['Loan amount', (r) => inr(r.loanAmount), true], ['Last installment', (r) => dmy(r.lastInstallment)], ['Days after term', (r) => <span className="badge danger">{r.daysPastEnd}</span>], ['Outstanding', (r) => <strong>{inr(r.outstanding)}</strong>, true]]);
 const blank = () => <span style={{ display: 'inline-block', width: 90, borderBottom: '1px solid currentColor' }}>&nbsp;</span>;
-const sheetCols = borrowerCols([['Due now', (r) => inr(r.due), true], ['Overdue days', (r) => r.overdueDays || '—', true], ['Outstanding', (r) => inr(r.outstanding), true], ['Collected (₹)', blank], ['Sign', blank]]);
+const dueDatesText = (r) => { const d = r.dueDates || []; return d.length ? `${d.slice(0, 4).map((x) => dmy(x).slice(0, 5)).join(', ')}${d.length > 4 ? ` +${d.length - 4}` : ''}` : '—'; };
+const dayName = (n) => ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][n] || '';
+// the collection sheet: [label, text of the cell, numeric?] (the printed sheet uses the same list)
+const SHEET = [
+  ['SR No', (r) => r.sr], ['Member code', (r) => r.memberCode], ['Member name', (r) => r.memberName], ['Father / Husband', (r) => r.fatherHusband || '—'], ['Mobile', (r) => r.mobile || '—'],
+  ['Loan name', (r) => `${r.scheme || '—'} (${r.mode === 'weekly' ? `weekly, ${dayName(r.weekday)}` : 'daily'})`], ['Loan amount', (r) => inr(r.loanAmount), true], ['Disbursed date', (r) => dmy(r.disbursed)],
+  ['Loan ID', (r) => r.loanId], ['Total installments', (r) => r.term, true], ['EMI amount', (r) => inr(r.emi), true], ['Total payable', (r) => inr(r.scheduled), true], ['Paid installments', (r) => r.paidInstallments, true],
+  ['Due installments', (r) => r.dueCount, true], ['Next due date', (r) => dmy(r.nextDue)], ['Previous due', (r) => inr(r.previousDue), true], ['Today due', (r) => inr(r.todayDue), true],
+  ['Today receive', (r) => (r.todayReceive ? inr(r.todayReceive) : ''), true], ['Total paid', (r) => inr(r.totalPaid), true], ['Remaining installments', (r) => r.remainingInstallments, true],
+  ['Outstanding', (r) => inr(r.outstanding), true], ['All due dates', dueDatesText], ['Advance', (r) => (r.advance ? inr(r.advance) : '—'), true], ['Branch', (r) => r.branch], ['Sign customer', () => ''],
+];
+const sheetCols = SHEET.map(([l, f, n]) => [l, (r) => { const v = f(r); return l === 'Today receive' || l === 'Sign customer' ? (v || blank()) : v; }, n]);
 COLS['personal-collection-sheet'] = sheetCols;
 COLS['msme-collection-sheet'] = sheetCols;
 const KIND_LABEL = { death: 'Death settlement', auto: 'Auto settle', loan: 'Loan settlement' };
@@ -74,9 +87,9 @@ const REPORTS = {
   outstanding: { title: 'Loan Outstanding Report', description: 'What every running borrower still has to pay as on the chosen date.', asOf: true },
   'emi-collection': { title: 'Loan EMI Collection Report', description: 'EMI received, by the date it was paid.', range: true, from: today },
   'member-joining': { title: 'Member Joining Report', description: 'Members who joined, by the joining date.', range: true, from: monthStart },
-  npa: { title: 'NPA Report', description: 'Borrowers of a 120-day loan who still owe after the 121st day: the last installment is behind them and the loan is not paid. NPA payment takes the money received from the borrower.', asOf: true, npaPay: true },
-  'personal-collection-sheet': { title: 'Personal Loan Collection Sheet', description: 'Personal loan borrowers with an EMI to collect as on the date. Print it for the field.', asOf: true, print: true },
-  'msme-collection-sheet': { title: 'MSME / Business Loan Collection Sheet', description: 'MSME and business loan borrowers with an EMI to collect as on the date. Print it for the field.', asOf: true, print: true },
+  npa: { title: 'NPA Report / Pay', description: 'Borrowers of a 120-day loan who still owe after the 121st day: the last installment is behind them and the loan is not paid. NPA payment takes the money received from the borrower.', asOf: true, npaPay: true },
+  'personal-collection-sheet': { title: 'Personal Loan Collection Sheet', description: 'Personal loan borrowers with an EMI to collect as on the date. Print it for the field.', asOf: true, print: true, sheet: true },
+  'msme-collection-sheet': { title: 'MSME / Business Loan Collection Sheet', description: 'MSME and business loan borrowers with an EMI to collect as on the date. Print it for the field.', asOf: true, print: true, sheet: true },
   'write-off': { title: 'Write-off Report', description: 'Balance given up on loans: death settlements, automatic settlements and loan settlements with a waiver, by the settlement date.', range: true, status: ['death', 'auto', 'loan'], statusLabel: KIND_LABEL, from: monthStart },
   'staff-npa': { title: 'Staff wise NPA Report', description: 'NPA borrowers and what is outstanding on them, for every staff member (the staff of the loan).', asOf: true, noCall: true },
   'staff-npa-payment': { title: 'Staff wise NPA Payment Report', description: 'What every staff member collected on NPA loans (NPA payment), by the date it was received.', range: true, from: monthStart, noCall: true },
@@ -111,14 +124,14 @@ function CallButton({ report, row, date, onDone }) {
 /** NPA payment: money received from the borrower of an NPA loan. */
 function NpaPaymentDialog({ row, onClose, onSaved }) {
   const toast = useToast();
-  const [f, setF] = useState({ amount: String(row.outstanding), payMode: 'cash', bankAccount: '', reference: '' });
+  const [f, setF] = useState({ amount: String(row.outstanding), payMode: 'cash', bankAccount: '', reference: '', employee: '' });
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
   async function save() {
     setBusy(true);
     setErrors({});
     try {
-      const r = await api.reports.npaPayment({ loan: row.loanPaymentId, member: row.memberCode, amount: f.amount, payMode: f.payMode, bankAccount: f.payMode === 'bank' ? f.bankAccount : undefined, reference: f.reference });
+      const r = await api.reports.npaPayment({ loan: row.loanPaymentId, member: row.memberCode, amount: f.amount, payMode: f.payMode, bankAccount: f.payMode === 'bank' ? f.bankAccount : undefined, reference: f.reference, employee: f.employee });
       toast.success(`NPA payment received — receipt ${r.receiptNo}`);
       onSaved();
     } catch (err) {
@@ -133,6 +146,7 @@ function NpaPaymentDialog({ row, onClose, onSaved }) {
       footer={<><button className="btn" onClick={onClose} disabled={busy}>Close</button><button className="btn primary" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Receive'}</button></>}>
       <p className="muted">Loan {row.loanId} · {row.memberCode} {row.memberName} · outstanding {inr(row.outstanding)}. The money goes to the earliest unpaid installments and shows as NPA receive in the Cashbook.</p>
       <div className="form-grid">
+        <div className="span-2"><EmployeeSelect id="npastaff" label="Staff who gets the credit" required branch={row.branchId} value={f.employee} onChange={(v) => { setF((x) => ({ ...x, employee: v })); setErrors((x) => ({ ...x, employee: undefined })); }} error={errors.employee} /><div className="muted small">The recovery counts in this staff member's NPA recovery target and 10% of it is added to their salary slip.</div></div>
         <FormField id="npaamt" label="Amount received (₹)" required error={errors.amount}>
           <input id="npaamt" inputMode="decimal" value={f.amount} onChange={(e) => { setF((x) => ({ ...x, amount: e.target.value.replace(/[^\d.]/g, '') })); setErrors((x) => ({ ...x, amount: undefined })); }} />
         </FormField>
@@ -172,6 +186,49 @@ function ViewDialog({ row, onClose }) {
   );
 }
 
+/** The last NPA payment of a borrower is taken back (admin only). */
+function RevertDialog({ row, onClose, onDone }) {
+  const toast = useToast();
+  const [reason, setReason] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  async function go() {
+    setBusy(true); setError('');
+    try { await api.emi.cancel(row.lastNpa.id, reason); toast.success('NPA payment reverted'); onDone(); } catch (err) { setError(err.errors?.reason || err.message); setBusy(false); }
+  }
+  return (
+    <Modal open title="Revert the NPA payment" onClose={onClose} busy={busy}
+      footer={<><button className="btn" onClick={onClose} disabled={busy}>Cancel</button><button className="btn danger" onClick={go} disabled={busy}>{busy ? 'Reverting…' : 'Revert'}</button></>}>
+      <p className="muted">{row.memberCode} {row.memberName} · loan {row.loanId}: receipt {row.lastNpa.receiptNo} of {inr(row.lastNpa.amount)} on {dmy(row.lastNpa.date)}{row.lastNpa.staff ? ` (credit to ${row.lastNpa.staff})` : ''} is cancelled. The borrower owes it again and it goes out of the Cashbook, the staff target and the salary.</p>
+      <FormField id="npareason" label="Reason" required error={error}><input id="npareason" value={reason} maxLength={200} onChange={(e) => setReason(e.target.value)} /></FormField>
+    </Modal>
+  );
+}
+
+const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+/** The collection sheet on paper: landscape, a header with the company, the date and the filters, a small table that repeats its heading on every page, totals and a sign column. */
+function printSheet({ title, company, rows, summary, asOf, filters }) {
+  const w = window.open('', '_blank', 'width=1200,height=900');
+  if (!w) return false;
+  const head = SHEET.map(([l, , n]) => `<th class="${n ? 'n' : ''}${l === 'Sign customer' ? ' sign' : ''}">${esc(l)}</th>`).join('');
+  const body = rows.map((r) => `<tr>${SHEET.map(([l, f, n]) => `<td class="${n ? 'n' : ''}">${esc(f(r))}</td>`).join('')}</tr>`).join('');
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>
+    @page { size: A3 landscape; margin: 8mm }
+    *{box-sizing:border-box} body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:9px;margin:0}
+    h1{font-size:15px;margin:0}.sub{margin:2px 0 6px;color:#444;font-size:10px}
+    table{width:100%;border-collapse:collapse}th,td{border:1px solid #777;padding:3px 4px;text-align:left;vertical-align:top}
+    th{background:#e9eef0;font-size:8.5px}thead{display:table-header-group}tr{page-break-inside:avoid}.n{text-align:right;white-space:nowrap}.sign{min-width:90px}td:last-child{height:26px}
+    tfoot td{font-weight:700;background:#f3f5f6}
+  </style></head><body>
+  <h1>${esc(company?.name || '')} — ${esc(title)}</h1>
+  <div class="sub">As on ${esc(dmy(asOf))} · ${esc(filters)} · ${rows.length} borrower${rows.length === 1 ? '' : 's'}</div>
+  <table><thead><tr>${head}</tr></thead><tbody>${body}</tbody>
+  <tfoot><tr><td colspan="${SHEET.findIndex(([l]) => l === 'Total payable')}">Total (${rows.length})</td><td class="n">${esc(inr(rows.reduce((s, r) => s + (r.scheduled || 0), 0)))}</td><td colspan="${SHEET.findIndex(([l]) => l === 'Previous due') - SHEET.findIndex(([l]) => l === 'Total payable') - 1}"></td><td class="n">${esc(inr(rows.reduce((s, r) => s + (r.previousDue || 0), 0)))}</td><td class="n">${esc(inr(rows.reduce((s, r) => s + (r.todayDue || 0), 0)))}</td><td class="n">${esc(inr(rows.reduce((s, r) => s + (r.todayReceive || 0), 0)))}</td><td class="n">${esc(inr(rows.reduce((s, r) => s + (r.totalPaid || 0), 0)))}</td><td></td><td class="n">${esc(inr(rows.reduce((s, r) => s + (r.outstanding || 0), 0)))}</td><td colspan="4"></td></tr></tfoot></table>
+  <script>window.onload=function(){window.print()}</script></body></html>`);
+  w.document.close();
+  return true;
+}
+
 function BranchSelect({ value, onChange }) {
   const [branches, setBranches] = useState([]);
   useEffect(() => { api.groups.branchOptions().then((r) => setBranches(r.items)).catch(() => {}); }, []);
@@ -190,6 +247,10 @@ const COUNT_KEYS = ['staff', 'groups', 'borrowers', 'receipts', 'loans', 'requis
 export function ReportPage({ name }) {
   const cfg = REPORTS[name];
   const cols = COLS[name];
+  const toast = useToast();
+  const { user } = useAuth();
+  const admin = ['super_admin', 'admin'].includes(user?.role);
+  const callOn = !cfg.noCall && admin; // the Call option is in the admin panel only
   const [branch, setBranch] = useState('');
   const [from, setFrom] = useState(cfg.from ? cfg.from() : '');
   const [to, setTo] = useState(today());
@@ -203,20 +264,29 @@ export function ReportPage({ name }) {
   const [error, setError] = useState('');
   const [paying, setPaying] = useState(null);
   const [viewing, setViewing] = useState(null);
+  const [reverting, setReverting] = useState(null);
+  const [mode, setMode] = useState('');
+  const [weekday, setWeekday] = useState('');
+  const [staff, setStaff] = useState('');
+  const staffQ = useDebounce(staff, 350);
+  const [staffList, setStaffList] = useState([]);
+  useEffect(() => { if (cfg.sheet && branch) api.members.employees(branch).then((r) => setStaffList(r.items)).catch(() => setStaffList([])); else setStaffList([]); }, [branch]); // eslint-disable-line react-hooks/exhaustive-deps
   const callDate = cfg.range ? to : date; // a call is marked for the date of the report
 
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      setData(await api.reports.get(name, { branch, q, ...(cfg.range ? { from, to, status: status || undefined } : { date }) }));
+      const res = await api.reports.get(name, { branch, q, ...(cfg.sheet ? { mode, weekday, staff: staffQ } : {}), ...(cfg.range ? { from, to, status: status || undefined } : { date }) });
+      if (cfg.sheet) res.rows.forEach((r, i) => { r.sr = i + 1; });
+      setData(res);
       setPage(1);
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [name, branch, q, from, to, date, status]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [name, branch, q, from, to, date, status, mode, weekday, staffQ]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [load]);
 
   const done = (key, call) => setData((d) => ({ ...d, rows: d.rows.map((r) => (r.key === key ? { ...r, call } : r)) }));
@@ -243,9 +313,22 @@ export function ReportPage({ name }) {
               {cfg.status.map((s) => <option key={s} value={s}>{cfg.statusLabel?.[s] || cap(s)}</option>)}
             </select>
           )}
+          {cfg.sheet && (
+            <>
+              <select value={mode} onChange={(e) => { setMode(e.target.value); if (e.target.value === 'daily') setWeekday(''); }} aria-label="Daily or weekly"><option value="">Daily and weekly</option><option value="daily">Daily</option><option value="weekly">Weekly</option></select>
+              {mode !== 'daily' && <select value={weekday} onChange={(e) => setWeekday(e.target.value)} aria-label="Day of the week"><option value="">All days</option>{[1, 2, 3, 4, 5, 6, 0].map((d) => <option key={d} value={d}>{dayName(d)}</option>)}</select>}
+              <input type="search" list="sheetstaff" placeholder="Employee (code), optional" value={staff} onChange={(e) => setStaff(e.target.value)} aria-label="Employee" style={{ minWidth: 190 }} />
+              <datalist id="sheetstaff">{staffList.map((s) => <option key={s.code} value={s.code}>{s.name}</option>)}</datalist>
+            </>
+          )}
           <input type="search" placeholder="Search" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search" style={{ minWidth: 180 }} />
           <button className="btn" onClick={load} disabled={loading}>{loading ? 'Refreshing…' : 'Refresh'}</button>
-          {cfg.print && <button className="btn" onClick={() => window.print()}>Print the sheet</button>}
+          {cfg.print && <button className="btn" onClick={async () => {
+            let company = null;
+            try { company = (await api.hr.letterhead()).company; } catch { /* printed without the letterhead */ }
+            const filters = [mode ? cap(mode) : 'Daily and weekly', mode !== 'daily' && weekday !== '' ? dayName(Number(weekday)) : 'All days', staff ? `Employee ${staff.toUpperCase()}` : 'All employees', branch ? 'One branch' : 'All branches'].join(' · ');
+            if (!printSheet({ title: cfg.title, company, rows, summary: data.summary, asOf: data.asOf || date, filters })) toast.error('Allow pop-ups to print the sheet');
+          }} disabled={!rows.length}>Print the sheet</button>}
         </div>
         {loading && !data ? <Spinner label="Loading…" /> : error ? <ErrorState message={error} onRetry={load} /> : !data || rows.length === 0 ? (
           <EmptyState title="Nothing to show" description="No record for these filters." />
@@ -257,20 +340,21 @@ export function ReportPage({ name }) {
             {data.truncated && <div className="notice">Showing the first {rows.length} of {data.total}. Narrow the dates or the branch to see the rest.</div>}
             <div className="table-wrap">
               <table className="data-table">
-                <thead><tr>{cols.map(([l, , n]) => <th key={l} className={n ? 'num' : ''}>{l}</th>)}{!cfg.noCall && <th>Number</th>}{!cfg.noCall && <th className="no-print">Call</th>}{!cfg.noCall && <th className="no-print">View</th>}{cfg.npaPay && <th className="no-print">NPA payment</th>}</tr></thead>
+                <thead><tr>{cols.map(([l, , n]) => <th key={l} className={n ? 'num' : ''}>{l}</th>)}{callOn && <th>Number</th>}{callOn && <th className="no-print">Call</th>}{!cfg.noCall && <th className="no-print">View</th>}{cfg.npaPay && <th className="no-print">NPA payment</th>}</tr></thead>
                 <tbody>
                   {view.map((r) => (
                     <tr key={r.key}>
                       {cols.map(([l, f, n]) => <td key={l} data-label={l} className={n ? 'num' : ''}>{f(r)}</td>)}
-                      {!cfg.noCall && <td data-label="Number">{r.mobile || '—'}</td>}
-                      {!cfg.noCall && <td data-label="Call" className="no-print"><CallButton report={name} row={r} date={callDate} onDone={done} /></td>}
+                      {callOn && <td data-label="Number">{r.mobile || '—'}</td>}
+                      {callOn && <td data-label="Call" className="no-print"><CallButton report={name} row={r} date={callDate} onDone={done} /></td>}
                       {!cfg.noCall && <td data-label="View" className="no-print"><button className="btn sm" onClick={() => setViewing(r)}>View</button></td>}
-                      {cfg.npaPay && <td data-label="NPA payment" className="no-print"><button className="btn sm primary" onClick={() => setPaying(r)}>NPA payment</button></td>}
+                      {cfg.npaPay && <td data-label="NPA payment" className="no-print"><div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}><button className="btn sm primary" onClick={() => setPaying(r)}>NPA payment</button>{admin && r.lastNpa && <button className="btn sm danger-outline" title={`Last: ${r.lastNpa.receiptNo} · ${inr(r.lastNpa.amount)} on ${dmy(r.lastNpa.date)}`} onClick={() => setReverting(r)}>Revert</button>}</div>{r.lastNpa && <div className="muted small">Last {inr(r.lastNpa.amount)} · {dmy(r.lastNpa.date)}{r.lastNpa.staff ? ` · ${r.lastNpa.staff}` : ''}</div>}</td>}
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+            {reverting && <RevertDialog row={reverting} onClose={() => setReverting(null)} onDone={() => { setReverting(null); load(); }} />}
             {viewing && <ViewDialog row={viewing} onClose={() => setViewing(null)} />}
             {paying && <NpaPaymentDialog row={paying} onClose={() => setPaying(null)} onSaved={() => { setPaying(null); load(); }} />}
             <Pagination page={page} totalPages={Math.max(1, Math.ceil(rows.length / LIMIT))} total={rows.length} limit={LIMIT} onPage={setPage} />
