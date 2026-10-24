@@ -446,7 +446,8 @@ export function CompanyGraph() {
   const people = [{ key: 'members', label: 'New members', color: '#e9a23b' }, { key: 'loans', label: 'Loans paid out (number)', color: '#6a4c93' }];
   return (
     <>
-      <PageHeader title="Company Graph" description="The company month by month: loans paid out against EMI collected, new members, and how the outstanding is split branch by branch." />
+      <PageHeader title="Company Graph" description="The company month by month: loans paid out against EMI collected, new members, and how the outstanding is split branch by branch. The detail report below the graphs has the figures and can be printed."
+        actions={<button type="button" className="btn no-print" onClick={() => window.print()} disabled={!d}>Print</button>} />
       <div className="panel">
         <div className="toolbar" style={{ flexWrap: 'wrap' }}>
           <BranchSelect value={branch} onChange={setBranch} />
@@ -464,6 +465,26 @@ export function CompanyGraph() {
             <h3 className="section-title" style={{ marginTop: 18 }}>Outstanding by branch (as on today)</h3>
             <div className="small muted" style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 6 }}><span><span style={{ background: '#2a9d8f', width: 12, height: 12, display: 'inline-block', borderRadius: 3 }} /> Outstanding</span><span><span style={{ background: '#e9a23b', width: 12, height: 12, display: 'inline-block', borderRadius: 3 }} /> of it overdue</span><span><span style={{ background: '#d1495b', width: 12, height: 12, display: 'inline-block', borderRadius: 3 }} /> of it NPA</span></div>
             {d.branches.length ? <HBars data={d.branches} /> : <div className="muted">No running loan.</div>}
+            <h3 className="section-title" style={{ marginTop: 22 }}>Detail report: month by month</h3>
+            <div className="table-wrap">
+              <table className="data-table grid-lines">
+                <thead><tr><th>Month</th><th className="num">Loans paid out (number)</th><th className="num">Loans paid out</th><th className="num">EMI collected</th><th className="num">New members</th></tr></thead>
+                <tbody>
+                  {d.series.map((r) => <tr key={r.month}><td data-label="Month">{r.month}</td><td data-label="Loans" className="num">{r.loans}</td><td data-label="Paid out" className="num">{inr(r.disbursed)}</td><td data-label="Collected" className="num">{inr(r.collected)}</td><td data-label="Members" className="num">{r.members}</td></tr>)}
+                  <tr style={{ borderTop: '2px solid currentColor' }}><td><strong>Total</strong></td><td className="num"><strong>{d.series.reduce((a, r) => a + r.loans, 0)}</strong></td><td className="num"><strong>{inr(d.series.reduce((a, r) => a + r.disbursed, 0))}</strong></td><td className="num"><strong>{inr(d.series.reduce((a, r) => a + r.collected, 0))}</strong></td><td className="num"><strong>{d.series.reduce((a, r) => a + r.members, 0)}</strong></td></tr>
+                </tbody>
+              </table>
+            </div>
+            <h3 className="section-title" style={{ marginTop: 18 }}>Detail report: branch by branch (as on today)</h3>
+            <div className="table-wrap">
+              <table className="data-table grid-lines">
+                <thead><tr><th>Branch</th><th className="num">Outstanding</th><th className="num">Overdue</th><th className="num">NPA</th></tr></thead>
+                <tbody>
+                  {d.branches.map((r) => <tr key={r.branch}><td data-label="Branch">{r.branch}</td><td data-label="Outstanding" className="num">{inr(r.outstanding)}</td><td data-label="Overdue" className="num">{inr(r.overdue)}</td><td data-label="NPA" className="num">{inr(r.npa)}</td></tr>)}
+                  <tr style={{ borderTop: '2px solid currentColor' }}><td><strong>Total</strong></td><td className="num"><strong>{inr(d.branches.reduce((a, r) => a + r.outstanding, 0))}</strong></td><td className="num"><strong>{inr(d.branches.reduce((a, r) => a + r.overdue, 0))}</strong></td><td className="num"><strong>{inr(d.branches.reduce((a, r) => a + r.npa, 0))}</strong></td></tr>
+                </tbody>
+              </table>
+            </div>
           </>
         )}</State>
       </div>

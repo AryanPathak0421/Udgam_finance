@@ -46,6 +46,37 @@ const employeeSchema = new mongoose.Schema(
     bankName: String,
     ifsc: { type: String, uppercase: true, trim: true },
     accountNumber: String,
+    // personal details
+    homeTown: { type: String, trim: true },
+    originalMarksheet: { type: Boolean, default: false }, // the original marksheet is kept with the company
+    fatherName: { type: String, trim: true },
+    fatherMobile: { type: String, trim: true },
+    motherName: { type: String, trim: true },
+    maritalStatus: { type: String, enum: ['', 'single', 'married', 'divorced', 'widowed'], default: '' },
+    pincode: String,
+    state: String,
+    district: String,
+    area: String,
+    // reports to (the supervisor sees the details of the employees who report to them)
+    supervisor: { type: mongoose.Schema.Types.ObjectId, ref: 'Employee' },
+    pfDeduction: { type: Boolean, default: false },
+    esiDeduction: { type: Boolean, default: false },
+    // verification: all optional, each with the copy as a small PNG / JPEG data URL (not loaded unless asked for)
+    aadhaarNo: String,
+    panNo: { type: String, uppercase: true, trim: true },
+    drivingLicenceNo: { type: String, uppercase: true, trim: true },
+    voterIdNo: { type: String, uppercase: true, trim: true },
+    photo: { type: String, select: false },
+    aadhaarCopy: { type: String, select: false },
+    panCopy: { type: String, select: false },
+    drivingLicenceCopy: { type: String, select: false },
+    voterIdCopy: { type: String, select: false },
+    // experience
+    hasExperience: { type: Boolean, default: false },
+    previousCompany: { type: String, trim: true },
+    previousPost: { type: String, trim: true },
+    relievingLetter: { type: String, select: false },
+    salarySlipCopy: { type: String, select: false },
     status: { type: String, enum: ['active', 'left'], default: 'active' },
     leftOn: Date,
     isBlocked: { type: Boolean, default: false }, // a blocked employee cannot sign in (staff login and app)

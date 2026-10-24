@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler as h } from '../utils/http.js';
 import {
-  departments, designations, listEmployees, employeeStaffOptions, createEmployee, updateEmployee, setEmployeeStatus, syncFromUsers, hrOptions,
+  departments, designations, listEmployees, getEmployee, employeePincode, employeeStaffOptions, createEmployee, updateEmployee, setEmployeeStatus, syncFromUsers, hrOptions,
   attendanceDay, markAttendance, autoAttendance, generateSalary, listSalary, adjustSalary, sendSalary, paySalary, branchWiseSalary,
 } from '../controllers/hrController.js';
 
@@ -25,7 +25,9 @@ router.patch('/hr/designations/:id/status', requireAuth, requireRole(...ADMIN), 
 router.delete('/hr/designations/:id', requireAuth, requireRole(...ADMIN), h(designations.remove));
 
 router.get('/hr/employees', requireAuth, requireRole(...HR), h(listEmployees));
+router.get('/hr/employees/pincode/:pin', requireAuth, requireRole(...ADMIN), h(employeePincode));
 router.get('/hr/employees/staff-options', requireAuth, requireRole(...ADMIN), h(employeeStaffOptions));
+router.get('/hr/employees/:id', requireAuth, requireRole(...ADMIN), h(getEmployee));
 router.post('/hr/employees/sync-from-users', requireAuth, requireRole(...ADMIN), h(syncFromUsers));
 router.post('/hr/employees', requireAuth, requireRole(...ADMIN), h(createEmployee));
 router.put('/hr/employees/:id', requireAuth, requireRole(...ADMIN), h(updateEmployee));

@@ -11,6 +11,7 @@ import { readBankAccount } from '../services/bankAccountPick.js';
 import { sendSms } from '../services/sms.js';
 import { asString, parseDateOnly, HttpError } from '../utils/http.js';
 import { toMinor } from '../utils/money.js';
+import { lookupPincode } from '../services/lookup.js';
 import { audit } from '../utils/audit.js';
 import { branchFilter, isAdmin, showMobile } from './groupController.js';
 
@@ -25,6 +26,12 @@ const rupees = (p) => (p || 0) / 100;
 const startOfToday = () => new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
 const MOBILE_RE = /^[6-9]\d{9}$/;
 const IFSC_RE = /^[A-Z]{4}0[A-Z0-9]{6}$/;
+const IMAGE_RE = /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/;
+const MAX_IMAGE_CHARS = 1_500_000;
+const EMP_IMAGES = ['photo', 'aadhaarCopy', 'panCopy', 'drivingLicenceCopy', 'voterIdCopy', 'relievingLetter', 'salarySlipCopy'];
+const EMP_IMAGE_LABEL = { photo: 'Photo', aadhaarCopy: 'Aadhaar copy', panCopy: 'PAN copy', drivingLicenceCopy: 'Driving licence copy', voterIdCopy: 'Voter ID copy', relievingLetter: 'Relieving letter', salarySlipCopy: 'Salary slip' };
+const MARITAL = ['single', 'married', 'divorced', 'widowed'];
+const yes = (v) => v === true || v === 'yes' || v === 'true';
 
 /** The branches of a request: the user's own, narrowed to the chosen one (never widened). */
 function scope(req, field = 'branch') {
@@ -121,18 +128,39 @@ const presentEmployee = (e, user) => ({
   branch: e.branch?._id ? { id: e.branch._id, code: e.branch.code, name: e.branch.name } : null, joiningDate: iso(e.joiningDate), monthlySalary: rupees(e.monthlySalaryPaise),
   bankName: e.bankName || '', ifsc: e.ifsc || '', accountNumber: isAdmin(user) ? e.accountNumber || '' : e.accountNumber ? `XXXXX${String(e.accountNumber).slice(-4)}` : '',
   status: e.status, leftOn: iso(e.leftOn), hasLogin: Boolean(e.user), isBlocked: Boolean(e.isBlocked), blockReason: e.blockReason || '',
+  homeTown: e.homeTown || '', originalMarksheet: Boolean(e.originalMarksheet), fatherName: e.fatherName || '', fatherMobile: showMobile(user, e.fatherMobile) || '', motherName: e.motherName || '', maritalStatus: e.maritalStatus || '',
+  pincode: e.pincode || '', state: e.state || '', district: e.district || '', area: e.area || '', pfDeduction: Boolean(e.pfDeduction), esiDeduction: Boolean(e.esiDeduction),
+  aadhaarNo: e.aadhaarNo || '', panNo: e.panNo || '', drivingLicenceNo: e.drivingLicenceNo || '', voterIdNo: e.voterIdNo || '',
+  hasExperience: Boolean(e.hasExperience), previousCompany: e.previousCompany || '', previousPost: e.previousPost || '',
+  supervisor: e.supervisor?._id ? { id: e.supervisor._id, code: e.supervisor.employeeCode, name: e.supervisor.name } : null,
 });
-const EMP_POPULATE = [{ path: 'department', select: 'name' }, { path: 'designation', select: 'name' }, { path: 'branch', select: 'code name' }];
+const EMP_POPULATE = [{ path: 'department', select: 'name' }, { path: 'designation', select: 'name' }, { path: 'branch', select: 'code name' }, { path: 'supervisor', select: 'employeeCode name' }];
 
 export async function listEmployees(req, res) {
   const filter = { isDeleted: false, ...scope(req) };
   const st = asString(req.query.status);
   if (['active', 'left'].includes(st)) filter.status = st;
-  for (const k of ['department', 'designation']) if (mongoose.isValidObjectId(asString(req.query[k]))) filter[k] = req.query[k];
+  for (const k of ['department', 'designation', 'supervisor']) if (mongoose.isValidObjectId(asString(req.query[k]))) filter[k] = req.query[k];
   const q = asString(req.query.q).toLowerCase();
   const rows = await Employee.find(filter).sort({ employeeCode: 1 }).limit(3000).populate(EMP_POPULATE);
-  const items = rows.map((e) => presentEmployee(e, req.user)).filter((e) => !q || [e.employeeCode, e.name, e.mobile].some((v) => String(v).toLowerCase().includes(q)));
+  const team = new Map((await Employee.aggregate([{ $match: { isDeleted: false, status: 'active', supervisor: { $ne: null } } }, { $group: { _id: '$supervisor', n: { $sum: 1 } } }])).map((r) => [String(r._id), r.n]));
+  const items = rows.map((e) => ({ ...presentEmployee(e, req.user), teamCount: team.get(String(e._id)) || 0 })).filter((e) => !q || [e.employeeCode, e.name, e.mobile].some((v) => String(v).toLowerCase().includes(q)));
   res.json({ items, summary: { employees: items.length, active: items.filter((e) => e.status === 'active').length, monthlySalary: items.filter((e) => e.status === 'active').reduce((s, e) => s + e.monthlySalary, 0) } });
+}
+
+/** One employee with the photo and the copies of the documents (they are not part of the list). */
+export async function getEmployee(req, res) {
+  if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Employee not found');
+  const e = await Employee.findOne({ _id: req.params.id, isDeleted: false, ...scope(req) }).select(EMP_IMAGES.map((k) => `+${k}`).join(' ')).populate(EMP_POPULATE);
+  if (!e) throw new HttpError(404, 'Employee not found');
+  res.json({ item: { ...presentEmployee(e, req.user), ...Object.fromEntries(EMP_IMAGES.map((k) => [k, e[k] || ''])) } });
+}
+
+/** Location of a pincode (state, district, post office areas), for the registration form. */
+export async function employeePincode(req, res) {
+  const pin = String(req.params.pin || '');
+  if (!/^[1-9]\d{5}$/.test(pin)) throw new HttpError(422, 'Enter a valid 6-digit pincode');
+  res.json(await lookupPincode(pin));
 }
 
 /** Staff logins that have no HR record yet. */
@@ -172,6 +200,50 @@ async function readEmployee(b) {
   if (d.ifsc && !IFSC_RE.test(d.ifsc)) throw invalid({ ifsc: 'Enter a valid IFSC code' });
   d.accountNumber = asString(b.accountNumber);
   if (d.accountNumber && !/^\d{9,18}$/.test(d.accountNumber)) throw invalid({ accountNumber: 'Account number must be 9–18 digits' });
+
+  // personal details, deductions, verification and experience (everything here is optional)
+  d.homeTown = asString(b.homeTown).slice(0, 80);
+  d.originalMarksheet = yes(b.originalMarksheet);
+  d.fatherName = asString(b.fatherName).replace(/\s+/g, ' ').slice(0, 80);
+  d.fatherMobile = asString(b.fatherMobile);
+  if (d.fatherMobile && !MOBILE_RE.test(d.fatherMobile)) throw invalid({ fatherMobile: 'Enter a valid 10-digit mobile number' });
+  d.motherName = asString(b.motherName).replace(/\s+/g, ' ').slice(0, 80);
+  d.maritalStatus = asString(b.maritalStatus);
+  if (d.maritalStatus && !MARITAL.includes(d.maritalStatus)) throw invalid({ maritalStatus: 'Select the marital status' });
+  d.pincode = asString(b.pincode);
+  if (d.pincode && !/^[1-9]\d{5}$/.test(d.pincode)) throw invalid({ pincode: 'Enter a valid 6-digit pincode' });
+  d.state = asString(b.state).slice(0, 60);
+  d.district = asString(b.district).slice(0, 60);
+  d.area = asString(b.area).slice(0, 80);
+  d.pfDeduction = yes(b.pfDeduction);
+  d.esiDeduction = yes(b.esiDeduction);
+  d.aadhaarNo = asString(b.aadhaarNo).replace(/\s/g, '');
+  if (d.aadhaarNo && !/^\d{12}$/.test(d.aadhaarNo)) throw invalid({ aadhaarNo: 'Aadhaar number must be 12 digits' });
+  d.panNo = asString(b.panNo).toUpperCase();
+  if (d.panNo && !/^[A-Z]{5}\d{4}[A-Z]$/.test(d.panNo)) throw invalid({ panNo: 'Enter a valid PAN (e.g. ABCDE1234F)' });
+  d.drivingLicenceNo = asString(b.drivingLicenceNo).toUpperCase().slice(0, 20);
+  d.voterIdNo = asString(b.voterIdNo).toUpperCase().slice(0, 20);
+  d.hasExperience = yes(b.hasExperience);
+  d.previousCompany = d.hasExperience ? asString(b.previousCompany).slice(0, 100) : '';
+  d.previousPost = d.hasExperience ? asString(b.previousPost).slice(0, 80) : '';
+  const sup = asString(b.supervisor);
+  if (!sup) d.supervisor = undefined;
+  else {
+    if (!mongoose.isValidObjectId(sup) || !(await Employee.exists({ _id: sup, isDeleted: false }))) throw invalid({ supervisor: 'Select the supervisor from the list' });
+    d.supervisor = sup;
+  }
+  // the copies: left alone when the field is not sent, removed when it is sent empty
+  const errs = {};
+  for (const k of EMP_IMAGES) {
+    if (b[k] === undefined) continue;
+    if (!d.hasExperience && ['relievingLetter', 'salarySlipCopy'].includes(k)) { d[k] = ''; continue; }
+    const value = b[k];
+    if (value === '' || value === null) d[k] = '';
+    else if (typeof value !== 'string' || !IMAGE_RE.test(value)) errs[k] = `${EMP_IMAGE_LABEL[k]} must be a PNG or JPEG image`;
+    else if (value.length > MAX_IMAGE_CHARS) errs[k] = `${EMP_IMAGE_LABEL[k]} is too large`;
+    else d[k] = value;
+  }
+  if (Object.keys(errs).length) throw invalid(errs);
   return d;
 }
 
@@ -202,7 +274,9 @@ export async function updateEmployee(req, res) {
   if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Employee not found');
   const e = await Employee.findOne({ _id: req.params.id, isDeleted: false });
   if (!e) throw new HttpError(404, 'Employee not found');
-  Object.assign(e, await readEmployee(req.body || {}));
+  const data = await readEmployee(req.body || {});
+  if (data.supervisor && String(data.supervisor) === String(e._id)) throw invalid({ supervisor: 'An employee cannot be their own supervisor' });
+  Object.assign(e, data);
   await e.save();
   await e.populate(EMP_POPULATE);
   await audit(req, { action: 'employee.update', entity: 'Employee', entityId: e._id, after: { employeeCode: e.employeeCode, name: e.name } });

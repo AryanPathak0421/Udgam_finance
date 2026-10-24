@@ -7,6 +7,7 @@ import BankAccountSelect from '../components/BankAccountSelect.jsx';
 import { EmptyState, ErrorState, PageHeader, Spinner } from '../components/ui/Feedback.jsx';
 import { useToast } from '../components/ui/Toast.jsx';
 import useDebounce from '../hooks/useDebounce.js';
+import { PhotoField } from './NewBorrower.jsx';
 
 const inr = (n) => (n === null || n === undefined || Number.isNaN(n) ? '—' : `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const dmy = (s) => (s ? new Date(`${String(s).slice(0, 10)}T00:00:00`).toLocaleDateString('en-IN') : '—');
@@ -124,28 +125,73 @@ export const DesignationMaster = () => <MasterPage kind="designation" />;
 
 // ---------------------------------------------------------------------------------------------------------------------------
 // Employee registration
+const MARITAL = [['single', 'Single'], ['married', 'Married'], ['divorced', 'Divorced'], ['widowed', 'Widowed']];
+const YesNo = ({ id, label, value, onChange, error, hint, className }) => (
+  <FormField id={id} label={label} error={error} hint={hint} className={className}>
+    <select id={id} value={value ? 'yes' : 'no'} onChange={(e) => onChange(e.target.value === 'yes')}><option value="no">No</option><option value="yes">Yes</option></select>
+  </FormField>
+);
+
 function EmployeeForm({ item, onClose, onSaved }) {
   const toast = useToast();
   const [opts, setOpts] = useState({ departments: [], designations: [] });
   const [branches, setBranches] = useState([]);
   const [staff, setStaff] = useState([]);
+  const [loadingDetail, setLoadingDetail] = useState(Boolean(item));
   const [f, setF] = useState({
     user: '', name: item?.name || '', mobile: item?.mobile?.startsWith('X') ? '' : item?.mobile || '', email: item?.email || '', address: item?.address || '', department: item?.department?.id || '', designation: item?.designation?.id || '',
     branch: item?.branch?.id || '', joiningDate: item?.joiningDate || today(), monthlySalary: item ? String(item.monthlySalary || '') : '', bankName: item?.bankName || '', ifsc: item?.ifsc || '', accountNumber: item?.accountNumber?.startsWith('X') ? '' : item?.accountNumber || '',
+    photo: '', homeTown: '', originalMarksheet: false, supervisor: item?.supervisor?.id || '', pfDeduction: false, esiDeduction: false,
+    aadhaarNo: '', aadhaarCopy: '', panNo: '', panCopy: '', drivingLicenceNo: '', drivingLicenceCopy: '', voterIdNo: '', voterIdCopy: '',
+    pincode: '', state: '', district: '', area: '', fatherName: '', fatherMobile: '', motherName: '', maritalStatus: '',
+    hasExperience: false, previousCompany: '', previousPost: '', relievingLetter: '', salarySlipCopy: '',
   });
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
+  const [areas, setAreas] = useState([]);
+  const [pinNote, setPinNote] = useState('');
+  const [supDept, setSupDept] = useState('');
+  const [supDes, setSupDes] = useState('');
+  const [supList, setSupList] = useState(item?.supervisor ? [{ id: item.supervisor.id, employeeCode: item.supervisor.code, name: item.supervisor.name }] : []);
   useEffect(() => {
     api.hr.options().then(setOpts).catch(() => {});
     api.groups.branchOptions().then((r) => { setBranches(r.items); if (!item && r.items.length === 1) setF((x) => ({ ...x, branch: r.items[0].id })); }).catch(() => {});
     if (!item) api.hr.staffOptions().then((r) => setStaff(r.items)).catch(() => {});
+    if (item) {
+      // the rest of the details and the copies are not part of the list
+      api.hr.employee(item.id).then((r) => {
+        const e = r.item;
+        setF((x) => ({
+          ...x, ...Object.fromEntries(['photo', 'homeTown', 'originalMarksheet', 'pfDeduction', 'esiDeduction', 'aadhaarNo', 'aadhaarCopy', 'panNo', 'panCopy', 'drivingLicenceNo', 'drivingLicenceCopy', 'voterIdNo', 'voterIdCopy', 'pincode', 'state', 'district', 'area', 'fatherName', 'fatherMobile', 'motherName', 'maritalStatus', 'hasExperience', 'previousCompany', 'previousPost', 'relievingLetter', 'salarySlipCopy'].map((k) => [k, e[k] ?? x[k]])),
+          fatherMobile: e.fatherMobile?.startsWith('X') ? '' : e.fatherMobile || '',
+        }));
+        setLoadingDetail(false);
+      }).catch(() => setLoadingDetail(false));
+    }
   }, [item]);
+  // the supervisors to choose from: the employees of the chosen department and designation
+  useEffect(() => {
+    if (!supDept && !supDes) return;
+    api.hr.employees({ department: supDept, designation: supDes, status: 'active' }).then((r) => setSupList(r.items.filter((x) => x.id !== item?.id))).catch(() => {});
+  }, [supDept, supDes, item]);
   const set = (k) => (e) => { setF((x) => ({ ...x, [k]: e.target.value })); setErrors((x) => ({ ...x, [k]: undefined })); };
+  const setV = (k) => (v) => { setF((x) => ({ ...x, [k]: v })); setErrors((x) => ({ ...x, [k]: undefined })); };
+  const digits = (k, n) => (e) => setV(k)(e.target.value.replace(/\D/g, '').slice(0, n));
   const pickUser = (id) => {
     const u = staff.find((s) => s.id === id);
     setF((x) => ({ ...x, user: id, ...(u ? { name: u.name, mobile: /^[6-9]\d{9}$/.test(u.mobile) ? u.mobile : x.mobile } : {}) }));
   };
   const desigs = opts.designations.filter((d) => !f.department || !d.department || d.department === f.department);
+  const supDesigs = opts.designations.filter((d) => !supDept || !d.department || d.department === supDept);
+  const chosenSup = supList.find((x) => x.id === f.supervisor);
+  async function fetchPin(pin) {
+    setPinNote('');
+    if (pin.length !== 6) return;
+    try {
+      const r = await api.hr.employeePincode(pin);
+      if (r.status === 'ok') { setF((x) => ({ ...x, state: r.state || '', district: r.district || r.postalDistrict || '', area: x.area || (r.areas?.[0] || '').trim() })); setAreas((r.areas || []).map((a) => a.trim())); } else setPinNote(r.status === 'invalid' ? 'This pincode was not found' : 'The location could not be fetched now, enter it by hand');
+    } catch (err) { setPinNote(err.message); }
+  }
   async function save() {
     setBusy(true);
     setErrors({});
@@ -155,28 +201,108 @@ function EmployeeForm({ item, onClose, onSaved }) {
       onSaved();
     } catch (err) { setErrors(err.errors || {}); toast.error(err.message); } finally { setBusy(false); }
   }
+  const Sec = ({ children }) => <h4 className="span-2" style={{ margin: '10px 0 0', paddingBottom: 4, borderBottom: '1px solid var(--border)' }}>{children}</h4>;
   return (
-    <Modal open title={item ? `Edit ${item.employeeCode}` : 'Register an employee'} onClose={onClose} busy={busy}
-      footer={<><button className="btn" onClick={onClose} disabled={busy}>Close</button><button className="btn primary" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save'}</button></>}>
+    <Modal open title={item ? `Edit ${item.employeeCode}` : 'Register an employee'} onClose={onClose} busy={busy} size="lg"
+      footer={<><button className="btn" onClick={onClose} disabled={busy}>Close</button><button className="btn primary" onClick={save} disabled={busy || loadingDetail}>{busy ? 'Saving…' : 'Save'}</button></>}>
       <div className="form-grid">
         {!item && (
-          <FormField id="eluser" label="Staff login" className="span-2" error={errors.user} hint="Optional. Link the employee to an existing staff login (User Master): the employee code is taken from it, and the attendance is marked automatically from the work done in the system.">
+          <FormField id="eluser" label="Staff login" className="span-2" error={errors.user} hint="Optional. Link the employee to an existing staff login (User Master): the employee code is taken from it, and the attendance is marked automatically from the work done in the system. Without a login the employee code is made automatically.">
             <select id="eluser" value={f.user} onChange={(e) => pickUser(e.target.value)}><option value="">No login (new employee code)</option>{staff.map((s) => <option key={s.id} value={s.id}>{s.employeeCode} — {s.name} ({s.role.replace(/_/g, ' ')}{s.branches ? `, ${s.branches}` : ''})</option>)}</select>
           </FormField>
         )}
+        {item && <FormField id="encode" label="Employee code"><input id="encode" value={item.employeeCode} readOnly /></FormField>}
         <FormField id="enname" label="Name" required error={errors.name}><input id="enname" value={f.name} maxLength={80} onChange={set('name')} /></FormField>
-        <FormField id="enmob" label="Mobile" error={errors.mobile}><input id="enmob" inputMode="numeric" value={f.mobile} onChange={(e) => { setF((x) => ({ ...x, mobile: e.target.value.replace(/\D/g, '').slice(0, 10) })); setErrors((x) => ({ ...x, mobile: undefined })); }} /></FormField>
         <FormField id="enmail" label="Email" error={errors.email}><input id="enmail" value={f.email} onChange={set('email')} /></FormField>
         <FormField id="enbranch" label="Branch" required error={errors.branch}><select id="enbranch" value={f.branch} onChange={set('branch')}><option value="">Select</option>{branches.map((b) => <option key={b.id} value={b.id}>{b.code} — {b.name}</option>)}</select></FormField>
+        <FormField id="enmob" label="Phone no." error={errors.mobile}><input id="enmob" inputMode="numeric" value={f.mobile} onChange={digits('mobile', 10)} /></FormField>
         <FormField id="endep" label="Department" error={errors.department}><select id="endep" value={f.department} onChange={(e) => { setF((x) => ({ ...x, department: e.target.value, designation: '' })); }}><option value="">None</option>{opts.departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></FormField>
         <FormField id="endes" label="Designation" error={errors.designation}><select id="endes" value={f.designation} onChange={set('designation')}><option value="">None</option>{desigs.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></FormField>
-        <FormField id="enjoin" label="Joining date" error={errors.joiningDate}><input id="enjoin" type="date" value={f.joiningDate} onChange={set('joiningDate')} /></FormField>
-        <FormField id="ensal" label="Monthly salary (₹)" error={errors.monthlySalary}><input id="ensal" inputMode="decimal" value={f.monthlySalary} onChange={(e) => { setF((x) => ({ ...x, monthlySalary: e.target.value.replace(/[^\d.]/g, '') })); setErrors((x) => ({ ...x, monthlySalary: undefined })); }} /></FormField>
-        <FormField id="enbank" label="Bank" error={errors.bankName}><input id="enbank" value={f.bankName} maxLength={80} onChange={set('bankName')} /></FormField>
-        <FormField id="enifsc" label="IFSC" error={errors.ifsc}><input id="enifsc" value={f.ifsc} maxLength={11} onChange={(e) => { setF((x) => ({ ...x, ifsc: e.target.value.toUpperCase() })); setErrors((x) => ({ ...x, ifsc: undefined })); }} /></FormField>
-        <FormField id="enacc" label="Account number" error={errors.accountNumber}><input id="enacc" inputMode="numeric" value={f.accountNumber} onChange={(e) => { setF((x) => ({ ...x, accountNumber: e.target.value.replace(/\D/g, '').slice(0, 18) })); setErrors((x) => ({ ...x, accountNumber: undefined })); }} /></FormField>
+        <FormField id="enjoin" label="Date of joining" error={errors.joiningDate}><input id="enjoin" type="date" value={f.joiningDate} onChange={set('joiningDate')} /></FormField>
+        <FormField id="ensal" label="Monthly salary (₹)" error={errors.monthlySalary}><input id="ensal" inputMode="decimal" value={f.monthlySalary} onChange={(e) => setV('monthlySalary')(e.target.value.replace(/[^\d.]/g, ''))} /></FormField>
+        <PhotoField id="enphoto" label="Photo" value={f.photo} error={errors.photo} onChange={setV('photo')} />
+        <FormField id="enhome" label="Home town" error={errors.homeTown}><input id="enhome" value={f.homeTown} maxLength={80} onChange={set('homeTown')} /></FormField>
+        <YesNo id="enmark" label="Original marksheet" value={f.originalMarksheet} onChange={setV('originalMarksheet')} hint="Yes when the original marksheet is kept with the company" />
+
+        <Sec>Supervisor</Sec>
+        <FormField id="ensdep" label="Supervisor's department"><select id="ensdep" value={supDept} onChange={(e) => { setSupDept(e.target.value); setSupDes(''); }}><option value="">Select department</option>{opts.departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></FormField>
+        <FormField id="ensdes" label="Supervisor's designation"><select id="ensdes" value={supDes} onChange={(e) => setSupDes(e.target.value)}><option value="">Select designation</option>{supDesigs.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></FormField>
+        <FormField id="ensup" label="Supervisor name" className="span-2" error={errors.supervisor} hint="Choose the department and designation first; the employees of it are listed. This employee's details then show with the supervisor (Team in the list).">
+          <select id="ensup" value={f.supervisor} onChange={set('supervisor')}><option value="">No supervisor</option>{supList.map((x) => <option key={x.id} value={x.id}>{x.employeeCode} — {x.name}{x.designation?.name ? ` (${x.designation.name})` : ''}</option>)}</select>
+        </FormField>
+        {chosenSup && chosenSup.branch && <p className="muted small span-2" style={{ margin: 0 }}>Supervisor: {chosenSup.name} · {chosenSup.department?.name || '—'} · {chosenSup.designation?.name || '—'} · {chosenSup.branch?.code || '—'}</p>}
+
+        <Sec>Deductions</Sec>
+        <YesNo id="enpf" label="PF deduction" value={f.pfDeduction} onChange={setV('pfDeduction')} />
+        <YesNo id="enesi" label="ESI deduction" value={f.esiDeduction} onChange={setV('esiDeduction')} />
+
+        <Sec>Verification (all optional)</Sec>
+        <FormField id="enaad" label="Aadhaar number" error={errors.aadhaarNo}><input id="enaad" inputMode="numeric" value={f.aadhaarNo} onChange={digits('aadhaarNo', 12)} /></FormField>
+        <PhotoField id="enaadc" label="Aadhaar copy" value={f.aadhaarCopy} error={errors.aadhaarCopy} onChange={setV('aadhaarCopy')} />
+        <FormField id="enpan" label="PAN" error={errors.panNo}><input id="enpan" value={f.panNo} maxLength={10} onChange={(e) => setV('panNo')(e.target.value.toUpperCase())} /></FormField>
+        <PhotoField id="enpanc" label="PAN copy" value={f.panCopy} error={errors.panCopy} onChange={setV('panCopy')} />
+        <FormField id="endl" label="Driving licence no." error={errors.drivingLicenceNo}><input id="endl" value={f.drivingLicenceNo} maxLength={20} onChange={(e) => setV('drivingLicenceNo')(e.target.value.toUpperCase())} /></FormField>
+        <PhotoField id="endlc" label="Driving licence copy" value={f.drivingLicenceCopy} error={errors.drivingLicenceCopy} onChange={setV('drivingLicenceCopy')} />
+        <FormField id="envoter" label="Voter ID no." error={errors.voterIdNo}><input id="envoter" value={f.voterIdNo} maxLength={20} onChange={(e) => setV('voterIdNo')(e.target.value.toUpperCase())} /></FormField>
+        <PhotoField id="envoterc" label="Voter ID copy" value={f.voterIdCopy} error={errors.voterIdCopy} onChange={setV('voterIdCopy')} />
+
+        <Sec>Address</Sec>
+        <FormField id="enpin" label="Pincode" error={errors.pincode} hint={pinNote || 'The state, district and area are fetched from the pincode'}><input id="enpin" inputMode="numeric" value={f.pincode} onChange={(e) => { const v = e.target.value.replace(/\D/g, '').slice(0, 6); setV('pincode')(v); fetchPin(v); }} /></FormField>
+        <FormField id="enstate" label="State"><input id="enstate" value={f.state} onChange={set('state')} /></FormField>
+        <FormField id="endist" label="District"><input id="endist" value={f.district} onChange={set('district')} /></FormField>
+        <FormField id="enarea" label="Area">{areas.length ? <select id="enarea" value={f.area} onChange={set('area')}>{areas.map((a) => <option key={a} value={a}>{a}</option>)}</select> : <input id="enarea" value={f.area} onChange={set('area')} />}</FormField>
         <FormField id="enaddr" label="Address" className="span-2" error={errors.address}><input id="enaddr" value={f.address} maxLength={300} onChange={set('address')} /></FormField>
+
+        <Sec>Bank</Sec>
+        <FormField id="enacc" label="Account number" error={errors.accountNumber}><input id="enacc" inputMode="numeric" value={f.accountNumber} onChange={digits('accountNumber', 18)} /></FormField>
+        <FormField id="enbank" label="Bank name" error={errors.bankName}><input id="enbank" value={f.bankName} maxLength={80} onChange={set('bankName')} /></FormField>
+        <FormField id="enifsc" label="IFSC" error={errors.ifsc}><input id="enifsc" value={f.ifsc} maxLength={11} onChange={(e) => setV('ifsc')(e.target.value.toUpperCase())} /></FormField>
+
+        <Sec>Family</Sec>
+        <FormField id="enfather" label="Father's name" error={errors.fatherName}><input id="enfather" value={f.fatherName} maxLength={80} onChange={set('fatherName')} /></FormField>
+        <FormField id="enfmob" label="Father's number" error={errors.fatherMobile}><input id="enfmob" inputMode="numeric" value={f.fatherMobile} onChange={digits('fatherMobile', 10)} /></FormField>
+        <FormField id="enmother" label="Mother's name" error={errors.motherName}><input id="enmother" value={f.motherName} maxLength={80} onChange={set('motherName')} /></FormField>
+        <FormField id="enmar" label="Marital status" error={errors.maritalStatus}><select id="enmar" value={f.maritalStatus} onChange={set('maritalStatus')}><option value="">Select</option>{MARITAL.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></FormField>
+
+        <Sec>Experience</Sec>
+        <label className="span-2" style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input type="checkbox" checked={f.hasExperience} onChange={(e) => setV('hasExperience')(e.target.checked)} /> Has experience (opens the previous company details)</label>
+        {f.hasExperience && (
+          <>
+            <FormField id="enprev" label="Previous company name" error={errors.previousCompany}><input id="enprev" value={f.previousCompany} maxLength={100} onChange={set('previousCompany')} /></FormField>
+            <FormField id="enpost" label="Post" error={errors.previousPost}><input id="enpost" value={f.previousPost} maxLength={80} onChange={set('previousPost')} /></FormField>
+            <PhotoField id="enrelieve" label="Relieving letter" value={f.relievingLetter} error={errors.relievingLetter} onChange={setV('relievingLetter')} />
+            <PhotoField id="enslip" label="Salary slip" value={f.salarySlipCopy} error={errors.salarySlipCopy} onChange={setV('salarySlipCopy')} />
+          </>
+        )}
       </div>
+    </Modal>
+  );
+}
+
+function TeamModal({ supervisor, onClose }) {
+  const list = useLoad(() => api.hr.employees({ supervisor: supervisor.id, status: '' }), [supervisor.id]);
+  const items = list.data?.items || [];
+  return (
+    <Modal open title={`Team of ${supervisor.employeeCode} ${supervisor.name}`} onClose={onClose} size="xl" footer={<button className="btn" onClick={onClose}>Close</button>}>
+      {list.loading && !list.data ? <Spinner label="Loading…" /> : items.length === 0 ? <EmptyState title="No one reports to this supervisor" /> : (
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead><tr><th>Employee</th><th>Department · Designation</th><th>Branch</th><th>Joined</th><th>Home town</th><th>Father</th><th>Marital</th><th>PF</th><th>ESI</th><th>Salary</th><th>Bank</th><th>Status</th></tr></thead>
+            <tbody>
+              {items.map((e) => (
+                <tr key={e.id}>
+                  <td data-label="Employee"><strong>{e.employeeCode}</strong> {e.name}<div className="muted small">{e.mobile || '—'}{e.email ? ` · ${e.email}` : ''}</div></td>
+                  <td data-label="Department">{e.department?.name || '—'}<div className="muted small">{e.designation?.name || '—'}</div></td>
+                  <td data-label="Branch">{e.branch?.code || '—'}</td><td data-label="Joined">{dmy(e.joiningDate)}</td><td data-label="Home town">{e.homeTown || '—'}<div className="muted small">{[e.area, e.district, e.state].filter(Boolean).join(', ')}</div></td>
+                  <td data-label="Father">{e.fatherName || '—'}<div className="muted small">{e.fatherMobile}</div></td><td data-label="Marital">{e.maritalStatus ? e.maritalStatus[0].toUpperCase() + e.maritalStatus.slice(1) : '—'}</td>
+                  <td data-label="PF">{e.pfDeduction ? 'Yes' : 'No'}</td><td data-label="ESI">{e.esiDeduction ? 'Yes' : 'No'}</td><td data-label="Salary" className="num">{e.monthlySalary ? inr(e.monthlySalary) : '—'}</td>
+                  <td data-label="Bank">{e.bankName || '—'}<div className="muted small">{e.accountNumber}</div></td><td data-label="Status">{e.status === 'active' ? 'Working' : 'Left'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </Modal>
   );
 }
@@ -189,6 +315,7 @@ export function EmployeeRegistration() {
   const q = useDebounce(search, 300);
   const list = useLoad(() => api.hr.employees({ branch, status, q }), [branch, status, q]);
   const [form, setForm] = useState(null);
+  const [team, setTeam] = useState(null);
   const [syncing, setSyncing] = useState(false);
   async function sync() {
     setSyncing(true);
@@ -215,18 +342,19 @@ export function EmployeeRegistration() {
             <Summary items={[['Employees', list.data.summary.employees], ['Working', list.data.summary.active], ['Monthly salary (working)', inr(list.data.summary.monthlySalary)]]} />
             <div className="table-wrap">
               <table className="data-table">
-                <thead><tr><th>Employee</th><th>Department · Designation</th><th>Branch</th><th>Joined</th><th className="num">Monthly salary</th><th>Bank</th><th>Status</th><th /></tr></thead>
+                <thead><tr><th>Employee</th><th>Department · Designation</th><th>Branch</th><th>Supervisor</th><th>Joined</th><th className="num">Monthly salary</th><th>Bank</th><th>Status</th><th /></tr></thead>
                 <tbody>
                   {items.map((e) => (
                     <tr key={e.id}>
                       <td data-label="Employee"><strong>{e.employeeCode}</strong> {e.name}<div className="muted small">{e.mobile || '—'}{e.hasLogin ? ' · has login' : ''}</div></td>
                       <td data-label="Department">{e.department?.name || '—'}<div className="muted small">{e.designation?.name || '—'}</div></td>
                       <td data-label="Branch">{e.branch?.code || '—'}</td>
+                      <td data-label="Supervisor">{e.supervisor ? `${e.supervisor.code} ${e.supervisor.name}` : '—'}</td>
                       <td data-label="Joined">{dmy(e.joiningDate)}</td>
                       <td data-label="Monthly salary" className="num">{e.monthlySalary ? inr(e.monthlySalary) : <span className="muted">not set</span>}</td>
                       <td data-label="Bank">{e.bankName || '—'}<div className="muted small">{e.accountNumber}</div></td>
                       <td data-label="Status"><span className={`badge ${e.status === 'active' ? 'green' : 'grey'}`}>{e.status === 'active' ? 'Working' : `Left ${dmy(e.leftOn)}`}</span></td>
-                      <td><div style={{ display: 'flex', gap: 6 }}><button className="btn sm" onClick={() => setForm(e)}>Edit</button><button className="btn sm" onClick={() => toggle(e)}>{e.status === 'active' ? 'Left' : 'Rejoin'}</button></div></td>
+                      <td><div style={{ display: 'flex', gap: 6 }}><button className="btn sm" onClick={() => setForm(e)}>Edit</button>{e.teamCount > 0 && <button className="btn sm" onClick={() => setTeam(e)}>Team ({e.teamCount})</button>}<button className="btn sm" onClick={() => toggle(e)}>{e.status === 'active' ? 'Left' : 'Rejoin'}</button></div></td>
                     </tr>
                   ))}
                 </tbody>
@@ -235,6 +363,7 @@ export function EmployeeRegistration() {
           </>
         )}
       </div>
+      {team && <TeamModal supervisor={team} onClose={() => setTeam(null)} />}
       {form && <EmployeeForm item={form.id ? form : null} onClose={() => setForm(null)} onSaved={() => { setForm(null); list.load(); }} />}
     </>
   );
