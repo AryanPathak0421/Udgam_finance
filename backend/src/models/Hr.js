@@ -61,6 +61,11 @@ const employeeSchema = new mongoose.Schema(
     supervisor: { type: mongoose.Schema.Types.ObjectId, ref: 'Employee' },
     supervisedBranches: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Branch' }], // the branches under this employee, when they are a supervisor
     pfDeduction: { type: Boolean, default: false },
+    pfNumber: { type: String, trim: true, uppercase: true },
+    uanNumber: { type: String, trim: true },
+    esiNumber: { type: String, trim: true },
+    // where the employee marks the attendance from: the attendance passes only within `radius` metres of this point
+    attendanceLocation: { lat: Number, lng: Number, radius: { type: Number, default: 100 } },
     esiDeduction: { type: Boolean, default: false },
     // verification: all optional, each with the copy as a small PNG / JPEG data URL (not loaded unless asked for)
     aadhaarNo: String,
@@ -116,7 +121,10 @@ const attendanceSchema = new mongoose.Schema(
     employee: { type: mongoose.Schema.Types.ObjectId, ref: 'Employee', required: true },
     date: { type: Date, required: true },
     status: { type: String, enum: ATTENDANCE_STATUS, required: true },
-    source: { type: String, enum: ['auto', 'manual'], default: 'manual' },
+    source: { type: String, enum: ['auto', 'manual', 'app'], default: 'manual' },
+    lat: Number, // the place the attendance was marked from (app) and how far it was from the attendance location
+    lng: Number,
+    distanceM: Number,
     firstActivity: Date,
     lastActivity: Date,
     remark: String,

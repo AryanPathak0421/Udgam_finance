@@ -3,7 +3,7 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler as h } from '../utils/http.js';
 import {
   departments, designations, listEmployees, getEmployee, employeePincode, pendingVerification, supervisorTransfer, sendEmployeeOtp, verifyEmployeeOtp, verifyEmployeeDocuments, saveSalarySetup, employeeStaffOptions, createEmployee, updateEmployee, setEmployeeStatus, syncFromUsers, hrOptions,
-  attendanceDay, markAttendance, autoAttendance, generateSalary, listSalary, adjustSalary, sendSalary, paySalary, branchWiseSalary, monthWiseSalary, mySalarySlips,
+  attendanceDay, markAttendance, setAttendanceLocation, punchAttendance, autoAttendance, generateSalary, listSalary, adjustSalary, sendSalary, paySalary, branchWiseSalary, monthWiseSalary, mySalarySlips,
 } from '../controllers/hrController.js';
 
 const router = Router();
@@ -26,6 +26,9 @@ router.patch('/hr/designations/:id/status', requireAuth, requireRole(...ADMIN), 
 router.delete('/hr/designations/:id', requireAuth, requireRole(...ADMIN), h(designations.remove));
 
 router.get('/hr/employees', requireAuth, requireRole(...HR), h(listEmployees));
+router.put('/hr/employees/:id/attendance-location', requireAuth, requireRole(...HR), h(setAttendanceLocation));
+router.post('/hr/attendance/punch', requireAuth, h(punchAttendance));
+router.post('/app/attendance/punch', requireAuth, h(punchAttendance));
 router.post('/hr/supervisor-transfer', requireAuth, requireRole(...ADMIN), h(supervisorTransfer));
 router.get('/hr/employees/pending-verification', requireAuth, requireRole(...ADMIN), h(pendingVerification));
 router.post('/hr/employees/:id/otp', requireAuth, requireRole(...ADMIN), h(sendEmployeeOtp));

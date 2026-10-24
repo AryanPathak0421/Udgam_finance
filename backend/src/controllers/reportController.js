@@ -41,6 +41,12 @@ const dateRange = (req, field) => {
   const to = parseDateOnly(asString(req.query.to));
   return from || to ? { [field]: { ...(from ? { $gte: from } : {}), ...(to ? { $lte: to } : {}) } } : {};
 };
+/** The mobile numbers of members by code (shown to the user the way the Member pages show them). */
+async function mobileMap(req, codes) {
+  const list = [...new Set(codes.filter(Boolean))];
+  if (!list.length) return new Map();
+  return new Map((await Member.find({ code: { $in: list } }).select('code mobile').lean()).map((m) => [m.code, showMobile(req.user, m.mobile)]));
+}
 const matches = (q, ...vals) => !q || vals.some((v) => String(v || '').toLowerCase().includes(q));
 
 /** Works through every running borrower (loans in batches of 250) and hands each one's figures to `pick`. */
@@ -49,7 +55,7 @@ const matches = (q, ...vals) => !q || vals.some((v) => String(v || '').toLowerCa
  * opts.light: no mobile numbers (a summary does not need them). opts.split: also the outstanding principal and interest of every borrower.
  */
 export async function scanBorrowers(req, asOf, pick, opts = {}) {
-  const ids = (await LoanPayment.find({ status: 'paid', ...branchScope(req) }).sort({ createdAt: -1 }).select('_id').limit(20000).lean()).map((x) => x._id);
+  const ids = (await LoanPayment.find({ status: 'paid', ...branchScope(req), ...(opts.dueOn ? { 'schedule.dueDate': opts.dueOn } : {}) }).sort({ createdAt: -1 }).select('_id').limit(20000).lean()).map((x) => x._id);
   const branches = new Map((await Branch.find({}).select('code name').lean()).map((b) => [String(b._id), b.code]));
   const rows = [];
   const doBatch = async (part) => {
@@ -129,7 +135,7 @@ const REPORTS = {
   async due(req) {
     const asOf = parseDateOnly(asString(req.query.date)) || startOfToday();
     const q = asString(req.query.q).toLowerCase();
-    const rows = (await scanBorrowers(req, asOf, (r) => (r.due > 0 && r.overdueDays === 0 && borrowerMatch(q)(r) ? r : null))).sort((a, b) => b.due - a.due);
+    const rows = (await scanBorrowers(req, asOf, (r) => (r.due > 0 && r.overdueDays === 0 && borrowerMatch(q)(r) ? r : null), { dueOn: asOf })).sort((a, b) => b.due - a.due);
     return { asOf: iso(asOf), rows, summary: { borrowers: rows.length, due: sumOf(rows, 'due') } };
   },
   // borrowers with an installment that is older than the date and still not paid
@@ -156,8 +162,9 @@ const REPORTS = {
   async emiCollection(req) {
     const q = asString(req.query.q).toLowerCase();
     const pays = await EmiPayment.find({ status: 'paid', legacy: { $ne: true }, ...branchScope(req), ...dateRange(req, 'paidOn') }).sort({ paidOn: -1, createdAt: -1 }).limit(20000).populate('branch', 'code').lean();
+    const mobiles = await mobileMap(req, pays.map((e) => e.memberCode));
     const rows = pays.filter((e) => matches(q, e.receiptNo, e.loanId, e.formId, e.memberCode, e.memberName, e.employeeCode)).map((e) => ({
-      key: String(e._id), receiptNo: e.receiptNo, date: iso(e.paidOn), loanId: e.loanId || e.formId, memberCode: e.memberCode, memberName: e.memberName, group: e.group || '', branch: e.branch?.code || '',
+      mobile: mobiles.get(e.memberCode) || '', key: String(e._id), receiptNo: e.receiptNo, date: iso(e.paidOn), loanId: e.loanId || e.formId, memberCode: e.memberCode, memberName: e.memberName, group: e.group || '', branch: e.branch?.code || '',
       type: e.type, installments: (e.installments || []).join(', '), amount: rupees(e.amountPaise), payMode: e.payMode, collectedBy: e.employeeCode || '',
     }));
     return { rows, summary: { receipts: rows.length, amount: sumOf(rows, 'amount') } };
@@ -165,8 +172,9 @@ const REPORTS = {
   async disbursement(req) {
     const q = asString(req.query.q).toLowerCase();
     const loans = await LoanPayment.find({ status: 'paid', ...branchScope(req), ...dateRange(req, 'paidOn') }).sort({ paidOn: -1, createdAt: -1 }).limit(20000).select('-schedule').populate('branch', 'code').lean();
+    const mobiles = await mobileMap(req, loans.map((l) => l.lines[0]?.code));
     const rows = loans.filter((l) => matches(q, l.loanId, l.formId, l.receiptNo, l.group?.name, ...l.lines.map((x) => `${x.code} ${x.name}`))).map((l) => ({
-      key: String(l._id), loanId: l.loanId || l.formId, receiptNo: l.receiptNo, date: iso(l.paidOn), branch: l.branch?.code || '', loanType: l.kind === 'group' ? 'group' : l.loanType || l.kind,
+      mobile: mobiles.get(l.lines[0]?.code) || '', key: String(l._id), loanId: l.loanId || l.formId, receiptNo: l.receiptNo, date: iso(l.paidOn), branch: l.branch?.code || '', loanType: l.kind === 'group' ? 'group' : l.loanType || l.kind,
       borrowers: l.group?.code ? `${l.group.code} — ${l.group.name} (${l.lines.length} members)` : l.lines.map((x) => `${x.code} ${x.name}`).join(', '), scheme: l.schemeName || '', mode: l.modeLabel || l.mode,
       installments: l.installments, amount: rupees(l.totalAmountPaise ?? l.lines.reduce((s, x) => s + (x.amountPaise || 0), 0)), cash: rupees(l.totalCashPaise), payMode: l.payMode, paidBy: l.employeeCode || '',
     }));
@@ -225,8 +233,9 @@ Object.assign(REPORTS, {
     const q = asString(req.query.q).toLowerCase();
     const kind = ['death', 'auto', 'loan'].includes(asString(req.query.status)) ? asString(req.query.status) : '';
     const sets = await LoanSettlement.find({ status: 'active', waiverPaise: { $gt: 0 }, ...(kind ? { kind } : {}), ...branchScope(req), ...dateRange(req, 'settledOn') }).sort({ settledOn: -1 }).limit(20000).populate('branch', 'code').lean();
+    const mobiles = await mobileMap(req, sets.map((x) => x.memberCode));
     const rows = sets.filter((x) => matches(q, x.receiptNo, x.loanId, x.formId, x.memberCode, x.memberName, x.group)).map((x) => ({
-      key: String(x._id), receiptNo: x.receiptNo, date: iso(x.settledOn), kind: x.kind, loanId: x.loanId || x.formId, memberCode: x.memberCode, memberName: x.memberName, group: x.group || '', branch: x.branch?.code || '',
+      mobile: mobiles.get(x.memberCode) || '', key: String(x._id), receiptNo: x.receiptNo, date: iso(x.settledOn), kind: x.kind, loanId: x.loanId || x.formId, memberCode: x.memberCode, memberName: x.memberName, group: x.group || '', branch: x.branch?.code || '',
       outstanding: rupees(x.outstandingPaise), received: rupees(x.amountPaise), writtenOff: rupees(x.waiverPaise), remark: x.remark || x.claimRef || '',
     }));
     return { rows, summary: { loans: rows.length, outstanding: sumOf(rows, 'outstanding'), received: sumOf(rows, 'received'), writtenOff: sumOf(rows, 'writtenOff') } };
@@ -340,8 +349,11 @@ export async function report(req, res) {
   out = { ...out, rows: out.rows.map((r) => ({ ...r })) }; // a report kept for a poll is not changed by the call marks below
   const total = out.rows.length;
   const rows = out.rows.slice(0, MAX_ROWS);
-  const calls = out.noCall ? [] : await ReportCall.find({ report: name, key: { $in: rows.map((r) => r.key) } }).lean();
-  const byKey = new Map(calls.map((c) => [c.key, c]));
+  // a call is marked for the date of the report: a call on one date does not show on another (calls from before this was kept count for the day they were made)
+  const callDate = reportDate(req.query.date || req.query.to);
+  const calls = out.noCall ? [] : await ReportCall.find({ report: name, key: { $in: rows.map((r) => r.key) }, $or: [{ date: callDate }, { date: { $in: ['', null] } }, { date: { $exists: false } }] }).lean();
+  const byKey = new Map();
+  calls.filter((c) => c.date === callDate || (!c.date && iso(c.lastCalledAt) === callDate)).forEach((c) => { if (!byKey.has(c.key) || c.date === callDate) byKey.set(c.key, c); });
   rows.forEach((r) => {
     const c = byKey.get(r.key);
     r.call = c ? { at: c.lastCalledAt, by: c.lastCalledByCode || '', count: c.count || 1, note: c.note || '' } : null;
@@ -350,17 +362,20 @@ export async function report(req, res) {
 }
 
 /** "Call done": the borrower of a row was called. */
+const reportDate = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(asString(v)) ? asString(v) : iso(startOfToday()));
+
 export async function callDone(req, res) {
   const b = req.body || {};
   const name = asString(b.report);
   const key = asString(b.key);
   if (!Object.keys(NAMES).includes(name) || !key) throw new HttpError(422, 'Unknown report row');
+  const date = reportDate(b.date);
   const c = await ReportCall.findOneAndUpdate(
-    { report: name, key },
+    { report: name, key, date },
     { $set: { lastCalledAt: new Date(), lastCalledByCode: req.user.employeeCode || '', lastCalledBy: req.user._id, note: asString(b.note).slice(0, 200) }, $inc: { count: 1 } },
     { upsert: true, new: true }
   );
-  await audit(req, { action: 'report.callDone', entity: 'ReportCall', entityId: c._id, after: { report: name, key, count: c.count } });
+  await audit(req, { action: 'report.callDone', entity: 'ReportCall', entityId: c._id, after: { report: name, key, date, count: c.count } });
   res.json({ call: { at: c.lastCalledAt, by: c.lastCalledByCode, count: c.count, note: c.note || '' } });
 }
 

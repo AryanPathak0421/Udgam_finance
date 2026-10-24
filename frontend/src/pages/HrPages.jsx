@@ -141,7 +141,7 @@ function EmployeeForm({ item, onClose, onSaved }) {
   const [f, setF] = useState({
     user: '', name: item?.name || '', mobile: item?.mobile?.startsWith('X') ? '' : item?.mobile || '', email: item?.email || '', address: item?.address || '', department: item?.department?.id || '', designation: item?.designation?.id || '',
     branch: item?.branch?.id || '', supervisedBranches: (item?.supervisedBranches || []).map((b) => b.id), joiningDate: item?.joiningDate || today(), monthlySalary: item ? String(item.monthlySalary || '') : '', bankName: item?.bankName || '', ifsc: item?.ifsc || '', accountNumber: item?.accountNumber?.startsWith('X') ? '' : item?.accountNumber || '',
-    photo: '', homeTown: '', originalMarksheet: false, supervisor: item?.supervisor?.id || '', pfDeduction: false, esiDeduction: false,
+    photo: '', homeTown: '', originalMarksheet: false, supervisor: item?.supervisor?.id || '', pfDeduction: false, esiDeduction: false, pfNumber: item?.pfNumber || '', uanNumber: item?.uanNumber || '', esiNumber: item?.esiNumber || '',
     aadhaarNo: '', aadhaarCopy: '', panNo: '', panCopy: '', drivingLicenceNo: '', drivingLicenceCopy: '', voterIdNo: '', voterIdCopy: '',
     pincode: '', state: '', district: '', area: '', fatherName: '', fatherMobile: '', motherName: '', maritalStatus: '',
     hasExperience: false, previousCompany: '', previousPost: '', relievingLetter: '', salarySlipCopy: '',
@@ -162,7 +162,7 @@ function EmployeeForm({ item, onClose, onSaved }) {
       api.hr.employee(item.id).then((r) => {
         const e = r.item;
         setF((x) => ({
-          ...x, ...Object.fromEntries(['photo', 'homeTown', 'originalMarksheet', 'pfDeduction', 'esiDeduction', 'aadhaarNo', 'aadhaarCopy', 'panNo', 'panCopy', 'drivingLicenceNo', 'drivingLicenceCopy', 'voterIdNo', 'voterIdCopy', 'pincode', 'state', 'district', 'area', 'fatherName', 'fatherMobile', 'motherName', 'maritalStatus', 'hasExperience', 'previousCompany', 'previousPost', 'relievingLetter', 'salarySlipCopy'].map((k) => [k, e[k] ?? x[k]])),
+          ...x, ...Object.fromEntries(['photo', 'homeTown', 'originalMarksheet', 'pfDeduction', 'esiDeduction', 'pfNumber', 'uanNumber', 'esiNumber', 'aadhaarNo', 'aadhaarCopy', 'panNo', 'panCopy', 'drivingLicenceNo', 'drivingLicenceCopy', 'voterIdNo', 'voterIdCopy', 'pincode', 'state', 'district', 'area', 'fatherName', 'fatherMobile', 'motherName', 'maritalStatus', 'hasExperience', 'previousCompany', 'previousPost', 'relievingLetter', 'salarySlipCopy'].map((k) => [k, e[k] ?? x[k]])),
           fatherMobile: e.fatherMobile?.startsWith('X') ? '' : e.fatherMobile || '',
         }));
         setLoadingDetail(false);
@@ -242,6 +242,9 @@ function EmployeeForm({ item, onClose, onSaved }) {
         <Sec>Deductions</Sec>
         <YesNo id="enpf" label="PF deduction" value={f.pfDeduction} onChange={setV('pfDeduction')} />
         <YesNo id="enesi" label="ESI deduction" value={f.esiDeduction} onChange={setV('esiDeduction')} />
+        <FormField id="enpfn" label="PF number" hint="Optional" error={errors.pfNumber}><input id="enpfn" value={f.pfNumber} maxLength={30} onChange={(e) => setV('pfNumber')(e.target.value.toUpperCase())} /></FormField>
+        <FormField id="enuan" label="UAN number" hint="Optional, 12 digits" error={errors.uanNumber}><input id="enuan" inputMode="numeric" value={f.uanNumber} onChange={digits('uanNumber', 12)} /></FormField>
+        <FormField id="enesin" label="ESI number" hint="Optional, 10 or 17 digits" error={errors.esiNumber}><input id="enesin" inputMode="numeric" value={f.esiNumber} onChange={digits('esiNumber', 17)} /></FormField>
 
         <Sec>Verification (all optional)</Sec>
         <FormField id="enaad" label="Aadhaar number" error={errors.aadhaarNo}><input id="enaad" inputMode="numeric" value={f.aadhaarNo} onChange={digits('aadhaarNo', 12)} /></FormField>
@@ -535,7 +538,7 @@ export function SetSalary() {
     setErrors({});
     setState('');
     const st = e.salarySetup;
-    setF({ ...Object.fromEntries(SETUP_EARN.map(([k]) => [k, st[k] ? String(st[k]) : ''])), pfPercent: String(st.pfPercent), esiPercent: String(st.esiPercent), professionalTax: st.professionalTax ? String(st.professionalTax) : '', advanceDeduction: st.advanceDeduction ? String(st.advanceDeduction) : '', securityAmount: st.securityAmount ? String(st.securityAmount) : '', securityMonths: String(st.securityMonths || 1), pfDeduction: e.pfDeduction, esiDeduction: e.esiDeduction });
+    setF({ ...Object.fromEntries(SETUP_EARN.map(([k]) => [k, st[k] ? String(st[k]) : ''])), pfPercent: String(st.pfPercent), esiPercent: String(st.esiPercent), professionalTax: st.professionalTax ? String(st.professionalTax) : '', advanceDeduction: st.advanceDeduction ? String(st.advanceDeduction) : '', securityAmount: st.securityAmount ? String(st.securityAmount) : '', securityMonths: String(st.securityMonths || 1), pfDeduction: e.pfDeduction, esiDeduction: e.esiDeduction, pfNumber: e.pfNumber || '', uanNumber: e.uanNumber || '', esiNumber: e.esiNumber || '' });
   }
   // every change is saved by itself a moment after it was made; what is typed can be corrected by hand any time
   useEffect(() => {
@@ -600,6 +603,9 @@ export function SetSalary() {
                 <FormField id="sspf" label="PF % of basic" error={errors.pfPercent}><input id="sspf" inputMode="decimal" value={f.pfPercent} onChange={setMoney('pfPercent')} disabled={!f.pfDeduction} /></FormField>
                 <label className="span-2" style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input type="checkbox" checked={f.esiDeduction} onChange={setFlag('esiDeduction')} /> ESI deduction</label>
                 <FormField id="ssesi" label="ESI % of basic" error={errors.esiPercent}><input id="ssesi" inputMode="decimal" value={f.esiPercent} onChange={setMoney('esiPercent')} disabled={!f.esiDeduction} /></FormField>
+                <FormField id="sspfn" label="PF number" error={errors.pfNumber}><input id="sspfn" value={f.pfNumber} maxLength={30} onChange={(e) => { first.current = false; setF((x) => ({ ...x, pfNumber: e.target.value.toUpperCase() })); }} /></FormField>
+                <FormField id="ssuan" label="UAN number" error={errors.uanNumber}><input id="ssuan" inputMode="numeric" value={f.uanNumber} onChange={(e) => { first.current = false; setF((x) => ({ ...x, uanNumber: e.target.value.replace(/\D/g, '').slice(0, 12) })); }} /></FormField>
+                <FormField id="ssesin" label="ESI number" error={errors.esiNumber}><input id="ssesin" inputMode="numeric" value={f.esiNumber} onChange={(e) => { first.current = false; setF((x) => ({ ...x, esiNumber: e.target.value.replace(/\D/g, '').slice(0, 17) })); }} /></FormField>
                 <FormField id="sspt" label="Professional tax (₹ a month)" error={errors.professionalTax}><input id="sspt" inputMode="decimal" value={f.professionalTax} onChange={setMoney('professionalTax')} /></FormField>
                 <FormField id="ssadv" label="Advance deduction (₹ a month)" error={errors.advanceDeduction}><input id="ssadv" inputMode="decimal" value={f.advanceDeduction} onChange={setMoney('advanceDeduction')} /></FormField>
                 <FormField id="sssec" label="Security amount (₹)" error={errors.securityAmount} hint="Cut after the verification is complete"><input id="sssec" inputMode="decimal" value={f.securityAmount} onChange={setMoney('securityAmount')} /></FormField>
@@ -621,6 +627,35 @@ export function SetSalary() {
 const ATT = [['', 'Not marked'], ['present', 'Present'], ['half_day', 'Half day'], ['leave', 'Leave'], ['holiday', 'Holiday'], ['absent', 'Absent']];
 const ATT_BADGE = { present: 'green', half_day: 'amber', leave: 'grey', holiday: 'grey', absent: 'danger' };
 
+// The place an employee marks the attendance from: latitude, longitude and how many metres around it count. The attendance passes only from there.
+function LocationDialog({ item, onClose, onSaved }) {
+  const toast = useToast();
+  const [f, setF] = useState({ lat: item.location ? String(item.location.lat) : '', lng: item.location ? String(item.location.lng) : '', radius: String(item.location?.radius || 100) });
+  const [errors, setErrors] = useState({});
+  const [busy, setBusy] = useState(false);
+  const decimal = (v) => v.replace(/[^\d.-]/g, '');
+  function here() {
+    if (!navigator.geolocation) { toast.error('This browser cannot read the location'); return; }
+    navigator.geolocation.getCurrentPosition((p) => setF((x) => ({ ...x, lat: p.coords.latitude.toFixed(6), lng: p.coords.longitude.toFixed(6) })), () => toast.error('The location could not be read. Allow it in the browser or type it.'));
+  }
+  async function save(clear) {
+    setBusy(true); setErrors({});
+    try { await api.hr.setAttendanceLocation(item.id, clear ? { clear: true } : f); toast.success(clear ? 'Location removed' : 'Location saved'); onSaved(); } catch (err) { setErrors(err.errors || {}); toast.error(err.message); } finally { setBusy(false); }
+  }
+  return (
+    <Modal open title={`Attendance location — ${item.employeeCode} ${item.name}`} onClose={onClose} busy={busy}
+      footer={<><button className="btn" onClick={onClose} disabled={busy}>Close</button>{item.location && <button className="btn danger-outline" onClick={() => save(true)} disabled={busy}>Remove</button>}<button className="btn primary" onClick={() => save(false)} disabled={busy}>{busy ? 'Saving…' : 'Save'}</button></>}>
+      <p className="muted small" style={{ marginTop: 0 }}>The employee's attendance in the app passes only when they are within this distance of this latitude and longitude.</p>
+      <div className="form-grid">
+        <FormField id="lclat" label="Latitude" required error={errors.lat}><input id="lclat" inputMode="decimal" value={f.lat} onChange={(e) => setF((x) => ({ ...x, lat: decimal(e.target.value) }))} /></FormField>
+        <FormField id="lclng" label="Longitude" required error={errors.lng}><input id="lclng" inputMode="decimal" value={f.lng} onChange={(e) => setF((x) => ({ ...x, lng: decimal(e.target.value) }))} /></FormField>
+        <FormField id="lcr" label="Allowed distance (metres)" error={errors.radius} hint="20 to 5000"><input id="lcr" inputMode="numeric" value={f.radius} onChange={(e) => setF((x) => ({ ...x, radius: e.target.value.replace(/\D/g, '').slice(0, 4) }))} /></FormField>
+        <div style={{ alignSelf: 'end' }}><button type="button" className="btn" onClick={here}>Use my current location</button></div>
+      </div>
+    </Modal>
+  );
+}
+
 export function Attendance() {
   const toast = useToast();
   const [branch, setBranch] = useState('');
@@ -632,6 +667,7 @@ export function Attendance() {
   const [search, setSearch] = useState('');
   const [picked, setPicked] = useState(new Set());
   const [bulk, setBulk] = useState('leave');
+  const [locating, setLocating] = useState(null);
   useEffect(() => { setEdits({}); setPicked(new Set()); }, [list.data]);
   const items = list.data?.items || [];
   const changed = Object.keys(edits).length;
@@ -691,7 +727,7 @@ export function Attendance() {
             {shown.length === 0 && <div className="muted" style={{ padding: 12 }}>No employee matches the filter.</div>}
             <div className="table-wrap">
               <table className="data-table">
-                <thead><tr><th><input type="checkbox" aria-label="Select all shown" checked={allPicked} onChange={() => setPicked(allPicked ? new Set() : new Set(shown.map((i) => i.id)))} /></th><th>Employee</th><th>Branch</th><th>Attendance</th><th>Marked</th><th>Remark</th></tr></thead>
+                <thead><tr><th><input type="checkbox" aria-label="Select all shown" checked={allPicked} onChange={() => setPicked(allPicked ? new Set() : new Set(shown.map((i) => i.id)))} /></th><th>Employee</th><th>Branch</th><th>Location</th><th>Attendance</th><th>Marked</th><th>Remark</th></tr></thead>
                 <tbody>
                   {shown.map((i) => {
                     const cur = edits[i.id]?.status ?? i.status;
@@ -700,6 +736,7 @@ export function Attendance() {
                         <td><input type="checkbox" aria-label={`Select ${i.employeeCode}`} checked={picked.has(i.id)} onChange={() => setPicked((p) => { const n = new Set(p); if (n.has(i.id)) n.delete(i.id); else n.add(i.id); return n; })} /></td>
                         <td data-label="Employee"><strong>{i.employeeCode}</strong> {i.name}<div className="muted small">{i.designation || '—'}</div></td>
                         <td data-label="Branch">{i.branch || '—'}</td>
+                        <td data-label="Location">{i.location ? <><div className="small">{i.location.lat.toFixed(5)}, {i.location.lng.toFixed(5)}</div><div className="muted small">within {i.location.radius} m</div></> : <span className="muted small">Not set</span>}<button className="btn sm" onClick={() => setLocating(i)}>{i.location ? 'Change' : 'Set'}</button></td>
                         <td data-label="Attendance"><select aria-label={`Attendance of ${i.employeeCode}`} value={cur} onChange={(e) => setRow(i.id, { status: e.target.value })}>{ATT.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></td>
                         <td data-label="Marked">{i.status ? <><span className={`badge ${ATT_BADGE[i.status] || 'grey'}`}>{i.source === 'auto' ? 'Auto' : 'Manual'}</span>{i.source === 'auto' && i.firstActivity && <div className="muted small">{time(i.firstActivity)} – {time(i.lastActivity)}</div>}</> : '—'}</td>
                         <td data-label="Remark"><input aria-label={`Remark of ${i.employeeCode}`} value={edits[i.id]?.remark ?? i.remark} maxLength={100} onChange={(e) => setRow(i.id, { remark: e.target.value })} style={{ minWidth: 140 }} /></td>
@@ -712,6 +749,7 @@ export function Attendance() {
           </>
         )}
       </div>
+      {locating && <LocationDialog item={locating} onClose={() => setLocating(null)} onSaved={() => { setLocating(null); list.load(); }} />}
     </>
   );
 }
@@ -751,7 +789,7 @@ function printSlip(slip, company) {
   </style></head><body>
   ${head}
   <h1>SALARY SLIP — ${esc(monthLabel(slip.month).toUpperCase())}</h1>
-  <div class="grid">${info('Employee code', slip.employeeCode)}${info('Name', slip.name)}${info('Designation', slip.designation)}${info('Department', slip.department)}${info('Branch', slip.branch ? `${slip.branch.code} — ${slip.branch.name}` : '')}${info('Date of joining', e.joiningDate ? dmy(e.joiningDate) : '')}${info('Bank', e.bankName)}${info('Account number', e.accountNumber)}${info('PAN', e.panNo)}</div>
+  <div class="grid">${info('Employee code', slip.employeeCode)}${info('Name', slip.name)}${info('Designation', slip.designation)}${info('Department', slip.department)}${info('Branch', slip.branch ? `${slip.branch.code} — ${slip.branch.name}` : '')}${info('Date of joining', e.joiningDate ? dmy(e.joiningDate) : '')}${info('Bank', e.bankName)}${info('Account number', e.accountNumber)}${info('PAN', e.panNo)}${info('PF number', e.pfNumber)}${info('UAN', e.uanNumber)}${info('ESI number', e.esiNumber)}</div>
   <table><tr><th>Days in the month</th><th>Present</th><th>Half days</th><th>Leave</th><th>Holiday</th><th>Sundays</th><th>Absent</th><th>Payable days</th></tr>
   <tr><td>${slip.daysInMonth}</td><td>${slip.presentDays}</td><td>${slip.halfDays}</td><td>${slip.leaveDays}</td><td>${slip.holidayDays}</td><td>${slip.sundays}</td><td>${slip.absentDays}</td><td>${slip.payableDays}</td></tr></table>
   <div class="two">

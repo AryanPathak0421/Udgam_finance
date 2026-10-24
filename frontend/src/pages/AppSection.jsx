@@ -80,6 +80,8 @@ export function AppUsers() {
   const [error, setError] = useState('');
   const [adding, setAdding] = useState(false);
   const [staff, setStaff] = useState([]);
+  const [noLogin, setNoLogin] = useState([]);
+  const [find, setFind] = useState('');
   const [form, setForm] = useState({ user: '', note: '' });
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
@@ -95,8 +97,9 @@ export function AppUsers() {
   async function openAdd() {
     setForm({ user: '', note: '' });
     setErrors({});
+    setFind('');
     setAdding(true);
-    try { setStaff((await api.app.staffOptions()).items); } catch (err) { toast.error(err.message); }
+    try { const r = await api.app.staffOptions(); setStaff(r.items); setNoLogin(r.noLogin || []); } catch (err) { toast.error(err.message); }
   }
   async function save() {
     setBusy(true);
@@ -119,6 +122,7 @@ export function AppUsers() {
     try { await api.app.removeUser(removing.id); toast.success('App access removed'); setRemoving(null); load(); } catch (err) { toast.error(err.message); } finally { setBusy(false); }
   }
 
+  const match = (s) => !find || `${s.employeeCode} ${s.name} ${s.role} ${s.branches}`.toLowerCase().includes(find.toLowerCase());
   return (
     <>
       <PageHeader title="App User Creation" description="The staff who may use the mobile app. They sign in to the app with their own login. What they register or collect in the app waits for approval under this section." />
@@ -153,10 +157,16 @@ export function AppUsers() {
       </div>
       <Modal open={adding} title="Create app user" onClose={() => setAdding(false)} busy={busy}
         footer={<><button className="btn" onClick={() => setAdding(false)} disabled={busy}>Close</button><button className="btn primary" onClick={save} disabled={busy || !form.user}>{busy ? 'Saving…' : 'Create'}</button></>}>
-        <FormField id="auser" label="Staff member" required error={errors.user} hint="Staff with an active login and an employee code. The app signs in with the same email and password.">
+        <FormField id="afind" label="Search" hint="Type a name, employee code, role or branch to find the staff member"><input id="afind" type="search" value={find} onChange={(e) => setFind(e.target.value)} /></FormField>
+        <FormField id="auser" label="Staff member" required error={errors.user} hint={`Staff with an active login and an employee code. The app signs in with the same email and password.${noLogin.length ? ' Employees without a login are listed at the end: make their login first (User Master).' : ''}`}>
           <select id="auser" value={form.user} onChange={(e) => setForm((f) => ({ ...f, user: e.target.value }))}>
-            <option value="">Select</option>
-            {staff.map((s) => <option key={s.id} value={s.id}>{s.employeeCode} — {s.name} ({s.role.replace(/_/g, ' ')}{s.branches ? `, ${s.branches}` : ''})</option>)}
+            <option value="">{staff.length ? `Select (${staff.filter(match).length} of ${staff.length})` : 'No staff available'}</option>
+            {staff.filter(match).map((s) => <option key={s.id} value={s.id}>{s.employeeCode} — {s.name} ({s.role.replace(/_/g, ' ')}{s.branches ? `, ${s.branches}` : ''})</option>)}
+            {noLogin.filter((e) => !find || `${e.employeeCode} ${e.name}`.toLowerCase().includes(find.toLowerCase())).length > 0 && (
+              <optgroup label="Employees without a staff login (cannot be app users yet)">
+                {noLogin.filter((e) => !find || `${e.employeeCode} ${e.name}`.toLowerCase().includes(find.toLowerCase())).map((e) => <option key={e.employeeCode} value="" disabled>{e.employeeCode} — {e.name}</option>)}
+              </optgroup>
+            )}
           </select>
         </FormField>
         <FormField id="anote" label="Note" hint="Optional, for example the phone the app is on"><input id="anote" value={form.note} maxLength={100} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))} /></FormField>
@@ -218,11 +228,30 @@ export function EmiApproval() {
   const qu = useQueue((p) => api.app.emiApprovals(p));
   const [rejecting, setRejecting] = useState(null);
   const [busy, setBusy] = useState('');
+  const [picked, setPicked] = useState(new Set());
+  useEffect(() => { setPicked(new Set()); }, [qu.data]);
   async function approve(c) {
     setBusy(c.id);
     try { const r = await api.app.approveEmi(c.id); toast.success(`${inr(c.amount)} received — receipt ${r.receiptNo}`); qu.load(); } catch (err) { toast.error(err.message); } finally { setBusy(''); }
   }
   const items = qu.data?.items || [];
+  const pending = items.filter((c) => c.status === 'pending');
+  const allOn = pending.length > 0 && pending.every((c) => picked.has(c.id));
+  const chosen = pending.filter((c) => picked.has(c.id));
+  // approves the ticked collections one after the other (each makes its own receipt)
+  async function approveSelected() {
+    setBusy('many');
+    let ok = 0;
+    let amount = 0;
+    const failed = [];
+    for (const c of chosen) {
+      try { await api.app.approveEmi(c.id); ok += 1; amount += c.amount; } catch (err) { failed.push(`${c.loanId}: ${err.message}`); } // eslint-disable-line no-await-in-loop
+    }
+    if (ok) toast.success(`${ok} collection${ok === 1 ? '' : 's'} approved (${inr(amount)})`);
+    if (failed.length) toast.error(`${failed.length} not approved — ${failed[0]}`);
+    setBusy('');
+    qu.load();
+  }
   return (
     <>
       <PageHeader title="Loan EMI Collection Approval" description="EMI collected in the mobile app. It counts (cashbook, loan balance) only after it is approved here; then the EMI receipt is made." />
@@ -233,12 +262,19 @@ export function EmiApproval() {
         ) : (
           <>
             <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', margin: '8px 0' }}><span>Collections <strong>{qu.data.summary.requests}</strong></span><span>Amount <strong>{inr(qu.data.summary.amount)}</strong></span></div>
+            {pending.length > 0 && (
+              <div className="toolbar" style={{ gap: 12 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}><input type="checkbox" checked={allOn} onChange={() => setPicked(allOn ? new Set() : new Set(pending.map((c) => c.id)))} /> Tick all ({pending.length})</label>
+                <button className="btn primary" onClick={approveSelected} disabled={!chosen.length || busy === 'many'}>{busy === 'many' ? 'Approving…' : `Approve selected${chosen.length ? ` (${chosen.length} · ${inr(chosen.reduce((t, c) => t + c.amount, 0))})` : ''}`}</button>
+              </div>
+            )}
             <div className="table-wrap">
               <table className="data-table">
-                <thead><tr><th>Loan</th><th>Borrower</th><th>Branch</th><th className="num">Amount</th><th>Collected</th><th>Status</th><th /></tr></thead>
+                <thead><tr><th /><th>Loan</th><th>Borrower</th><th>Branch</th><th className="num">Amount</th><th>Collected</th><th>Status</th><th /></tr></thead>
                 <tbody>
                   {items.map((c) => (
                     <tr key={c.id}>
+                      <td>{c.status === 'pending' && <input type="checkbox" aria-label={`Select ${c.loanId}`} checked={picked.has(c.id)} onChange={() => setPicked((p) => { const n = new Set(p); if (n.has(c.id)) n.delete(c.id); else n.add(c.id); return n; })} />}</td>
                       <td data-label="Loan"><strong>{c.loanId}</strong>{c.group && <div className="muted small">{c.group}</div>}</td>
                       <td data-label="Borrower">{c.memberCode} {c.memberName}</td>
                       <td data-label="Branch">{c.branch?.code}</td>

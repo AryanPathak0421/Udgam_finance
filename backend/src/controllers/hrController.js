@@ -141,6 +141,7 @@ const presentEmployee = (e, user) => ({
   hasExperience: Boolean(e.hasExperience), previousCompany: e.previousCompany || '', previousPost: e.previousPost || '',
   supervisor: e.supervisor?._id ? { id: e.supervisor._id, code: e.supervisor.employeeCode, name: e.supervisor.name } : null,
   supervisedBranches: (e.supervisedBranches || []).map((b) => ({ id: b._id || b, code: b.code || '', name: b.name || '' })),
+  pfNumber: e.pfNumber || '', uanNumber: e.uanNumber || '', esiNumber: e.esiNumber || '',
   mobileVerified: Boolean(e.mobileVerifiedAt), emailVerified: Boolean(e.emailVerifiedAt), documentsVerified: Boolean(e.documentsVerifiedAt), verified: isVerified(e),
   salarySetup: {
     ...Object.fromEntries(EARN_FIXED.map(([k]) => [k, rupees(fixedOf(e)[k])])), pfPercent: e.pfPercent ?? 12, esiPercent: e.esiPercent ?? 0.75, professionalTax: rupees(e.professionalTaxPaise),
@@ -302,6 +303,7 @@ export async function saveSalarySetup(req, res) {
   const months = Number(b.securityMonths || 1);
   if (!Number.isInteger(months) || months < 1 || months > 5) throw invalid({ securityMonths: 'The security is cut in 1 to 5 months' });
   e.securityMonths = months;
+  Object.assign(e, readStatutory(b)); // the numbers can be filled in here too, when the salary is set
   if (b.pfDeduction !== undefined) e.pfDeduction = yes(b.pfDeduction);
   if (b.esiDeduction !== undefined) e.esiDeduction = yes(b.esiDeduction);
   await e.save();
@@ -341,6 +343,21 @@ export async function employeeStaffOptions(_req, res) {
   const linked = (await Employee.find({ isDeleted: false, user: { $exists: true } }).select('user').lean()).map((e) => e.user);
   const users = await User.find({ _id: { $nin: linked }, employeeCode: { $exists: true, $ne: '' } }).select('name employeeCode mobile role branches').populate('branches', 'code').sort({ name: 1 }).lean();
   res.json({ items: users.map((u) => ({ id: u._id, employeeCode: u.employeeCode, name: u.name, mobile: u.mobile || '', role: u.role, branches: (u.branches || []).map((b) => b.code).join(', ') })) });
+}
+
+/** PF number, UAN and ESI number (all optional; only the ones that are sent are read). */
+function readStatutory(b) {
+  const d = {};
+  if (b.pfNumber !== undefined) d.pfNumber = asString(b.pfNumber).toUpperCase().replace(/\s/g, '').slice(0, 30);
+  if (b.uanNumber !== undefined) {
+    d.uanNumber = asString(b.uanNumber).replace(/\s/g, '');
+    if (d.uanNumber && !/^\d{12}$/.test(d.uanNumber)) throw invalid({ uanNumber: 'UAN is 12 digits' });
+  }
+  if (b.esiNumber !== undefined) {
+    d.esiNumber = asString(b.esiNumber).replace(/\s/g, '');
+    if (d.esiNumber && !/^(\d{10}|\d{17})$/.test(d.esiNumber)) throw invalid({ esiNumber: 'ESI number is 10 (or 17) digits' });
+  }
+  return d;
 }
 
 async function readEmployee(b) {
@@ -390,6 +407,7 @@ async function readEmployee(b) {
   d.area = asString(b.area).slice(0, 80);
   d.pfDeduction = yes(b.pfDeduction);
   d.esiDeduction = yes(b.esiDeduction);
+  Object.assign(d, readStatutory(b));
   d.aadhaarNo = asString(b.aadhaarNo).replace(/\s/g, '');
   if (d.aadhaarNo && !/^\d{12}$/.test(d.aadhaarNo)) throw invalid({ aadhaarNo: 'Aadhaar number must be 12 digits' });
   d.panNo = asString(b.panNo).toUpperCase();
@@ -506,15 +524,64 @@ const activeOn = (e, date) => e.status === 'active' || (e.leftOn && e.leftOn >= 
 /** The employees of the branch(es) for a date with what is marked for them. */
 export async function attendanceDay(req, res) {
   const date = parseDateOnly(asString(req.query.date)) || startOfToday();
-  const emps = (await Employee.find({ isDeleted: false, ...scope(req) }).sort({ employeeCode: 1 }).populate(EMP_POPULATE)).filter((e) => activeOn(e, date) && (!e.joiningDate || e.joiningDate <= date));
+  // a blocked employee is not on the attendance
+  const emps = (await Employee.find({ isDeleted: false, isBlocked: { $ne: true }, ...scope(req) }).sort({ employeeCode: 1 }).populate(EMP_POPULATE)).filter((e) => activeOn(e, date) && (!e.joiningDate || e.joiningDate <= date));
   const marks = new Map((await Attendance.find({ date, employee: { $in: emps.map((e) => e._id) } }).lean()).map((a) => [String(a.employee), a]));
   const items = emps.map((e) => {
     const a = marks.get(String(e._id));
-    return { id: e._id, employeeCode: e.employeeCode, name: e.name, branch: e.branch?.code || '', designation: e.designation?.name || '', status: a?.status || '', source: a?.source || '', firstActivity: a?.firstActivity || null, lastActivity: a?.lastActivity || null, remark: a?.remark || '', hasLogin: Boolean(e.user) };
+    return { id: e._id, employeeCode: e.employeeCode, name: e.name, branch: e.branch?.code || '', designation: e.designation?.name || '', status: a?.status || '', source: a?.source || '', firstActivity: a?.firstActivity || null, lastActivity: a?.lastActivity || null, remark: a?.remark || '', hasLogin: Boolean(e.user),
+      location: e.attendanceLocation?.lat !== undefined && e.attendanceLocation?.lat !== null ? { lat: e.attendanceLocation.lat, lng: e.attendanceLocation.lng, radius: e.attendanceLocation.radius || 100 } : null, distanceM: a?.distanceM ?? null };
   });
   const count = (s) => items.filter((i) => i.status === s).length;
   const holidays = (await Holiday.find({ date, isDeleted: false, isActive: true }).select('name').lean()).map((h) => h.name);
   res.json({ date: iso(date), sunday: date.getUTCDay() === 0, holidays, items, summary: { employees: items.length, present: count('present'), half_day: count('half_day'), leave: count('leave'), holiday: count('holiday'), absent: count('absent'), notMarked: items.filter((i) => !i.status).length } });
+}
+
+/** The place an employee marks the attendance from (latitude, longitude and how many metres around it count); empty it with clear. */
+export async function setAttendanceLocation(req, res) {
+  const e = await loadEmployee(req);
+  const b = req.body || {};
+  if (b.clear === true) e.attendanceLocation = undefined;
+  else {
+    const lat = Number(asString(b.lat));
+    const lng = Number(asString(b.lng));
+    const radius = b.radius === '' || b.radius === undefined ? 100 : Number(asString(b.radius));
+    if (!Number.isFinite(lat) || lat < -90 || lat > 90 || asString(b.lat) === '') throw invalid({ lat: 'Latitude is between −90 and 90' });
+    if (!Number.isFinite(lng) || lng < -180 || lng > 180 || asString(b.lng) === '') throw invalid({ lng: 'Longitude is between −180 and 180' });
+    if (!Number.isFinite(radius) || radius < 20 || radius > 5000) throw invalid({ radius: 'The distance is 20 to 5000 metres' });
+    e.attendanceLocation = { lat, lng, radius };
+  }
+  await e.save();
+  await audit(req, { action: 'attendance.location', entity: 'Employee', entityId: e._id, after: { employee: e.employeeCode, location: b.clear === true ? null : e.attendanceLocation } });
+  res.json({ location: e.attendanceLocation?.lat !== undefined ? { lat: e.attendanceLocation.lat, lng: e.attendanceLocation.lng, radius: e.attendanceLocation.radius } : null });
+}
+
+const metresBetween = (a, b, c, d) => {
+  const R = 6371000;
+  const rad = (x) => (x * Math.PI) / 180;
+  const h = Math.sin(rad(c - a) / 2) ** 2 + Math.cos(rad(a)) * Math.cos(rad(c)) * Math.sin(rad(d - b) / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+};
+
+/** An employee marks their own attendance (the app): it passes only from the latitude and longitude set for them. */
+export async function punchAttendance(req, res) {
+  const e = await Employee.findOne({ user: req.user._id, isDeleted: false });
+  if (!e) throw new HttpError(404, 'There is no employee record for your login');
+  if (e.status !== 'active' || e.isBlocked) throw new HttpError(403, 'Your attendance cannot be marked');
+  const loc = e.attendanceLocation;
+  if (loc?.lat === undefined || loc?.lat === null) throw new HttpError(422, 'Your attendance location is not set. Ask HR to set it.');
+  const lat = Number(req.body?.lat);
+  const lng = Number(req.body?.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) throw invalid({ lat: 'Your location could not be read' });
+  const distance = Math.round(metresBetween(loc.lat, loc.lng, lat, lng));
+  const radius = loc.radius || 100;
+  if (distance > radius) throw new HttpError(422, `You are ${distance} m away from your attendance location. The attendance passes within ${radius} m.`, { distance });
+  const date = startOfToday();
+  const now = new Date();
+  const existing = await Attendance.findOne({ employee: e._id, date });
+  if (existing && existing.source === 'manual') return res.json({ status: existing.status, already: true, distanceM: distance });
+  await Attendance.updateOne({ employee: e._id, date }, { $set: { status: 'present', source: 'app', lastActivity: now, lat, lng, distanceM: distance }, $setOnInsert: { firstActivity: now } }, { upsert: true });
+  res.json({ status: 'present', already: false, distanceM: distance });
 }
 
 /** Marks attendance by hand for a date. Marking replaces what was there (auto or manual). */
@@ -659,10 +726,10 @@ export async function listSalary(req, res) {
   if (['generated', 'sent', 'paid', 'unpaid', 'topay'].includes(st)) filter.status = st === 'unpaid' ? { $ne: 'paid' } : st === 'topay' ? 'sent' : st; // topay: sent to the employee and not paid yet
   const q = asString(req.query.q).toLowerCase();
   const rows = await Salary.find(filter).sort({ employeeCode: 1 }).populate('branch', 'code name').lean();
-  const emps = new Map((await Employee.find({ _id: { $in: rows.map((r) => r.employee) } }).select('bankName accountNumber joiningDate panNo').lean()).map((e) => [String(e._id), e]));
+  const emps = new Map((await Employee.find({ _id: { $in: rows.map((r) => r.employee) } }).select('bankName accountNumber joiningDate panNo pfNumber uanNumber esiNumber').lean()).map((e) => [String(e._id), e]));
   const items = rows.map((s) => {
     const e = emps.get(String(s.employee)) || {};
-    return { ...presentSalary(s, req.user), employee: { bankName: e.bankName || '', accountNumber: e.accountNumber ? `XXXXX${String(e.accountNumber).slice(-4)}` : '', joiningDate: iso(e.joiningDate), panNo: e.panNo || '' } };
+    return { ...presentSalary(s, req.user), employee: { bankName: e.bankName || '', accountNumber: e.accountNumber ? `XXXXX${String(e.accountNumber).slice(-4)}` : '', joiningDate: iso(e.joiningDate), panNo: e.panNo || '', pfNumber: e.pfNumber || '', uanNumber: e.uanNumber || '', esiNumber: e.esiNumber || '' } };
   }).filter((s) => !q || [s.employeeCode, s.name].some((v) => String(v).toLowerCase().includes(q)));
   const sum = (f) => Math.round(items.reduce((t, s) => t + f(s), 0) * 100) / 100;
   res.json({ items, summary: { slips: items.length, gross: sum((s) => s.gross), net: sum((s) => s.net), paid: sum((s) => (s.status === 'paid' ? s.net : 0)), due: sum((s) => (s.status === 'paid' ? 0 : s.net)) } });

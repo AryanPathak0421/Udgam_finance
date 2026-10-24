@@ -85,13 +85,13 @@ const REPORTS = {
 };
 
 /** "Call done": the borrower of the row was called. Shows who called last and when. */
-function CallButton({ report, row, onDone }) {
+function CallButton({ report, row, date, onDone }) {
   const toast = useToast();
   const [busy, setBusy] = useState(false);
   async function press() {
     setBusy(true);
     try {
-      const r = await api.reports.callDone({ report, key: row.key });
+      const r = await api.reports.callDone({ report, key: row.key, date });
       onDone(row.key, r.call);
     } catch (err) {
       toast.error(err.message);
@@ -148,6 +148,30 @@ function NpaPaymentDialog({ row, onClose, onSaved }) {
   );
 }
 
+const prettyKey = (k) => k.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase());
+const MONEY_KEY = /amount|due|outstanding|emi|paid|scheduled|cash|received|writtenoff|asked|requested|approved|collected/i;
+/** Every detail of one row of a report. */
+function ViewDialog({ row, onClose }) {
+  const show = (k, v) => {
+    if (v === null || v === undefined || v === '') return '—';
+    if (typeof v === 'boolean') return v ? 'Yes' : 'No';
+    if (typeof v === 'number') return MONEY_KEY.test(k) ? inr(v) : v;
+    if (/^\d{4}-\d{2}-\d{2}/.test(String(v))) return dmy(v);
+    return String(v);
+  };
+  const entries = Object.entries(row).filter(([k, v]) => k !== 'key' && k !== 'call' && (v === null || typeof v !== 'object'));
+  return (
+    <Modal open title="Details" onClose={onClose} footer={<button className="btn" onClick={onClose}>Close</button>}>
+      <div className="table-wrap">
+        <table className="data-table"><tbody>
+          {entries.map(([k, v]) => <tr key={k}><td className="muted" style={{ width: '40%' }}>{prettyKey(k)}</td><td><strong>{show(k, v)}</strong></td></tr>)}
+          {row.call && <tr><td className="muted">Last call</td><td><strong>{dmy(row.call.at)} · {row.call.by || '—'}{row.call.count > 1 ? ` · ${row.call.count}×` : ''}</strong></td></tr>}
+        </tbody></table>
+      </div>
+    </Modal>
+  );
+}
+
 function BranchSelect({ value, onChange }) {
   const [branches, setBranches] = useState([]);
   useEffect(() => { api.groups.branchOptions().then((r) => setBranches(r.items)).catch(() => {}); }, []);
@@ -178,6 +202,8 @@ export function ReportPage({ name }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [paying, setPaying] = useState(null);
+  const [viewing, setViewing] = useState(null);
+  const callDate = cfg.range ? to : date; // a call is marked for the date of the report
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -231,18 +257,21 @@ export function ReportPage({ name }) {
             {data.truncated && <div className="notice">Showing the first {rows.length} of {data.total}. Narrow the dates or the branch to see the rest.</div>}
             <div className="table-wrap">
               <table className="data-table">
-                <thead><tr>{cols.map(([l, , n]) => <th key={l} className={n ? 'num' : ''}>{l}</th>)}{!cfg.noCall && <th className="no-print">Call</th>}{cfg.npaPay && <th className="no-print">NPA payment</th>}</tr></thead>
+                <thead><tr>{cols.map(([l, , n]) => <th key={l} className={n ? 'num' : ''}>{l}</th>)}{!cfg.noCall && <th>Number</th>}{!cfg.noCall && <th className="no-print">Call</th>}{!cfg.noCall && <th className="no-print">View</th>}{cfg.npaPay && <th className="no-print">NPA payment</th>}</tr></thead>
                 <tbody>
                   {view.map((r) => (
                     <tr key={r.key}>
                       {cols.map(([l, f, n]) => <td key={l} data-label={l} className={n ? 'num' : ''}>{f(r)}</td>)}
-                      {!cfg.noCall && <td data-label="Call" className="no-print"><CallButton report={name} row={r} onDone={done} /></td>}
+                      {!cfg.noCall && <td data-label="Number">{r.mobile || '—'}</td>}
+                      {!cfg.noCall && <td data-label="Call" className="no-print"><CallButton report={name} row={r} date={callDate} onDone={done} /></td>}
+                      {!cfg.noCall && <td data-label="View" className="no-print"><button className="btn sm" onClick={() => setViewing(r)}>View</button></td>}
                       {cfg.npaPay && <td data-label="NPA payment" className="no-print"><button className="btn sm primary" onClick={() => setPaying(r)}>NPA payment</button></td>}
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+            {viewing && <ViewDialog row={viewing} onClose={() => setViewing(null)} />}
             {paying && <NpaPaymentDialog row={paying} onClose={() => setPaying(null)} onSaved={() => { setPaying(null); load(); }} />}
             <Pagination page={page} totalPages={Math.max(1, Math.ceil(rows.length / LIMIT))} total={rows.length} limit={LIMIT} onPage={setPage} />
           </>
