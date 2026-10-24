@@ -446,3 +446,6 @@ a.btn { text-decoration: none; }
 .ss-opt.off { opacity: .5; cursor: not-allowed; }
 .ss-none { padding: 10px; font-size: 13px; color: #6b7280; }
 .field.has-error .ss-input { border-color: var(--danger); }
+
+.grid-lines th, .grid-lines td { border: 1px solid var(--border); }
+.summary-wide th { white-space: normal; min-width: 76px; }

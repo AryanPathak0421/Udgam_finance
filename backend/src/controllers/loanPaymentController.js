@@ -1,4 +1,5 @@
 import { assertDayOpen, defaultWorkDate } from '../services/dayOpen.js';
+import { offDaysFor, dailyNext } from '../services/holidays.js';
 import { readBankAccount } from '../services/bankAccountPick.js';
 import mongoose from 'mongoose';
 import { LoanPayment, PAYMENT_MODES } from '../models/LoanPayment.js';
@@ -88,8 +89,11 @@ function isValidStart(d, rule) {
  * The first installment is one repayment period after the payment (moved on to the group's collection day when it has one, and
  * off a Sunday) and never earlier than that; the last follows from it.
  */
-function emiDates(r, paidOn, startInput, rule) {
-  const mode = MODES[r.mode];
+// a daily loan skips Sundays and the holidays of the Holiday Master; the other modes only the Sunday
+const modeOf = (r, off) => (r.mode === 'daily' && off ? { ...MODES.daily, next: dailyNext(off) } : MODES[r.mode]);
+
+function emiDates(r, paidOn, startInput, rule, off) {
+  const mode = modeOf(r, off);
   const defaultStart = firstValid(mode.next(paidOn, 1), rule);
   let start = defaultStart;
   if (startInput) {
@@ -102,11 +106,11 @@ function emiDates(r, paidOn, startInput, rule) {
   // the dates the first installment can be chosen from
   const allowed = [];
   for (let d = defaultStart; d.getTime() <= defaultStart.getTime() + 31 * DAY && allowed.length < (rule ? 8 : 32); d = addDaysTo(d, 1)) {
-    if (isValidStart(d, rule) && !isSunday(d)) allowed.push(iso(d));
+    if (isValidStart(d, rule) && !isSunday(d) && !(off && r.mode === 'daily' && off.has(iso(d)))) allowed.push(iso(d));
   }
   let end = mode.next(start, Math.max(r.term - 1, 0));
   if (isSunday(end)) end = addDaysTo(end, 1);
-  return { start, end, defaultStart, allowed, rule };
+  return { start, end, defaultStart, allowed, rule, mode };
 }
 
 /** The payment can be made on or after the loan date and the day the loan was approved, never in the future. */
@@ -134,7 +138,7 @@ async function readPaidOn(req, r, input) {
 export async function preparePayment(req, res) {
   const r = await loadApproved(req, req.params.id);
   const paidOn = await readPaidOn(req, r, req.query.paidOn);
-  const { start, end, defaultStart, allowed, rule } = emiDates(r, paidOn, req.query.emiStartDate, await collectionRule(r));
+  const { start, end, defaultStart, allowed, rule } = emiDates(r, paidOn, req.query.emiStartDate, await collectionRule(r), r.mode === 'daily' ? await offDaysFor(r.branch) : null);
   const kind = r.kind || 'personal';
   const stock = kind === 'product' ? [] : await StockProduct.find({ isDeleted: false, isActive: true, stockQty: { $gt: 0 }, branch: r.branch }).sort({ name: 1 });
   const charges = (r.processingFeePaise || 0) + (r.insuranceFeePaise || 0) + (r.securityAmountPaise || 0);
@@ -196,7 +200,7 @@ async function pay(req, r, b) {
   const kind = r.kind || 'personal';
   const paidOn = await readPaidOn(req, r, b.paidOn);
   await assertDayOpen(r.branch?._id || r.branch, paidOn, req.user);
-  const { start, end } = emiDates(r, paidOn, b.emiStartDate, await collectionRule(r));
+  const { start, end, mode: dueMode } = emiDates(r, paidOn, b.emiStartDate, await collectionRule(r), r.mode === 'daily' ? await offDaysFor(r.branch) : null);
   const payMode = asString(b.payMode);
   if (!PAYMENT_MODES.includes(payMode)) throw invalid({ payMode: 'Select how the loan is paid' });
   const bankAccount = await readBankAccount(b, payMode);
@@ -241,7 +245,7 @@ async function pay(req, r, b) {
     principalPaise: r.amountPaise, annualRateBp: r.annualRateBp, calculationType: r.calculationType, emiType: r.emiType || 'equal', mode: r.mode, term: r.term, startDate: paidOn,
     roundingPaise: (scheme?.installmentRounding ?? 1) * 100,
   }).schedule.map((s) => {
-    let due = MODES[r.mode].next(start, s.no - 1);
+    let due = dueMode.next(start, s.no - 1);
     if (isSunday(due)) due = addDaysTo(due, 1);
     return { no: s.no, dueDate: due, installmentPaise: s.installment, principalPaise: s.principal, interestPaise: s.interest };
   });

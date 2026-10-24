@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { EmptyState, ErrorState, PageHeader, Spinner } from '../components/ui/Feedback.jsx';
@@ -240,18 +240,35 @@ export function DayBook() {
 export function ProductBranchDue() {
   const b = useBook(() => api.accounts.productBranchDue(), []);
   const d = b.data;
+  const [search, setSearch] = useState('');
+  const [showZero, setShowZero] = useState(false);
+  // a branch with nothing due is left out (tick the box to see it); the search looks at the branch code and name
+  const rows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return (d?.rows || []).filter((r) => (showZero || r.balance > 0) && (!q || `${r.branch?.code || ''} ${r.branch?.name || ''}`.toLowerCase().includes(q)));
+  }, [d, search, showZero]);
+  const total = useMemo(() => {
+    const t = { purchased: 0, transferredIn: 0, transferredOut: 0, paid: 0, waiting: 0, balance: 0 };
+    rows.forEach((r) => Object.keys(t).forEach((k) => { t[k] += r[k] || 0; }));
+    return t;
+  }, [rows]);
+  const hidden = (d?.rows || []).filter((r) => r.balance <= 0).length;
   return (
     <>
-      <PageHeader title="Product Branch Due Balance" description="What each branch still owes head office for the products it bought: purchases and transfers less the payments received." />
+      <PageHeader title="Product Branch Due Balance" description="What each branch still owes head office for the products it bought: purchases and transfers less the payments received. Branches with nothing due are not listed." />
       <div className="panel">
-        <div className="toolbar"><Refresh b={b} /></div>
+        <div className="toolbar" style={{ flexWrap: 'wrap' }}>
+          <input type="search" placeholder="Search branch" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search branch" style={{ minWidth: 200 }} />
+          <label className="small muted" style={{ display: 'flex', alignItems: 'center', gap: 6 }}><input type="checkbox" checked={showZero} onChange={(e) => setShowZero(e.target.checked)} /> Show branches with nothing due{hidden ? ` (${hidden})` : ''}</label>
+          <Refresh b={b} />
+        </div>
         <Body b={b} empty={d && d.rows.length === 0 ? 'No branch has bought products yet' : ''}>
-          {d && (
+          {d && (rows.length === 0 ? <EmptyState title="Nothing to show" description={search ? 'No branch matches the search.' : 'No branch has anything due. Tick "Show branches with nothing due" to see all.'} /> : (
             <div className="table-wrap">
               <table className="data-table">
                 <thead><tr><th>Branch</th><th className="num">Purchased</th><th className="num">Transferred in</th><th className="num">Transferred out</th><th className="num">Net</th><th className="num">Paid (received)</th><th className="num">Paid, waiting</th><th className="num">Due balance</th></tr></thead>
                 <tbody>
-                  {d.rows.map((r) => (
+                  {rows.map((r) => (
                     <tr key={r.branchId}>
                       <td data-label="Branch">{r.branch ? `${r.branch.code} — ${r.branch.name}` : '—'}</td>
                       <td data-label="Purchased" className="num">{inr(r.purchased)}</td><td data-label="Transferred in" className="num">{inr(r.transferredIn)}</td><td data-label="Transferred out" className="num">{inr(r.transferredOut)}</td>
@@ -261,13 +278,13 @@ export function ProductBranchDue() {
                   ))}
                   <tr style={{ borderTop: '2px solid currentColor' }}>
                     <td><strong>Total</strong></td>
-                    <td className="num"><strong>{inr(d.total.purchased)}</strong></td><td className="num"><strong>{inr(d.total.transferredIn)}</strong></td><td className="num"><strong>{inr(d.total.transferredOut)}</strong></td>
-                    <td className="num"><strong>{inr(d.total.purchased + d.total.transferredIn - d.total.transferredOut)}</strong></td><td className="num"><strong>{inr(d.total.paid)}</strong></td><td className="num"><strong>{inr(d.total.waiting)}</strong></td><td className="num"><strong>{inr(d.total.balance)}</strong></td>
+                    <td className="num"><strong>{inr(total.purchased)}</strong></td><td className="num"><strong>{inr(total.transferredIn)}</strong></td><td className="num"><strong>{inr(total.transferredOut)}</strong></td>
+                    <td className="num"><strong>{inr(total.purchased + total.transferredIn - total.transferredOut)}</strong></td><td className="num"><strong>{inr(total.paid)}</strong></td><td className="num"><strong>{inr(total.waiting)}</strong></td><td className="num"><strong>{inr(total.balance)}</strong></td>
                   </tr>
                 </tbody>
               </table>
             </div>
-          )}
+          ))}
         </Body>
       </div>
     </>

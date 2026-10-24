@@ -105,6 +105,7 @@ export function BulkNotification() {
 export function HolidayMaster() {
   const toast = useToast();
   const [year, setYear] = useState(new Date().getUTCFullYear());
+  const [search, setSearch] = useState('');
   const list = useLoad(() => api.superAdmin.holidays({ year }), [year]);
   const [edit, setEdit] = useState(null);
   const [f, setF] = useState({ date: '', name: '', branch: '' });
@@ -117,23 +118,25 @@ export function HolidayMaster() {
   async function save() {
     setBusy(true);
     setErrors({});
-    try { if (edit.id) await api.superAdmin.updateHoliday(edit.id, f); else await api.superAdmin.createHoliday(f); toast.success('Saved'); setEdit(null); list.load(); } catch (err) { setErrors(err.errors || {}); toast.error(err.message); } finally { setBusy(false); }
+    try { if (edit.id) await api.superAdmin.updateHoliday(edit.id, f); else await api.superAdmin.createHoliday(f); toast.success('Saved. The due dates of the daily loans are moved off this day in a moment.'); setEdit(null); list.load(); } catch (err) { setErrors(err.errors || {}); toast.error(err.message); } finally { setBusy(false); }
   }
   async function remove() {
     setBusy(true);
-    try { await api.superAdmin.removeHoliday(removing.id); toast.success('Deleted'); setRemoving(null); list.load(); } catch (err) { toast.error(err.message); } finally { setBusy(false); }
+    try { await api.superAdmin.removeHoliday(removing.id); toast.success('Deleted. The due dates of the daily loans are counted again.'); setRemoving(null); list.load(); } catch (err) { toast.error(err.message); } finally { setBusy(false); }
   }
-  const items = list.data?.items || [];
+  const q = search.trim().toLowerCase();
+  const items = (list.data?.items || []).filter((h) => !q || [h.name, h.day, dmy(h.date), h.date, h.branch?.code, h.branch?.name].some((v) => String(v || '').toLowerCase().includes(q)));
   return (
     <>
-      <PageHeader title="Holiday Master" description="The days the company is closed (Diwali, Holi ...), for every branch or for one branch. A holiday is paid in the salary even when the attendance is not marked. Sunday is always the weekly off." />
+      <PageHeader title="Holiday Master" description="The days the company is closed (Diwali, Holi ...), for every branch or for one branch. A holiday is paid in the salary even when the attendance is not marked, and the daily loans have no installment on it (like Sunday, the weekly off)." />
       <div className="panel">
         <div className="toolbar">
           <label className="small muted" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>Year <input type="number" value={year} min={2020} max={2100} onChange={(e) => setYear(Number(e.target.value) || year)} style={{ width: 90 }} aria-label="Year" /></label>
+          <input type="search" placeholder="Search holiday, date, branch" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search" style={{ minWidth: 220 }} />
           <Refresh onClick={list.load} loading={list.loading} />
           <button className="btn primary" onClick={() => open(null)}>Add a holiday</button>
         </div>
-        <State list={list} empty={items.length === 0 ? `No holiday is entered for ${year}` : ''}>{() => (
+        <State list={list} empty={items.length === 0 ? (search ? 'No holiday matches the search' : `No holiday is entered for ${year}`) : ''}>{() => (
           <>
             <Summary items={[['Holidays', items.length]]} />
             <div className="table-wrap">
@@ -215,12 +218,31 @@ export function ProfitLoss() {
 // ---------------------------------------------------------------------------------------------------------------------------
 // Complaints of the whole company
 export function ComplaintOverview() {
+  const toast = useToast();
+  const [editing, setEditing] = useState(null);
+  const [next, setNext] = useState({ status: '', resolution: '' });
+  const [errors, setErrors] = useState({});
+  const [busy, setBusy] = useState(false);
   const [branch, setBranch] = useState('');
   const [status, setStatus] = useState('open');
   const [search, setSearch] = useState('');
   const q = useDebounce(search, 300);
   const list = useLoad(() => api.superAdmin.complaints({ branch, status, q }), [branch, status, q]);
   const d = list.data;
+  // the status of a complaint is updated here: a toll free one (open, in progress, resolved) or a product one (resolve, then delivered)
+  async function save() {
+    setBusy(true);
+    setErrors({});
+    try {
+      if (editing.source === 'toll_free') await api.hr.setComplaintStatus(editing.id, { status: next.status, resolution: next.resolution });
+      else if (next.status === 'delivered') await api.productComplaints.deliver(editing.id);
+      else await api.productComplaints.resolve(editing.id, next.resolution);
+      toast.success('Status updated');
+      setEditing(null);
+      list.load();
+    } catch (err) { setErrors(err.errors || { status: err.message }); toast.error(err.message); } finally { setBusy(false); }
+  }
+  const choices = editing ? (editing.source === 'toll_free' ? [['open', 'Open'], ['in_progress', 'In progress'], ['resolved', 'Resolved']].filter(([k]) => k !== editing.statusLabel) : editing.statusLabel === 'submitted' ? [['resolved', 'Resolved']] : editing.statusLabel === 'resolved' ? [['delivered', 'Delivered to the member']] : []) : [];
   return (
     <>
       <PageHeader title="Complaint" description="Every complaint of the company in one place: the toll free ones and the product complaints, how old the open ones are and in which branch they are. They are looked into under HR Department → Toll Free Complaint Entry and Stock → Product Orders." />
@@ -237,7 +259,7 @@ export function ComplaintOverview() {
             {d.openByBranch.length > 0 && <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '4px 0 10px' }}>{d.openByBranch.map((b) => <span key={b.branch} className="badge grey">{b.branch}: {b.open} open</span>)}</div>}
             <div className="table-wrap">
               <table className="data-table">
-                <thead><tr><th>Complaint</th><th>From</th><th>About</th><th>Branch</th><th>Handled by</th><th>Status</th><th className="num">Open since</th></tr></thead>
+                <thead><tr><th>Complaint</th><th>From</th><th>About</th><th>Branch</th><th>Handled by</th><th>Status</th><th className="num">Open since</th><th /></tr></thead>
                 <tbody>
                   {d.items.map((c) => (
                     <tr key={`${c.source}-${c.id}`}>
@@ -245,6 +267,7 @@ export function ComplaintOverview() {
                       <td data-label="From">{c.who}</td><td data-label="About">{c.about}</td><td data-label="Branch">{c.branch}</td><td data-label="Handled by">{c.handledBy || '—'}</td>
                       <td data-label="Status"><span className={`badge ${c.status === 'open' ? 'amber' : 'green'}`}>{cap(c.statusLabel)}</span></td>
                       <td data-label="Open since" className="num">{c.status === 'open' ? <span className={`badge ${c.ageDays > 7 ? 'danger' : 'grey'}`}>{c.ageDays} d</span> : '—'}</td>
+                      <td>{(c.status === 'open' || (c.source === 'toll_free' && c.statusLabel === 'resolved')) && <button className="btn sm" onClick={() => { setEditing(c); setNext({ status: '', resolution: '' }); setErrors({}); }}>Update status</button>}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -253,12 +276,30 @@ export function ComplaintOverview() {
           </>
         )}</State>
       </div>
+      {editing && (
+        <Modal open title={`${editing.no} — update the status`} onClose={() => setEditing(null)} busy={busy}
+          footer={<><button className="btn" onClick={() => setEditing(null)} disabled={busy}>Close</button><button className="btn primary" onClick={save} disabled={busy || !next.status}>{busy ? 'Saving…' : 'Update'}</button></>}>
+          <p className="muted">{editing.who} · {editing.about}<br />Now: <strong>{cap(editing.statusLabel)}</strong></p>
+          <FormField id="cpst" label="New status" required error={errors.status}>
+            <select id="cpst" value={next.status} onChange={(e) => setNext((x) => ({ ...x, status: e.target.value }))}><option value="">Select</option>{choices.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+          </FormField>
+          {next.status !== 'delivered' && <FormField id="cpres" label="What was done" error={errors.resolution} hint="Required when resolving"><input id="cpres" value={next.resolution} maxLength={500} onChange={(e) => setNext((x) => ({ ...x, resolution: e.target.value }))} /></FormField>}
+        </Modal>
+      )}
     </>
   );
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------
-// Company summary
+// Company summary (the columns of the old software's summary report)
+const SUMMARY_COLUMNS = [
+  ['New member', 'joined'], ['Total branch member', 'members'], ['Actual loan member', 'loanMembers'], ['Dual loan member', 'dualMembers'], ['Number of disbursement', 'loans'],
+  ['Processing amount', 'processing', true], ['Insurance', 'insurance', true], ['Security deposit', 'securityDeposit', true], ['Security withdrawal', 'securityWithdrawal', true], ['Security interest withdrawal', 'securityInterestWithdrawal', true],
+  ['Portfolio', 'portfolio', true], ['Due principal', 'duePrincipal', true], ['Due interest', 'dueInterest', true], ['Interest collection', 'interestCollection', true], ['Penalty receive', 'penalty', true],
+  ['NPA member', 'npa'], ['NPA amount', 'npaOutstanding', true], ['Settlement account', 'settlements'], ['Auto settle', 'autoSettle'], ['Settlement amount', 'settlementAmount', true],
+  ['Death settle', 'deathSettle'], ['Death settle amount', 'deathSettleAmount', true], ['Write-off member', 'writeOff'], ['Write-off member amount', 'writeOffAmount', true], ['Block member', 'blocked'],
+  ['New group open', 'newGroups'], ['Group leader commission', 'commission', true], ['Product qty sell', 'productQty'], ['Product amount', 'productAmount', true],
+];
 export function CompanySummary() {
   const [branch, setBranch] = useState('');
   const [from, setFrom] = useState(monthStart());
@@ -266,10 +307,13 @@ export function CompanySummary() {
   const list = useLoad(() => api.superAdmin.companySummary({ branch, from, to }), [branch, from, to]);
   const d = list.data;
   const T = d?.totals;
+  const cell = (v, money) => (money ? inr(v) : v);
   return (
     <>
-      <PageHeader title="Company Summary Report" description="The whole company in one table, branch by branch: members, loans paid out and EMI collected in the period, what is outstanding and overdue as on the last date, NPA and open complaints." />
+      <PageHeader title="Company Summary Report" description="The whole company branch by branch for the period (members, disbursement, fees, security, due, collection, NPA, settlements, write-off, groups, commission and products). Portfolio and due are as on the last date."
+        actions={<button type="button" className="btn no-print" onClick={() => window.print()} disabled={!d}>Print / PDF</button>} />
       <div className="panel">
+        <style>{'@media print { @page { size: A3 landscape; margin: 8mm; } .summary-wide { font-size: 9px; } .summary-wide th, .summary-wide td { padding: 2px 4px !important; } .table-wrap { overflow: visible !important; } }'}</style>
         <div className="toolbar" style={{ flexWrap: 'wrap' }}>
           <BranchSelect value={branch} onChange={setBranch} />
           <Dates from={from} setFrom={setFrom} to={to} setTo={setTo} />
@@ -277,22 +321,20 @@ export function CompanySummary() {
         </div>
         <State list={list}>{() => (
           <>
-            <Summary items={[['Members', T.members], ['Joined', T.joined], ['Groups', T.groups], ['Employees', T.employees], ['Loans paid out', T.loans], ['Disbursed', inr(T.disbursed)], ['Collected', inr(T.collected)], ['Outstanding', inr(T.outstanding)], ['Overdue', inr(T.overdue)], ['NPA', `${T.npa} · ${inr(T.npaOutstanding)}`]]} />
+            <p className="muted small" style={{ margin: '4px 0 8px' }}>Company Summary Report: {d.from} to {d.to}</p>
             <div className="table-wrap">
-              <table className="data-table">
-                <thead><tr><th>Branch</th><th className="num">Members</th><th className="num">Joined</th><th className="num">Groups</th><th className="num">Staff</th><th className="num">Loans</th><th className="num">Disbursed</th><th className="num">Collected</th><th className="num">Borrowers</th><th className="num">Outstanding</th><th className="num">Overdue</th><th className="num">NPA</th><th className="num">Complaints</th></tr></thead>
+              <table className="data-table summary-wide grid-lines">
+                <thead><tr><th>Branch name</th>{SUMMARY_COLUMNS.map(([label, key]) => <th key={key} className="num">{label}</th>)}</tr></thead>
                 <tbody>
                   {d.rows.map((r) => (
                     <tr key={r.branchId}>
-                      <td data-label="Branch"><strong>{r.branch}</strong></td><td data-label="Members" className="num">{r.members}</td><td data-label="Joined" className="num">{r.joined}</td><td data-label="Groups" className="num">{r.groups}</td><td data-label="Staff" className="num">{r.employees}</td>
-                      <td data-label="Loans" className="num">{r.loans}</td><td data-label="Disbursed" className="num">{inr(r.disbursed)}</td><td data-label="Collected" className="num">{inr(r.collected)}</td><td data-label="Borrowers" className="num">{r.borrowers}</td>
-                      <td data-label="Outstanding" className="num">{inr(r.outstanding)}</td><td data-label="Overdue" className="num">{r.overdue ? <span className="badge danger">{inr(r.overdue)}</span> : inr(0)}<div className="muted small">{r.overdueBorrowers} borrowers</div></td>
-                      <td data-label="NPA" className="num">{r.npa}<div className="muted small">{inr(r.npaOutstanding)}</div></td><td data-label="Complaints" className="num">{r.openComplaints}</td>
+                      <td data-label="Branch name"><strong>{r.branch}</strong></td>
+                      {SUMMARY_COLUMNS.map(([label, key, money]) => <td key={key} data-label={label} className="num">{cell(r[key], money)}</td>)}
                     </tr>
                   ))}
                   <tr style={{ borderTop: '2px solid currentColor' }}>
-                    <td><strong>Total</strong></td><td className="num"><strong>{T.members}</strong></td><td className="num"><strong>{T.joined}</strong></td><td className="num"><strong>{T.groups}</strong></td><td className="num"><strong>{T.employees}</strong></td><td className="num"><strong>{T.loans}</strong></td>
-                    <td className="num"><strong>{inr(T.disbursed)}</strong></td><td className="num"><strong>{inr(T.collected)}</strong></td><td className="num"><strong>{T.borrowers}</strong></td><td className="num"><strong>{inr(T.outstanding)}</strong></td><td className="num"><strong>{inr(T.overdue)}</strong></td><td className="num"><strong>{T.npa}</strong></td><td className="num"><strong>{T.openComplaints}</strong></td>
+                    <td><strong>Total</strong></td>
+                    {SUMMARY_COLUMNS.map(([label, key, money]) => <td key={key} className="num"><strong>{cell(T[key], money)}</strong></td>)}
                   </tr>
                 </tbody>
               </table>

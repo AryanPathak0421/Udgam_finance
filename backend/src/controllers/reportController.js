@@ -11,6 +11,7 @@ import { asString, parseDateOnly, HttpError } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
 import { branchFilter, showMobile } from './groupController.js';
 import { dueSummary, loanDetail, loadLoan, receive, borrowerState } from './emiController.js';
+import { slowRun } from '../services/slowRun.js';
 import { readBankAccount } from '../services/bankAccountPick.js';
 import { toMinor } from '../utils/money.js';
 
@@ -43,13 +44,15 @@ const dateRange = (req, field) => {
 const matches = (q, ...vals) => !q || vals.some((v) => String(v || '').toLowerCase().includes(q));
 
 /** Works through every running borrower (loans in batches of 250) and hands each one's figures to `pick`. */
-export async function scanBorrowers(req, asOf, pick) {
+/**
+ * Works through every running borrower (loans in batches of 250, three batches at a time) and hands each one's figures to `pick`.
+ * opts.light: no mobile numbers (a summary does not need them). opts.split: also the outstanding principal and interest of every borrower.
+ */
+export async function scanBorrowers(req, asOf, pick, opts = {}) {
   const ids = (await LoanPayment.find({ status: 'paid', ...branchScope(req) }).sort({ createdAt: -1 }).select('_id').limit(20000).lean()).map((x) => x._id);
   const branches = new Map((await Branch.find({}).select('code name').lean()).map((b) => [String(b._id), b.code]));
   const rows = [];
-  for (let at = 0; at < ids.length; at += 250) {
-    const part = ids.slice(at, at + 250);
-    // eslint-disable-next-line no-await-in-loop
+  const doBatch = async (part) => {
     const [loans, recv, settled] = await Promise.all([
       LoanPayment.find({ _id: { $in: part } }).select('loanId formId kind loanType mode installments emiStartDate emiEndDate paidOn branch group schemeName employeeCode lines schedule').lean(),
       EmiPayment.aggregate([
@@ -66,9 +69,12 @@ export async function scanBorrowers(req, asOf, pick) {
       byKey.get(k).set(x._id.no, { paid: x.paid });
     });
     const closed = new Set(settled.map((x) => `${x.loanPayment}|${x.memberCode}`));
-    const codes = [...new Set(loans.flatMap((l) => l.lines.map((x) => x.code)))];
-    // eslint-disable-next-line no-await-in-loop
-    const mobiles = new Map((await Member.find({ code: { $in: codes } }).select('code mobile').lean()).map((m) => [m.code, m.mobile]));
+    let mobiles = new Map();
+    if (!opts.light) {
+      const codes = [...new Set(loans.flatMap((l) => l.lines.map((x) => x.code)))];
+      mobiles = new Map((await Member.find({ code: { $in: codes } }).select('code mobile').lean()).map((m) => [m.code, m.mobile]));
+    }
+    const out = [];
     for (const l of loans) {
       for (const line of l.lines) {
         const key = `${l._id}|${line.code}`;
@@ -77,18 +83,40 @@ export async function scanBorrowers(req, asOf, pick) {
         const extra = line.extraEmiPaise || 0;
         const scheduled = l.schedule.reduce((s, x) => s + x.installmentPaise + extra, 0);
         const end = l.emiEndDate ? new Date(l.emiEndDate).getTime() : 0;
+        let outPrincipal = 0;
+        let outInterest = 0;
+        if (opts.split) {
+          const got = byKey.get(key);
+          for (const s of l.schedule) {
+            const amt = s.installmentPaise + extra;
+            const rem = amt - Math.min(got?.get(s.no)?.paid || 0, amt);
+            if (rem > 0 && s.installmentPaise > 0) {
+              const ratio = Math.min((s.principalPaise || 0) / s.installmentPaise, 1);
+              outPrincipal += rem * ratio;
+              outInterest += rem * (1 - ratio);
+            }
+          }
+        }
         const row = {
           key, loanPaymentId: l._id, loanId: l.loanId || l.formId, branch: branches.get(String(l.branch)) || '', group: l.group?.code ? `${l.group.code} — ${l.group.name}` : '',
-          memberCode: line.code, memberName: line.name, mobile: showMobile(req.user, mobiles.get(line.code)), loanType: l.kind === 'group' ? 'group' : l.loanType || l.kind, scheme: l.schemeName || '',
+          memberCode: line.code, memberName: line.name, mobile: opts.light ? '' : showMobile(req.user, mobiles.get(line.code)), loanType: l.kind === 'group' ? 'group' : l.loanType || l.kind, scheme: l.schemeName || '',
           mode: l.mode, term: l.installments, loanAmount: rupees(line.amountPaise), emi: rupees((l.schedule[0]?.installmentPaise || 0) + extra), scheduled: rupees(scheduled),
           paid: rupees(scheduled - sum.outstandingPaise), outstanding: rupees(sum.outstandingPaise), due: rupees(sum.duePaise), dueCount: sum.dueCount, overdueDays: sum.overdueDays,
           firstDue: sum.firstDue || '', lastInstallment: iso(l.emiEndDate), daysPastEnd: end && end < asOf.getTime() ? Math.floor((asOf.getTime() - end) / DAY) : 0,
           npaTerm: l.mode === 'daily' && l.installments === NPA_TERM, staff: l.employeeCode || '',
+          ...(opts.split ? { duePrincipal: Math.round(outPrincipal) / 100, dueInterest: Math.round(outInterest) / 100 } : {}),
         };
         const keep = pick(row);
-        if (keep) rows.push(keep);
+        if (keep) out.push(keep);
       }
     }
+    return out;
+  };
+  const parts = [];
+  for (let at = 0; at < ids.length; at += 250) parts.push(ids.slice(at, at + 250));
+  for (let i = 0; i < parts.length; i += 3) {
+    // eslint-disable-next-line no-await-in-loop
+    (await Promise.all(parts.slice(i, i + 3).map(doBatch))).forEach((r) => rows.push(...r));
   }
   return rows;
 }
@@ -300,7 +328,16 @@ export async function report(req, res) {
   if (name === 'loan-ledger') return res.json(await loanLedger(req));
   const fn = REPORTS[NAMES[name]];
   if (!fn) throw new HttpError(404, 'Unknown report');
-  const out = await fn(req);
+  const q = { ...req.query };
+  delete q.poll;
+  const heavy = ['due', 'overdue', 'outstanding', 'npa', 'staff-npa', 'personal-collection-sheet', 'msme-collection-sheet', 'group-collection'].includes(name);
+  let out;
+  if (heavy) {
+    const r = await slowRun(`report|${name}|${req.user._id}|${JSON.stringify(q)}`, () => fn(req), { poll: req.query.poll === '1' });
+    if (!r.done) return res.status(202).json({ pending: true });
+    out = r.data;
+  } else out = await fn(req);
+  out = { ...out, rows: out.rows.map((r) => ({ ...r })) }; // a report kept for a poll is not changed by the call marks below
   const total = out.rows.length;
   const rows = out.rows.slice(0, MAX_ROWS);
   const calls = out.noCall ? [] : await ReportCall.find({ report: name, key: { $in: rows.map((r) => r.key) } }).lean();

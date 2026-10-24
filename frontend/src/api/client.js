@@ -29,6 +29,19 @@ const qs = (params = {}) => {
   return s ? `?${s}` : '';
 };
 
+// A heavy report answers "pending" while the server works it out; ask again until it is there (about 10 minutes at most).
+async function slow(path, params) {
+  let data = await request(`${path}${qs(params)}`);
+  for (let i = 0; data?.pending && i < 200; i += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((r) => { setTimeout(r, 3000); });
+    // eslint-disable-next-line no-await-in-loop
+    data = await request(`${path}${qs({ ...params, poll: 1 })}`);
+  }
+  if (data?.pending) throw new Error('The report is taking too long. Try a smaller period or one branch.');
+  return data;
+}
+
 const AM = '/admin-master';
 
 export const api = {
@@ -117,9 +130,9 @@ export const api = {
     removeHoliday: (id) => request(`/super-admin/holidays/${id}`, { method: 'DELETE' }),
     profitLoss: (params) => request(`/super-admin/profit-loss${qs(params)}`),
     complaints: (params) => request(`/super-admin/complaints${qs(params)}`),
-    companySummary: (params) => request(`/super-admin/company-summary${qs(params)}`),
-    monitoring: (params) => request(`/super-admin/monitoring${qs(params)}`),
-    graph: (params) => request(`/super-admin/graph${qs(params)}`),
+    companySummary: (params) => slow('/super-admin/company-summary', params),
+    monitoring: (params) => slow('/super-admin/monitoring', params),
+    graph: (params) => slow('/super-admin/graph', params),
   },
   myNotifications: () => request('/notifications/mine'),
   readNotifications: (ids) => request('/notifications/read', { method: 'POST', body: { ids } }),
@@ -187,7 +200,7 @@ export const api = {
     rejectEmi: (id, reason) => request(`/app/emi-approvals/${id}/reject`, { method: 'POST', body: { reason } }),
   },
   reports: {
-    get: (name, params) => request(`/reports/${name}${qs(params)}`),
+    get: (name, params) => slow(`/reports/${name}`, params),
     callDone: (data) => request('/reports/call-done', { method: 'POST', body: data }),
     npaPayment: (data) => request('/reports/npa-payment', { method: 'POST', body: data }),
   },
