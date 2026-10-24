@@ -66,6 +66,8 @@ const SHEET = [
 ];
 // the MSME / business sheet is the same, with the shop (business) name after the loan name
 const SHEET_MSME = SHEET.flatMap((c) => (c[0] === 'Loan name' ? [c, ['Shop name', (r) => r.shop || '—']] : [c]));
+const SHEET_GROUP = SHEET.flatMap((c) => (c[0] === 'Loan name' ? [['Group', (r) => (r.groupCode ? `${r.groupCode} — ${r.groupName}` : '—')], ['Group leader', (r) => (r.leader ? `${r.leader}${r.leaderMobile ? ` (${r.leaderMobile})` : ''}` : '—')]] : [c]));
+const SHEET_ALL = SHEET.flatMap((c) => (c[0] === 'Loan name' ? [c, ['Loan type', (r) => cap(r.loanType)], ['Group', (r) => (r.groupCode ? `${r.groupCode} — ${r.groupName}` : '—')], ['Shop name', (r) => r.shop || '—']] : [c]));
 const NPA_PRINT = [
   ['SR No', (r) => r.sr], ['Member code', (r) => r.memberCode], ['Member name', (r) => r.memberName], ['Mobile', (r) => r.mobile || '—'], ['Loan ID', (r) => r.loanId],
   ['Branch', (r) => (r.branchName ? `${r.branch} — ${r.branchName}` : r.branch)], ['Staff', (r) => r.staff || '—'], ['Loan amount', (r) => inr(r.loanAmount), true, 'loanAmount'],
@@ -74,6 +76,8 @@ const NPA_PRINT = [
 const asScreen = (list) => list.map(([l, f, n]) => [l, (r) => { const v = f(r); return l === 'Today receive' || l === 'Sign customer' ? (v || blank()) : v; }, n]);
 COLS['personal-collection-sheet'] = asScreen(SHEET);
 COLS['msme-collection-sheet'] = asScreen(SHEET_MSME);
+COLS['group-collection-sheet'] = asScreen(SHEET_GROUP);
+COLS['collection-sheet'] = asScreen(SHEET_ALL);
 const KIND_LABEL = { death: 'Death settlement', auto: 'Auto settle', loan: 'Loan settlement', auto_npa: 'Auto write-off (3 years)' };
 COLS['write-off'] = [
   ['Receipt', (r) => <strong>{r.receiptNo}</strong>], ['Date', (r) => dmy(r.date)], ['Kind', (r) => KIND_LABEL[r.kind] || r.kind], ['Loan ID', (r) => r.loanId], ['Borrower', (r) => <>{r.memberCode} {r.memberName}{r.group && <div className="muted small">{r.group}</div>}</>],
@@ -97,6 +101,8 @@ const REPORTS = {
   npa: { title: 'NPA Report / Pay', description: 'Borrowers of a 120-day loan who still owe after the 121st day: the last installment is behind them and the loan is not paid. NPA payment takes the money received from the borrower.', asOf: true, npaPay: true, print: true, staffFilter: true },
   'personal-collection-sheet': { title: 'Personal Loan Collection Sheet', description: 'Personal loan borrowers with an EMI to collect as on the date. Print it for the field.', asOf: true, print: true, sheet: true },
   'msme-collection-sheet': { title: 'MSME / Business Loan Collection Sheet', description: 'MSME and business loan borrowers with an EMI to collect as on the date. Print it for the field.', asOf: true, print: true, sheet: true },
+  'group-collection-sheet': { title: 'Group Loan Collection Sheet', description: 'Group loans with an EMI to collect as on the date, group by group with the group leader, for the field. Print / PDF makes the sheet like the old software: every group with its members and a total.', asOf: true, print: true, sheet: true, group: true },
+  'collection-sheet': { title: 'Loan Collection Sheet (all loans)', description: 'The collection sheet of any kind of loan (all, or group, personal, business, MSME, product) with an EMI to collect as on the date. Print / PDF makes the sheet.', asOf: true, print: true, sheet: true, typeFilter: true },
   'write-off': { title: 'Write-off Report', description: 'Balance given up on loans: death settlements, automatic settlements and loan settlements with a waiver, by the settlement date. A loan that is 3 years past its last installment and still owes money (NPA) is written off by itself and shows here (Auto write-off) with what was still due.', range: true, status: ['death', 'auto', 'loan', 'auto_npa'], statusLabel: KIND_LABEL, from: monthStart },
   'staff-npa': { title: 'Staff wise NPA Report', description: 'NPA borrowers and what is outstanding on them, for every staff member (the staff of the loan). Search a staff member and choose a branch to narrow it.', asOf: true, noCall: true, staffFilter: true },
   'staff-npa-payment': { title: 'Staff wise NPA Payment Report', description: 'What every staff member collected on NPA loans (NPA payment), by the date it was received.', range: true, from: monthStart, noCall: true, staffFilter: true },
@@ -214,24 +220,39 @@ function RevertDialog({ row, onClose, onDone }) {
 
 const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 /** The collection sheet on paper: landscape, a header with the company, the date and the filters, a small table that repeats its heading on every page, totals and a sign column. */
-function printSheet({ title, company, rows, asOf, filters, columns }) {
+function printSheet({ title, company, rows, asOf, filters, columns, grouped }) {
   const w = window.open('', '_blank', 'width=1200,height=900');
   if (!w) return false;
   const head = columns.map(([l, , n]) => `<th class="${n ? 'n' : ''}${l === 'Sign customer' ? ' sign' : ''}">${esc(l)}</th>`).join('');
-  const body = rows.map((r) => `<tr>${columns.map(([, f, n]) => `<td class="${n ? 'n' : ''}">${esc(f(r))}</td>`).join('')}</tr>`).join('');
+  const line = (r) => `<tr>${columns.map(([, f, n]) => `<td class="${n ? 'n' : ''}">${esc(f(r))}</td>`).join('')}</tr>`;
+  const totalCells = (list, label) => columns.map(([, , , key], i) => (i === 0 ? `<td>${esc(label)}</td>` : key ? `<td class="n">${esc(inr(list.reduce((t, r) => t + (r[key] || 0), 0)))}</td>` : '<td></td>')).join('');
+  let body = '';
+  if (grouped) {
+    // group loans: every group with its leader, its members and a total
+    const order = [];
+    const by = new Map();
+    rows.forEach((r) => { const k = r.groupCode || '—'; if (!by.has(k)) { by.set(k, []); order.push(k); } by.get(k).push(r); });
+    order.forEach((k) => {
+      const list = by.get(k);
+      const g = list[0];
+      body += `<tr class="grp"><td colspan="${columns.length}">Group ${esc(k)}${g.groupName ? ` — ${esc(g.groupName)}` : ''}${g.leader ? ` · Leader ${esc(g.leader)}${g.leaderMobile ? ` (${esc(g.leaderMobile)})` : ''}` : ''} · ${esc(g.branch)} · ${list.length} member${list.length === 1 ? '' : 's'}</td></tr>`;
+      body += list.map(line).join('');
+      body += `<tr class="sub">${totalCells(list, `Group total (${list.length})`)}</tr>`;
+    });
+  } else body = rows.map(line).join('');
   // totals under the money columns
-  const foot = columns.map(([, , n, key], i) => (i === 0 ? `<td>Total (${rows.length})</td>` : key ? `<td class="n">${esc(inr(rows.reduce((t, r) => t + (r[key] || 0), 0)))}</td>` : n ? '<td></td>' : '<td></td>')).join('');
+  const foot = '';
   w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>
     @page { size: A3 landscape; margin: 8mm }
     *{box-sizing:border-box} body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:9px;margin:0}
     h1{font-size:15px;margin:0}.sub{margin:2px 0 6px;color:#444;font-size:10px}
     table{width:100%;border-collapse:collapse}th,td{border:1px solid #777;padding:3px 4px;text-align:left;vertical-align:top}
     th{background:#e9eef0;font-size:8.5px}thead{display:table-header-group}tr{page-break-inside:avoid}.n{text-align:right;white-space:nowrap}.sign{min-width:90px}td:last-child{height:26px}
-    tfoot td{font-weight:700;background:#f3f5f6}
+    tfoot td,.sub td{font-weight:700;background:#f3f5f6}.grp td{background:#dbe7ea;font-weight:700;font-size:10px;border-top:2px solid #264653}
   </style></head><body>
   <h1>${esc(company?.name || '')} — ${esc(title)}</h1>
   <div class="sub">As on ${esc(dmy(asOf))} · ${esc(filters)} · ${rows.length} borrower${rows.length === 1 ? '' : 's'}</div>
-  <table><thead><tr>${head}</tr></thead><tbody>${body}</tbody><tfoot><tr>${foot}</tr></tfoot></table>
+  <table><thead><tr>${head}</tr></thead><tbody>${body}</tbody><tfoot><tr>${totalCells(rows, `Total (${rows.length})`)}</tr></tfoot></table>
   <script>window.onload=function(){window.print()}</script></body></html>`);
   w.document.close();
   return true;
@@ -274,6 +295,7 @@ export function ReportPage({ name }) {
   const [viewing, setViewing] = useState(null);
   const [reverting, setReverting] = useState(null);
   const [mode, setMode] = useState('');
+  const [loanType, setLoanType] = useState('');
   const [weekday, setWeekday] = useState('');
   const [staff, setStaff] = useState('');
   const staffQ = useDebounce(staff, 350);
@@ -285,7 +307,7 @@ export function ReportPage({ name }) {
     setLoading(true);
     setError('');
     try {
-      const res = await api.reports.get(name, { branch, q, ...(cfg.sheet ? { mode, weekday } : {}), ...(cfg.sheet || cfg.staffFilter ? { staff: staffQ } : {}), ...(cfg.range ? { from, to, status: status || undefined } : { date }) });
+      const res = await api.reports.get(name, { branch, q, ...(cfg.sheet ? { mode, weekday } : {}), ...(cfg.typeFilter ? { type: loanType } : {}), ...(cfg.sheet || cfg.staffFilter ? { staff: staffQ } : {}), ...(cfg.range ? { from, to, status: status || undefined } : { date }) });
       if (cfg.sheet || cfg.print) res.rows.forEach((r, i) => { r.sr = i + 1; });
       setData(res);
       setPage(1);
@@ -294,7 +316,7 @@ export function ReportPage({ name }) {
     } finally {
       setLoading(false);
     }
-  }, [name, branch, q, from, to, date, status, mode, weekday, staffQ]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [name, branch, q, from, to, date, status, mode, weekday, staffQ, loanType]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [load]);
 
   const done = (key, call) => setData((d) => ({ ...d, rows: d.rows.map((r) => (r.key === key ? { ...r, call } : r)) }));
@@ -324,6 +346,7 @@ export function ReportPage({ name }) {
           {(cfg.sheet || cfg.staffFilter) && (
             <>
               {cfg.sheet && <select value={mode} onChange={(e) => { setMode(e.target.value); if (e.target.value === 'daily') setWeekday(''); }} aria-label="Daily or weekly"><option value="">Daily and weekly</option><option value="daily">Daily</option><option value="weekly">Weekly</option></select>}
+              {cfg.typeFilter && <select value={loanType} onChange={(e) => setLoanType(e.target.value)} aria-label="Kind of loan"><option value="">All loans</option><option value="group">Group</option><option value="personal">Personal</option><option value="business">Business</option><option value="msme">MSME</option><option value="product">Product</option></select>}
               {cfg.sheet && mode !== 'daily' && <select value={weekday} onChange={(e) => setWeekday(e.target.value)} aria-label="Day of the week"><option value="">All days</option>{[1, 2, 3, 4, 5, 6, 0].map((d) => <option key={d} value={d}>{dayName(d)}</option>)}</select>}
               <input type="search" list="sheetstaff" placeholder="Employee (code), optional" value={staff} onChange={(e) => setStaff(e.target.value)} aria-label="Employee" style={{ minWidth: 190 }} />
               <datalist id="sheetstaff">{staffList.map((s) => <option key={s.code} value={s.code}>{s.name}</option>)}</datalist>
@@ -335,9 +358,9 @@ export function ReportPage({ name }) {
             let company = null;
             try { company = (await api.hr.letterhead()).company; } catch { /* printed without the letterhead */ }
             const filters = [...(cfg.sheet ? [mode ? cap(mode) : 'Daily and weekly', mode !== 'daily' && weekday !== '' ? dayName(Number(weekday)) : 'All days'] : []), staff ? `Employee ${staff.toUpperCase()}` : 'All employees', branch ? 'One branch' : 'All branches'].join(' · ');
-            const columns = name === 'npa' ? NPA_PRINT : name === 'msme-collection-sheet' ? SHEET_MSME : SHEET;
-            if (!printSheet({ title: cfg.title, company, rows, asOf: data.asOf || date, filters, columns })) toast.error('Allow pop-ups to print the sheet');
-          }} disabled={!rows.length}>Print the sheet</button>}
+            const columns = name === 'npa' ? NPA_PRINT : name === 'msme-collection-sheet' ? SHEET_MSME : name === 'group-collection-sheet' ? SHEET_GROUP : name === 'collection-sheet' ? SHEET_ALL : SHEET;
+            if (!printSheet({ title: cfg.title, company, rows, asOf: data.asOf || date, filters, columns, grouped: Boolean(cfg.group) })) toast.error('Allow pop-ups to print the sheet');
+          }} disabled={!rows.length} title="Opens the sheet; choose Save as PDF in the print window for a PDF">Print / PDF</button>}
         </div>
         {loading && !data ? <Spinner label="Loading…" /> : error ? <ErrorState message={error} onRetry={load} /> : !data || rows.length === 0 ? (
           <EmptyState title="Nothing to show" description="No record for these filters." />
@@ -481,6 +504,8 @@ export const MemberJoiningReport = () => <ReportPage name="member-joining" />;
 export const NpaReport = () => <ReportPage name="npa" />;
 export const PersonalCollectionSheet = () => <ReportPage name="personal-collection-sheet" />;
 export const MsmeCollectionSheet = () => <ReportPage name="msme-collection-sheet" />;
+export const GroupCollectionSheet = () => <ReportPage name="group-collection-sheet" />;
+export const AllCollectionSheet = () => <ReportPage name="collection-sheet" />;
 export const WriteOffReport = () => <ReportPage name="write-off" />;
 export const StaffNpaReport = () => <ReportPage name="staff-npa" />;
 export const StaffNpaPaymentReport = () => <ReportPage name="staff-npa-payment" />;

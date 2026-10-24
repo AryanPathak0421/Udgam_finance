@@ -9,6 +9,7 @@ import { StockProduct } from './models/StockProduct.js';
 import { EmiPayment } from './models/EmiPayment.js';
 import { autoSettleAll } from './services/autoSettle.js';
 import { autoAttendanceFor } from './controllers/hrController.js';
+import { syncEmployeesFromUsers } from './services/employeeSync.js';
 
 const port = process.env.PORT || 5000;
 
@@ -35,6 +36,9 @@ async function migrate() {
     await User.updateOne({ _id: u._id, employeeCode: { $exists: false } }, { $set: { employeeCode: await generateCode('employee') } });
   }
   if (users.length) console.log(`Assigned employee codes to ${users.length} user(s)`);
+  // every staff login gets its HR record, so the HR sections are not empty for the staff that existed before them
+  const madeEmployees = await syncEmployeesFromUsers();
+  if (madeEmployees) console.log(`Made ${madeEmployees} HR employee record(s) from the staff logins`);
 
   // Members registered before KYC approval existed: record which documents they have.
   // (Streamed one by one with only the photo fields, and written only when a document is found: thousands of members must not be

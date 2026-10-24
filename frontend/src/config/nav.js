@@ -290,6 +290,8 @@ export const NAV_SECTIONS = [
           { label: 'NPA Report / Pay', path: '/reports/npa', icon: 'shield' },
           { label: 'Personal Loan Collection Sheet', path: '/reports/personal-collection-sheet', icon: 'file' },
           { label: 'MSME / Business Loan Collection Sheet', path: '/reports/msme-collection-sheet', icon: 'file' },
+          { label: 'Group Loan Collection Sheet', path: '/reports/group-collection-sheet', icon: 'group' },
+          { label: 'Loan Collection Sheet (all loans)', path: '/reports/collection-sheet', icon: 'file' },
           { label: 'Write-off Report', path: '/reports/write-off', icon: 'alert' },
           { label: 'Staff wise NPA Report', path: '/reports/staff-npa', icon: 'users' },
           { label: 'Staff wise NPA Payment Report', path: '/reports/staff-npa-payment', icon: 'users' },
@@ -313,49 +315,6 @@ export const NAV_SECTIONS = [
           { label: 'Group Leader Commission Payment', path: '/group-leader-commission', icon: 'cash', roles: [...MGMT, 'accountant', 'viewer'] },
         ],
       },
-    ],
-  },
-  {
-    title: 'Organisation',
-    items: [
-      { label: 'Employees', path: '/employees', icon: 'users', roles: [...MGMT, 'accountant', 'viewer'] },
-    ],
-  },
-  {
-    title: 'Customers',
-    items: [
-      { label: 'Customers', path: '/customers', icon: 'customer' },
-      { label: 'KYC', path: '/kyc', icon: 'kyc', roles: [...MGMT, 'loan_officer', 'field_officer', 'viewer'] },
-    ],
-  },
-  {
-    title: 'Lending',
-    items: [
-      { label: 'Loan Products', path: '/loan-products', icon: 'product' },
-      { label: 'Applications', path: '/applications', icon: 'file', roles: [...MGMT, 'loan_officer', 'field_officer', 'accountant', 'viewer'] },
-      { label: 'Disbursement', path: '/disbursements', icon: 'cash', roles: ALL_ADMIN },
-      { label: 'Loans', path: '/loans', icon: 'loan' },
-    ],
-  },
-  {
-    title: 'Recovery',
-    items: [
-      { label: 'Collections', path: '/collections', icon: 'collect', roles: [...MGMT, 'loan_officer', 'field_officer', 'collection_officer', 'accountant', 'viewer'] },
-      { label: 'Overdue', path: '/overdue', icon: 'alert', roles: [...MGMT, 'loan_officer', 'field_officer', 'collection_officer', 'accountant', 'viewer'] },
-    ],
-  },
-  {
-    title: 'Finance',
-    items: [
-      { label: 'Transactions', path: '/transactions', icon: 'ledger', roles: [...MGMT, 'accountant', 'viewer'] },
-      { label: 'Reports', path: '/reports', icon: 'chart' },
-    ],
-  },
-  {
-    title: 'System',
-    items: [
-      { label: 'Audit Logs', path: '/audit-logs', icon: 'shield', roles: [...MGMT, 'accountant'] },
-      { label: 'Settings', path: '/settings', icon: 'settings', roles: ALL_ADMIN },
     ],
   },
 ];

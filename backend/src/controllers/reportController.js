@@ -13,6 +13,7 @@ import { branchFilter, showMobile } from './groupController.js';
 import { dueSummary, loanDetail, loadLoan, receive, borrowerState } from './emiController.js';
 import { slowRun } from '../services/slowRun.js';
 import { Employee } from '../models/Hr.js';
+import { Group } from '../models/Group.js';
 import { readBankAccount } from '../services/bankAccountPick.js';
 import { toMinor } from '../utils/money.js';
 
@@ -99,6 +100,12 @@ export async function scanBorrowers(req, asOf, pick, opts = {}) {
       (await Member.find({ code: { $in: codes } }).select('code mobile husbandName').lean()).forEach((m) => { mobiles.set(m.code, m.mobile); husbands.set(m.code, m.husbandName || ''); });
     }
     const todayBy = new Map(todayRecv.map((x) => [`${x._id.lp}|${x._id.code}`, x.t]));
+    // the group of a group loan: its leader
+    const groupInfo = new Map();
+    if (opts.sheet) {
+      const gcodes = [...new Set(loans.map((l) => l.group?.code).filter(Boolean))];
+      if (gcodes.length) (await Group.find({ code: { $in: gcodes } }).select('code leaderName leaderMobile').lean()).forEach((g) => groupInfo.set(g.code, g));
+    }
     // the shop (business name) of a business / MSME loan
     const shopOf = new Map();
     if (opts.sheet) {
@@ -150,6 +157,7 @@ export async function scanBorrowers(req, asOf, pick, opts = {}) {
             }
           }
           sheet = {
+            groupCode: l.group?.code || '', groupName: l.group?.name || '', leader: groupInfo.get(l.group?.code)?.leaderName || '', leaderMobile: showMobile(req.user, groupInfo.get(l.group?.code)?.leaderMobile) || '',
             shop: shopOf.get(String(l.requisition)) || '', fatherHusband: husbands.get(line.code) || '', disbursed: iso(l.paidOn), branchId: String(l.branch), weekday: l.mode === 'weekly' && l.schedule[0] ? new Date(l.schedule[0].dueDate).getUTCDay() : null,
             paidInstallments: paidInst, remainingInstallments: l.schedule.length - paidInst, previousDue: rupees(prev), todayDue: rupees(todayDue), todayReceive: rupees(todayBy.get(key) || 0), totalPaid: rupees(paidTotal),
             advance: rupees(Math.max(paidTotal - upTo, 0)), nextDue: next, dueDates: pending,
@@ -284,21 +292,25 @@ const rowsByStaff = async (map) => {
   const names = await staffNames([...map.keys()].filter(Boolean));
   return [...map.entries()].map(([code, v]) => ({ key: code || 'none', staff: code || 'Not recorded', staffName: names.get(code) || '', ...v })).sort((a, b) => (b.amount ?? b.outstanding ?? 0) - (a.amount ?? a.outstanding ?? 0));
 };
-const collectionSheet = (match) => async (req) => {
+const collectionSheet = (match, byGroup = false) => async (req) => {
   const asOf = parseDateOnly(asString(req.query.date)) || startOfToday();
   const q = asString(req.query.q).toLowerCase();
   // daily or weekly loans; for weekly loans the day of the week they fall due on; and one employee (staff of the loan)
   const mode = ['daily', 'weekly'].includes(asString(req.query.mode)) ? asString(req.query.mode) : '';
   const wd = /^[0-6]$/.test(asString(req.query.weekday)) ? Number(asString(req.query.weekday)) : null;
   const staff = asString(req.query.staff).trim().toUpperCase();
-  const keep = (r) => match(r) && r.due > 0 && borrowerMatch(q)(r) && (!mode || r.mode === mode) && (wd === null || r.mode !== 'weekly' || r.weekday === wd) && (!staff || String(r.staff || '').toUpperCase().includes(staff));
-  const rows = (await scanBorrowers(req, asOf, (r) => (keep(r) ? r : null), { sheet: true })).sort((a, b) => a.branch.localeCompare(b.branch) || b.overdueDays - a.overdueDays || a.loanId.localeCompare(b.loanId));
+  const keep = (r) => match(r, req) && r.due > 0 && borrowerMatch(q)(r) && (!mode || r.mode === mode) && (wd === null || r.mode !== 'weekly' || r.weekday === wd) && (!staff || String(r.staff || '').toUpperCase().includes(staff));
+  const rows = (await scanBorrowers(req, asOf, (r) => (keep(r) ? r : null), { sheet: true })).sort((a, b) => a.branch.localeCompare(b.branch) || (byGroup ? String(a.groupCode).localeCompare(String(b.groupCode)) || a.memberCode.localeCompare(b.memberCode) : b.overdueDays - a.overdueDays || a.loanId.localeCompare(b.loanId)));
   return { asOf: iso(asOf), rows, summary: { borrowers: rows.length, due: sumOf(rows, 'due'), todayReceive: sumOf(rows, 'todayReceive'), outstanding: sumOf(rows, 'outstanding') } };
 };
 
 Object.assign(REPORTS, {
   personalCollectionSheet: collectionSheet((r) => r.loanType === 'personal'),
   msmeCollectionSheet: collectionSheet((r) => ['business', 'msme'].includes(r.loanType)),
+  // group loans, group by group with the leader
+  groupCollectionSheet: collectionSheet((r) => r.loanType === 'group', true),
+  // any kind of loan: all, or one kind (group, personal, business, msme, product)
+  allCollectionSheet: collectionSheet((r, req) => { const t = asString(req.query.type); return !t || r.loanType === t; }),
   // balance given up: death settlements, automatic settlements and loan settlements with a waiver
   async writeOff(req) {
     const q = asString(req.query.q).toLowerCase();
@@ -400,7 +412,7 @@ Object.assign(REPORTS, {
     return { rows, summary: { groups: rows.length, demand, collected, balance: Math.round((demand - collected) * 100) / 100 } };
   },
 });
-const NAMES = { due: 'due', overdue: 'overdue', outstanding: 'outstanding', npa: 'npa', 'personal-collection-sheet': 'personalCollectionSheet', 'msme-collection-sheet': 'msmeCollectionSheet', 'write-off': 'writeOff', 'staff-npa': 'staffNpa', 'staff-npa-payment': 'staffNpaPayment', 'staff-disbursement': 'staffDisbursement', 'group-collection': 'groupCollection', 'emi-collection': 'emiCollection', disbursement: 'disbursement', requisition: 'requisition', approval: 'approval', 'member-joining': 'memberJoining' };
+const NAMES = { due: 'due', overdue: 'overdue', outstanding: 'outstanding', npa: 'npa', 'personal-collection-sheet': 'personalCollectionSheet', 'msme-collection-sheet': 'msmeCollectionSheet', 'group-collection-sheet': 'groupCollectionSheet', 'collection-sheet': 'allCollectionSheet', 'write-off': 'writeOff', 'staff-npa': 'staffNpa', 'staff-npa-payment': 'staffNpaPayment', 'staff-disbursement': 'staffDisbursement', 'group-collection': 'groupCollection', 'emi-collection': 'emiCollection', disbursement: 'disbursement', requisition: 'requisition', approval: 'approval', 'member-joining': 'memberJoining' };
 
 /** Loan account ledger: a loan ID gives the loan, every borrower's installments and every receipt. */
 async function loanLedger(req) {
@@ -427,7 +439,7 @@ export async function report(req, res) {
   if (!fn) throw new HttpError(404, 'Unknown report');
   const q = { ...req.query };
   delete q.poll;
-  const heavy = ['due', 'overdue', 'outstanding', 'npa', 'staff-npa', 'personal-collection-sheet', 'msme-collection-sheet', 'group-collection'].includes(name);
+  const heavy = ['due', 'overdue', 'outstanding', 'npa', 'staff-npa', 'personal-collection-sheet', 'msme-collection-sheet', 'group-collection-sheet', 'collection-sheet', 'group-collection'].includes(name);
   let out;
   if (heavy) {
     const r = await slowRun(`report|${name}|${req.user._id}|${JSON.stringify(q)}`, () => fn(req), { poll: req.query.poll === '1' });

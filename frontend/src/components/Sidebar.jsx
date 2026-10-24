@@ -3,8 +3,13 @@ import { NavLink, useLocation } from 'react-router-dom';
 import Icon from './Icon.jsx';
 import { navForUser } from '../config/nav.js';
 import { useAuth } from '../context/AuthContext.jsx';
+import { api } from '../api/client.js';
 
-function NavGroup({ item, collapsed, onNavigate, onExpandSidebar }) {
+// the number next to a module: how many things wait there (leave to approve, EMI to approve ...). It goes once the module has been opened.
+const Badge = ({ n }) => (n > 0 ? <span className="nav-badge" aria-label={`${n} waiting`}>{n > 99 ? '99+' : n}</span> : null);
+
+function NavGroup({ item, collapsed, onNavigate, onExpandSidebar, badge }) {
+  const groupCount = item.children.reduce((s, c) => s + badge(c.path), 0);
   const { pathname } = useLocation();
   const childActive = item.children.some((c) => pathname.startsWith(c.path));
   const [open, setOpen] = useState(childActive);
@@ -35,6 +40,7 @@ function NavGroup({ item, collapsed, onNavigate, onExpandSidebar }) {
         {!collapsed && (
           <>
             <span>{item.label}</span>
+            <Badge n={groupCount} />
             <span className={`caret${open ? ' open' : ''}`}>
               <Icon name="chevron" size={16} />
             </span>
@@ -52,6 +58,7 @@ function NavGroup({ item, collapsed, onNavigate, onExpandSidebar }) {
             >
               <Icon name={c.icon} size={16} />
               <span>{c.label}</span>
+              <Badge n={badge(c.path)} />
             </NavLink>
           ))}
         </div>
@@ -63,6 +70,30 @@ function NavGroup({ item, collapsed, onNavigate, onExpandSidebar }) {
 export default function Sidebar({ collapsed, mobileOpen, onNavigate, onToggleCollapse, onExpandSidebar }) {
   const { user } = useAuth();
   const sections = navForUser(user);
+  const { pathname } = useLocation();
+  const seenKey = `udgam.seen.${user?.employeeCode || user?.email || ''}`;
+  const [counts, setCounts] = useState({});
+  const [seen, setSeen] = useState(() => { try { return JSON.parse(localStorage.getItem(seenKey) || '{}'); } catch { return {}; } });
+  useEffect(() => {
+    let live = true;
+    const load = () => api.badges().then((r) => { if (live) setCounts(r.items || {}); }).catch(() => {});
+    load();
+    const t = setInterval(load, 60000);
+    return () => { live = false; clearInterval(t); };
+  }, [user]);
+  // opening a module marks what waits in it as seen
+  useEffect(() => {
+    const hit = Object.keys(counts).filter((p) => pathname === p || pathname.startsWith(`${p}/`));
+    if (!hit.length) return;
+    setSeen((s) => {
+      if (hit.every((p) => s[p] === counts[p])) return s;
+      const n = { ...s };
+      hit.forEach((p) => { n[p] = counts[p]; });
+      try { localStorage.setItem(seenKey, JSON.stringify(n)); } catch { /* not kept */ }
+      return n;
+    });
+  }, [pathname, counts, seenKey]);
+  const badge = (p) => Math.max((counts[p] || 0) - (seen[p] || 0), 0);
 
   return (
     <aside className={`sidebar${collapsed ? ' collapsed' : ''}${mobileOpen ? ' open' : ''}`} aria-label="Main navigation">
@@ -83,6 +114,7 @@ export default function Sidebar({ collapsed, mobileOpen, onNavigate, onToggleCol
                   collapsed={collapsed}
                   onNavigate={onNavigate}
                   onExpandSidebar={onExpandSidebar}
+                  badge={badge}
                 />
               ) : (
                 <NavLink
@@ -95,6 +127,7 @@ export default function Sidebar({ collapsed, mobileOpen, onNavigate, onToggleCol
                 >
                   <Icon name={item.icon} />
                   {!collapsed && <span>{item.label}</span>}
+                  {!collapsed && <Badge n={badge(item.path)} />}
                 </NavLink>
               )
             )}

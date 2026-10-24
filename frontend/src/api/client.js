@@ -134,6 +134,8 @@ export const api = {
     monitoring: (params) => slow('/super-admin/monitoring', params),
     graph: (params) => slow('/super-admin/graph', params),
   },
+  dashboard: () => request('/dashboard/summary'),
+  badges: () => request('/badges'),
   myNotifications: () => request('/notifications/mine'),
   readNotifications: (ids) => request('/notifications/read', { method: 'POST', body: { ids } }),
   hr: {

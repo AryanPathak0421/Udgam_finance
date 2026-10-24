@@ -15,6 +15,7 @@ import { lookupPincode } from '../services/lookup.js';
 import crypto from 'crypto';
 import { Leave } from '../models/HrExtra.js';
 import { notifyEmployee } from '../services/hrNotify.js';
+import { ensureEmployees } from '../services/employeeSync.js';
 import { OtpChallenge } from '../models/OtpChallenge.js';
 import { issueOtp, hashOtp } from '../services/otpChallenges.js';
 import { sendMail, mailConfigured } from '../services/mailer.js';
@@ -151,6 +152,7 @@ const presentEmployee = (e, user) => ({
 const EMP_POPULATE = [{ path: 'department', select: 'name' }, { path: 'designation', select: 'name' }, { path: 'branch', select: 'code name' }, { path: 'supervisor', select: 'employeeCode name' }, { path: 'supervisedBranches', select: 'code name' }];
 
 export async function listEmployees(req, res) {
+  await ensureEmployees(); // a staff login that has no HR record yet gets one
   const filter = { isDeleted: false, ...scope(req) };
   const st = asString(req.query.status);
   if (['active', 'left'].includes(st)) filter.status = st;
@@ -523,6 +525,7 @@ const activeOn = (e, date) => e.status === 'active' || (e.leftOn && e.leftOn >= 
 
 /** The employees of the branch(es) for a date with what is marked for them. */
 export async function attendanceDay(req, res) {
+  await ensureEmployees();
   const date = parseDateOnly(asString(req.query.date)) || startOfToday();
   // a blocked employee is not on the attendance
   const emps = (await Employee.find({ isDeleted: false, isBlocked: { $ne: true }, ...scope(req) }).sort({ employeeCode: 1 }).populate(EMP_POPULATE)).filter((e) => activeOn(e, date) && (!e.joiningDate || e.joiningDate <= date));

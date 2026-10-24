@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { User } from '../models/User.js';
-import { sendMail } from '../services/mailer.js';
+import { sendMail, mailConfigured } from '../services/mailer.js';
 import { HttpError, createValidator } from '../utils/http.js';
 
 const MAX_ATTEMPTS = 5;
@@ -108,6 +108,11 @@ export async function forgotPassword(req, res) {
     throw new HttpError(422, 'Please enter a valid email address', { email: 'Enter a valid email address' });
   }
 
+  // no mail server set up (SMTP): saying "sent" would be a lie, the email never leaves
+  if (!mailConfigured() && process.env.NODE_ENV === 'production') {
+    console.error('forgot-password: SMTP_HOST / SMTP_USER / SMTP_PASS are not set on the server, no reset email can be sent');
+    throw new HttpError(422, 'The password reset email is not set up on the server yet. Please ask the admin to reset your password.');
+  }
   const generic = { message: 'If this email is registered, a password reset link has been sent to it.' };
   const user = await User.findOne({ email });
   if (!user || !user.isActive) return res.json(generic);
