@@ -145,8 +145,12 @@ const leaveSchema = new mongoose.Schema(
     to: { type: Date, required: true },
     days: Number, // calendar days without the Sundays (the weekly off)
     reason: String,
+    approver: ref('Employee'), // the supervisor of the employee (set at the registration): the leave goes to them
+    approverCode: String,
+    approverName: String,
     status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
     rejectReason: String,
+    decisionRemark: String, // what the approver wrote when approving
     decidedByCode: String,
     decidedAt: Date,
     appliedByCode: String,
@@ -165,6 +169,7 @@ const resignationSchema = new mongoose.Schema(
     branch: ref('Branch'),
     appliedOn: { type: Date, required: true },
     lastWorkingDate: { type: Date, required: true },
+    noticePeriodDate: Date, // set when it is approved: the day the notice period ends (the employee leaves on it)
     reason: String,
     status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
     rejectReason: String,
@@ -194,6 +199,7 @@ const changeSchema = new mongoose.Schema(
     toBranchName: String,
     fromSalaryPaise: Number,
     toSalaryPaise: Number,
+    salaryLines: [{ _id: false, key: String, label: String, amountPaise: Number }], // the salary boxes of a promotion (basic, HRA, ...) with their new amounts
     remark: String,
     byCode: String,
   },

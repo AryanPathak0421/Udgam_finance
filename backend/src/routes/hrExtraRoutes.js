@@ -42,9 +42,9 @@ router.get('/hr/requirements', requireAuth, requireRole(...HR), h(listRequiremen
 router.post('/hr/requirements', requireAuth, requireRole(...MGMT), h(createRequirement));
 router.post('/hr/requirements/:id/decide', requireAuth, requireRole(...ADMIN), h(decideRequirement));
 
-router.get('/hr/leaves', requireAuth, requireRole(...HR), h(listLeaves));
+router.get('/hr/leaves', requireAuth, h(listLeaves)); // a supervisor sees the leaves that came to them
 router.post('/hr/leaves', requireAuth, requireRole(...HR), h(applyLeave));
-router.post('/hr/leaves/:id/decide', requireAuth, requireRole(...MGMT), h(decideLeave));
+router.post('/hr/leaves/:id/decide', requireAuth, h(decideLeave));
 
 router.get('/hr/resignations', requireAuth, requireRole(...HR), h(listResignations));
 router.post('/hr/resignations', requireAuth, requireRole(...MGMT), h(applyResignation));

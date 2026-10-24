@@ -13,6 +13,8 @@ import { asString, parseDateOnly, HttpError } from '../utils/http.js';
 import { toMinor } from '../utils/money.js';
 import { lookupPincode } from '../services/lookup.js';
 import crypto from 'crypto';
+import { Leave } from '../models/HrExtra.js';
+import { notifyEmployee } from '../services/hrNotify.js';
 import { OtpChallenge } from '../models/OtpChallenge.js';
 import { issueOtp, hashOtp } from '../services/otpChallenges.js';
 import { sendMail, mailConfigured } from '../services/mailer.js';
@@ -138,13 +140,14 @@ const presentEmployee = (e, user) => ({
   aadhaarNo: e.aadhaarNo || '', panNo: e.panNo || '', drivingLicenceNo: e.drivingLicenceNo || '', voterIdNo: e.voterIdNo || '',
   hasExperience: Boolean(e.hasExperience), previousCompany: e.previousCompany || '', previousPost: e.previousPost || '',
   supervisor: e.supervisor?._id ? { id: e.supervisor._id, code: e.supervisor.employeeCode, name: e.supervisor.name } : null,
+  supervisedBranches: (e.supervisedBranches || []).map((b) => ({ id: b._id || b, code: b.code || '', name: b.name || '' })),
   mobileVerified: Boolean(e.mobileVerifiedAt), emailVerified: Boolean(e.emailVerifiedAt), documentsVerified: Boolean(e.documentsVerifiedAt), verified: isVerified(e),
   salarySetup: {
     ...Object.fromEntries(EARN_FIXED.map(([k]) => [k, rupees(fixedOf(e)[k])])), pfPercent: e.pfPercent ?? 12, esiPercent: e.esiPercent ?? 0.75, professionalTax: rupees(e.professionalTaxPaise),
     advanceDeduction: rupees(e.advanceDeductionPaise), securityAmount: rupees(e.securityAmountPaise), securityMonths: e.securityMonths || 1,
   },
 });
-const EMP_POPULATE = [{ path: 'department', select: 'name' }, { path: 'designation', select: 'name' }, { path: 'branch', select: 'code name' }, { path: 'supervisor', select: 'employeeCode name' }];
+const EMP_POPULATE = [{ path: 'department', select: 'name' }, { path: 'designation', select: 'name' }, { path: 'branch', select: 'code name' }, { path: 'supervisor', select: 'employeeCode name' }, { path: 'supervisedBranches', select: 'code name' }];
 
 export async function listEmployees(req, res) {
   const filter = { isDeleted: false, ...scope(req) };
@@ -307,6 +310,32 @@ export async function saveSalarySetup(req, res) {
   res.json({ item: presentEmployee(e, req.user) });
 }
 
+/**
+ * Moves the employees of supervisor 1 to supervisor 2 (all of them, or the chosen ones). The leaves of them that wait for approval go to supervisor 2 too.
+ */
+export async function supervisorTransfer(req, res) {
+  const b = req.body || {};
+  const pick = async (id, field) => {
+    const e = mongoose.isValidObjectId(asString(id)) ? await Employee.findOne({ _id: id, isDeleted: false }).select('employeeCode name') : null;
+    if (!e) throw invalid({ [field]: 'Select the employee' });
+    return e;
+  };
+  const from = await pick(b.from, 'from');
+  const to = await pick(b.to, 'to');
+  if (String(from._id) === String(to._id)) throw invalid({ to: 'Choose a different supervisor' });
+  const filter = { isDeleted: false, supervisor: from._id, _id: { $ne: to._id } };
+  const chosen = (Array.isArray(b.employees) ? b.employees : []).filter((x) => mongoose.isValidObjectId(String(x)));
+  if (chosen.length) filter._id = { $in: chosen.filter((x) => String(x) !== String(to._id)) };
+  const moved = await Employee.find(filter).select('_id').lean();
+  if (!moved.length) throw invalid({ employees: 'Nobody to move: the first supervisor has no employee under them' });
+  const ids = moved.map((m) => m._id);
+  await Employee.updateMany({ _id: { $in: ids } }, { $set: { supervisor: to._id } });
+  const leaves = await Leave.updateMany({ employee: { $in: ids }, status: 'pending' }, { $set: { approver: to._id, approverCode: to.employeeCode, approverName: to.name } });
+  await audit(req, { action: 'employee.supervisor-transfer', entity: 'Employee', after: { from: from.employeeCode, to: to.employeeCode, employees: ids.length } });
+  notifyEmployee(to._id, 'Employees moved to you', `${ids.length} employee${ids.length === 1 ? ' was' : 's were'} moved from supervisor ${from.name} (${from.employeeCode}) to you. Their leave applications now come to you.`);
+  res.json({ moved: ids.length, leavesMoved: leaves.modifiedCount || 0 });
+}
+
 /** Staff logins that have no HR record yet. */
 export async function employeeStaffOptions(_req, res) {
   const linked = (await Employee.find({ isDeleted: false, user: { $exists: true } }).select('user').lean()).map((e) => e.user);
@@ -370,6 +399,9 @@ async function readEmployee(b) {
   d.hasExperience = yes(b.hasExperience);
   d.previousCompany = d.hasExperience ? asString(b.previousCompany).slice(0, 100) : '';
   d.previousPost = d.hasExperience ? asString(b.previousPost).slice(0, 80) : '';
+  const sb = [...new Set((Array.isArray(b.supervisedBranches) ? b.supervisedBranches : []).map(String).filter((x) => mongoose.isValidObjectId(x)))];
+  if (sb.length && (await Branch.countDocuments({ _id: { $in: sb } })) !== sb.length) throw invalid({ supervisedBranches: 'Select the branches from the list' });
+  d.supervisedBranches = sb;
   const sup = asString(b.supervisor);
   if (!sup) d.supervisor = undefined;
   else {

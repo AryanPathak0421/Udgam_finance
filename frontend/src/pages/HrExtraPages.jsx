@@ -30,9 +30,9 @@ function EmployeePick({ value, onChange, error, label = 'Employee', id = 'empick
   const [emps, setEmps] = useState([]);
   useEffect(() => { api.groups.branchOptions().then((r) => { setBranches(r.items); if (!forced && r.items.length === 1) setBranch(r.items[0].id); }).catch(() => {}); }, [forced]);
   useEffect(() => {
-    if (!branch) { setEmps([]); return; }
+    // no branch chosen yet: the employees of all the branches are listed, so an employee can be found without choosing the branch first
     api.hr.employees({ branch, status: onlyActive ? 'active' : '' }).then((r) => setEmps(r.items)).catch(() => {});
-    onBranch?.(branch);
+    if (branch) onBranch?.(branch);
   }, [branch, onlyActive]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <>
@@ -42,7 +42,7 @@ function EmployeePick({ value, onChange, error, label = 'Employee', id = 'empick
         </FormField>
       )}
       <FormField id={id} label={label} required error={error}>
-        <select id={id} value={value} onChange={(e) => onChange(e.target.value)}><option value="">{branch ? 'Select' : 'Select the branch first'}</option>{emps.map((e) => <option key={e.id} value={e.id}>{e.employeeCode} — {e.name}</option>)}</select>
+        <select id={id} value={value} onChange={(e) => onChange(e.target.value)}><option value="">Select</option>{emps.map((e) => <option key={e.id} value={e.id}>{e.employeeCode} — {e.name}{!branch && e.branch?.code ? ` (${e.branch.code})` : ''}</option>)}</select>
       </FormField>
     </>
   );
@@ -67,7 +67,7 @@ function useSaver(toast, done) {
   };
   return { busy, errors, setErrors, run };
 }
-function ReasonModal({ title, subject, label = 'Reason', confirm = 'Reject', onClose, onSend, tone = 'danger' }) {
+function ReasonModal({ title, subject, label = 'Reason', confirm = 'Reject', onClose, onSend, tone = 'danger', required = true }) {
   const [reason, setReason] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -75,7 +75,7 @@ function ReasonModal({ title, subject, label = 'Reason', confirm = 'Reject', onC
     <Modal open title={title} onClose={onClose} busy={busy}
       footer={<><button className="btn" onClick={onClose} disabled={busy}>Cancel</button><button className={`btn ${tone}`} disabled={busy} onClick={async () => { setBusy(true); setError(''); try { await onSend(reason); } catch (err) { setError(err.errors?.reason || err.errors?.remark || err.message); setBusy(false); } }}>{busy ? 'Saving…' : confirm}</button></>}>
       <p className="muted">{subject}</p>
-      <FormField id="rsn" label={label} required error={error}><input id="rsn" value={reason} maxLength={200} onChange={(e) => setReason(e.target.value)} /></FormField>
+      <FormField id="rsn" label={label} required={required} error={error}><input id="rsn" value={reason} maxLength={200} onChange={(e) => setReason(e.target.value)} /></FormField>
     </Modal>
   );
 }
@@ -658,35 +658,36 @@ export function LeaveApproval() {
   const toast = useToast();
   const [branch, setBranch] = useState('');
   const [status, setStatus] = useState('pending');
-  const list = useLoad(() => api.hr.leaves({ branch, status }), [branch, status]);
+  const [mine, setMine] = useState(false);
+  const [search, setSearch] = useState('');
+  const q = useDebounce(search, 300);
+  const list = useLoad(() => api.hr.leaves({ branch, status, q, mine: mine ? 1 : '' }), [branch, status, q, mine]);
   const [rejecting, setRejecting] = useState(null);
-  const [busy, setBusy] = useState('');
-  async function approve(l) {
-    setBusy(l.id);
-    try { await api.hr.decideLeave(l.id, { status: 'approved' }); toast.success(`${l.employeeCode}: leave approved. It is marked in the attendance.`); list.load(); } catch (err) { toast.error(err.message); } finally { setBusy(''); }
-  }
+  const [approving, setApproving] = useState(null);
   const items = list.data?.items || [];
   return (
     <>
-      <PageHeader title="Leave Approval" description="Approve or reject the leave of employees. An approved leave is marked as Leave (paid) in the attendance of every working day of it." />
+      <PageHeader title="Leave Approval" description="A leave goes to the supervisor that was chosen when the employee was registered (they are told by mail and in the app). The supervisor, the branch manager or the admin approves or rejects it with a reason; the employee is told by mail and in the app. An approved leave is marked as Leave (paid) in the attendance of every working day of it." />
       <div className="panel">
         <div className="toolbar" style={{ flexWrap: 'wrap' }}>
           <BranchSelect value={branch} onChange={setBranch} />
           <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status"><option value="pending">Waiting for approval</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="">All</option></select>
+          <input type="search" placeholder="Search employee, supervisor, reason" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search" style={{ minWidth: 220 }} />
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}><input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} /> Only the ones that came to me</label>
           <Refresh onClick={list.load} loading={list.loading} />
         </div>
         <Body list={list} empty="No leave for this filter.">{() => (<>
           <Summary items={[['Applications', list.data.summary.applications], ['Waiting', list.data.summary.pending], ['Approved days', list.data.summary.approvedDays]]} />
           <div className="table-wrap">
             <table className="data-table">
-              <thead><tr><th>Employee</th><th>Branch</th><th>Kind</th><th>From – To</th><th className="num">Days</th><th>Reason</th><th>Status</th><th /></tr></thead>
+              <thead><tr><th>Employee</th><th>Branch</th><th>Supervisor</th><th>Kind</th><th>From – To</th><th className="num">Days</th><th>Reason</th><th>Status</th><th /></tr></thead>
               <tbody>
                 {items.map((l) => (
                   <tr key={l.id}>
-                    <td data-label="Employee"><strong>{l.employeeCode}</strong> {l.employeeName}<div className="muted small">applied by {l.appliedBy}</div></td><td data-label="Branch">{l.branch?.code}</td><td data-label="Kind">{cap(l.type)}</td>
+                    <td data-label="Employee"><strong>{l.employeeCode}</strong> {l.employeeName}<div className="muted small">applied by {l.appliedBy}</div></td><td data-label="Branch">{l.branch?.code}</td><td data-label="Supervisor">{l.approver || <span className="muted">none set</span>}</td><td data-label="Kind">{cap(l.type)}</td>
                     <td data-label="From – To">{dmy(l.from)} – {dmy(l.to)}</td><td data-label="Days" className="num">{l.days}</td><td data-label="Reason">{l.reason}</td>
-                    <td data-label="Status"><Badge s={l.status} />{l.rejectReason && <div className="muted small">{l.rejectReason}</div>}{l.decidedBy && <div className="muted small">{l.decidedBy}</div>}</td>
-                    <td>{l.status === 'pending' && <div style={{ display: 'flex', gap: 6 }}><button className="btn sm primary" disabled={busy === l.id} onClick={() => approve(l)}>Approve</button><button className="btn sm danger-outline" onClick={() => setRejecting(l)}>Reject</button></div>}</td>
+                    <td data-label="Status"><Badge s={l.status} />{l.rejectReason && <div className="muted small">{l.rejectReason}</div>}{l.decisionRemark && <div className="muted small">{l.decisionRemark}</div>}{l.decidedBy && <div className="muted small">{l.decidedBy}</div>}</td>
+                    <td>{l.status === 'pending' && <div style={{ display: 'flex', gap: 6 }}><button className="btn sm primary" onClick={() => setApproving(l)}>Approve</button><button className="btn sm danger-outline" onClick={() => setRejecting(l)}>Reject</button></div>}</td>
                   </tr>
                 ))}
               </tbody>
@@ -694,6 +695,7 @@ export function LeaveApproval() {
           </div>
         </>)}</Body>
       </div>
+      {approving && <ReasonModal title="Approve the leave" subject={`${approving.employeeCode} ${approving.employeeName}: ${dmy(approving.from)} – ${dmy(approving.to)} (${approving.days} day${approving.days === 1 ? '' : 's'})`} label="Remark (optional)" confirm="Approve" tone="primary" required={false} onClose={() => setApproving(null)} onSend={async (reason) => { await api.hr.decideLeave(approving.id, { status: 'approved', reason }); toast.success(`${approving.employeeCode}: leave approved. It is marked in the attendance.`); setApproving(null); list.load(); }} />}
       {rejecting && <ReasonModal title="Reject the leave" subject={`${rejecting.employeeCode} ${rejecting.employeeName}: ${dmy(rejecting.from)} – ${dmy(rejecting.to)}`} onClose={() => setRejecting(null)} onSend={async (reason) => { await api.hr.decideLeave(rejecting.id, { status: 'rejected', reason }); toast.success('Leave rejected'); setRejecting(null); list.load(); }} />}
     </>
   );
@@ -709,12 +711,16 @@ export function Resignations() {
   const [adding, setAdding] = useState(false);
   const [f, setF] = useState({});
   const [rejecting, setRejecting] = useState(null);
+  const [approving, setApproving] = useState(null);
+  const [notice, setNotice] = useState('');
+  const [noticeError, setNoticeError] = useState('');
   const [busy, setBusy] = useState('');
   const sv = useSaver(toast, () => { setAdding(false); list.load(); });
   const set = (k) => (e) => { setF((x) => ({ ...x, [k]: e.target.value })); sv.setErrors((x) => ({ ...x, [k]: undefined })); };
-  async function approve(r) {
-    setBusy(r.id);
-    try { await api.hr.decideResignation(r.id, { status: 'approved' }); toast.success(`${r.employeeCode} is marked as left on ${dmy(r.lastWorkingDate)}`); list.load(); } catch (err) { toast.error(err.message); } finally { setBusy(''); }
+  async function approve() {
+    setBusy(approving.id);
+    setNoticeError('');
+    try { await api.hr.decideResignation(approving.id, { status: 'approved', noticePeriodDate: notice }); toast.success(`${approving.employeeCode} is marked as left on ${dmy(notice)}`); setApproving(null); list.load(); } catch (err) { setNoticeError(err.errors?.noticePeriodDate || err.message); } finally { setBusy(''); }
   }
   const items = list.data?.items || [];
   return (
@@ -730,13 +736,13 @@ export function Resignations() {
         <Body list={list} empty="No resignation for this filter.">{() => (<>
           <div className="table-wrap">
             <table className="data-table">
-              <thead><tr><th>Employee</th><th>Branch</th><th>Resigned on</th><th>Last working day</th><th>Reason</th><th>Status</th><th /></tr></thead>
+              <thead><tr><th>Employee</th><th>Branch</th><th>Resigned on</th><th>Last working day</th><th>Notice period till</th><th>Reason</th><th>Status</th><th /></tr></thead>
               <tbody>
                 {items.map((r) => (
                   <tr key={r.id}>
-                    <td data-label="Employee"><strong>{r.employeeCode}</strong> {r.employeeName}</td><td data-label="Branch">{r.branch?.code}</td><td data-label="Resigned on">{dmy(r.appliedOn)}</td><td data-label="Last working day">{dmy(r.lastWorkingDate)}</td><td data-label="Reason">{r.reason}</td>
+                    <td data-label="Employee"><strong>{r.employeeCode}</strong> {r.employeeName}</td><td data-label="Branch">{r.branch?.code}</td><td data-label="Resigned on">{dmy(r.appliedOn)}</td><td data-label="Last working day">{dmy(r.lastWorkingDate)}</td><td data-label="Notice period till">{r.noticePeriodDate ? dmy(r.noticePeriodDate) : <span className="muted">set when approving</span>}</td><td data-label="Reason">{r.reason}</td>
                     <td data-label="Status"><Badge s={r.status} />{r.rejectReason && <div className="muted small">{r.rejectReason}</div>}{r.decidedBy && <div className="muted small">{r.decidedBy}</div>}</td>
-                    <td>{r.status === 'pending' && <div style={{ display: 'flex', gap: 6 }}><button className="btn sm primary" disabled={busy === r.id} onClick={() => approve(r)}>Approve</button><button className="btn sm danger-outline" onClick={() => setRejecting(r)}>Reject</button></div>}</td>
+                    <td>{r.status === 'pending' && <div style={{ display: 'flex', gap: 6 }}><button className="btn sm primary" disabled={busy === r.id} onClick={() => { setApproving(r); setNotice(r.lastWorkingDate || today()); setNoticeError(''); }}>Approve</button><button className="btn sm danger-outline" onClick={() => setRejecting(r)}>Reject</button></div>}</td>
                   </tr>
                 ))}
               </tbody>
@@ -752,6 +758,12 @@ export function Resignations() {
             <FormField id="rsl" label="Last working day" required error={sv.errors.lastWorkingDate}><input id="rsl" type="date" min={f.appliedOn} value={f.lastWorkingDate} onChange={set('lastWorkingDate')} /></FormField>
             <FormField id="rsr" label="Reason" required className="span-2" error={sv.errors.reason}><input id="rsr" value={f.reason} maxLength={300} onChange={set('reason')} /></FormField>
           </div>
+        </FormModal>
+      )}
+      {approving && (
+        <FormModal title="Approve the resignation" onClose={() => setApproving(null)} busy={busy === approving.id} saveLabel="Approve" onSave={approve}>
+          <p className="muted">{approving.employeeCode} {approving.employeeName} resigned on {dmy(approving.appliedOn)}; the last working day asked for is {dmy(approving.lastWorkingDate)}.</p>
+          <FormField id="rsnp" label="Notice period date" required error={noticeError} hint="The date the notice period ends: the employee is marked as left on it and the salary stops after it"><input id="rsnp" type="date" min={approving.appliedOn} value={notice} onChange={(e) => setNotice(e.target.value)} /></FormField>
         </FormModal>
       )}
       {rejecting && <ReasonModal title="Reject the resignation" subject={`${rejecting.employeeCode} ${rejecting.employeeName}`} onClose={() => setRejecting(null)} onSend={async (reason) => { await api.hr.decideResignation(rejecting.id, { status: 'rejected', reason }); toast.success('Rejected'); setRejecting(null); list.load(); }} />}
@@ -786,7 +798,7 @@ const fmtDate = (s) => (s ? new Date(`${String(s).slice(0, 10)}T00:00:00`).toLoc
 export function Letters() {
   const toast = useToast();
   const [emp, setEmp] = useState('');
-  const [kind, setKind] = useState('joining');
+  const kind = 'joining'; // only the joining letter is made
   const [employees, setEmployees] = useState([]);
   const [company, setCompany] = useState(null);
   const [branch, setBranch] = useState('');
@@ -808,13 +820,12 @@ export function Letters() {
   }
   return (
     <>
-      <PageHeader title="Joining / Appointment Letter" description="Make the joining letter or the appointment letter of an employee on the company letterhead (with the stamp and signature of the Company Profile) and print it." />
+      <PageHeader title="Joining Letter" description="Make the joining letter of an employee on the company letterhead (with the stamp and signature of the Company Profile) and print it." />
       <div className="panel" style={{ padding: 16 }}>
         {!company && <div className="notice" style={{ marginBottom: 8 }}>The Company Profile is not filled in yet (Admin Master → Company Profile). The letter will have no letterhead.</div>}
         <div className="form-grid">
           <BranchSelectField value={branch} onChange={(v) => { setBranch(v); setEmp(''); }} />
           <FormField id="ltemp" label="Employee" required><select id="ltemp" value={emp} onChange={(ev) => setEmp(ev.target.value)}><option value="">{branch ? 'Select' : 'Select the branch first'}</option>{employees.map((x) => <option key={x.id} value={x.id}>{x.employeeCode} — {x.name}</option>)}</select></FormField>
-          <FormField id="ltkind" label="Letter"><select id="ltkind" value={kind} onChange={(ev) => setKind(ev.target.value)}><option value="joining">Joining letter</option><option value="appointment">Appointment letter</option></select></FormField>
         </div>
         {e && (
           <div style={{ border: '1px solid var(--border, #d8dee2)', borderRadius: 8, padding: 16, margin: '12px 0', maxWidth: 720 }}>
@@ -835,6 +846,7 @@ function BranchSelectField({ value, onChange }) {
 
 // ---------------------------------------------------------------------------------------------------------------------------
 // Promotion and transfer
+const SALARY_BOXES = [['basic', 'Basic'], ['hra', 'HRA'], ['ta', 'TA'], ['allowance', 'Allowance'], ['da', 'DA'], ['fuel', 'Fuel'], ['transport', 'Transport allowance'], ['bike', 'Bike repair'], ['otherAllowance', 'Other allowance']];
 export function PromotionTransfer() {
   const toast = useToast();
   const [kind, setKind] = useState('');
@@ -852,7 +864,7 @@ export function PromotionTransfer() {
     const paragraphs = [`Dear ${c.employeeName},`, promo
       ? `We are pleased to inform you that you are promoted from ${c.fromDesignation || 'your present post'} to ${c.toDesignation} with effect from ${fmtDate(c.effectiveDate)}.${c.toSalary && c.toSalary !== c.fromSalary ? ` Your monthly salary is revised from ${inr(c.fromSalary)} to ${inr(c.toSalary)}.` : ''}`
       : `You are transferred from ${c.fromBranch} to ${c.toBranch} with effect from ${fmtDate(c.effectiveDate)}. Please hand over your charge and report to the new branch on that date.`,
-    ...(c.remark ? [c.remark] : []), 'We wish you every success.'];
+    ...(c.salaryLines?.length ? [`Your salary: ${c.salaryLines.map((l) => `${l.label} ${inr(l.amount)}`).join(', ')}; monthly total ${inr(c.toSalary)}.`] : []), ...(c.remark ? [c.remark] : []), 'We wish you every success.'];
     if (!printLetter({ company, title: promo ? 'Promotion Letter' : 'Transfer Letter', paragraphs, to: { name: c.employeeName, code: c.employeeCode }, ref: c.letterNo, date: fmtDate(today()) })) toast.error('Allow pop-ups to print the letter');
   }
   const items = list.data?.items || [];
@@ -863,7 +875,7 @@ export function PromotionTransfer() {
         <div className="toolbar" style={{ flexWrap: 'wrap' }}>
           <select value={kind} onChange={(e) => setKind(e.target.value)} aria-label="Kind"><option value="">Promotion and transfer</option><option value="promotion">Promotion</option><option value="transfer">Transfer</option></select>
           <Refresh onClick={list.load} loading={list.loading} />
-          <button className="btn primary" onClick={() => { setF({ employee: '', kind: 'promotion', toDesignation: '', toSalary: '', toBranch: '', effectiveDate: today(), remark: '' }); sv.setErrors({}); setAdding(true); }}>New promotion / transfer</button>
+          <button className="btn primary" onClick={() => { setF({ employee: '', kind: 'promotion', toDesignation: '', toSalary: '', salaryLines: [], toBranch: '', effectiveDate: today(), remark: '' }); sv.setErrors({}); setAdding(true); }}>New promotion / transfer</button>
         </div>
         <Body list={list} empty="No promotion or transfer yet.">{() => (<>
           <div className="table-wrap">
@@ -873,7 +885,7 @@ export function PromotionTransfer() {
                 {items.map((c) => (
                   <tr key={c.id}>
                     <td data-label="Letter"><strong>{c.letterNo}</strong></td><td data-label="Employee">{c.employeeCode} {c.employeeName}</td><td data-label="Kind"><span className={`badge ${c.kind === 'promotion' ? 'green' : 'grey'}`}>{cap(c.kind)}</span></td>
-                    <td data-label="Change">{c.kind === 'promotion' ? <>{c.fromDesignation || '—'} → <strong>{c.toDesignation}</strong>{c.toSalary !== c.fromSalary && <div className="muted small">{inr(c.fromSalary)} → {inr(c.toSalary)}</div>}</> : <>{c.fromBranch} → <strong>{c.toBranch}</strong></>}</td>
+                    <td data-label="Change">{c.kind === 'promotion' ? <>{c.fromDesignation || '—'} → <strong>{c.toDesignation}</strong>{c.toSalary !== c.fromSalary && <div className="muted small">{inr(c.fromSalary)} → {inr(c.toSalary)}</div>}{c.salaryLines?.length > 0 && <div className="muted small">{c.salaryLines.map((l) => `${l.label} ${inr(l.amount)}`).join(' · ')}</div>}</> : <>{c.fromBranch} → <strong>{c.toBranch}</strong></>}</td>
                     <td data-label="From">{dmy(c.effectiveDate)}<div className="muted small">by {c.by}</div></td>
                     <td><button className="btn sm" onClick={() => letter(c)}>Letter</button></td>
                   </tr>
@@ -892,6 +904,18 @@ export function PromotionTransfer() {
             {f.kind === 'promotion' ? (
               <>
                 <FormField id="pcdes" label="New designation" required error={sv.errors.toDesignation}><select id="pcdes" value={f.toDesignation} onChange={set('toDesignation')}><option value="">Select</option>{opts.designations.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></FormField>
+                <div className="span-2">
+                  <strong>Salary boxes</strong> <span className="muted small">— add a box for every part of the salary that changes; the employee gets it by mail and in the app</span>
+                  {(f.salaryLines || []).map((l, i) => (
+                    <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6 }}>
+                      <select aria-label="Salary box" value={l.key} onChange={(e) => setF((x) => ({ ...x, salaryLines: x.salaryLines.map((y, j) => (j === i ? { ...y, key: e.target.value } : y)) }))}>{SALARY_BOXES.map(([k, label]) => <option key={k} value={k} disabled={(f.salaryLines || []).some((y, j) => j !== i && y.key === k)}>{label}</option>)}</select>
+                      <input aria-label="Amount" inputMode="decimal" placeholder="₹ amount" value={l.amount} onChange={(e) => setF((x) => ({ ...x, salaryLines: x.salaryLines.map((y, j) => (j === i ? { ...y, amount: e.target.value.replace(/[^\d.]/g, '') } : y)) }))} style={{ width: 130 }} />
+                      <button type="button" className="btn sm danger-outline" onClick={() => setF((x) => ({ ...x, salaryLines: x.salaryLines.filter((_, j) => j !== i) }))}>Remove</button>
+                    </div>
+                  ))}
+                  <div style={{ marginTop: 6 }}><button type="button" className="btn sm" disabled={(f.salaryLines || []).length >= SALARY_BOXES.length} onClick={() => setF((x) => ({ ...x, salaryLines: [...(x.salaryLines || []), { key: (SALARY_BOXES.find(([k]) => !(x.salaryLines || []).some((y) => y.key === k)) || [''])[0], amount: '' }] }))}>+ Add salary box</button></div>
+                  {sv.errors.salaryLines && <div className="field-error small">{sv.errors.salaryLines}</div>}
+                </div>
                 <FormField id="pcsal" label="New monthly salary (₹)" hint="Leave empty if it does not change" error={sv.errors.toSalary}><input id="pcsal" inputMode="decimal" value={f.toSalary} onChange={(e) => setF((x) => ({ ...x, toSalary: e.target.value.replace(/[^\d.]/g, '') }))} /></FormField>
               </>
             ) : (

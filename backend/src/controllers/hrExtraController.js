@@ -7,6 +7,8 @@ import { Member } from '../models/Member.js';
 import { Group } from '../models/Group.js';
 import { EmiPayment } from '../models/EmiPayment.js';
 import { elBalance, elBalances } from '../services/earnedLeave.js';
+import { notifyEmployee } from '../services/hrNotify.js';
+import { EARN_FIXED, fixedOf } from '../services/salaryLines.js';
 import { AppUser } from '../models/AppUser.js';
 import { Branch } from '../models/Branch.js';
 import { Company } from '../models/Company.js';
@@ -403,16 +405,28 @@ export async function decideRequirement(req, res) {
 
 // ---- Leave apply, leave approval --------------------------------------------------------------------------------------------
 
-const presentLeave = (l) => ({ id: l._id, employeeCode: l.employeeCode, employeeName: l.employeeName, branch: brRef(l.branch), type: l.type, from: iso(l.from), to: iso(l.to), days: l.days, reason: l.reason || '', status: l.status, rejectReason: l.rejectReason || '', decidedBy: l.decidedByCode || '', appliedBy: l.appliedByCode || '', createdAt: l.createdAt });
+const presentLeave = (l) => ({ id: l._id, employeeCode: l.employeeCode, employeeName: l.employeeName, branch: brRef(l.branch), type: l.type, from: iso(l.from), to: iso(l.to), days: l.days, reason: l.reason || '', approver: l.approverCode ? `${l.approverCode} ${l.approverName || ''}`.trim() : '', status: l.status, rejectReason: l.rejectReason || '', decisionRemark: l.decisionRemark || '', decidedBy: l.decidedByCode || '', appliedBy: l.appliedByCode || '', createdAt: l.createdAt });
 const leaveDates = (from, to) => { const out = []; for (let d = from.getTime(); d <= to.getTime(); d += DAY) { const x = new Date(d); if (x.getUTCDay() !== 0) out.push(x); } return out; };
 
+const HR_ROLES = ['super_admin', 'admin', 'branch_manager', 'accountant'];
+const myEmployeeId = async (req) => (await Employee.findOne({ user: req.user._id, isDeleted: false }).select('_id').lean())?._id;
+
+/** The leaves of the branches (admin, branch manager, accountant); a supervisor sees the leaves that came to them. */
 export async function listLeaves(req, res) {
-  const filter = { ...scope(req), ...dateRange(req, 'from') };
+  const mine = await myEmployeeId(req);
+  let filter;
+  if (HR_ROLES.includes(req.user.role)) {
+    filter = { ...scope(req), ...dateRange(req, 'from') };
+    if (asString(req.query.mine) === '1') filter.approver = mine || null;
+  } else {
+    if (!mine) return res.json({ items: [], summary: { applications: 0, pending: 0, approvedDays: 0 } });
+    filter = { approver: mine, ...dateRange(req, 'from') };
+  }
   const st = asString(req.query.status);
   if (['pending', 'approved', 'rejected'].includes(st)) filter.status = st;
   const q = asString(req.query.q).toLowerCase();
   const rows = await Leave.find(filter).sort({ from: -1, createdAt: -1 }).limit(1000).populate(POP_BRANCH).lean();
-  const items = rows.map(presentLeave).filter((l) => !q || [l.employeeCode, l.employeeName].some((v) => String(v).toLowerCase().includes(q)));
+  const items = rows.map(presentLeave).filter((l) => !q || [l.employeeCode, l.employeeName, l.reason, l.approver].some((v) => String(v).toLowerCase().includes(q)));
   res.json({ items, summary: { applications: items.length, pending: items.filter((l) => l.status === 'pending').length, approvedDays: items.filter((l) => l.status === 'approved').reduce((s, l) => s + l.days, 0) } });
 }
 export async function applyLeave(req, res) {
@@ -433,23 +447,31 @@ export async function applyLeave(req, res) {
   if (clash) throw new HttpError(409, `The employee already has a ${clash.status} leave from ${iso(clash.from)} to ${iso(clash.to)}`, { from: 'Overlaps another leave' });
   const reason = asString(b.reason).slice(0, 300);
   if (reason.length < 3) throw invalid({ reason: 'Write the reason for the leave' });
-  const l = await Leave.create({ employee: e._id, employeeCode: e.employeeCode, employeeName: e.name, branch: e.branch?._id, type, from, to, days, reason, appliedByCode: req.user.employeeCode || '' });
+  const sup = e.supervisor ? await Employee.findOne({ _id: e.supervisor, isDeleted: false }).select('employeeCode name') : null;
+  const l = await Leave.create({ employee: e._id, employeeCode: e.employeeCode, employeeName: e.name, branch: e.branch?._id, type, from, to, days, reason, approver: sup?._id, approverCode: sup?.employeeCode, approverName: sup?.name, appliedByCode: req.user.employeeCode || '' });
   await l.populate(POP_BRANCH);
+  // the leave goes to the supervisor of the employee, by mail and in the app
+  if (sup) notifyEmployee(sup._id, 'Leave to approve', `${e.name} (${e.employeeCode}) applied for earned leave from ${iso(from)} to ${iso(to)} (${days} day${days === 1 ? '' : 's'}). Reason: ${reason}`);
   await audit(req, { action: 'leave.apply', entity: 'Leave', entityId: l._id, after: { employee: e.employeeCode, from: iso(from), to: iso(to), days } });
   res.status(201).json({ item: presentLeave(l) });
 }
 /** Approved leave is marked as Leave in the attendance of every working day of it (so it is paid in the salary). */
 export async function decideLeave(req, res) {
   if (!oid(req.params.id)) throw new HttpError(404, 'Leave not found');
-  const l = await Leave.findOne({ _id: req.params.id, ...branchFilter(req.user) }).populate(POP_BRANCH);
+  // the supervisor of the employee decides; the admin and the branch manager can too
+  const mgmt = ['super_admin', 'admin', 'branch_manager'].includes(req.user.role);
+  let l = mgmt ? await Leave.findOne({ _id: req.params.id, ...branchFilter(req.user) }) : null;
+  if (!l) { const mine = await myEmployeeId(req); if (mine) l = await Leave.findOne({ _id: req.params.id, approver: mine }); }
   if (!l) throw new HttpError(404, 'Leave not found');
+  await l.populate(POP_BRANCH);
   if (l.status !== 'pending') throw new HttpError(409, `This leave is already ${l.status}`);
   const status = asString(req.body?.status);
   if (!['approved', 'rejected'].includes(status)) throw invalid({ status: 'Choose approve or reject' });
   const reason = asString(req.body?.reason).slice(0, 200);
   if (status === 'rejected' && reason.length < 3) throw invalid({ reason: 'Enter the reason' });
-  l.status = status; l.decidedByCode = req.user.employeeCode || ''; l.decidedAt = new Date(); l.rejectReason = status === 'rejected' ? reason : undefined;
+  l.status = status; l.decidedByCode = req.user.employeeCode || ''; l.decidedAt = new Date(); l.rejectReason = status === 'rejected' ? reason : undefined; l.decisionRemark = status === 'approved' ? reason : undefined;
   await l.save();
+  notifyEmployee(l.employee, `Leave ${status}`, `Your earned leave from ${iso(l.from)} to ${iso(l.to)} (${l.days} day${l.days === 1 ? '' : 's'}) is ${status}${reason ? `: ${reason}` : ''}.`);
   if (status === 'approved') {
     const ops = leaveDates(l.from, l.to).map((d) => ({ updateOne: { filter: { employee: l.employee, date: d }, update: { $set: { status: 'leave', source: 'manual', remark: 'Leave approved', markedByCode: req.user.employeeCode || '' }, $unset: { firstActivity: '', lastActivity: '' } }, upsert: true } }));
     if (ops.length) await Attendance.bulkWrite(ops);
@@ -460,7 +482,7 @@ export async function decideLeave(req, res) {
 
 // ---- Resignation approval ---------------------------------------------------------------------------------------------------
 
-const presentResign = (r) => ({ id: r._id, employeeCode: r.employeeCode, employeeName: r.employeeName, branch: brRef(r.branch), appliedOn: iso(r.appliedOn), lastWorkingDate: iso(r.lastWorkingDate), reason: r.reason || '', status: r.status, rejectReason: r.rejectReason || '', decidedBy: r.decidedByCode || '' });
+const presentResign = (r) => ({ id: r._id, employeeCode: r.employeeCode, employeeName: r.employeeName, branch: brRef(r.branch), appliedOn: iso(r.appliedOn), lastWorkingDate: iso(r.lastWorkingDate), noticePeriodDate: iso(r.noticePeriodDate), reason: r.reason || '', status: r.status, rejectReason: r.rejectReason || '', decidedBy: r.decidedByCode || '' });
 
 export async function listResignations(req, res) {
   const filter = { ...scope(req) };
@@ -494,16 +516,25 @@ export async function decideResignation(req, res) {
   if (!['approved', 'rejected'].includes(status)) throw invalid({ status: 'Choose approve or reject' });
   const reason = asString(req.body?.reason).slice(0, 200);
   if (status === 'rejected' && reason.length < 3) throw invalid({ reason: 'Enter the reason' });
+  // the notice period date is set before the resignation is approved: the employee leaves on it
+  if (status === 'approved') {
+    if (!asString(req.body?.noticePeriodDate)) throw invalid({ noticePeriodDate: 'Enter the notice period date before approving' });
+    const notice = readDate(req.body.noticePeriodDate, 'noticePeriodDate');
+    if (notice < r.appliedOn) throw invalid({ noticePeriodDate: 'The notice period date cannot be before the date of the resignation' });
+    r.noticePeriodDate = notice;
+    r.lastWorkingDate = notice;
+  }
   r.status = status; r.decidedByCode = req.user.employeeCode || ''; r.decidedAt = new Date(); r.rejectReason = status === 'rejected' ? reason : undefined;
   await r.save();
   if (status === 'approved') await Employee.updateOne({ _id: r.employee }, { $set: { status: 'left', leftOn: r.lastWorkingDate } });
+  notifyEmployee(r.employee, `Resignation ${status}`, status === 'approved' ? `Your resignation is approved. The notice period ends on ${iso(r.noticePeriodDate)}, which is your last working day.` : `Your resignation was not approved: ${reason}`);
   await audit(req, { action: `resignation.${status}`, entity: 'Resignation', entityId: r._id, after: { employee: r.employeeCode } });
   res.json({ item: presentResign(r) });
 }
 
 // ---- Promotion and transfer, with the letter -------------------------------------------------------------------------------
 
-const presentChange = (c) => ({ id: c._id, letterNo: c.letterNo, kind: c.kind, employeeCode: c.employeeCode, employeeName: c.employeeName, effectiveDate: iso(c.effectiveDate), fromDesignation: c.fromDesignation || '', toDesignation: c.toDesignation || '', fromBranch: c.fromBranchName || '', toBranch: c.toBranchName || '', fromSalary: rupees(c.fromSalaryPaise), toSalary: rupees(c.toSalaryPaise), remark: c.remark || '', by: c.byCode || '' });
+const presentChange = (c) => ({ id: c._id, letterNo: c.letterNo, kind: c.kind, employeeCode: c.employeeCode, employeeName: c.employeeName, effectiveDate: iso(c.effectiveDate), fromDesignation: c.fromDesignation || '', toDesignation: c.toDesignation || '', fromBranch: c.fromBranchName || '', toBranch: c.toBranchName || '', fromSalary: rupees(c.fromSalaryPaise), toSalary: rupees(c.toSalaryPaise), salaryLines: (c.salaryLines || []).map((l) => ({ key: l.key, label: l.label, amount: rupees(l.amountPaise) })), remark: c.remark || '', by: c.byCode || '' });
 
 export async function listChanges(req, res) {
   const emps = await Employee.find({ isDeleted: false, ...branchFilter(req.user) }).select('_id').lean();
@@ -528,7 +559,29 @@ export async function createChange(req, res) {
     set.designation = des._id;
     doc.toDesignation = des.name;
     doc.toSalaryPaise = e.monthlySalaryPaise || 0;
-    if (asString(b.toSalary) !== '') {
+    // salary boxes: the components that change (basic, HRA ...) with the new amounts, any number of them
+    const boxes = Array.isArray(b.salaryLines) ? b.salaryLines.filter((x) => x && asString(x.key) && asString(x.amount) !== '') : [];
+    if (boxes.length) {
+      const labels = new Map(EARN_FIXED);
+      const structure = { ...fixedOf(e) };
+      const seen = new Set();
+      const lines = [];
+      for (const x of boxes) {
+        const key = asString(x.key);
+        if (!labels.has(key)) throw invalid({ salaryLines: 'Choose the salary box from the list' });
+        if (seen.has(key)) throw invalid({ salaryLines: `${labels.get(key)} is added twice` });
+        seen.add(key);
+        const p = toMinor(typeof x.amount === 'number' ? String(x.amount) : asString(x.amount));
+        if (p === null || p < 0) throw invalid({ salaryLines: `Enter the amount of ${labels.get(key)} (₹, up to 2 decimals)` });
+        structure[key] = p;
+        lines.push({ key, label: labels.get(key), amountPaise: p });
+      }
+      const total = Object.values(structure).reduce((s, v) => s + v, 0);
+      set.salaryStructure = structure;
+      set.monthlySalaryPaise = total;
+      doc.toSalaryPaise = total;
+      doc.salaryLines = lines;
+    } else if (asString(b.toSalary) !== '') {
       const p = toMinor(typeof b.toSalary === 'number' ? String(b.toSalary) : asString(b.toSalary));
       if (p === null || p < 0) throw invalid({ toSalary: 'Enter the new monthly salary (₹, up to 2 decimals)' });
       set.monthlySalaryPaise = p;
@@ -557,6 +610,10 @@ export async function createChange(req, res) {
       await u.save();
     }
   }
+  // the employee gets it by mail and in the app
+  notifyEmployee(e._id, kind === 'promotion' ? `Promotion — letter ${c.letterNo}` : `Transfer — letter ${c.letterNo}`, kind === 'promotion'
+    ? `You are promoted from ${doc.fromDesignation || 'your present post'} to ${doc.toDesignation} with effect from ${iso(effectiveDate)}.${(doc.salaryLines || []).length ? ` Salary: ${doc.salaryLines.map((l) => `${l.label} Rs ${l.amountPaise / 100}`).join(', ')}; monthly total Rs ${doc.toSalaryPaise / 100}.` : doc.toSalaryPaise !== doc.fromSalaryPaise ? ` Your monthly salary is Rs ${doc.toSalaryPaise / 100}.` : ''}${remark ? ` ${remark}` : ''}`
+    : `You are transferred from ${doc.fromBranchName} to ${doc.toBranchName} with effect from ${iso(effectiveDate)}.${remark ? ` ${remark}` : ''}`);
   await audit(req, { action: `employee.${kind}`, entity: 'Employee', entityId: e._id, after: { letterNo: c.letterNo, from: doc.fromDesignation || doc.fromBranchName, to: doc.toDesignation || doc.toBranchName } });
   res.status(201).json({ item: presentChange(c) });
 }

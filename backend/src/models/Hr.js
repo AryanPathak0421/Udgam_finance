@@ -59,6 +59,7 @@ const employeeSchema = new mongoose.Schema(
     area: String,
     // reports to (the supervisor sees the details of the employees who report to them)
     supervisor: { type: mongoose.Schema.Types.ObjectId, ref: 'Employee' },
+    supervisedBranches: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Branch' }], // the branches under this employee, when they are a supervisor
     pfDeduction: { type: Boolean, default: false },
     esiDeduction: { type: Boolean, default: false },
     // verification: all optional, each with the copy as a small PNG / JPEG data URL (not loaded unless asked for)

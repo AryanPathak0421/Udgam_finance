@@ -109,7 +109,7 @@ export const MENU_CATALOGUE = [
   { key: '/hr/leave-approval', label: 'Leave Approval', group: 'HR Department' },
   { key: '/hr/resignations', label: 'Resignation Approval', group: 'HR Department', adminOnly: true },
   { key: '/hr/promotion-transfer', label: 'Promotion & Transfer', group: 'HR Department', adminOnly: true },
-  { key: '/hr/letters', label: 'Joining / Appointment Letter', group: 'HR Department', adminOnly: true },
+  { key: '/hr/letters', label: 'Joining Letter', group: 'HR Department', adminOnly: true },
   { key: '/hr/employee-list', label: 'Employee List & Block', group: 'HR Department', adminOnly: true },
   { key: '/super-admin/notifications', label: 'Bulk Notification', group: 'Super Admin', adminOnly: true },
   { key: '/super-admin/holidays', label: 'Holiday Master', group: 'Super Admin', adminOnly: true },

@@ -247,7 +247,7 @@ export const NAV_SECTIONS = [
           { label: 'Leave Approval', path: '/hr/leave-approval', icon: 'check' },
           { label: 'Resignation Approval', path: '/hr/resignations', icon: 'logout', roles: ALL_ADMIN },
           { label: 'Promotion & Transfer', path: '/hr/promotion-transfer', icon: 'rank', roles: ALL_ADMIN },
-          { label: 'Joining / Appointment Letter', path: '/hr/letters', icon: 'file', roles: ALL_ADMIN },
+          { label: 'Joining Letter', path: '/hr/letters', icon: 'file', roles: ALL_ADMIN },
           { label: 'Employee List & Block', path: '/hr/employee-list', icon: 'users', roles: ALL_ADMIN },
         ],
       },

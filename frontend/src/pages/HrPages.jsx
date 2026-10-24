@@ -140,7 +140,7 @@ function EmployeeForm({ item, onClose, onSaved }) {
   const [loadingDetail, setLoadingDetail] = useState(Boolean(item));
   const [f, setF] = useState({
     user: '', name: item?.name || '', mobile: item?.mobile?.startsWith('X') ? '' : item?.mobile || '', email: item?.email || '', address: item?.address || '', department: item?.department?.id || '', designation: item?.designation?.id || '',
-    branch: item?.branch?.id || '', joiningDate: item?.joiningDate || today(), monthlySalary: item ? String(item.monthlySalary || '') : '', bankName: item?.bankName || '', ifsc: item?.ifsc || '', accountNumber: item?.accountNumber?.startsWith('X') ? '' : item?.accountNumber || '',
+    branch: item?.branch?.id || '', supervisedBranches: (item?.supervisedBranches || []).map((b) => b.id), joiningDate: item?.joiningDate || today(), monthlySalary: item ? String(item.monthlySalary || '') : '', bankName: item?.bankName || '', ifsc: item?.ifsc || '', accountNumber: item?.accountNumber?.startsWith('X') ? '' : item?.accountNumber || '',
     photo: '', homeTown: '', originalMarksheet: false, supervisor: item?.supervisor?.id || '', pfDeduction: false, esiDeduction: false,
     aadhaarNo: '', aadhaarCopy: '', panNo: '', panCopy: '', drivingLicenceNo: '', drivingLicenceCopy: '', voterIdNo: '', voterIdCopy: '',
     pincode: '', state: '', district: '', area: '', fatherName: '', fatherMobile: '', motherName: '', maritalStatus: '',
@@ -230,6 +230,13 @@ function EmployeeForm({ item, onClose, onSaved }) {
         <FormField id="ensup" label="Supervisor name" className="span-2" error={errors.supervisor} hint="Choose the department and designation first; the employees of it are listed. This employee's details then show with the supervisor (Team in the list).">
           <select id="ensup" value={f.supervisor} onChange={set('supervisor')}><option value="">No supervisor</option>{supList.map((x) => <option key={x.id} value={x.id}>{x.employeeCode} — {x.name}{x.designation?.name ? ` (${x.designation.name})` : ''}</option>)}</select>
         </FormField>
+        <div className="span-2">
+          <strong>Branches under this employee</strong> <span className="muted small">— tick the branches when the employee is a supervisor</span>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 16px', marginTop: 6 }}>
+            {branches.map((b) => <label key={b.id} style={{ display: 'flex', gap: 6, alignItems: 'center' }}><input type="checkbox" checked={f.supervisedBranches.includes(b.id)} onChange={(e) => setF((x) => ({ ...x, supervisedBranches: e.target.checked ? [...x.supervisedBranches, b.id] : x.supervisedBranches.filter((i) => i !== b.id) }))} /> {b.code} — {b.name}</label>)}
+          </div>
+          {errors.supervisedBranches && <div className="field-error small">{errors.supervisedBranches}</div>}
+        </div>
         {chosenSup && chosenSup.branch && <p className="muted small span-2" style={{ margin: 0 }}>Supervisor: {chosenSup.name} · {chosenSup.department?.name || '—'} · {chosenSup.designation?.name || '—'} · {chosenSup.branch?.code || '—'}</p>}
 
         <Sec>Deductions</Sec>
@@ -390,6 +397,53 @@ function PendingVerification({ onClose }) {
   );
 }
 
+// Moves the employees of supervisor 1 to supervisor 2 (all, or the ones ticked); their leaves that wait for approval go to supervisor 2 too.
+function SupervisorTransfer({ onClose, onDone }) {
+  const toast = useToast();
+  const everyone = useLoad(() => api.hr.employees({ status: 'active' }), []);
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [team, setTeam] = useState([]);
+  const [picked, setPicked] = useState(new Set());
+  const [busy, setBusy] = useState(false);
+  const [errors, setErrors] = useState({});
+  const all = everyone.data?.items || [];
+  const supervisors = all.filter((e) => e.teamCount > 0);
+  useEffect(() => {
+    setTeam([]); setPicked(new Set());
+    if (!from) return;
+    api.hr.employees({ supervisor: from, status: 'active' }).then((r) => { setTeam(r.items); setPicked(new Set(r.items.map((x) => x.id))); }).catch(() => {});
+  }, [from]);
+  async function go() {
+    setBusy(true); setErrors({});
+    try {
+      const r = await api.hr.supervisorTransfer({ from, to, employees: picked.size === team.length ? [] : [...picked] });
+      toast.success(`${r.moved} employee${r.moved === 1 ? '' : 's'} moved to the new supervisor${r.leavesMoved ? ` · ${r.leavesMoved} waiting leave${r.leavesMoved === 1 ? '' : 's'} moved too` : ''}`);
+      onDone();
+    } catch (err) { setErrors(err.errors || {}); toast.error(err.message); } finally { setBusy(false); }
+  }
+  return (
+    <Modal open title="Transfer employees to another supervisor" onClose={onClose} busy={busy} size="lg"
+      footer={<><button className="btn" onClick={onClose} disabled={busy}>Close</button><button className="btn primary" onClick={go} disabled={busy || !from || !to || picked.size === 0}>{busy ? 'Moving…' : `Transfer ${picked.size || ''}`.trim()}</button></>}>
+      <div className="form-grid">
+        <FormField id="stfrom" label="Supervisor 1 (from)" required error={errors.from}><select id="stfrom" value={from} onChange={(e) => setFrom(e.target.value)}><option value="">Select</option>{supervisors.map((e) => <option key={e.id} value={e.id}>{e.employeeCode} — {e.name} ({e.teamCount})</option>)}</select></FormField>
+        <FormField id="stto" label="Supervisor 2 (to)" required error={errors.to}><select id="stto" value={to} onChange={(e) => setTo(e.target.value)}><option value="">Select</option>{all.filter((e) => e.id !== from).map((e) => <option key={e.id} value={e.id}>{e.employeeCode} — {e.name}{e.branch?.code ? ` (${e.branch.code})` : ''}</option>)}</select></FormField>
+      </div>
+      {from && (
+        <>
+          <div className="toolbar"><label style={{ display: 'flex', gap: 6, alignItems: 'center' }}><input type="checkbox" checked={team.length > 0 && picked.size === team.length} onChange={(e) => setPicked(e.target.checked ? new Set(team.map((x) => x.id)) : new Set())} /> All of the team ({team.length})</label></div>
+          {errors.employees && <div className="field-error small">{errors.employees}</div>}
+          <div className="table-wrap" style={{ maxHeight: 260, overflow: 'auto' }}>
+            <table className="data-table"><tbody>
+              {team.map((x) => <tr key={x.id}><td><input type="checkbox" aria-label={`Move ${x.employeeCode}`} checked={picked.has(x.id)} onChange={() => setPicked((p) => { const n = new Set(p); if (n.has(x.id)) n.delete(x.id); else n.add(x.id); return n; })} /></td><td><strong>{x.employeeCode}</strong> {x.name}</td><td>{x.branch?.code || '—'}</td><td>{x.designation?.name || '—'}</td></tr>)}
+            </tbody></table>
+          </div>
+        </>
+      )}
+    </Modal>
+  );
+}
+
 export function EmployeeRegistration() {
   const toast = useToast();
   const [branch, setBranch] = useState('');
@@ -400,6 +454,7 @@ export function EmployeeRegistration() {
   const [form, setForm] = useState(null);
   const [team, setTeam] = useState(null);
   const [pending, setPending] = useState(false);
+  const [transferring, setTransferring] = useState(false);
   const [syncing, setSyncing] = useState(false);
   async function sync() {
     setSyncing(true);
@@ -420,6 +475,7 @@ export function EmployeeRegistration() {
           <Refresh onClick={list.load} loading={list.loading} />
           <button className="btn" onClick={sync} disabled={syncing} title="Makes an employee record of every staff login that has none">{syncing ? 'Adding…' : 'Add all staff logins'}</button>
           <button className="btn" onClick={() => setPending(true)}>Pending verification</button>
+          <button className="btn" onClick={() => setTransferring(true)}>Transfer supervisor</button>
           <button className="btn primary" onClick={() => setForm({})}>Register employee</button>
         </div>
         {list.loading && !list.data ? <Spinner label="Loading…" /> : list.error ? <ErrorState message={list.error} onRetry={list.load} /> : items.length === 0 ? <EmptyState title="No employee" description="Register an employee, or use Add all staff logins." /> : (
@@ -431,7 +487,7 @@ export function EmployeeRegistration() {
                 <tbody>
                   {items.map((e) => (
                     <tr key={e.id}>
-                      <td data-label="Employee"><strong>{e.employeeCode}</strong> {e.name}<div className="muted small">{e.mobile || '—'}{e.hasLogin ? ' · has login' : ''}</div></td>
+                      <td data-label="Employee"><strong>{e.employeeCode}</strong> {e.name}<div className="muted small">{e.mobile || '—'}{e.hasLogin ? ' · has login' : ''}</div>{e.supervisedBranches?.length > 0 && <div className="muted small">Supervises: {e.supervisedBranches.map((b) => b.code).join(', ')}</div>}</td>
                       <td data-label="Department">{e.department?.name || '—'}<div className="muted small">{e.designation?.name || '—'}</div></td>
                       <td data-label="Branch">{e.branch?.code || '—'}</td>
                       <td data-label="Supervisor">{e.supervisor ? `${e.supervisor.code} ${e.supervisor.name}` : '—'}</td>
@@ -449,6 +505,7 @@ export function EmployeeRegistration() {
         )}
       </div>
       {team && <TeamModal supervisor={team} onClose={() => setTeam(null)} />}
+      {transferring && <SupervisorTransfer onClose={() => setTransferring(false)} onDone={() => { setTransferring(false); list.load(); }} />}
       {pending && <PendingVerification onClose={() => { setPending(false); list.load(); }} />}
       {form && <EmployeeForm item={form.id ? form : null} onClose={() => setForm(null)} onSaved={() => { setForm(null); list.load(); }} />}
     </>

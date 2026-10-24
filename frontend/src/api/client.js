@@ -151,6 +151,7 @@ export const api = {
     employees: (params) => request(`/hr/employees${qs(params)}`),
     employee: (id) => request(`/hr/employees/${id}`),
     employeePincode: (pin) => request(`/hr/employees/pincode/${pin}`),
+    supervisorTransfer: (data) => request('/hr/supervisor-transfer', { method: 'POST', body: data }),
     pendingVerification: (params) => request(`/hr/employees/pending-verification${qs(params)}`),
     sendEmployeeOtp: (id, data) => request(`/hr/employees/${id}/otp`, { method: 'POST', body: data }),
     verifyEmployeeOtp: (id, data) => request(`/hr/employees/${id}/otp/verify`, { method: 'POST', body: data }),
