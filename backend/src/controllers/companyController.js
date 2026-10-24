@@ -25,6 +25,7 @@ const present = (c) => ({
   pincode: c.pincode || '',
   email: c.email,
   mobile: c.mobile,
+  logoImage: c.logoImage || null,
   stampImage: c.stampImage || null,
   signatureImage: c.signatureImage || null,
   updatedAt: c.updatedAt,
@@ -79,6 +80,7 @@ export async function saveCompany(req, res) {
   if (!EMAIL_RE.test(email)) v.add('email', 'Enter a valid email address');
   if (!MOBILE_RE.test(mobile)) v.add('mobile', 'Enter a valid 10-digit mobile number');
 
+  const logoImage = readImage(b.logoImage, 'logoImage', 'Logo', v);
   const stampImage = readImage(b.stampImage, 'stampImage', 'Stamp', v);
   const signatureImage = readImage(b.signatureImage, 'signatureImage', 'Signature', v);
   v.throwIfAny();
@@ -88,6 +90,7 @@ export async function saveCompany(req, res) {
 
   const doc = existing || new Company();
   Object.assign(doc, { name, cin, pan, tan, incorporationDate, address, state, city, pincode, email, mobile });
+  if (logoImage !== undefined) doc.logoImage = logoImage === null ? undefined : logoImage;
   if (stampImage !== undefined) doc.stampImage = stampImage === null ? undefined : stampImage;
   if (signatureImage !== undefined) doc.signatureImage = signatureImage === null ? undefined : signatureImage;
   doc.updatedBy = req.user._id;

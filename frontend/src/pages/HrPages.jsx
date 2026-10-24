@@ -664,6 +664,52 @@ export function Attendance() {
 const SAL_BADGE = { generated: ['Generated', 'grey'], sent: ['Sent', 'amber'], paid: ['Paid', 'green'] };
 const SalBadge = ({ s }) => <span className={`badge ${SAL_BADGE[s]?.[1] || 'grey'}`}>{SAL_BADGE[s]?.[0] || s}</span>;
 
+const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const money = (n) => Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** The salary slip as a document: letterhead of the company (logo, name, address, PAN, CIN, contact), the employee, the days, receive side, payment side and the net salary. */
+function printSlip(slip, company) {
+  const w = window.open('', '_blank', 'width=900,height=1100');
+  if (!w) return false;
+  const rows = (side) => slip.lines.filter((l) => l.side === side && (l.amount || (side === 'earn' && l.key === 'basic'))).map((l, i) => `<tr><td>${i + 1}. ${esc(l.label)}</td><td class="n">${money(l.amount)}</td></tr>`).join('');
+  const c = company || {};
+  const place = [c.address, [c.city, c.state].filter(Boolean).join(', '), c.pincode].filter(Boolean).join(' · ');
+  const e = slip.employee || {};
+  const head = company
+    ? `<div class="head">${c.logo ? `<img class="logo" src="${c.logo}" alt="">` : ''}<div class="co"><div class="name">${esc(c.name)}</div><div>${esc(place)}</div><div>${esc([c.mobile && `Mobile ${c.mobile}`, c.email].filter(Boolean).join(' · '))}</div><div>${esc([c.pan && `PAN ${c.pan}`, c.cin && `CIN ${c.cin}`].filter(Boolean).join(' · '))}</div></div></div>`
+    : '';
+  const info = (k, v) => `<div><span>${k}</span><strong>${esc(v || '—')}</strong></div>`;
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Salary slip ${esc(slip.employeeCode)} ${esc(slip.month)}</title><style>
+    *{box-sizing:border-box} body{font-family:Arial,Helvetica,sans-serif;color:#222;margin:24px;font-size:13px}
+    .head{display:flex;gap:16px;align-items:center;border-bottom:3px solid #264653;padding-bottom:12px;margin-bottom:12px}
+    .logo{height:72px;max-width:140px;object-fit:contain}.co{flex:1;line-height:1.5}.name{font-size:22px;font-weight:700;color:#264653}
+    h1{font-size:16px;text-align:center;margin:10px 0;letter-spacing:1px;background:#264653;color:#fff;padding:6px}
+    .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px 14px;border:1px solid #ccc;padding:10px;margin-bottom:10px}.grid span{display:block;color:#666;font-size:11px}
+    table{width:100%;border-collapse:collapse}td,th{border:1px solid #ccc;padding:6px 8px;text-align:left}th{background:#eef2f3}.n{text-align:right}
+    .two{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:10px 0}.tot td{font-weight:700;background:#f6f8f8}
+    .net{border:2px solid #264653;padding:10px;text-align:center;font-size:16px;font-weight:700;margin-top:10px}
+    .sign{display:flex;justify-content:space-between;align-items:flex-end;margin-top:36px}.sign img{height:60px;max-width:180px;object-fit:contain}.sign div{text-align:center;min-width:180px;border-top:1px solid #888;padding-top:4px;font-size:12px}
+    .foot{margin-top:18px;color:#777;font-size:11px;text-align:center}
+    @media print{body{margin:10mm}}
+  </style></head><body>
+  ${head}
+  <h1>SALARY SLIP — ${esc(monthLabel(slip.month).toUpperCase())}</h1>
+  <div class="grid">${info('Employee code', slip.employeeCode)}${info('Name', slip.name)}${info('Designation', slip.designation)}${info('Department', slip.department)}${info('Branch', slip.branch ? `${slip.branch.code} — ${slip.branch.name}` : '')}${info('Date of joining', e.joiningDate ? dmy(e.joiningDate) : '')}${info('Bank', e.bankName)}${info('Account number', e.accountNumber)}${info('PAN', e.panNo)}</div>
+  <table><tr><th>Days in the month</th><th>Present</th><th>Half days</th><th>Leave</th><th>Holiday</th><th>Sundays</th><th>Absent</th><th>Payable days</th></tr>
+  <tr><td>${slip.daysInMonth}</td><td>${slip.presentDays}</td><td>${slip.halfDays}</td><td>${slip.leaveDays}</td><td>${slip.holidayDays}</td><td>${slip.sundays}</td><td>${slip.absentDays}</td><td>${slip.payableDays}</td></tr></table>
+  <div class="two">
+    <table><tr><th colspan="2">Receive side</th></tr>${rows('earn')}<tr class="tot"><td>Total</td><td class="n">${money(slip.totalEarning)}</td></tr></table>
+    <table><tr><th colspan="2">Payment side</th></tr>${rows('ded') || '<tr><td colspan="2">—</td></tr>'}<tr class="tot"><td>Total deduction</td><td class="n">${money(slip.totalDeduction)}</td></tr></table>
+  </div>
+  <div class="net">Net salary = Total − Total deduction = ₹ ${money(slip.net)}</div>
+  ${slip.remark ? `<p>Remark: ${esc(slip.remark)}</p>` : ''}
+  <div class="sign"><div>Employee signature</div><div>${c.stamp ? `<img src="${c.stamp}" alt=""><br>` : ''}${c.signature ? `<img src="${c.signature}" alt=""><br>` : ''}Authorised signatory</div></div>
+  <div class="foot">This is a computer generated salary slip.</div>
+  <script>window.onload=function(){window.print()}</script></body></html>`);
+  w.document.close();
+  return true;
+}
+
 function SlipDialog({ slip, onClose, onSaved }) {
   const toast = useToast();
   const [vals, setVals] = useState(() => Object.fromEntries(slip.lines.map((l) => [l.key, l.amount ? String(l.amount) : ''])));
@@ -679,6 +725,11 @@ function SlipDialog({ slip, onClose, onSaved }) {
     setBusy(true);
     setErrors({});
     try { await api.hr.adjustSalary(slip.id, { lines: vals, remark }); toast.success('Salary updated'); onSaved(); } catch (err) { setErrors(err.errors || {}); toast.error(err.message); } finally { setBusy(false); }
+  }
+  async function print() {
+    let company = null;
+    try { company = (await api.hr.letterhead()).company; } catch { /* printed without the letterhead */ }
+    if (!printSlip(slip, company)) toast.error('Allow pop-ups to print the slip');
   }
   const row = (l, v) => <tr><td>{l}</td><td className="num">{v}</td></tr>;
   const side = (title, which) => (
@@ -699,7 +750,7 @@ function SlipDialog({ slip, onClose, onSaved }) {
   );
   return (
     <Modal open title={`Salary slip — ${slip.employeeCode} ${slip.name}`} onClose={onClose} busy={busy} size="lg"
-      footer={<><button className="btn" onClick={() => window.print()}>Print</button><button className="btn" onClick={onClose} disabled={busy}>Close</button>{!paid && <button className="btn primary" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>}</>}>
+      footer={<><button className="btn" onClick={print}>Print</button><button className="btn" onClick={onClose} disabled={busy}>Close</button>{!paid && <button className="btn primary" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>}</>}>
       <p className="muted">{monthLabel(slip.month)} · {slip.branch?.code} · {slip.designation || slip.department || ''}</p>
       <div className="table-wrap">
         <table className="data-table">
@@ -722,7 +773,7 @@ function SlipDialog({ slip, onClose, onSaved }) {
   );
 }
 
-function SalaryTable({ items, picked, setPicked, onOpen, selectable }) {
+function SalaryTable({ items, picked, setPicked, onOpen, onPay, selectable }) {
   const all = items.filter((s) => s.status !== 'paid').map((s) => s.id);
   const allOn = all.length > 0 && all.every((id) => picked.has(id));
   return (
@@ -739,7 +790,7 @@ function SalaryTable({ items, picked, setPicked, onOpen, selectable }) {
               <td data-label="Salary" className="num">{inr(s.earned)}</td><td data-label="Bonus" className="num">{s.bonus ? inr(s.bonus) : '—'}</td><td data-label="Deduction" className="num">{s.otherDeduction ? inr(s.otherDeduction) : '—'}</td>
               <td data-label="Net" className="num"><strong>{inr(s.net)}</strong></td>
               <td data-label="Status"><SalBadge s={s.status} />{s.sentAt && s.status !== 'paid' && <div className="muted small">sent {dmy(s.sentAt)}</div>}</td>
-              <td><button className="btn sm" onClick={() => onOpen(s)}>Slip</button></td>
+              <td><div style={{ display: 'flex', gap: 6 }}><button className="btn sm" onClick={() => onOpen(s)}>Slip</button>{onPay && s.status === 'sent' && <button className="btn sm primary" onClick={() => onPay(s)}>Pay</button>}</div></td>
             </tr>
           ))}
         </tbody>
@@ -769,26 +820,27 @@ export function SalaryGenerate() {
     setBusy('send');
     try {
       const r = await api.hr.sendSalary({ ids: [...picked] });
-      toast.success(`${r.sent} sent${r.noMobile ? ` · ${r.noMobile} without a mobile number` : ''}${r.failed ? ` · ${r.failed} failed` : ''}`);
+      toast.success(`${r.sent} slip${r.sent === 1 ? '' : 's'} sent (SMS, email and the employee's app)${r.mailed ? ` · ${r.mailed} by email` : ''}${r.noMobile ? ` · ${r.noMobile} without a mobile number` : ''}${r.failed ? ` · ${r.failed} failed` : ''}. They are in Salary Payment now.`);
       list.load();
     } catch (err) { toast.error(err.message); } finally { setBusy(''); }
   }
   const items = list.data?.items || [];
   const s = list.data?.summary;
+  const pickedTotal = items.filter((i) => picked.has(i.id)).reduce((t, i) => t + i.net, 0);
   return (
     <>
-      <PageHeader title="Employee Salary Generate & Send" description="The salary of a month is worked out from the attendance (absent days and half days are cut, Sunday is paid) and sent to the employee as a salary slip by SMS. Add a bonus or a deduction on the slip." />
+      <PageHeader title="Employee Salary Generate & Send" description="The salary of a month is worked out month wise from the attendance and the Set Salary figures. The total payable amount is shown; tick the slips and send them: the employee gets the slip by SMS and email and sees it in the app, and the salary then goes to Salary Payment." />
       <div className="panel">
         <div className="toolbar" style={{ flexWrap: 'wrap' }}>
           <BranchSelect value={branch} onChange={setBranch} />
           <label className="small muted" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>Month <input type="month" value={month} max={lastMonth()} onChange={(e) => setMonth(e.target.value || lastMonth())} aria-label="Month" /></label>
           <Refresh onClick={list.load} loading={list.loading} />
           <button className="btn primary" onClick={generate} disabled={busy === 'gen'}>{busy === 'gen' ? 'Generating…' : 'Generate salary'}</button>
-          <button className="btn" onClick={send} disabled={!picked.size || busy === 'send'}>{busy === 'send' ? 'Sending…' : `Send salary slip${picked.size ? ` (${picked.size})` : ''}`}</button>
+          <button className="btn" onClick={send} disabled={!picked.size || busy === 'send'}>{busy === 'send' ? 'Sending…' : `Send salary slip${picked.size ? ` (${picked.size} · ${inr(pickedTotal)})` : ''}`}</button>
         </div>
         {list.loading && !list.data ? <Spinner label="Loading…" /> : list.error ? <ErrorState message={list.error} onRetry={list.load} /> : items.length === 0 ? <EmptyState title="No salary generated" description={`Generate the salary of ${monthLabel(month)}.`} /> : (
           <>
-            <Summary items={[['Slips', s.slips], ['Net salary', inr(s.net)], ['Paid', inr(s.paid)], ['To pay', inr(s.due)]]} />
+            <Summary items={[['Slips', s.slips], ['Total payable amount', inr(s.net)], ['Paid', inr(s.paid)], ['To pay', inr(s.due)]]} />
             <SalaryTable items={items} picked={picked} setPicked={setPicked} onOpen={setOpen} selectable />
           </>
         )}
@@ -802,7 +854,7 @@ export function SalaryPayment() {
   const toast = useToast();
   const [branch, setBranch] = useState('');
   const [month, setMonth] = useState(lastMonth());
-  const [status, setStatus] = useState('unpaid');
+  const [status, setStatus] = useState('topay');
   const list = useLoad(() => api.hr.salary({ month, branch, status }), [month, branch, status]);
   const [picked, setPicked] = useState(new Set());
   const [open, setOpen] = useState(null);
@@ -814,11 +866,17 @@ export function SalaryPayment() {
   const items = list.data?.items || [];
   const chosen = useMemo(() => items.filter((i) => picked.has(i.id)), [items, picked]);
   const total = chosen.reduce((t, i) => t + i.net, 0);
-  async function pay() {
+  // the slips to pay, branch by branch
+  const byBranch = useMemo(() => {
+    const m = new Map();
+    items.filter((i) => i.status === 'sent').forEach((i) => { const k = i.branch?.code || '—'; const v = m.get(k) || { code: k, name: i.branch?.name || '', ids: [], total: 0 }; v.ids.push(i.id); v.total += i.net; m.set(k, v); });
+    return [...m.values()].sort((a, b) => a.code.localeCompare(b.code));
+  }, [items]);
+  async function pay(only) {
     setBusy(true);
     setErrors({});
     try {
-      const r = await api.hr.paySalary({ ids: [...picked], payMode, bankAccount: payMode === 'bank' ? bankAccount : undefined });
+      const r = await api.hr.paySalary({ ids: only || [...picked], payMode, bankAccount: payMode === 'bank' ? bankAccount : undefined });
       toast.success(`${r.paid} salar${r.paid === 1 ? 'y' : 'ies'} paid (${inr(r.amount)}). They are in the Cashbook as Staff salary paid.`);
       if (r.failed.length) toast.error(`${r.failed.length} not paid: ${r.failed[0].message}`);
       list.load();
@@ -827,28 +885,63 @@ export function SalaryPayment() {
   const s = list.data?.summary;
   return (
     <>
-      <PageHeader title="Salary Payment" description="Pay the generated salaries, branch wise. Every payment is an entry of the branch Cashbook (Staff salary paid), by cash or bank." />
+      <PageHeader title="Salary Payment" description="The salary slips that were sent are paid here, branch wise: the name and a Pay button of every employee. Every payment is an entry of the branch Cashbook (Staff salary paid) on its own, by cash or bank. The month wise report is below." />
       <div className="panel">
         <div className="toolbar" style={{ flexWrap: 'wrap' }}>
           <BranchSelect value={branch} onChange={setBranch} />
           <label className="small muted" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>Month <input type="month" value={month} max={lastMonth()} onChange={(e) => setMonth(e.target.value || lastMonth())} aria-label="Month" /></label>
-          <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status"><option value="unpaid">To pay</option><option value="paid">Paid</option><option value="">All</option></select>
+          <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status"><option value="topay">To pay (slip sent)</option><option value="generated">Not sent yet</option><option value="paid">Paid</option><option value="">All</option></select>
           <Refresh onClick={list.load} loading={list.loading} />
         </div>
-        {list.loading && !list.data ? <Spinner label="Loading…" /> : list.error ? <ErrorState message={list.error} onRetry={list.load} /> : items.length === 0 ? <EmptyState title="Nothing to show" description="Generate the salary of the month first (Employee Salary Generate & Send)." /> : (
+        {list.loading && !list.data ? <Spinner label="Loading…" /> : list.error ? <ErrorState message={list.error} onRetry={list.load} /> : items.length === 0 ? <EmptyState title="Nothing to show" description="Generate the salary of the month and send the slips first (Employee Salary Generate & Send): the sent slips come here to be paid." /> : (
           <>
             <Summary items={[['Slips', s.slips], ['Net salary', inr(s.net)], ['Paid', inr(s.paid)], ['To pay', inr(s.due)]]} />
-            <SalaryTable items={items} picked={picked} setPicked={setPicked} onOpen={setOpen} selectable />
+            {byBranch.length > 0 && (
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '8px 0' }}>
+                {byBranch.map((b) => <button key={b.code} className="btn sm" onClick={() => setPicked(new Set(b.ids))} title={b.name}>{b.code}: {b.ids.length} to pay · {inr(b.total)} (select)</button>)}
+              </div>
+            )}
+            <SalaryTable items={items} picked={picked} setPicked={setPicked} onOpen={setOpen} onPay={(row) => pay([row.id])} selectable />
             <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap', marginTop: 12 }}>
               <FormField id="spmode" label="Pay by" error={errors.payMode}><select id="spmode" value={payMode} onChange={(e) => setPayMode(e.target.value)}>{Object.entries(MODE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></FormField>
               <BankAccountSelect id="spbank" mode={payMode} value={bankAccount} onChange={setBankAccount} error={errors.bankAccount} />
-              <button className="btn primary" onClick={pay} disabled={!picked.size || busy}>{busy ? 'Paying…' : `Pay ${picked.size ? `${picked.size} · ${inr(total)}` : 'selected'}`}</button>
+              <button className="btn primary" onClick={() => pay()} disabled={!picked.size || busy}>{busy ? 'Paying…' : `Pay ${picked.size ? `${picked.size} · ${inr(total)}` : 'selected'}`}</button>
             </div>
           </>
         )}
       </div>
+      <MonthWiseReport branch={branch} />
       {open && <SlipDialog slip={open} onClose={() => setOpen(null)} onSaved={() => { setOpen(null); list.load(); }} />}
     </>
+  );
+}
+
+/** The salary month by month of a year: slips, sent, earning, deduction, net, paid and still to pay. */
+function MonthWiseReport({ branch }) {
+  const [year, setYear] = useState(String(new Date().getFullYear()));
+  const list = useLoad(() => api.hr.monthWiseSalary({ year, branch }), [year, branch]);
+  const d = list.data;
+  const years = Array.from({ length: 5 }, (_, i) => String(new Date().getFullYear() - i));
+  return (
+    <div className="panel" style={{ marginTop: 16 }}>
+      <div className="toolbar" style={{ flexWrap: 'wrap' }}>
+        <h3 className="section-title" style={{ margin: 0 }}>Month wise report</h3>
+        <select value={year} onChange={(e) => setYear(e.target.value)} aria-label="Year">{years.map((y) => <option key={y} value={y}>{y}</option>)}</select>
+        <Refresh onClick={list.load} loading={list.loading} />
+        <button className="btn no-print" onClick={() => window.print()} disabled={!d?.rows.length}>Print</button>
+      </div>
+      {list.loading && !d ? <Spinner label="Loading…" /> : list.error ? <ErrorState message={list.error} onRetry={list.load} /> : !d?.rows.length ? <EmptyState title={`No salary in ${year}`} /> : (
+        <div className="table-wrap">
+          <table className="data-table grid-lines">
+            <thead><tr><th>Month</th><th className="num">Slips</th><th className="num">Sent</th><th className="num">Paid</th><th className="num">Earning</th><th className="num">Deduction</th><th className="num">Net salary</th><th className="num">Paid amount</th><th className="num">To pay</th></tr></thead>
+            <tbody>
+              {d.rows.map((r) => <tr key={r.month}><td data-label="Month">{monthLabel(r.month)}</td><td data-label="Slips" className="num">{r.slips}</td><td data-label="Sent" className="num">{r.sent}</td><td data-label="Paid" className="num">{r.paidCount}</td><td data-label="Earning" className="num">{inr(r.earning)}</td><td data-label="Deduction" className="num">{inr(r.deduction)}</td><td data-label="Net" className="num"><strong>{inr(r.net)}</strong></td><td data-label="Paid amount" className="num">{inr(r.paid)}</td><td data-label="To pay" className="num">{inr(r.due)}</td></tr>)}
+              <tr style={{ borderTop: '2px solid currentColor' }}><td><strong>Total {year}</strong></td><td className="num"><strong>{d.totals.slips}</strong></td><td /><td /><td className="num"><strong>{inr(d.totals.earning)}</strong></td><td className="num"><strong>{inr(d.totals.deduction)}</strong></td><td className="num"><strong>{inr(d.totals.net)}</strong></td><td className="num"><strong>{inr(d.totals.paid)}</strong></td><td className="num"><strong>{inr(d.totals.due)}</strong></td></tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }
 

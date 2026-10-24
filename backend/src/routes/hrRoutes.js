@@ -3,13 +3,14 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler as h } from '../utils/http.js';
 import {
   departments, designations, listEmployees, getEmployee, employeePincode, pendingVerification, sendEmployeeOtp, verifyEmployeeOtp, verifyEmployeeDocuments, saveSalarySetup, employeeStaffOptions, createEmployee, updateEmployee, setEmployeeStatus, syncFromUsers, hrOptions,
-  attendanceDay, markAttendance, autoAttendance, generateSalary, listSalary, adjustSalary, sendSalary, paySalary, branchWiseSalary,
+  attendanceDay, markAttendance, autoAttendance, generateSalary, listSalary, adjustSalary, sendSalary, paySalary, branchWiseSalary, monthWiseSalary, mySalarySlips,
 } from '../controllers/hrController.js';
 
 const router = Router();
 const ADMIN = ['super_admin', 'admin'];
 const HR = ['super_admin', 'admin', 'branch_manager', 'accountant']; // attendance and salary of their branches
 const PAY = ['super_admin', 'admin', 'accountant'];
+const PAYER = [...PAY, 'branch_manager']; // a branch pays the salaries of its own employees (the branch scope is applied)
 
 router.get('/hr/options', requireAuth, requireRole(...HR), h(hrOptions));
 
@@ -47,6 +48,9 @@ router.get('/hr/salary/branch-wise', requireAuth, requireRole(...HR), h(branchWi
 router.post('/hr/salary/generate', requireAuth, requireRole(...PAY), h(generateSalary));
 router.patch('/hr/salary/:id', requireAuth, requireRole(...PAY), h(adjustSalary));
 router.post('/hr/salary/send', requireAuth, requireRole(...PAY), h(sendSalary));
-router.post('/hr/salary/pay', requireAuth, requireRole(...PAY), h(paySalary));
+router.post('/hr/salary/pay', requireAuth, requireRole(...PAYER), h(paySalary));
+router.get('/hr/salary/month-wise', requireAuth, requireRole(...HR), h(monthWiseSalary));
+router.get('/hr/my-salary-slips', requireAuth, h(mySalarySlips));
+router.get('/app/my-salary-slips', requireAuth, h(mySalarySlips));
 
 export default router;

@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 import { Employee, Attendance, Department, Designation } from '../models/Hr.js';
-import { RoomRent, Task, TASK_STATUS, Complaint, COMPLAINT_STATUS, Requirement, REQUIREMENT_STATUS, Leave, LEAVE_TYPES, Resignation, EmployeeChange } from '../models/HrExtra.js';
+import { RoomRent, RentParty, Task, TASK_STATUS, Complaint, COMPLAINT_STATUS, Requirement, REQUIREMENT_STATUS, Leave, LEAVE_TYPES, Resignation, EmployeeChange } from '../models/HrExtra.js';
 import { User } from '../models/User.js';
 import { AppUser } from '../models/AppUser.js';
 import { Branch } from '../models/Branch.js';
@@ -67,7 +67,27 @@ const push = (doc, status, remark, req) => doc.history.push({ status, remark: as
 
 // ---- Room rent entry ---------------------------------------------------------------------------------------------------------
 
-const presentRent = (r) => ({ id: r._id, branch: brRef(r.branch), month: r.month, landlord: r.landlord, amount: rupees(r.amountPaise), paidOn: iso(r.paidOn), payMode: r.payMode, reference: r.reference || '', remark: r.remark || '', status: r.status, cancelReason: r.cancelReason || '', by: r.enteredByCode || '' });
+const KIND_LABEL = { room: 'Room rent', messenger: 'Messenger', other: 'Room rent' };
+const IMAGE_RE = /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/;
+const MAX_IMAGE_CHARS = 1_500_000;
+const round2 = (n) => Math.round(n * 100) / 100;
+const readPhoto = (v, field, label, { required }) => {
+  if (v === undefined || v === null || v === '') { if (required) throw invalid({ [field]: `${label} is required` }); return undefined; }
+  if (typeof v !== 'string' || !IMAGE_RE.test(v)) throw invalid({ [field]: `${label} must be a PNG or JPEG image` });
+  if (v.length > MAX_IMAGE_CHARS) throw invalid({ [field]: `${label} is too large` });
+  return v;
+};
+const readMoney = (v, field, label, { min = 0 } = {}) => {
+  const p = v === '' || v === undefined || v === null ? 0 : toMinor(typeof v === 'number' ? String(v) : asString(v));
+  if (p === null || p < min) throw invalid({ [field]: `Enter ${label} (₹${min ? ` ${min / 100} or more,` : ''} up to 2 decimals)` });
+  return p;
+};
+
+const presentRent = (r) => ({
+  id: r._id, branch: brRef(r.branch), month: r.month, landlord: r.landlord, kind: r.kind || 'room', amount: rupees(r.amountPaise), rent: rupees(r.rentPaise ?? r.amountPaise), electricity: rupees(r.electricityPaise),
+  prevReading: r.prevReading ?? null, currentReading: r.currentReading ?? null, units: r.units ?? null, perUnit: rupees(r.perUnitPaise), hasMeter: r.currentReading !== undefined && r.currentReading !== null,
+  paidOn: iso(r.paidOn), payMode: r.payMode, reference: r.reference || '', remark: r.remark || '', status: r.status, cancelReason: r.cancelReason || '', by: r.enteredByCode || '',
+});
 
 export async function listRoomRents(req, res) {
   const q = asString(req.query.q).toLowerCase();
@@ -75,23 +95,54 @@ export async function listRoomRents(req, res) {
   const items = rows.map(presentRent).filter((r) => !q || [r.landlord, r.reference, r.month].some((v) => String(v).toLowerCase().includes(q)));
   res.json({ items, summary: { entries: items.length, amount: items.filter((i) => i.status === 'paid').reduce((s, i) => s + i.amount, 0) } });
 }
+
+/** The meter photo of one entry (kept out of the list). */
+export async function roomRentPhoto(req, res) {
+  if (!oid(req.params.id)) throw new HttpError(404, 'Entry not found');
+  const r = await RoomRent.findOne({ _id: req.params.id, ...branchFilter(req.user) }).select('+meterPhoto');
+  if (!r) throw new HttpError(404, 'Entry not found');
+  res.json({ photo: r.meterPhoto || null });
+}
+
 export async function createRoomRent(req, res) {
   const b = req.body || {};
-  const branch = await branchOf(req, asString(b.branch));
+  let party = null;
+  if (asString(b.party)) {
+    party = oid(asString(b.party)) ? await RentParty.findOne({ _id: b.party, isDeleted: false, isActive: true }) : null;
+    if (!party) throw invalid({ party: 'Select the room owner / messenger from the list' });
+  }
+  const branch = await branchOf(req, party ? String(party.branch) : asString(b.branch));
   const month = asString(b.month);
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw invalid({ month: 'Choose the month the rent is for' });
-  const landlord = asString(b.landlord).replace(/\s+/g, ' ');
+  const landlord = party ? party.name : asString(b.landlord).replace(/\s+/g, ' ');
   if (landlord.length < 2 || landlord.length > 80) throw invalid({ landlord: 'Enter the name of the landlord (2–80 characters)' });
-  const amountPaise = toMinor(typeof b.amount === 'number' ? String(b.amount) : asString(b.amount));
-  if (amountPaise === null || amountPaise < 100) throw invalid({ amount: 'Enter the rent (₹1 or more, up to 2 decimals)' });
+  // rent: what is typed; when nothing is typed, the amount set for the room owner / messenger
+  const typed = b.rent !== undefined && b.rent !== '' ? b.rent : b.amount;
+  const rentPaise = readMoney(typed === undefined || typed === '' ? party ? party.amountPaise / 100 : '' : typed, 'rent', 'the rent');
+  // the meter of a room with an electricity meter: units used since the last reading, at the rate per unit
+  let meter = {};
+  let electricityPaise = 0;
+  if (party?.kind === 'room' && party.meterIncluded) {
+    const current = Number(asString(b.currentReading));
+    if (!Number.isFinite(current) || asString(b.currentReading) === '') throw invalid({ currentReading: 'Enter the current meter reading' });
+    if (current < party.lastReading) throw invalid({ currentReading: `The current reading cannot be less than the old reading (${party.lastReading})` });
+    const photo = readPhoto(b.meterPhoto, 'meterPhoto', 'The photo of the current meter reading', { required: true });
+    const units = round2(current - party.lastReading);
+    electricityPaise = Math.round(units * (party.perUnitPaise || 0));
+    meter = { prevReading: party.lastReading, currentReading: current, units, perUnitPaise: party.perUnitPaise || 0, electricityPaise, meterPhoto: photo };
+  }
+  const amountPaise = rentPaise + electricityPaise; // the total paid
+  if (amountPaise < 100) throw invalid({ rent: 'The total to pay must be ₹1 or more' });
   const paidOn = b.paidOn ? readDate(b.paidOn, 'paidOn', { future: false }) : await defaultWorkDate(branch, req.user);
   if (!isAdmin(req.user) && startOfToday().getTime() - paidOn.getTime() > 30 * DAY) throw invalid({ paidOn: 'The date cannot be older than 30 days' });
   const payMode = asString(b.payMode) || 'cash';
   if (!['cash', 'bank', 'upi', 'cheque'].includes(payMode)) throw invalid({ payMode: 'Select how the rent is paid' });
   const bankAccount = await readBankAccount(b, payMode);
   await assertDayOpen(branch, paidOn, req.user);
-  const entry = await CashEntry.create({ branch, date: paidOn, side: 'payment', category: 'room_rent', amountPaise, mode: payMode, bankAccount, remark: `Room rent ${month} — ${landlord}`.slice(0, 200), enteredByCode: req.user.employeeCode || '', createdBy: req.user._id });
-  const r = await RoomRent.create({ branch, month, landlord, amountPaise, paidOn, payMode, bankAccount, reference: asString(b.reference).slice(0, 60), remark: asString(b.remark).slice(0, 200), cashEntry: entry._id, enteredByCode: req.user.employeeCode || '' });
+  const label = KIND_LABEL[party?.kind || 'room'];
+  const entry = await CashEntry.create({ branch, date: paidOn, side: 'payment', category: 'room_rent', amountPaise, mode: payMode, bankAccount, remark: `${label} ${month} — ${landlord}${electricityPaise ? ` (rent ${rentPaise / 100} + electricity ${electricityPaise / 100})` : ''}`.slice(0, 200), enteredByCode: req.user.employeeCode || '', createdBy: req.user._id });
+  const r = await RoomRent.create({ branch, month, landlord, kind: party?.kind || 'other', party: party?._id, rentPaise, amountPaise, ...meter, paidOn, payMode, bankAccount, reference: asString(b.reference).slice(0, 60), remark: asString(b.remark).slice(0, 200), cashEntry: entry._id, enteredByCode: req.user.employeeCode || '' });
+  if (meter.currentReading !== undefined) await RentParty.updateOne({ _id: party._id }, { $set: { lastReading: meter.currentReading } });
   await r.populate(POP_BRANCH);
   await audit(req, { action: 'roomRent.create', entity: 'RoomRent', entityId: r._id, after: { branch: String(branch), month, amount: amountPaise / 100 } });
   res.status(201).json({ item: presentRent(r) });
@@ -107,8 +158,94 @@ export async function cancelRoomRent(req, res) {
   r.cancelReason = reason;
   await r.save();
   if (r.cashEntry) await CashEntry.updateOne({ _id: r.cashEntry }, { $set: { isDeleted: true } });
+  // the meter goes back to the old reading when this was the last reading taken
+  if (r.party && r.currentReading !== undefined && r.currentReading !== null) await RentParty.updateOne({ _id: r.party, lastReading: r.currentReading }, { $set: { lastReading: r.prevReading ?? 0 } });
   await audit(req, { action: 'roomRent.cancel', entity: 'RoomRent', entityId: r._id, after: { reason } });
   res.json({ status: 'cancelled' });
+}
+
+// ---- Room owners and messengers (registered by the admin only) ----------------------------------------------------------------
+
+const presentParty = (p) => ({
+  id: p._id, branch: brRef(p.branch), kind: p.kind, name: p.name, mobile: p.mobile || '', address: p.address || '', meterIncluded: Boolean(p.meterIncluded),
+  openingReading: p.openingReading ?? 0, lastReading: p.lastReading ?? 0, perUnit: rupees(p.perUnitPaise), amount: rupees(p.amountPaise), isActive: p.isActive,
+});
+
+export async function listRentParties(req, res) {
+  const filter = { isDeleted: false, ...scope(req) };
+  if (['room', 'messenger'].includes(asString(req.query.kind))) filter.kind = req.query.kind;
+  if (asString(req.query.active) === '1') filter.isActive = true;
+  const rows = await RentParty.find(filter).sort({ kind: 1, name: 1 }).populate(POP_BRANCH).lean();
+  res.json({ items: rows.map(presentParty) });
+}
+
+export async function getRentParty(req, res) {
+  if (!oid(req.params.id)) throw new HttpError(404, 'Not found');
+  const p = await RentParty.findOne({ _id: req.params.id, isDeleted: false, ...branchFilter(req.user) }).select('+meterPhoto').populate(POP_BRANCH);
+  if (!p) throw new HttpError(404, 'Not found');
+  res.json({ item: { ...presentParty(p), meterPhoto: p.meterPhoto || '' } });
+}
+
+async function readParty(req, existing) {
+  const b = req.body || {};
+  const d = {};
+  d.kind = existing ? existing.kind : asString(b.kind);
+  if (!['room', 'messenger'].includes(d.kind)) throw invalid({ kind: 'Choose room owner or messenger' });
+  d.branch = existing ? existing.branch : await branchOf(req, asString(b.branch));
+  d.name = asString(b.name).replace(/\s+/g, ' ');
+  if (d.name.length < 2 || d.name.length > 80) throw invalid({ name: 'Enter the name (2–80 characters)' });
+  d.mobile = asString(b.mobile);
+  if (!/^[6-9]\d{9}$/.test(d.mobile)) throw invalid({ mobile: 'Enter a valid 10-digit mobile number' });
+  d.address = asString(b.address).slice(0, 300);
+  if (d.kind === 'room') {
+    if (d.address.length < 3) throw invalid({ address: 'Enter the address of the room' });
+    d.meterIncluded = b.meterIncluded === true || b.meterIncluded === 'yes';
+    d.amountPaise = readMoney(b.amount, 'amount', 'the monthly room rent');
+    if (d.meterIncluded) {
+      const opening = Number(asString(b.openingReading));
+      if (!Number.isFinite(opening) || opening < 0 || asString(b.openingReading) === '') throw invalid({ openingReading: 'Enter the meter reading' });
+      d.perUnitPaise = readMoney(b.perUnit, 'perUnit', 'the rate per unit', { min: 1 });
+      const photo = readPhoto(b.meterPhoto, 'meterPhoto', 'The photo of the meter', { required: !existing });
+      if (photo) d.meterPhoto = photo;
+      d.openingReading = opening;
+      if (!existing) d.lastReading = opening;
+      else if (opening !== existing.openingReading && existing.lastReading === existing.openingReading) d.lastReading = opening; // no rent paid on the meter yet
+    }
+  } else {
+    d.meterIncluded = false;
+    d.amountPaise = readMoney(b.amount, 'amount', 'the amount', { min: 100 });
+  }
+  return d;
+}
+
+export async function createRentParty(req, res) {
+  const d = await readParty(req, null);
+  const p = await RentParty.create({ ...d, createdByCode: req.user.employeeCode || '' });
+  await p.populate(POP_BRANCH);
+  await audit(req, { action: 'rentParty.create', entity: 'RentParty', entityId: p._id, after: { kind: p.kind, name: p.name } });
+  res.status(201).json({ item: presentParty(p) });
+}
+
+export async function updateRentParty(req, res) {
+  if (!oid(req.params.id)) throw new HttpError(404, 'Not found');
+  const p = await RentParty.findOne({ _id: req.params.id, isDeleted: false });
+  if (!p) throw new HttpError(404, 'Not found');
+  Object.assign(p, await readParty(req, p));
+  if (typeof req.body?.isActive === 'boolean') p.isActive = req.body.isActive;
+  await p.save();
+  await p.populate(POP_BRANCH);
+  await audit(req, { action: 'rentParty.update', entity: 'RentParty', entityId: p._id, after: { name: p.name } });
+  res.json({ item: presentParty(p) });
+}
+
+export async function deleteRentParty(req, res) {
+  if (!oid(req.params.id)) throw new HttpError(404, 'Not found');
+  const p = await RentParty.findOne({ _id: req.params.id, isDeleted: false });
+  if (!p) throw new HttpError(404, 'Not found');
+  p.isDeleted = true;
+  await p.save();
+  await audit(req, { action: 'rentParty.delete', entity: 'RentParty', entityId: p._id, after: { name: p.name } });
+  res.json({ message: 'Deleted' });
 }
 
 // ---- Task --------------------------------------------------------------------------------------------------------------------
@@ -420,7 +557,7 @@ export async function createChange(req, res) {
 /** The letterhead of the company for the letters. */
 export async function letterhead(_req, res) {
   const c = await Company.findOne({ singleton: 'company' }).lean();
-  res.json({ company: c ? { name: c.name, address: c.address, city: c.city || '', state: c.state || '', pincode: c.pincode || '', email: c.email, mobile: c.mobile, stamp: c.stampImage || null, signature: c.signatureImage || null } : null });
+  res.json({ company: c ? { name: c.name, address: c.address, city: c.city || '', state: c.state || '', pincode: c.pincode || '', email: c.email, mobile: c.mobile, pan: c.pan, cin: c.cin, logo: c.logoImage || null, stamp: c.stampImage || null, signature: c.signatureImage || null } : null });
 }
 
 // ---- Employee list and block --------------------------------------------------------------------------------------------------

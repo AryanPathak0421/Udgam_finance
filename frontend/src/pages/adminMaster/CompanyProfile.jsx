@@ -9,7 +9,7 @@ import { formatDate, todayIso } from '../../utils/format.js';
 
 const EMPTY = {
   name: '', cin: '', pan: '', tan: '', incorporationDate: '', address: '',
-  state: '', city: '', pincode: '', email: '', mobile: '', stampImage: null, signatureImage: null,
+  state: '', city: '', pincode: '', email: '', mobile: '', logoImage: null, stampImage: null, signatureImage: null,
 };
 
 const CIN_RE = /^[LU]\d{5}[A-Z]{2}\d{4}[A-Z]{3}\d{6}$/;
@@ -36,6 +36,7 @@ function validate(f) {
 
 export default function CompanyProfile() {
   const toast = useToast();
+  const logoRef = useRef(null);
   const stampRef = useRef(null);
   const signRef = useRef(null);
   const [company, setCompany] = useState(null);
@@ -286,8 +287,19 @@ export default function CompanyProfile() {
             </FormField>
           </div>
 
-          <h3 className="section-title">Sign &amp; stamp</h3>
+          <h3 className="section-title">Logo, sign &amp; stamp</h3>
           <div className="form-grid">
+            <FormField id="logo" label="Company logo" error={errors.logoImage} hint="PNG or JPEG, up to 300 KB. Shown on the salary slip and the letters.">
+              <div className="stamp-upload">
+                {form.logoImage ? <img src={form.logoImage} alt="Logo preview" className="stamp-img" /> : <div className="stamp-empty">No logo</div>}
+                <div className="stamp-actions">
+                  <input id="logo" ref={logoRef} type="file" accept="image/png,image/jpeg" onChange={onImageChange('logoImage', 'Logo')} hidden />
+                  <button type="button" className="btn" onClick={() => logoRef.current?.click()}>{form.logoImage ? 'Replace' : 'Upload'}</button>
+                  {form.logoImage && <button type="button" className="btn" onClick={() => setForm((f) => ({ ...f, logoImage: null }))}>Remove</button>}
+                </div>
+              </div>
+            </FormField>
+
             <FormField id="signature" label="Authorised signature" error={errors.signatureImage} hint="PNG or JPEG, up to 300 KB">
               <div className="stamp-upload">
                 {form.signatureImage ? (

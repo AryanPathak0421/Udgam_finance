@@ -101,7 +101,7 @@ export const MENU_CATALOGUE = [
   { key: '/hr/salary', label: 'Employee Salary Generate & Send', group: 'HR Department' },
   { key: '/hr/salary-payment', label: 'Salary Payment', group: 'HR Department' },
   { key: '/hr/branch-salary', label: 'Branch wise Salary', group: 'HR Department' },
-  { key: '/hr/room-rent', label: 'Room Rent Entry', group: 'HR Department' },
+  { key: '/hr/room-rent', label: 'Room / Messenger Rent', group: 'HR Department' },
   { key: '/hr/tasks', label: 'Task', group: 'HR Department' },
   { key: '/hr/complaints', label: 'Toll Free Complaint Entry', group: 'HR Department' },
   { key: '/hr/requirements', label: 'Employee Requirement', group: 'HR Department' },

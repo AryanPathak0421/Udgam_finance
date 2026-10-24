@@ -9,6 +9,15 @@ const roomRentSchema = new mongoose.Schema(
     branch: { ...ref('Branch'), required: true },
     month: { type: String, required: true }, // the month the rent is for, YYYY-MM
     landlord: { type: String, required: true, trim: true },
+    kind: { type: String, enum: ['room', 'messenger', 'other'], default: 'other' },
+    party: ref('RentParty'),
+    rentPaise: Number, // the rent; amountPaise is the total paid (rent + electricity)
+    prevReading: Number, // the electricity meter of the room: old reading, current reading, units, rate and amount
+    currentReading: Number,
+    units: Number,
+    perUnitPaise: Number,
+    electricityPaise: { type: Number, default: 0 },
+    meterPhoto: { type: String, select: false }, // photo of the current meter reading
     amountPaise: { type: Number, required: true, min: 100 },
     paidOn: { type: Date, required: true },
     payMode: { type: String, enum: ['cash', 'bank', 'upi', 'cheque'], required: true },
@@ -23,6 +32,29 @@ const roomRentSchema = new mongoose.Schema(
   { timestamps: true }
 );
 roomRentSchema.index({ branch: 1, month: 1 });
+
+// A room owner (with the electricity meter of the room, when it is included) or a messenger, registered by the admin; rent is paid to them in Room / Messenger Rent.
+const rentPartySchema = new mongoose.Schema(
+  {
+    branch: { ...ref('Branch'), required: true },
+    kind: { type: String, enum: ['room', 'messenger'], required: true },
+    name: { type: String, required: true, trim: true },
+    mobile: { type: String, trim: true },
+    address: { type: String, trim: true },
+    meterIncluded: { type: Boolean, default: false },
+    meterPhoto: { type: String, select: false },
+    openingReading: { type: Number, default: 0 },
+    lastReading: { type: Number, default: 0 }, // the reading of the last rent paid: the old reading of the next one
+    perUnitPaise: { type: Number, default: 0 },
+    amountPaise: { type: Number, default: 0 }, // the monthly room rent, or the amount paid to the messenger
+    isActive: { type: Boolean, default: true },
+    isDeleted: { type: Boolean, default: false },
+    createdByCode: String,
+  },
+  { timestamps: true }
+);
+rentPartySchema.index({ branch: 1, kind: 1, isDeleted: 1 });
+export const RentParty = mongoose.model('RentParty', rentPartySchema);
 export const RoomRent = mongoose.model('RoomRent', roomRentSchema);
 
 export const TASK_STATUS = ['open', 'in_progress', 'done', 'cancelled'];

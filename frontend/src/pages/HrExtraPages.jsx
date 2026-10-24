@@ -6,6 +6,8 @@ import BankAccountSelect from '../components/BankAccountSelect.jsx';
 import { EmptyState, ErrorState, PageHeader, Spinner } from '../components/ui/Feedback.jsx';
 import { useToast } from '../components/ui/Toast.jsx';
 import useDebounce from '../hooks/useDebounce.js';
+import { useAuth } from '../context/AuthContext.jsx';
+import { PhotoField } from './NewBorrower.jsx';
 import { BranchSelect, Refresh, Summary, useLoad, inr, dmy, today, MODE_LABEL } from './HrPages.jsx';
 
 const monthNow = () => new Date().toISOString().slice(0, 7);
@@ -80,8 +82,83 @@ function ReasonModal({ title, subject, label = 'Reason', confirm = 'Reject', onC
 
 // ---------------------------------------------------------------------------------------------------------------------------
 // Room rent entry
+const KIND = { room: 'Room owner', messenger: 'Messenger' };
+const digitsOnly = (v, n) => v.replace(/\D/g, '').slice(0, n);
+const decimal = (v) => v.replace(/[^\d.]/g, '');
+const num = (v) => Number(v) || 0;
+
+// A room owner (address, rent, and the electricity meter when it is included) or a messenger (name, mobile, amount): entered by the admin only.
+function PartyForm({ item, kind, branches, onClose, onSaved }) {
+  const toast = useToast();
+  const [f, setF] = useState({ branch: item?.branch?.id || (branches.length === 1 ? branches[0].id : ''), name: item?.name || '', mobile: item?.mobile || '', address: item?.address || '', amount: item?.amount ? String(item.amount) : '', meterIncluded: Boolean(item?.meterIncluded), openingReading: item ? String(item.openingReading ?? '') : '', perUnit: item?.perUnit ? String(item.perUnit) : '', meterPhoto: '' });
+  const sv = useSaver(toast, onSaved);
+  useEffect(() => { if (item?.meterIncluded) api.hr.rentParty(item.id).then((r) => setF((x) => ({ ...x, meterPhoto: r.item.meterPhoto || '' }))).catch(() => {}); }, [item]);
+  const set = (k) => (e) => { setF((x) => ({ ...x, [k]: e.target.value })); sv.setErrors((x) => ({ ...x, [k]: undefined })); };
+  const room = kind === 'room';
+  return (
+    <FormModal title={`${item ? 'Edit' : 'Register'} ${KIND[kind].toLowerCase()}`} onClose={onClose} busy={sv.busy}
+      onSave={() => sv.run(() => (item ? api.hr.updateRentParty(item.id, { ...f, kind }) : api.hr.createRentParty({ ...f, kind })), 'Saved')}>
+      <div className="form-grid">
+        {!item && branches.length > 1 && <FormField id="rpb" label="Branch" required error={sv.errors.branch}><select id="rpb" value={f.branch} onChange={set('branch')}><option value="">Select</option>{branches.map((b) => <option key={b.id} value={b.id}>{b.code} — {b.name}</option>)}</select></FormField>}
+        <FormField id="rpn" label="Name" required error={sv.errors.name}><input id="rpn" value={f.name} maxLength={80} onChange={set('name')} /></FormField>
+        <FormField id="rpm" label="Mobile" required error={sv.errors.mobile}><input id="rpm" inputMode="numeric" value={f.mobile} onChange={(e) => setF((x) => ({ ...x, mobile: digitsOnly(e.target.value, 10) }))} /></FormField>
+        {room && <FormField id="rpa" label="Address" required className="span-2" error={sv.errors.address}><input id="rpa" value={f.address} maxLength={300} onChange={set('address')} /></FormField>}
+        <FormField id="rpr" label={room ? 'Monthly room rent (₹)' : 'Amount (₹)'} required error={sv.errors.amount}><input id="rpr" inputMode="decimal" value={f.amount} onChange={(e) => setF((x) => ({ ...x, amount: decimal(e.target.value) }))} /></FormField>
+        {room && (
+          <>
+            <label className="span-2" style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input type="checkbox" checked={f.meterIncluded} onChange={(e) => setF((x) => ({ ...x, meterIncluded: e.target.checked }))} /> Room rent meter included (electricity is paid by the meter reading)</label>
+            {f.meterIncluded && (
+              <>
+                <FormField id="rpo" label="Meter reading" required error={sv.errors.openingReading}><input id="rpo" inputMode="decimal" value={f.openingReading} onChange={(e) => setF((x) => ({ ...x, openingReading: decimal(e.target.value) }))} /></FormField>
+                <FormField id="rpu" label="Rate per unit (₹)" required error={sv.errors.perUnit}><input id="rpu" inputMode="decimal" value={f.perUnit} onChange={(e) => setF((x) => ({ ...x, perUnit: decimal(e.target.value) }))} /></FormField>
+                <PhotoField id="rpph" label="Meter photo" required value={f.meterPhoto} error={sv.errors.meterPhoto} onChange={(v) => setF((x) => ({ ...x, meterPhoto: v }))} />
+              </>
+            )}
+          </>
+        )}
+      </div>
+    </FormModal>
+  );
+}
+
+function RentParties({ branches, onClose }) {
+  const toast = useToast();
+  const list = useLoad(() => api.hr.rentParties({}), []);
+  const [form, setForm] = useState(null);
+  const items = list.data?.items || [];
+  async function remove(p) {
+    try { await api.hr.removeRentParty(p.id); toast.success('Removed'); list.load(); } catch (err) { toast.error(err.message); }
+  }
+  return (
+    <Modal open title="Room owners and messengers" onClose={onClose} size="xl" footer={<button className="btn" onClick={onClose}>Close</button>}>
+      <p className="muted small" style={{ marginTop: 0 }}>Registered by the admin only. Branches then pay the rent to them in Room / Messenger Rent.</p>
+      <div className="toolbar"><button className="btn primary" onClick={() => setForm({ kind: 'room' })}>Register room owner</button><button className="btn primary" onClick={() => setForm({ kind: 'messenger' })}>Register messenger</button></div>
+      <Body list={list} empty="No room owner or messenger registered.">{() => (
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead><tr><th>Type</th><th>Name</th><th>Branch</th><th>Mobile</th><th className="num">Amount</th><th>Meter</th><th /></tr></thead>
+            <tbody>
+              {items.map((p) => (
+                <tr key={p.id}>
+                  <td data-label="Type">{KIND[p.kind]}</td><td data-label="Name"><strong>{p.name}</strong>{p.address && <div className="muted small">{p.address}</div>}</td><td data-label="Branch">{p.branch?.code}</td><td data-label="Mobile">{p.mobile}</td>
+                  <td data-label="Amount" className="num">{inr(p.amount)}</td>
+                  <td data-label="Meter">{p.meterIncluded ? <>Last reading {p.lastReading}<div className="muted small">{inr(p.perUnit)} per unit</div></> : <span className="muted">{p.kind === 'room' ? 'Not included' : '—'}</span>}</td>
+                  <td><div style={{ display: 'flex', gap: 6 }}><button className="btn sm" onClick={() => setForm({ kind: p.kind, item: p })}>Edit</button><button className="btn sm danger-outline" onClick={() => remove(p)}>Remove</button></div></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}</Body>
+      {form && <PartyForm item={form.item} kind={form.kind} branches={branches} onClose={() => setForm(null)} onSaved={() => { setForm(null); list.load(); }} />}
+    </Modal>
+  );
+}
+
 export function RoomRent() {
   const toast = useToast();
+  const { user } = useAuth();
+  const admin = ['super_admin', 'admin'].includes(user?.role);
   const [branch, setBranch] = useState('');
   const [from, setFrom] = useState(monthStart());
   const [to, setTo] = useState(today());
@@ -89,35 +166,54 @@ export function RoomRent() {
   const q = useDebounce(search, 300);
   const list = useLoad(() => api.hr.roomRents({ branch, from, to, q }), [branch, from, to, q]);
   const [adding, setAdding] = useState(false);
+  const [parties, setParties] = useState(false);
   const [cancelling, setCancelling] = useState(null);
   const [f, setF] = useState({});
   const sv = useSaver(toast, () => { setAdding(false); list.load(); });
-  const openAdd = () => { setF({ branch: '', month: monthNow(), landlord: '', amount: '', paidOn: today(), payMode: 'cash', bankAccount: '', reference: '', remark: '' }); sv.setErrors({}); setAdding(true); };
-  const set = (k) => (e) => { setF((x) => ({ ...x, [k]: e.target.value })); sv.setErrors((x) => ({ ...x, [k]: undefined })); };
   const [branches, setBranches] = useState([]);
+  const [people, setPeople] = useState([]);
   useEffect(() => { api.groups.branchOptions().then((r) => setBranches(r.items)).catch(() => {}); }, []);
+  const loadPeople = () => api.hr.rentParties({ active: 1 }).then((r) => setPeople(r.items)).catch(() => {});
+  useEffect(() => { loadPeople(); }, []);
+  const openAdd = () => { setF({ branch: '', party: '', month: monthNow(), landlord: '', rent: '', currentReading: '', meterPhoto: '', paidOn: today(), payMode: 'cash', bankAccount: '', reference: '', remark: '' }); sv.setErrors({}); loadPeople(); setAdding(true); };
+  const set = (k) => (e) => { setF((x) => ({ ...x, [k]: e.target.value })); sv.setErrors((x) => ({ ...x, [k]: undefined })); };
+  const party = people.find((p) => p.id === f.party);
+  const myBranch = f.branch || (branches.length === 1 ? branches[0].id : '');
+  const choices = people.filter((p) => !myBranch || p.branch?.id === myBranch);
+  const metered = party?.kind === 'room' && party.meterIncluded;
+  const units = metered && f.currentReading !== '' ? Math.round((num(f.currentReading) - party.lastReading) * 100) / 100 : 0;
+  const electricity = metered ? Math.round(Math.max(units, 0) * party.perUnit * 100) / 100 : 0;
+  const rent = f.rent !== '' ? num(f.rent) : party ? party.amount : 0;
+  const total = Math.round((rent + electricity) * 100) / 100;
+  async function viewPhoto(r) {
+    try { const x = await api.hr.roomRentPhoto(r.id); const w = window.open('', '_blank'); if (w && x.photo) w.document.write(`<img src="${x.photo}" style="max-width:100%">`); } catch (err) { toast.error(err.message); }
+  }
   const items = list.data?.items || [];
   return (
     <>
-      <PageHeader title="Room Rent Entry" description="The rent paid for the room (office) of a branch. Every entry is a payment in the Cashbook of the branch (Room rent)." />
+      <PageHeader title="Room / Messenger Rent" description="The rent paid to a room owner or a messenger of a branch. For a room with an electricity meter the rent is the room rent plus the units used (current reading − old reading) at the rate per unit. Every entry is a payment in the Cashbook of the branch." />
       <div className="panel">
         <div className="toolbar" style={{ flexWrap: 'wrap' }}>
           <BranchSelect value={branch} onChange={setBranch} />
           <Dates from={from} setFrom={setFrom} to={to} setTo={setTo} />
-          <input type="search" placeholder="Search landlord" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search" />
+          <input type="search" placeholder="Search name" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search" />
           <Refresh onClick={list.load} loading={list.loading} />
+          {admin && <button className="btn" onClick={() => setParties(true)}>Room owners / Messengers</button>}
           <button className="btn primary" onClick={openAdd}>New rent entry</button>
         </div>
-        <Body list={list} empty="No room rent entered for these dates.">{() => (<>
+        <Body list={list} empty="No rent entered for these dates.">{() => (<>
           <Summary items={[['Entries', list.data.summary.entries], ['Rent paid', inr(list.data.summary.amount)]]} />
           <div className="table-wrap">
             <table className="data-table">
-              <thead><tr><th>Paid on</th><th>Branch</th><th>Rent of</th><th>Landlord</th><th className="num">Amount</th><th>By</th><th>Status</th><th /></tr></thead>
+              <thead><tr><th>Paid on</th><th>Branch</th><th>Rent of</th><th>Paid to</th><th className="num">Rent</th><th className="num">Electricity</th><th className="num">Total</th><th>By</th><th>Status</th><th /></tr></thead>
               <tbody>
                 {items.map((r) => (
                   <tr key={r.id}>
                     <td data-label="Paid on">{dmy(r.paidOn)}</td><td data-label="Branch">{r.branch?.code}</td><td data-label="Rent of">{new Date(`${r.month}-01T00:00:00`).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}</td>
-                    <td data-label="Landlord">{r.landlord}{r.remark && <div className="muted small">{r.remark}</div>}</td><td data-label="Amount" className="num">{inr(r.amount)}</td>
+                    <td data-label="Paid to">{r.landlord}{r.kind !== 'other' && <div className="muted small">{KIND[r.kind]}</div>}{r.remark && <div className="muted small">{r.remark}</div>}</td>
+                    <td data-label="Rent" className="num">{inr(r.rent)}</td>
+                    <td data-label="Electricity" className="num">{r.hasMeter ? <>{inr(r.electricity)}<div className="muted small">{r.prevReading} → {r.currentReading} = {r.units} units × {inr(r.perUnit)}</div><button className="btn sm" onClick={() => viewPhoto(r)}>Meter photo</button></> : '—'}</td>
+                    <td data-label="Total" className="num"><strong>{inr(r.amount)}</strong></td>
                     <td data-label="By">{MODE_LABEL[r.payMode]}{r.reference ? ` · ${r.reference}` : ''}<div className="muted small">{r.by}</div></td>
                     <td data-label="Status"><Badge s={r.status} />{r.cancelReason && <div className="muted small">{r.cancelReason}</div>}</td>
                     <td>{r.status === 'paid' && <button className="btn sm danger-outline" onClick={() => setCancelling(r)}>Cancel</button>}</td>
@@ -128,13 +224,25 @@ export function RoomRent() {
           </div>
         </>)}</Body>
       </div>
+      {parties && <RentParties branches={branches} onClose={() => { setParties(false); loadPeople(); }} />}
       {adding && (
-        <FormModal title="New room rent entry" onClose={() => setAdding(false)} busy={sv.busy} onSave={() => sv.run(() => api.hr.createRoomRent({ ...f, bankAccount: f.payMode === 'bank' ? f.bankAccount : undefined }), 'Rent entered. It is in the Cashbook.')}>
+        <FormModal title="New rent entry" onClose={() => setAdding(false)} busy={sv.busy} saveLabel={`Pay ${total ? inr(total) : ''}`.trim()} onSave={() => sv.run(() => api.hr.createRoomRent({ ...f, bankAccount: f.payMode === 'bank' ? f.bankAccount : undefined, meterPhoto: metered ? f.meterPhoto : undefined, currentReading: metered ? f.currentReading : undefined }), 'Rent paid. It is in the Cashbook.')}>
           <div className="form-grid">
-            {branches.length > 1 && <FormField id="rrb" label="Branch" required error={sv.errors.branch}><select id="rrb" value={f.branch} onChange={set('branch')}><option value="">Select</option>{branches.map((b) => <option key={b.id} value={b.id}>{b.code} — {b.name}</option>)}</select></FormField>}
+            {branches.length > 1 && <FormField id="rrb" label="Branch" required error={sv.errors.branch}><select id="rrb" value={f.branch} onChange={(e) => { setF((x) => ({ ...x, branch: e.target.value, party: '' })); }}><option value="">Select</option>{branches.map((b) => <option key={b.id} value={b.id}>{b.code} — {b.name}</option>)}</select></FormField>}
+            <FormField id="rrq" label="Room owner / Messenger" error={sv.errors.party} hint={choices.length ? '' : 'None registered for this branch: the admin registers them in Room owners / Messengers. Or type a name below.'}>
+              <select id="rrq" value={f.party} onChange={(e) => setF((x) => ({ ...x, party: e.target.value, rent: '', currentReading: '', meterPhoto: '' }))}><option value="">Other (type the name)</option>{choices.map((p) => <option key={p.id} value={p.id}>{KIND[p.kind]}: {p.name}</option>)}</select>
+            </FormField>
             <FormField id="rrm" label="Rent of the month" required error={sv.errors.month}><input id="rrm" type="month" value={f.month} onChange={set('month')} /></FormField>
-            <FormField id="rrl" label="Landlord" required error={sv.errors.landlord}><input id="rrl" value={f.landlord} maxLength={80} onChange={set('landlord')} /></FormField>
-            <FormField id="rra" label="Rent (₹)" required error={sv.errors.amount}><input id="rra" inputMode="decimal" value={f.amount} onChange={(e) => { setF((x) => ({ ...x, amount: e.target.value.replace(/[^\d.]/g, '') })); sv.setErrors((x) => ({ ...x, amount: undefined })); }} /></FormField>
+            {!party && <FormField id="rrl" label="Name" required error={sv.errors.landlord}><input id="rrl" value={f.landlord} maxLength={80} onChange={set('landlord')} /></FormField>}
+            <FormField id="rra" label={party?.kind === 'messenger' ? 'Amount (₹)' : 'Rent (₹)'} required error={sv.errors.rent} hint={party ? `Set for ${party.name}: ${inr(party.amount)}` : ''}><input id="rra" inputMode="decimal" value={f.rent} placeholder={party ? String(party.amount) : ''} onChange={(e) => { setF((x) => ({ ...x, rent: decimal(e.target.value) })); sv.setErrors((x) => ({ ...x, rent: undefined })); }} /></FormField>
+            {metered && (
+              <>
+                <FormField id="rrold" label="Old meter reading"><input id="rrold" value={party.lastReading} readOnly /></FormField>
+                <FormField id="rrcur" label="Current meter reading" required error={sv.errors.currentReading}><input id="rrcur" inputMode="decimal" value={f.currentReading} onChange={(e) => { setF((x) => ({ ...x, currentReading: decimal(e.target.value) })); sv.setErrors((x) => ({ ...x, currentReading: undefined })); }} /></FormField>
+                <PhotoField id="rrph" label="Current meter reading photo" required value={f.meterPhoto} error={sv.errors.meterPhoto} onChange={(v) => setF((x) => ({ ...x, meterPhoto: v }))} />
+                <div className="span-2 muted" style={{ alignSelf: 'center' }}>(Current − old) = {units > 0 ? units : 0} units × {inr(party.perUnit)} per unit = <strong>{inr(electricity)}</strong><br />Rent {inr(rent)} + electricity {inr(electricity)} = <strong>Total pay {inr(total)}</strong></div>
+              </>
+            )}
             <FormField id="rrd" label="Paid on" error={sv.errors.paidOn}><input id="rrd" type="date" max={today()} value={f.paidOn} onChange={set('paidOn')} /></FormField>
             <FormField id="rrp" label="Paid by" error={sv.errors.payMode}><select id="rrp" value={f.payMode} onChange={set('payMode')}>{Object.entries(MODE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></FormField>
             <BankAccountSelect id="rrbank" mode={f.payMode} value={f.bankAccount} onChange={(v) => setF((x) => ({ ...x, bankAccount: v }))} error={sv.errors.bankAccount} />
@@ -143,7 +251,7 @@ export function RoomRent() {
           </div>
         </FormModal>
       )}
-      {cancelling && <ReasonModal title="Cancel the rent entry" subject={`${cancelling.landlord} · ${inr(cancelling.amount)}. It is taken out of the Cashbook.`} confirm="Cancel entry" onClose={() => setCancelling(null)} onSend={async (reason) => { await api.hr.cancelRoomRent(cancelling.id, reason); toast.success('Cancelled'); setCancelling(null); list.load(); }} />}
+      {cancelling && <ReasonModal title="Cancel the rent entry" subject={`${cancelling.landlord} · ${inr(cancelling.amount)}. It is taken out of the Cashbook.`} confirm="Cancel entry" onClose={() => setCancelling(null)} onSend={async (reason) => { await api.hr.cancelRoomRent(cancelling.id, reason); toast.success('Entry cancelled'); setCancelling(null); list.load(); }} />}
     </>
   );
 }

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler as h } from '../utils/http.js';
 import {
-  listRoomRents, createRoomRent, cancelRoomRent, listTasks, createTask, setTaskStatus, listComplaints, createComplaint, setComplaintStatus,
+  listRoomRents, createRoomRent, cancelRoomRent, roomRentPhoto, listRentParties, getRentParty, createRentParty, updateRentParty, deleteRentParty, listTasks, createTask, setTaskStatus, listComplaints, createComplaint, setComplaintStatus,
   listRequirements, createRequirement, decideRequirement, listLeaves, applyLeave, decideLeave, listResignations, applyResignation, decideResignation,
   listChanges, createChange, letterhead, blockEmployee,
 } from '../controllers/hrExtraController.js';
@@ -14,6 +14,12 @@ const HR = ['super_admin', 'admin', 'branch_manager', 'accountant'];
 
 router.get('/hr/room-rents', requireAuth, requireRole(...HR), h(listRoomRents));
 router.post('/hr/room-rents', requireAuth, requireRole(...HR), h(createRoomRent));
+router.get('/hr/room-rents/:id/photo', requireAuth, requireRole(...HR), h(roomRentPhoto));
+router.get('/hr/rent-parties', requireAuth, requireRole(...HR), h(listRentParties));
+router.get('/hr/rent-parties/:id', requireAuth, requireRole(...ADMIN), h(getRentParty));
+router.post('/hr/rent-parties', requireAuth, requireRole(...ADMIN), h(createRentParty));
+router.put('/hr/rent-parties/:id', requireAuth, requireRole(...ADMIN), h(updateRentParty));
+router.delete('/hr/rent-parties/:id', requireAuth, requireRole(...ADMIN), h(deleteRentParty));
 router.post('/hr/room-rents/:id/cancel', requireAuth, requireRole(...ADMIN), h(cancelRoomRent));
 
 router.get('/hr/tasks', requireAuth, requireRole(...HR), h(listTasks));

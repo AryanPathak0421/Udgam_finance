@@ -15,6 +15,7 @@ const companySchema = new mongoose.Schema(
     pincode: { type: String, trim: true },
     email: { type: String, required: true, lowercase: true, trim: true },
     mobile: { type: String, required: true, trim: true },
+    logoImage: { type: String }, // the company logo (letterhead of the salary slip and the letters), same rules as the stamp
     stampImage: { type: String }, // data URL (png/jpeg), size-limited by the controller
     signatureImage: { type: String }, // authorised signatory signature, same rules as the stamp
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
