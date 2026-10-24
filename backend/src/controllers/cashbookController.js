@@ -9,7 +9,7 @@ import { CashEntry, ENTRY_CATEGORIES, ENTRY_MODES } from '../models/CashEntry.js
 import { Branch } from '../models/Branch.js';
 import { Ledger } from '../models/Ledger.js';
 import { CivilCheck } from '../models/CivilCheck.js';
-import { assertDayOpen } from '../services/dayOpen.js';
+import { assertDayOpen, defaultWorkDate } from '../services/dayOpen.js';
 import { asString, parseDateOnly, startOfToday, HttpError } from '../utils/http.js';
 import { toMinor } from '../utils/money.js';
 import { audit } from '../utils/audit.js';
@@ -455,7 +455,9 @@ export async function addEntry(req, res) {
     if (!(await Branch.exists({ _id: id }))) throw invalid({ branch: 'Branch not found' });
     branch = id;
   }
-  await assertDayOpen(branch, date);
+  // no date given: the working date of the branch (the day it is on after its last approved day close)
+  if (!b.date) date = await defaultWorkDate(branch, req.user);
+  await assertDayOpen(branch, date, req.user);
   const e = await CashEntry.create({ branch, date, side, category, amountPaise, mode, bankAccount, ledger, remark: asString(b.remark).slice(0, 200), enteredByCode: req.user.employeeCode || '', createdBy: req.user._id });
   await audit(req, { action: 'cashbook.entry', entity: 'CashEntry', entityId: e._id, after: { side, category, amount: amountPaise / 100, date: iso(date), branch: branch ? String(branch) : 'head office' } });
   res.status(201).json({ entry: { id: e._id, side, category, amount: amountPaise / 100, date: iso(date), mode, remark: e.remark || '' } });

@@ -6,7 +6,7 @@ import { CashEntry } from '../models/CashEntry.js';
 import { AuditLog } from '../models/AuditLog.js';
 import { Holiday } from '../models/SuperAdmin.js';
 import { generateCode } from '../services/codeSequence.js';
-import { assertDayOpen } from '../services/dayOpen.js';
+import { assertDayOpen, defaultWorkDate } from '../services/dayOpen.js';
 import { readBankAccount } from '../services/bankAccountPick.js';
 import { sendSms } from '../services/sms.js';
 import { asString, parseDateOnly, HttpError } from '../utils/http.js';
@@ -471,13 +471,15 @@ export async function paySalary(req, res) {
     if (s.status === 'paid' || !s.netPaise) { out.skipped += 1; continue; }
     try {
       // eslint-disable-next-line no-await-in-loop
-      await assertDayOpen(s.branch, today);
+      const payDate = await defaultWorkDate(s.branch, req.user);
+      // eslint-disable-next-line no-await-in-loop
+      await assertDayOpen(s.branch, payDate, req.user);
       // eslint-disable-next-line no-await-in-loop
       const entry = await CashEntry.create({
-        branch: s.branch || null, date: today, side: 'payment', category: 'staff_salary', amountPaise: s.netPaise, mode: payMode, bankAccount, remark: `Salary ${s.month} — ${s.employeeCode} ${s.name}`.slice(0, 200),
+        branch: s.branch || null, date: payDate, side: 'payment', category: 'staff_salary', amountPaise: s.netPaise, mode: payMode, bankAccount, remark: `Salary ${s.month} — ${s.employeeCode} ${s.name}`.slice(0, 200),
         enteredByCode: req.user.employeeCode || '', createdBy: req.user._id,
       });
-      s.status = 'paid'; s.paidOn = today; s.payMode = payMode; s.bankAccount = bankAccount; s.cashEntry = entry._id; s.paidByCode = req.user.employeeCode || '';
+      s.status = 'paid'; s.paidOn = payDate; s.payMode = payMode; s.bankAccount = bankAccount; s.cashEntry = entry._id; s.paidByCode = req.user.employeeCode || '';
       // eslint-disable-next-line no-await-in-loop
       await s.save();
       out.paid += 1; out.amount += s.netPaise / 100;

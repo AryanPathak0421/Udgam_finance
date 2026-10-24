@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import Icon from './Icon.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { api } from '../api/client.js';
+import { loadWorkDates } from '../utils/workDate.js';
 import { ROLE_LABELS } from '../config/nav.js';
 
 export default function Header({ title, parent, onMenu }) {
@@ -10,6 +11,15 @@ export default function Header({ title, parent, onMenu }) {
   const ref = useRef(null);
   const bellRef = useRef(null);
   const [bell, setBell] = useState(false);
+  const [work, setWork] = useState([]);
+  // the date the branches of this user work on (the day after the last approved day close); the admin has none
+  useEffect(() => {
+    let live = true;
+    const load = () => loadWorkDates(true).then((r) => { if (live) setWork(r.restricted ? r.items.filter((i) => i.workingDate) : []); });
+    load();
+    const t = setInterval(load, 300000);
+    return () => { live = false; clearInterval(t); };
+  }, []);
   const [notes, setNotes] = useState({ unread: 0, items: [] });
 
   // the bell: messages the admin sent (Super Admin → Bulk Notification)
@@ -50,6 +60,12 @@ export default function Header({ title, parent, onMenu }) {
       </h1>
 
       <div className="header-spacer" />
+
+      {work.length > 0 && (
+        <span className="badge grey" title="The date your branch works on: the day after its last approved day close. Work is made on this date only.">
+          Branch date: {work.map((w) => `${w.branch.code} ${new Date(`${w.workingDate}T00:00:00`).toLocaleDateString('en-IN')}`).join(' · ')}
+        </span>
+      )}
 
       <div className="search">
         <Icon name="search" size={16} />

@@ -1,4 +1,4 @@
-import { assertDayOpen } from '../services/dayOpen.js';
+import { assertDayOpen, defaultWorkDate } from '../services/dayOpen.js';
 import { readBankAccount } from '../services/bankAccountPick.js';
 import mongoose from 'mongoose';
 import { LoanPayment, PAYMENT_MODES } from '../models/LoanPayment.js';
@@ -116,9 +116,9 @@ const earliestPayment = (r) => {
   return approved && approved > loanDate ? approved : loanDate;
 };
 
-function readPaidOn(req, r, input) {
+async function readPaidOn(req, r, input) {
   const today = startOfToday();
-  let paidOn = today;
+  let paidOn = await defaultWorkDate(r.branch?._id || r.branch, req.user);
   if (input) {
     paidOn = parseDateOnly(asString(input));
     if (!paidOn) throw invalid({ paidOn: 'Enter a valid date' });
@@ -133,7 +133,7 @@ function readPaidOn(req, r, input) {
 /** Everything the payment screen shows: the deductions, the dates and the products (stock) that can be added. */
 export async function preparePayment(req, res) {
   const r = await loadApproved(req, req.params.id);
-  const paidOn = readPaidOn(req, r, req.query.paidOn);
+  const paidOn = await readPaidOn(req, r, req.query.paidOn);
   const { start, end, defaultStart, allowed, rule } = emiDates(r, paidOn, req.query.emiStartDate, await collectionRule(r));
   const kind = r.kind || 'personal';
   const stock = kind === 'product' ? [] : await StockProduct.find({ isDeleted: false, isActive: true, stockQty: { $gt: 0 }, branch: r.branch }).sort({ name: 1 });
@@ -194,8 +194,8 @@ const present = (p) => ({
 /** Pays an approved loan: the deductions are taken off, products added at payment time come out of the branch stock. */
 async function pay(req, r, b) {
   const kind = r.kind || 'personal';
-  const paidOn = readPaidOn(req, r, b.paidOn);
-  await assertDayOpen(r.branch?._id || r.branch, paidOn);
+  const paidOn = await readPaidOn(req, r, b.paidOn);
+  await assertDayOpen(r.branch?._id || r.branch, paidOn, req.user);
   const { start, end } = emiDates(r, paidOn, b.emiStartDate, await collectionRule(r));
   const payMode = asString(b.payMode);
   if (!PAYMENT_MODES.includes(payMode)) throw invalid({ payMode: 'Select how the loan is paid' });

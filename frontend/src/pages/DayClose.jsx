@@ -7,7 +7,7 @@ import { useToast } from '../components/ui/Toast.jsx';
 
 const inr = (n) => (n === null || n === undefined || Number.isNaN(n) ? '—' : `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const dmy = (s) => (s ? new Date(`${s}T00:00:00`).toLocaleDateString('en-IN') : '—');
-const STATUS = { submitted: ['Waiting for admin', 'amber'], approved: ['Approved', 'green'], rejected: ['Rejected', 'danger'] };
+const STATUS = { submitted: ['Waiting for admin', 'amber'], approved: ['Approved', 'green'], rejected: ['Cancelled', 'danger'], revoked: ['Revoked', 'danger'] };
 export const StatusBadge = ({ s }) => <span className={`badge ${STATUS[s]?.[1] || 'grey'}`}>{STATUS[s]?.[0] || s}</span>;
 
 /** Denomination: the branch counts its notes and coins against the cash closing of its Cashbook. Making it closes the day. */

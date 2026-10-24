@@ -201,6 +201,8 @@ export const api = {
     submit: (data) => request('/day-close', { method: 'POST', body: data }),
     list: (params) => request(`/day-close${qs(params)}`),
     approve: (id) => request(`/day-close/${id}/approve`, { method: 'POST' }),
+    revoke: (id, reason) => request(`/day-close/${id}/revoke`, { method: 'POST', body: { reason } }),
+    workingDates: () => request('/day-close/working-dates'),
     reject: (id, reason) => request(`/day-close/${id}/reject`, { method: 'POST', body: { reason } }),
   },
   accounts: {

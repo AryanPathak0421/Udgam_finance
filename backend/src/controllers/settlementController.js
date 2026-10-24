@@ -1,4 +1,4 @@
-import { assertDayOpen } from '../services/dayOpen.js';
+import { assertDayOpen, defaultWorkDate } from '../services/dayOpen.js';
 import { readBankAccount } from '../services/bankAccountPick.js';
 import mongoose from 'mongoose';
 import { LoanSettlement } from '../models/LoanSettlement.js';
@@ -59,10 +59,9 @@ export async function preview(req, res) {
 async function prepare(req, b) {
   const p = await loadLoan(req, b.loan);
   const line = findLine(p, b.member);
-  const today = startOfToday();
-  // a settlement is made today: there is no back date (and no future date)
-  const settledOn = today;
-  if (b.settledOn && iso(parseDateOnly(asString(b.settledOn))) !== iso(today)) throw invalid({ settledOn: 'The settlement date is today and cannot be changed' });
+  // a settlement is made on the working date of the branch (today): there is no other date
+  const settledOn = await defaultWorkDate(p.branch?._id || p.branch, req.user);
+  if (b.settledOn && iso(parseDateOnly(asString(b.settledOn))) !== iso(settledOn)) throw invalid({ settledOn: 'The settlement date is the working date of the branch and cannot be changed' });
   if (settledOn < p.paidOn) throw invalid({ settledOn: 'The settlement cannot be before the loan was paid out' });
   const st = await borrowerState(p, line, settledOn);
   if (st.settled) throw new HttpError(409, `This loan is already settled (${st.settled.receiptNo})`);
@@ -71,7 +70,7 @@ async function prepare(req, b) {
 }
 
 async function save(req, p, line, data) {
-  await assertDayOpen(p.branch._id, data.settledOn);
+  await assertDayOpen(p.branch._id, data.settledOn, req.user);
   try {
     return await LoanSettlement.create({
       ...data, receiptNo: await generateCode('settlementReceipt'), loanPayment: p._id, loanId: p.loanId, formId: p.formId, branch: p.branch._id, member: line.member, memberCode: line.code,

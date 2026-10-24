@@ -5,6 +5,7 @@ import FormField from '../components/ui/FormField.jsx';
 import Modal from '../components/ui/Modal.jsx';
 import ConfirmDialog from '../components/ui/ConfirmDialog.jsx';
 import BankAccountSelect from '../components/BankAccountSelect.jsx';
+import { workDateOf } from '../utils/workDate.js';
 import { EmptyState, ErrorState, PageHeader, Spinner } from '../components/ui/Feedback.jsx';
 import { useToast } from '../components/ui/Toast.jsx';
 
@@ -65,6 +66,11 @@ function EntryForm({ kind, cfg, branches, ledgers, isAdmin, onClose, onSaved }) 
   const [searchQuery, setSearchQuery] = useState('');
   const [showResults, setShowResults] = useState(false);
   const searchBoxRef = useRef(null);
+  const [workNote, setWorkNote] = useState('');
+  // the entry is made on the date the branch is on (the day after its last approved day close)
+  useEffect(() => {
+    workDateOf(cfg.transfer ? f.fromBranch : f.branch).then((d) => { if (d) { setF((x) => ({ ...x, date: d })); setWorkNote(d); } else setWorkNote(''); }).catch(() => {});
+  }, [f.branch, f.fromBranch]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const set = (k) => (e) => { setF((x) => ({ ...x, [k]: e.target.value })); setErrors((x) => ({ ...x, [k]: undefined })); };
 
@@ -255,7 +261,7 @@ function EntryForm({ kind, cfg, branches, ledgers, isAdmin, onClose, onSaved }) 
             </select>
           </FormField>
         )}
-        <FormField id="adate" label="Date" required error={errors.date}><input id="adate" type="date" max={today()} value={f.date} onChange={set('date')} /></FormField>
+        <FormField id="adate" label="Date" required error={errors.date} hint={workNote ? 'Your branch works on this date only' : undefined}><input id="adate" type="date" max={today()} value={f.date} readOnly={Boolean(workNote)} onChange={set('date')} /></FormField>
         <FormField id="aamount" label="Amount (₹)" required error={errors.amount}>
           <input id="aamount" inputMode="decimal" value={f.amount} onChange={(e) => { setF((x) => ({ ...x, amount: e.target.value.replace(/[^\d.]/g, '') })); setErrors((x) => ({ ...x, amount: undefined })); }} />
         </FormField>

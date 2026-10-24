@@ -4,7 +4,7 @@ import { Branch } from '../models/Branch.js';
 import { Ledger } from '../models/Ledger.js';
 import { BankAccount } from '../models/BankAccount.js';
 import { Voucher } from '../models/Voucher.js';
-import { assertDayOpen } from '../services/dayOpen.js';
+import { assertDayOpen, defaultWorkDate } from '../services/dayOpen.js';
 import { generateCode } from '../services/codeSequence.js';
 import { accountLabel, readBankAccount } from '../services/bankAccountPick.js';
 import { asString, parseDateOnly, startOfToday, HttpError } from '../utils/http.js';
@@ -101,7 +101,12 @@ export const makeEntry = (kind) => async (req, res) => {
   // the number is taken only once everything is valid, so a refused entry does not use one up
   const voucherNo = await generateCode(def.seq);
   // a branch whose day is closed (denomination made) takes no entry for that day
-  for (const d of docs) await assertDayOpen(d.branch, date); // eslint-disable-line no-await-in-loop
+  for (const d of docs) {
+    // eslint-disable-next-line no-await-in-loop
+    if (!b.date) d.date = await defaultWorkDate(d.branch, req.user);
+    // eslint-disable-next-line no-await-in-loop
+    await assertDayOpen(d.branch, d.date, req.user);
+  }
   const made = await CashEntry.insertMany(docs.map((d) => ({ ...d, voucherNo })));
   await audit(req, { action: `accounts.${kind}`, entity: 'CashEntry', entityId: made[0]._id, after: { voucherNo, amount: amountPaise / 100, date: iso(date) } });
   res.status(201).json({ voucherNo, id: made[0]._id });

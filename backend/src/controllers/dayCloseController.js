@@ -123,7 +123,7 @@ export async function list(req, res) {
     filter.branch = new mongoose.Types.ObjectId(wanted);
   }
   const st = asString(req.query.status);
-  if (['submitted', 'approved', 'rejected'].includes(st)) filter.status = st;
+  if (['submitted', 'approved', 'rejected', 'revoked'].includes(st)) filter.status = st;
   const from = parseDateOnly(asString(req.query.from));
   const to = parseDateOnly(asString(req.query.to));
   if (from || to) filter.date = { ...(from ? { $gte: from } : {}), ...(to ? { $lte: to } : {}) };
@@ -157,6 +157,38 @@ export async function approve(req, res) {
   await c.save();
   await audit(req, { action: 'dayClose.approve', entity: 'DayClose', entityId: c._id, after: { branch: c.branch.code, date: iso(c.date), closing: c.closingPaise / 100 } });
   res.json({ close: present(c, null), nextDate: iso(new Date(c.date.getTime() + DAY)) });
+}
+
+/**
+ * The admin takes back an approved day: the branch is on that date again and can work on it (a back date), and has to make the denomination again.
+ * The days after it were closed on top of it, so they are taken back too.
+ */
+export async function revoke(req, res) {
+  const c = await load(req);
+  if (c.status !== 'approved') throw new HttpError(409, 'Only an approved day can be revoked');
+  const reason = asString(req.body?.reason).slice(0, 200);
+  if (reason.length < 3) throw invalid({ reason: 'Enter the reason' });
+  const later = await DayClose.updateMany({ branch: c.branch._id, date: { $gt: c.date }, status: { $in: ['approved', 'submitted'] } }, { $set: { status: 'revoked', rejectReason: `Revoked with ${iso(c.date)}: ${reason}`, decidedByCode: req.user.employeeCode || '', decidedAt: new Date() } });
+  c.status = 'revoked';
+  c.rejectReason = reason;
+  c.decidedByCode = req.user.employeeCode || '';
+  c.decidedAt = new Date();
+  await c.save();
+  await audit(req, { action: 'dayClose.revoke', entity: 'DayClose', entityId: c._id, after: { branch: c.branch.code, date: iso(c.date), reason, laterRevoked: later.modifiedCount } });
+  res.json({ close: present(c, null), laterRevoked: later.modifiedCount, workingDate: iso(c.date) });
+}
+
+/** The working date of each branch of the user (the other users work on that date only; the admin is not held to it). */
+export async function workingDates(req, res) {
+  if (isAdmin(req.user)) return res.json({ restricted: false, items: [] });
+  const ids = (req.user.branches || []).map((b) => new mongoose.Types.ObjectId(String(b)));
+  const branches = await Branch.find({ _id: { $in: ids } }).select('code name').lean();
+  const last = new Map((await DayClose.aggregate([{ $match: { branch: { $in: ids }, status: 'approved' } }, { $group: { _id: '$branch', d: { $max: '$date' } } }])).map((x) => [String(x._id), x.d]));
+  const waiting = new Map((await DayClose.find({ branch: { $in: ids }, status: 'submitted' }).select('branch date').lean()).map((x) => [String(x.branch), x.date]));
+  res.json({
+    restricted: true,
+    items: branches.map((b) => ({ branch: { id: b._id, code: b.code, name: b.name }, workingDate: last.get(String(b._id)) ? iso(new Date(last.get(String(b._id)).getTime() + DAY)) : null, waitingForApproval: waiting.get(String(b._id)) ? iso(waiting.get(String(b._id))) : null })),
+  });
 }
 
 /** The admin sends it back: the day is open again and the branch makes the denomination again. */

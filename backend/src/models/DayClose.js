@@ -14,7 +14,8 @@ export const DENOMINATIONS = [
   { key: 'c2', label: '₹2 coin', value: 2 },
   { key: 'c1', label: '₹1 coin', value: 1 },
 ];
-export const CLOSE_STATUS = ['submitted', 'approved', 'rejected'];
+// revoked: an approved day taken back by the admin; the branch is back on that date and makes the denomination again
+export const CLOSE_STATUS = ['submitted', 'approved', 'rejected', 'revoked'];
 
 // The day close of one branch for one date: the denomination (count of every note and coin) next to the cash closing of the Cashbook.
 // The branch makes it; the day is closed from then on. Only when the admin approves it (and the two match) does the branch move on to the next date.

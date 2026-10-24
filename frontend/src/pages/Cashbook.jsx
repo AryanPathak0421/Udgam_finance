@@ -1,4 +1,5 @@
 import BankAccountSelect from '../components/BankAccountSelect.jsx';
+import { workDateOf } from '../utils/workDate.js';
 import { Fragment, useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -85,6 +86,11 @@ function EntryDialog({ cats, ledgers, branches, isAdmin, defaultBranch, onClose,
   const [form, setForm] = useState({ side: 'receive', category: '', branch: defaultBranch, date: today(), amount: '', mode: 'cash', bankAccount: '', remark: '' });
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
+  const [workNote, setWorkNote] = useState('');
+  // the entry is made on the date the branch is on (the day after its last approved day close)
+  useEffect(() => {
+    workDateOf(form.branch).then((d) => { if (d) { setForm((f) => ({ ...f, date: d })); setWorkNote(d); } else setWorkNote(''); }).catch(() => {});
+  }, [form.branch]);
   const set = (k) => (e) => { setForm((f) => ({ ...f, [k]: e.target.value, ...(k === 'side' ? { category: '' } : {}) })); setErrors((x) => ({ ...x, [k]: undefined })); };
   async function save() {
     setBusy(true);
@@ -131,7 +137,7 @@ function EntryDialog({ cats, ledgers, branches, isAdmin, defaultBranch, onClose,
             </select>
           </FormField>
         )}
-        <FormField id="cdate" label="Date" required error={errors.date}><input id="cdate" type="date" max={today()} value={form.date} onChange={set('date')} /></FormField>
+        <FormField id="cdate" label="Date" required error={errors.date} hint={workNote ? 'Your branch works on this date only' : undefined}><input id="cdate" type="date" max={today()} value={form.date} readOnly={Boolean(workNote)} onChange={set('date')} /></FormField>
         <FormField id="camount" label="Amount (₹)" required error={errors.amount}>
           <input id="camount" inputMode="decimal" value={form.amount} onChange={(e) => { setForm((f) => ({ ...f, amount: e.target.value.replace(/[^\d.]/g, '') })); setErrors((x) => ({ ...x, amount: undefined })); }} />
         </FormField>

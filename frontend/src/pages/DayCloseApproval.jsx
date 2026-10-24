@@ -24,6 +24,7 @@ export default function DayCloseApproval() {
   const [open, setOpen] = useState('');
   const [busy, setBusy] = useState('');
   const [rejecting, setRejecting] = useState(null);
+  const [revoking, setRevoking] = useState(null);
   const [reason, setReason] = useState('');
   const [reasonError, setReasonError] = useState('');
 
@@ -72,12 +73,27 @@ export default function DayCloseApproval() {
       setBusy('');
     }
   }
+  async function revoke() {
+    setBusy(revoking.id);
+    setReasonError('');
+    try {
+      const r = await api.dayClose.revoke(revoking.id, reason);
+      toast.success(`${revoking.branch?.code} ${dmy(revoking.date)} revoked. The branch can work on ${dmy(r.workingDate)} again${r.laterRevoked ? ` (${r.laterRevoked} later day${r.laterRevoked === 1 ? '' : 's'} revoked with it)` : ''}.`);
+      setRevoking(null);
+      setReason('');
+      load();
+    } catch (err) {
+      setReasonError(err.errors?.reason || err.message);
+    } finally {
+      setBusy('');
+    }
+  }
   async function reject() {
     setBusy(rejecting.id);
     setReasonError('');
     try {
       await api.dayClose.reject(rejecting.id, reason);
-      toast.success('Sent back to the branch');
+      toast.success('Cancelled: the branch makes the denomination again');
       setRejecting(null);
       setReason('');
       load();
@@ -109,7 +125,8 @@ export default function DayCloseApproval() {
           <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status">
             <option value="submitted">Waiting for approval</option>
             <option value="approved">Approved</option>
-            <option value="rejected">Rejected</option>
+            <option value="rejected">Cancelled</option>
+            <option value="revoked">Revoked</option>
             <option value="">All</option>
           </select>
           <label className="small muted" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>From <input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} aria-label="From date" /></label>
@@ -133,13 +150,16 @@ export default function DayCloseApproval() {
                       <td data-label="Cashbook closing" className="num">{inr(c.cashbook.closing)}</td>
                       <td data-label="Denomination" className="num">{inr(c.denomination)}</td>
                       <td data-label="Difference" className="num"><span className={`badge ${c.match ? 'green' : 'danger'}`}>{c.match ? 'Matches' : inr(c.difference)}</span></td>
-                      <td data-label="Status"><StatusBadge s={c.status} />{c.status === 'rejected' && c.rejectReason && <div className="muted small">{c.rejectReason}</div>}</td>
+                      <td data-label="Status"><StatusBadge s={c.status} />{['rejected', 'revoked'].includes(c.status) && c.rejectReason && <div className="muted small">{c.rejectReason}</div>}</td>
                       <td>
                         {c.status === 'submitted' && (
                           <div style={{ display: 'flex', gap: 6 }}>
                             <button className="btn sm primary" disabled={!c.match || busy === c.id} title={c.match ? '' : 'The denomination does not match the cashbook closing'} onClick={() => approve(c)}>Approve</button>
-                            <button className="btn sm danger-outline" disabled={busy === c.id} onClick={() => { setRejecting(c); setReason(''); setReasonError(''); }}>Send back</button>
+                            <button className="btn sm danger-outline" disabled={busy === c.id} onClick={() => { setRejecting(c); setReason(''); setReasonError(''); }}>Cancel</button>
                           </div>
+                        )}
+                        {c.status === 'approved' && (
+                          <button className="btn sm danger-outline" disabled={busy === c.id} onClick={() => { setRevoking(c); setReason(''); setReasonError(''); }}>Revoke</button>
                         )}
                       </td>
                     </tr>
@@ -177,9 +197,14 @@ export default function DayCloseApproval() {
           </div>
         )}
       </div>
-      <Modal open={Boolean(rejecting)} title="Send the day back to the branch" onClose={() => setRejecting(null)} busy={Boolean(busy)}
-        footer={<><button className="btn" onClick={() => setRejecting(null)}>Cancel</button><button className="btn danger" onClick={reject} disabled={Boolean(busy)}>Send back</button></>}>
-        <p className="muted">{rejecting ? `${rejecting.branch?.code} · ${dmy(rejecting.date)}: the day opens again and the branch makes the denomination again.` : ''}</p>
+      <Modal open={Boolean(revoking)} title="Revoke the approved day" onClose={() => setRevoking(null)} busy={Boolean(busy)}
+        footer={<><button className="btn" onClick={() => setRevoking(null)}>Close</button><button className="btn danger" onClick={revoke} disabled={Boolean(busy)}>Revoke</button></>}>
+        <p className="muted">{revoking ? `${revoking.branch?.code} · ${dmy(revoking.date)}: the branch is back on this date and can work on it (a back date). Every later day that was closed after it is revoked too, and the branch makes the denomination again.` : ''}</p>
+        <FormField id="dcrevoke" label="Reason" required error={reasonError}><input id="dcrevoke" value={reason} maxLength={200} onChange={(e) => setReason(e.target.value)} /></FormField>
+      </Modal>
+      <Modal open={Boolean(rejecting)} title="Cancel the day close" onClose={() => setRejecting(null)} busy={Boolean(busy)}
+        footer={<><button className="btn" onClick={() => setRejecting(null)}>Close</button><button className="btn danger" onClick={reject} disabled={Boolean(busy)}>Cancel the day close</button></>}>
+        <p className="muted">{rejecting ? `${rejecting.branch?.code} · ${dmy(rejecting.date)}: the denomination is cancelled and the branch makes it again.` : ''}</p>
         <FormField id="dcreason" label="Reason" required error={reasonError}><input id="dcreason" value={reason} maxLength={200} onChange={(e) => setReason(e.target.value)} /></FormField>
       </Modal>
     </>
