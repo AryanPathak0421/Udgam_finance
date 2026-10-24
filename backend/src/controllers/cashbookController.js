@@ -178,55 +178,37 @@ async function fastOpening(scope, head, from, mode = '') {
   return totalReceive - totalPayment;
 }
 
+/**
+ * Today due: for every loan (every borrower of it) the EMI that falls due on the date (the actual collection) less what was received from that borrower on the
+ * date. An EMI of 10000 of which 5000 was received today leaves 5000 due; a borrower who paid more than the EMI leaves nothing (never less than 0).
+ * Added up per kind of loan (daily, weekly, product, personal, MSME / business).
+ */
 async function fastDue(scope, asOf) {
-  const dueAgg = await LoanPayment.aggregate([
-    {
-      $match: {
-        ...scope,
-        status: 'paid',
-        'schedule.dueDate': asOf,
-      },
-    },
-    { $unwind: '$schedule' },
-    { $match: { 'schedule.dueDate': asOf } },
-    {
-      $project: {
-        kind: 1,
-        mode: 1,
-        loanType: 1,
-        instTotal: {
-          $add: [
-            { $multiply: ['$schedule.installmentPaise', { $size: '$lines' }] },
-            { $sum: '$lines.extraEmiPaise' },
-          ],
-        },
-      },
-    },
-    {
-      $group: {
-        _id: {
-          $cond: [
-            { $eq: ['$kind', 'group'] },
-            { $cond: [{ $eq: ['$mode', 'weekly'] }, 'weekly_due', 'daily_due'] },
-            {
-              $cond: [
-                { $in: ['$loanType', ['business', 'msme']] },
-                'bm_due',
-                { $concat: [{ $ifNull: ['$loanType', 'personal'] }, '_due'] },
-              ],
-            },
-          ],
-        },
-        totalScheduled: { $sum: '$instTotal' },
-      },
-    },
+  const keyOf = {
+    $cond: [
+      { $eq: ['$kind', 'group'] },
+      { $cond: [{ $eq: ['$mode', 'weekly'] }, 'weekly_due', 'daily_due'] },
+      { $cond: [{ $in: ['$loanType', ['business', 'msme']] }, 'bm_due', { $concat: [{ $ifNull: ['$loanType', 'personal'] }, '_due'] }] },
+    ],
+  };
+  const [scheduled, received] = await Promise.all([
+    LoanPayment.aggregate([
+      { $match: { ...scope, status: 'paid', 'schedule.dueDate': asOf } },
+      { $unwind: '$schedule' },
+      { $match: { 'schedule.dueDate': asOf } },
+      { $unwind: '$lines' },
+      { $project: { _id: 0, lp: '$_id', code: '$lines.code', key: keyOf, actual: { $add: ['$schedule.installmentPaise', { $ifNull: ['$lines.extraEmiPaise', 0] }] } } },
+    ]),
+    EmiPayment.aggregate([
+      { $match: { ...scope, status: 'paid', paidOn: asOf } },
+      { $group: { _id: { lp: '$loanPayment', code: '$memberCode' }, got: { $sum: '$amountPaise' } } },
+    ]),
   ]);
-
+  const got = new Map(received.map((r) => [`${r._id.lp}|${r._id.code}`, r.got]));
   const dueBy = new Map();
-  dueAgg.forEach((d) => {
-    if (d._id && d.totalScheduled > 0) {
-      dueBy.set(d._id, d.totalScheduled);
-    }
+  scheduled.forEach((r) => {
+    const due = Math.max(0, r.actual - (got.get(`${r.lp}|${r.code}`) || 0));
+    if (r.key && due > 0) dueBy.set(r.key, (dueBy.get(r.key) || 0) + due);
   });
   return dueBy;
 }
@@ -375,7 +357,7 @@ export async function cashbookData(req, query) {
   // today due: the EMI scheduled on the end date (information, not cash)
   const asOf = to || new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
   const dueBy = query.skipDue ? new Map() : await fastDue(scope, asOf);
-  dueBy.forEach((amount, cat) => cur.push({ side: 'payment', cat, date: iso(asOf), particulars: 'EMI due on this date', ref: '', mode: '', amount, branchId: null, memo: true }));
+  dueBy.forEach((amount, cat) => cur.push({ side: 'payment', cat, date: iso(asOf), particulars: 'EMI due on this date (actual collection less received today)', ref: '', mode: '', amount, branchId: null, memo: true }));
 
   // one line for every ledger of the Ledger master that has an entry in the period
   const ledgerIds = [...new Set(cur.filter((x) => x.cat.startsWith('ledger:')).map((x) => x.cat.slice(7)))];
