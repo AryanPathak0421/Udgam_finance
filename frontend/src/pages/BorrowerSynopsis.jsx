@@ -43,7 +43,7 @@ function Person({ p }) {
     <>
       <DetailList items={[['Name', p.name], ['Phone', p.mobile ? `${p.mobile}${p.mobileVerified ? ' ✓' : ''}` : ''], ['Aadhaar', p.aadhaar], ['PAN', p.pan ? `${p.pan}${p.panVerified ? ' ✓ verified' : ''}` : ''], ['Employee ID', p.employeeCode], ...(p.sameAsGuarantor ? [['Note', 'Same person as the guarantor']] : [])]} />
       <div style={{ marginTop: 10 }}>
-        <Photos items={[['Photo', p.photo], ['Signature', p.signature], ['Aadhaar', p.aadhaarPhoto], ['PAN', p.panPhoto], ['Joint photo with member', p.jointPhoto]]} />
+        <Photos items={[['Photo', p.photo], ['Signature', p.signature], ['Aadhaar front', p.aadhaarPhoto], ['Aadhaar back', p.aadhaarBackPhoto], ['PAN', p.panPhoto], ['Joint photo with member', p.jointPhoto]]} />
       </div>
     </>
   );
@@ -245,7 +245,7 @@ export default function BorrowerSynopsis() {
           </div>
         )}
         <div style={{ marginTop: 12 }}>
-          <Photos items={[['Member photo', m.memberPhoto], ['Signature', m.signaturePhoto], ['Aadhaar', m.aadhaarPhoto], ['PAN', m.panPhoto]]} />
+          <Photos items={[['Member photo', m.memberPhoto], ['Signature', m.signaturePhoto], ['Aadhaar front', m.aadhaarPhoto], ['Aadhaar back', m.aadhaarBackPhoto], ['PAN', m.panPhoto]]} />
         </div>
       </Section>
 

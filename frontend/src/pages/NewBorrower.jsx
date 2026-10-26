@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client.js';
+import { staffLabel } from '../utils/staffLabel.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import FormField from '../components/ui/FormField.jsx';
 import Modal from '../components/ui/Modal.jsx';
@@ -33,7 +34,7 @@ const minDob = () => {
 const EMPTY = {
   branch: '', name: '', dob: '', gender: '', mobile: '', email: '', husbandName: '', occupation: '', education: '',
   address: '', pincode: '', state: '', district: '', area: '', aadhaar: '', pan: '', bankName: '', ifsc: '', accountNumber: '',
-  memberPhoto: '', aadhaarPhoto: '', panPhoto: '', signaturePhoto: '', employeeCode: '',
+  memberPhoto: '', aadhaarPhoto: '', aadhaarBackPhoto: '', panPhoto: '', signaturePhoto: '', employeeCode: '',
 };
 
 // A value (mobile / PAN) that must be confirmed with an OTP before the form can be saved.
@@ -152,7 +153,7 @@ export function EmployeeSelect({ id = 'employeeCode', label = 'Employee ID', req
       <select id={id} value={value} onChange={(e) => onChange(e.target.value)} disabled={!branch || state.loading}>
         <option value="">{state.loading ? 'Loading…' : !state.items.length && branch ? 'No employee in this branch' : required ? 'Select employee' : 'All employees'}</option>
         {state.items.map((x) => (
-          <option key={x.code} value={x.code}>{x.code} — {x.name}{x.code === state.me ? ' (you)' : ''}{x.migrated ? ' (old system)' : ''}</option>
+          <option key={x.code} value={x.code}>{staffLabel(x)}{x.code === state.me ? ' (you)' : ''}{x.migrated ? ' (old system)' : ''}</option>
         ))}
       </select>
     </FormField>
@@ -217,6 +218,7 @@ export function BorrowerForm({ branches, options, onCancel, onSaved, member = nu
           accountNumber: member.accountNumber,
           memberPhoto: member.memberPhoto || '',
           aadhaarPhoto: member.aadhaarPhoto || '',
+          aadhaarBackPhoto: member.aadhaarBackPhoto || '',
           panPhoto: member.panPhoto || '',
           signaturePhoto: member.signaturePhoto || '',
         }
@@ -229,6 +231,16 @@ export function BorrowerForm({ branches, options, onCancel, onSaved, member = nu
   const [bankInfo, setBankInfo] = useState(null); // result of the IFSC lookup
   const pendingDistrict = useRef('');
   const [saving, setSaving] = useState(false);
+  const [accountTaken, setAccountTaken] = useState(''); // set when the account number belongs to another member already
+
+  // asks the server, when the account number has been typed, whether another member already has it
+  async function checkAccount() {
+    if (!/^\d{9,18}$/.test(form.accountNumber) || (isEdit && form.accountNumber === member.accountNumber)) return;
+    try {
+      const r = await api.members.checkAccount(form.accountNumber, isEdit ? member.id : undefined);
+      setAccountTaken(r.free ? '' : r.message);
+    } catch { /* the server checks it again when the form is saved */ }
+  }
 
   const set = (key) => (e) => {
     const value = e.target.value;
@@ -350,7 +362,9 @@ export function BorrowerForm({ branches, options, onCancel, onSaved, member = nu
     need('district', 'Select district');
     need('bankName', 'Bank name is required');
     need('memberPhoto', 'Member photo is required');
-    need('aadhaarPhoto', 'Aadhaar photo is required');
+    need('aadhaarPhoto', 'Aadhaar front photo is required');
+    // a member that was registered before the back was asked for can still be edited without it
+    if (!isEdit) need('aadhaarBackPhoto', 'Aadhaar back photo is required');
     need('signaturePhoto', 'Signature photo is required');
     if (!mobileValid) found.mobile = 'Enter a valid 10-digit mobile number';
     else if (!mobileCh && !mobileKept) found.mobile = isEdit ? 'Verify the new mobile number with an OTP' : 'Verify the mobile number with an OTP';
@@ -366,6 +380,7 @@ export function BorrowerForm({ branches, options, onCancel, onSaved, member = nu
     if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(form.ifsc)) found.ifsc = 'Enter a valid IFSC code (e.g. SBIN0001234)';
     else if (bankInfo?.status === 'invalid') found.ifsc = 'This IFSC code does not exist';
     if (!/^\d{9,18}$/.test(form.accountNumber)) found.accountNumber = 'Account number must be 9–18 digits';
+    else if (accountTaken) found.accountNumber = accountTaken;
     setErrors(found);
     if (Object.keys(found).length) {
       toast.error('Please correct the highlighted fields');
@@ -521,8 +536,8 @@ export function BorrowerForm({ branches, options, onCancel, onSaved, member = nu
             }>
             <input id="ifsc" value={form.ifsc} onChange={setUpper('ifsc', 11)} maxLength={11} />
           </FormField>
-          <FormField id="accountNumber" label="Account number" required error={errors.accountNumber} hint="9 to 18 digits">
-            <input id="accountNumber" value={form.accountNumber} onChange={setDigits('accountNumber', 18)} inputMode="numeric" maxLength={18} />
+          <FormField id="accountNumber" label="Account number" required error={errors.accountNumber || accountTaken} hint="9 to 18 digits. One account number can be used for one member only.">
+            <input id="accountNumber" value={form.accountNumber} onChange={(e) => { setAccountTaken(''); setDigits('accountNumber', 18)(e); }} onBlur={checkAccount} inputMode="numeric" maxLength={18} />
           </FormField>
         </div>
       </div>
@@ -532,7 +547,8 @@ export function BorrowerForm({ branches, options, onCancel, onSaved, member = nu
         <div className="form-grid">
           <PhotoField id="memberPhoto" label="Member photo" required value={form.memberPhoto} error={errors.memberPhoto} onChange={setPhoto('memberPhoto')} />
           <PhotoField id="signaturePhoto" label="Signature photo" required value={form.signaturePhoto} error={errors.signaturePhoto} onChange={setPhoto('signaturePhoto')} />
-          <PhotoField id="aadhaarPhoto" label="Aadhaar photo" required value={form.aadhaarPhoto} error={errors.aadhaarPhoto} onChange={setPhoto('aadhaarPhoto')} />
+          <PhotoField id="aadhaarPhoto" label="Aadhaar front photo" required value={form.aadhaarPhoto} error={errors.aadhaarPhoto} onChange={setPhoto('aadhaarPhoto')} />
+          <PhotoField id="aadhaarBackPhoto" label="Aadhaar back photo" required={!isEdit} value={form.aadhaarBackPhoto} error={errors.aadhaarBackPhoto} onChange={setPhoto('aadhaarBackPhoto')} />
           <PhotoField id="panPhoto" label="PAN photo" required={Boolean(form.pan)} value={form.panPhoto} error={errors.panPhoto} onChange={setPhoto('panPhoto')} />
         </div>
       </div>
@@ -584,7 +600,7 @@ function MemberDetail({ id, onClose }) {
             ]}
           />
           <div className="stamp-view sign-row" style={{ marginTop: 16 }}>
-            {[['Member photo', m.memberPhoto], ['Signature', m.signaturePhoto], ['Aadhaar', m.aadhaarPhoto], ['PAN', m.panPhoto]].map(([l, src]) => (
+            {[['Member photo', m.memberPhoto], ['Signature', m.signaturePhoto], ['Aadhaar front', m.aadhaarPhoto], ['Aadhaar back', m.aadhaarBackPhoto], ['PAN', m.panPhoto]].map(([l, src]) => (
               <div key={l}>
                 <div className="detail-label">{l}</div>
                 {src ? <img src={src} alt={l} className="stamp-img" /> : <span className="muted">Not uploaded</span>}

@@ -20,6 +20,7 @@ import { checkPanFormat, kycProviderConfigured } from '../services/kycVerify.js'
 import { takeVerified, consumeChallenge, issueOtp } from '../services/otpChallenges.js';
 import { sendSms } from '../services/sms.js';
 import { verhoeff } from './memberController.js';
+import { notifyApprovers } from '../services/notify.js';
 
 const FULL_MOBILE_ROLES = ['super_admin', 'admin', 'accountant'];
 const POPULATE = [{ path: 'branch', select: 'code name' }];
@@ -547,6 +548,8 @@ const present = (r, user, { detail = false } = {}) => {
     // The "who": the borrower, or the group for a group loan.
     subjectCode: isGroup ? r.groupInfo?.code : r.borrower?.code,
     subjectName: isGroup ? r.groupInfo?.name : r.borrower?.name,
+    // the member(s) of the loan: the borrower, or every member of the group (code and name)
+    members: isGroup ? (r.groupInfo?.members || []).map((x) => ({ code: x.code, name: x.name })) : r.borrower?.code ? [{ code: r.borrower.code, name: r.borrower.name }] : [],
     schemeName: r.schemeName,
     amount: rupees(r.amountPaise),
     memberCount: isGroup ? r.memberCount : null,
@@ -983,6 +986,7 @@ export function createRequisition(kind) {
         ...(business ? { business: { loanType: business.loanType, civilScore: business.civilScore } } : {}),
       },
     });
+    notifyApprovers({ branch: doc.branch._id || doc.branch, exceptUser: req.user._id, title: 'New loan requisition', message: `${KIND_LABEL[kind] || 'Loan'} requisition ${doc.formId} for ${m ? `${m.code} ${m.name}` : `${g.code} ${g.name}`}: ₹${r.input.amount}. It waits for approval.` });
     res.status(201).json({ requisition: present(doc, req.user, { detail: true }) });
   };
 }
@@ -1011,7 +1015,7 @@ export async function listRequisitions(req, res) {
   const q = asString(req.query.q);
   if (q) {
     const rx = new RegExp(escapeRegex(q), 'i');
-    filter.$or = [{ formId: rx }, { 'borrower.code': rx }, { 'borrower.name': rx }, { 'groupInfo.code': rx }, { 'groupInfo.name': rx }];
+    filter.$or = [{ formId: rx }, { 'borrower.code': rx }, { 'borrower.name': rx }, { 'groupInfo.code': rx }, { 'groupInfo.name': rx }, { 'groupInfo.members.name': rx }, { 'groupInfo.members.code': rx }];
   }
   const [items, total] = await Promise.all([
     LoanRequisition.find(filter).populate(POPULATE).sort({ createdAt: -1 }).skip(skip).limit(limit),
@@ -1496,5 +1500,6 @@ export async function createGroupRequisition(req, res) {
     action: 'loanRequisition.create', entity: 'LoanRequisition', entityId: created[0]._id,
     after: { formId: base, kind: 'group', for: g.code, members: created.length, total: created.reduce((t, d) => t + d.amountPaise, 0) / 100 },
   });
+  notifyApprovers({ branch: branchId, exceptUser: req.user._id, title: 'New group loan requisition', message: `Group loan requisition ${base} for ${g.code} ${g.name}: ${created.length} member${created.length === 1 ? '' : 's'}, ₹${created.reduce((t, d) => t + d.amountPaise, 0) / 100}. It waits for approval.` });
   res.status(201).json({ requisitions: created.map((d) => present(d, req.user, { detail: true })), requisition: present(created[0], req.user, { detail: true }), batch: { formId: base, count: created.length } });
 }

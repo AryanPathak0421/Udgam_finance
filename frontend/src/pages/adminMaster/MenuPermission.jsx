@@ -102,6 +102,7 @@ export default function MenuPermission() {
       const res = await api.menuPermissions.save(rankId, permissions);
       toast.success(permissions === null ? 'Reset to role defaults' : 'Menu permissions saved');
       setTarget((t) => ({ ...t, permissions: res.permissions }));
+      if (permissions !== null) toast.success('The users of this rank see the new menus within 30 seconds, or when they open any menu.');
       if (permissions === null) setGrid({});
       setDirty(false);
       setResetOpen(false);
@@ -167,6 +168,19 @@ export default function MenuPermission() {
               : `"${target.rank.name}" has no custom permissions, so its ${target.rank.userCount} user${target.rank.userCount === 1 ? '' : 's'} use their role defaults. Tick menus below to set rank permissions.`}{' '}
             Admin and Super Admin users always have full access.
           </div>
+
+          {(target.users || []).length > 0 && (
+            <div className="small" style={{ margin: '10px 0' }}>
+              <strong>Users who get these menus ({target.users.length}):</strong>{' '}
+              {target.users.map((u) => `${u.name}${u.employeeCode ? ` (${u.employeeCode})` : ''}${u.isActive ? '' : ' — login stopped'}`).join(', ')}
+            </div>
+          )}
+          {(target.usersWithoutRank || []).length > 0 && (
+            <div className="notice" style={{ margin: '10px 0' }}>
+              <strong>{target.usersWithoutRank.length} active staff member{target.usersWithoutRank.length === 1 ? ' has' : 's have'} no rank</strong>, so they do not get any menu ticked here
+              ({target.usersWithoutRank.slice(0, 8).map((u) => `${u.name}${u.employeeCode ? ` (${u.employeeCode})` : ''}`).join(', ')}{target.usersWithoutRank.length > 8 ? ' …' : ''}). Give them a rank in User Master.
+            </div>
+          )}
 
           <div className="table-wrap perm-wrap">
             <table className="data-table perm-table">

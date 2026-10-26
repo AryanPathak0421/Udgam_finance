@@ -43,10 +43,10 @@ export async function listAppUsers(req, res) {
 /** Staff who can still be made app users: active, with an employee code, not yet app users. */
 export async function staffOptions(_req, res) {
   const taken = (await AppUser.find({}).select('user').lean()).map((a) => a.user);
-  const staff = await User.find({ _id: { $nin: taken }, isActive: true, employeeCode: { $exists: true, $ne: '' } }).select('name employeeCode role branches').populate('branches', 'code').sort({ name: 1 }).lean();
+  const staff = await User.find({ _id: { $nin: taken }, isActive: true, employeeCode: { $exists: true, $ne: '' } }).select('name employeeCode role branches').populate('branches', 'code name').sort({ name: 1 }).lean();
   // employees registered in HR who have no staff login yet: they cannot be app users until a login is made for them (User Master)
-  const noLogin = await Employee.find({ isDeleted: false, status: 'active', user: { $exists: false } }).select('employeeCode name').sort({ name: 1 }).limit(500).lean();
-  res.json({ items: staff.map((u) => ({ id: u._id, employeeCode: u.employeeCode, name: u.name, role: u.role, branches: (u.branches || []).map((b) => b.code).join(', ') })), noLogin: noLogin.map((e) => ({ employeeCode: e.employeeCode, name: e.name })) });
+  const noLogin = await Employee.find({ isDeleted: false, status: 'active', user: { $exists: false } }).select('employeeCode name branch').populate('branch', 'code name').sort({ name: 1 }).limit(500).lean();
+  res.json({ items: staff.map((u) => ({ id: u._id, employeeCode: u.employeeCode, name: u.name, role: u.role, branches: (u.branches || []).map((b) => b.code).join(', '), branchCode: (u.branches || []).map((b) => b.code).join(', '), branchName: (u.branches || []).map((b) => b.name).join(', ') })), noLogin: noLogin.map((e) => ({ employeeCode: e.employeeCode, name: e.name, branchCode: e.branch?.code || '', branchName: e.branch?.name || '' })) });
 }
 
 export async function createAppUser(req, res) {

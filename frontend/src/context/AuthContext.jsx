@@ -1,22 +1,25 @@
 import { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
+import { useLocation } from 'react-router-dom';
 import { api } from '../api/client.js';
 
 const AuthContext = createContext(null);
 
 // How often the signed-in user's role/rank/permissions are re-read from the server,
 // so a change made by an admin shows up without a manual re-login.
-const REFRESH_MS = 5 * 60 * 1000;
-const FOCUS_THROTTLE_MS = 30 * 1000;
+// (and again whenever a menu is opened, and when the window is used again)
+const REFRESH_MS = 30 * 1000;
+const FOCUS_THROTTLE_MS = 5 * 1000;
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const lastRefresh = useRef(0);
+  const { pathname } = useLocation();
 
   useEffect(() => {
     api
       .me()
-      .then((d) => setUser(d.user))
+      .then((d) => { lastRefresh.current = Date.now(); setUser(d.user); })
       .catch(() => setUser(null))
       .finally(() => setLoading(false));
   }, []);
@@ -29,7 +32,8 @@ export function AuthProvider({ children }) {
 
   // Re-reads /auth/me. A 401 means the session ended (deactivated, password changed…);
   // network errors are ignored so a flaky connection never signs anyone out.
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async ({ minGapMs = 0 } = {}) => {
+    if (Date.now() - lastRefresh.current < minGapMs) return;
     lastRefresh.current = Date.now();
     try {
       const d = await api.me();
@@ -40,11 +44,15 @@ export function AuthProvider({ children }) {
   }, []);
 
   const signedIn = Boolean(user);
+  // every time another menu is opened the permissions are read again, so a menu that was just ticked is there
+  useEffect(() => {
+    if (signedIn) refresh({ minGapMs: FOCUS_THROTTLE_MS });
+  }, [pathname, signedIn, refresh]);
   useEffect(() => {
     if (!signedIn) return undefined;
-    const tick = setInterval(refresh, REFRESH_MS);
+    const tick = setInterval(() => refresh(), REFRESH_MS);
     const onVisible = () => {
-      if (document.visibilityState === 'visible' && Date.now() - lastRefresh.current > FOCUS_THROTTLE_MS) refresh();
+      if (document.visibilityState === 'visible') refresh({ minGapMs: FOCUS_THROTTLE_MS });
     };
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('focus', onVisible);

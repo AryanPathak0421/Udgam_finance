@@ -7,6 +7,8 @@ import { DayClose } from '../models/DayClose.js';
 import { SecurityWithdrawal } from '../models/SecurityWithdrawal.js';
 import { Employee } from '../models/Hr.js';
 import { Complaint, Leave, Resignation, Requirement } from '../models/HrExtra.js';
+import { ProductOrder } from '../models/ProductOrder.js';
+import { ProductPayment } from '../models/ProductPayment.js';
 import { branchFilter, isAdmin } from './groupController.js';
 
 const startOfToday = () => new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
@@ -16,6 +18,9 @@ const iso = (d) => new Date(d).toISOString().slice(0, 10);
 const safe = (p) => p.catch(() => 0);
 const HR_ROLES = ['super_admin', 'admin', 'branch_manager', 'accountant'];
 const MGMT = ['super_admin', 'admin', 'branch_manager'];
+const REQ_ROLES = [...MGMT, 'loan_officer', 'field_officer', 'collection_officer', 'accountant', 'viewer'];
+const MEMBER_CREATORS = [...MGMT, 'loan_officer', 'field_officer'];
+const STOCK_ROLES = [...MGMT, 'loan_officer', 'field_officer', 'collection_officer', 'accountant', 'viewer'];
 
 /** How many things wait for this user, per menu item (the number next to the module in the menu). */
 async function pendingCounts(user) {
@@ -28,7 +33,15 @@ async function pendingCounts(user) {
     '/hr/leave-approval': hr ? safe(Leave.countDocuments({ status: 'pending', ...scope })) : mine ? safe(Leave.countDocuments({ status: 'pending', approver: mine })) : 0,
     '/app/emi-approval': mgmt ? safe(AppEmiCollection.countDocuments({ status: 'pending', ...scope })) : 0,
     '/app/member-approval': mgmt ? safe(Member.countDocuments({ isDeleted: false, 'joiningApproval.status': 'pending', ...scope })) : 0,
-    '/members/kyc-approval': mgmt ? safe(Member.countDocuments({ isDeleted: false, kycDocs: { $elemMatch: { status: 'pending' } }, ...scope })) : 0,
+    // Member: the documents to review (admin) and the rejected documents the branch has to upload again
+    '/members/kyc-approval': admin ? safe(Member.countDocuments({ isDeleted: false, kycPending: true })) : 0,
+    '/members/kyc-reupload': MEMBER_CREATORS.includes(user.role) ? safe(Member.countDocuments({ isDeleted: false, kycRejected: true, ...scope })) : 0,
+    // Requisition: the requisitions that wait for a decision
+    '/loan-requisition/list': REQ_ROLES.includes(user.role) ? safe(LoanRequisition.countDocuments({ isDeleted: false, status: 'pending', ...scope })) : 0,
+    // Product: the orders to approve and the payments to receive (admin); for a branch the orders that were decided in the last 3 days
+    '/stock/orders': admin
+      ? safe(Promise.all([ProductOrder.countDocuments({ status: 'pending' }), ProductPayment.countDocuments({ status: 'paid', isDeleted: { $ne: true } })]).then(([a, b]) => a + b))
+      : STOCK_ROLES.includes(user.role) ? safe(ProductOrder.countDocuments({ status: { $in: ['approved', 'rejected'] }, updatedAt: { $gte: new Date(Date.now() - 3 * DAY) }, ...scope })) : 0,
     '/loan-approval/pending': mgmt ? safe(LoanRequisition.countDocuments({ isDeleted: false, status: 'pending', ...scope })) : 0,
     '/loan-payment/pending': mgmt || user.role === 'accountant' ? safe(LoanRequisition.countDocuments({ isDeleted: false, status: 'approved', disbursedAt: { $exists: false }, ...scope })) : 0,
     '/accounts/day-close-approval': admin ? safe(DayClose.countDocuments({ status: 'submitted', ...scope })) : 0,

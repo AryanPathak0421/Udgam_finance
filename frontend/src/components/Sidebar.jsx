@@ -73,14 +73,27 @@ export default function Sidebar({ collapsed, mobileOpen, onNavigate, onToggleCol
   const { pathname } = useLocation();
   const seenKey = `udgam.seen.${user?.employeeCode || user?.email || ''}`;
   const [counts, setCounts] = useState({});
+  const [loaded, setLoaded] = useState(false);
   const [seen, setSeen] = useState(() => { try { return JSON.parse(localStorage.getItem(seenKey) || '{}'); } catch { return {}; } });
   useEffect(() => {
     let live = true;
-    const load = () => api.badges().then((r) => { if (live) setCounts(r.items || {}); }).catch(() => {});
+    const load = () => api.badges().then((r) => { if (live) { setCounts(r.items || {}); setLoaded(true); } }).catch(() => {});
     load();
     const t = setInterval(load, 60000);
     return () => { live = false; clearInterval(t); };
   }, [user]);
+  // what was seen can never be more than what is there now: when the work is done and new work comes, the new work shows again
+  useEffect(() => {
+    if (!loaded) return;
+    setSeen((s) => {
+      const n = { ...s };
+      let changed = false;
+      Object.keys(n).forEach((k) => { const c = counts[k] || 0; if (n[k] > c) { n[k] = c; changed = true; } });
+      if (!changed) return s;
+      try { localStorage.setItem(seenKey, JSON.stringify(n)); } catch { /* not kept */ }
+      return n;
+    });
+  }, [counts, loaded, seenKey]);
   // opening a module marks what waits in it as seen
   useEffect(() => {
     const hit = Object.keys(counts).filter((p) => pathname === p || pathname.startsWith(`${p}/`));
@@ -94,6 +107,8 @@ export default function Sidebar({ collapsed, mobileOpen, onNavigate, onToggleCol
     });
   }, [pathname, counts, seenKey]);
   const badge = (p) => Math.max((counts[p] || 0) - (seen[p] || 0), 0);
+  // a section (Product, Members ...) shows the total of what is new in it
+  const sectionCount = (section) => section.items.reduce((t, i) => t + (i.children ? i.children.reduce((x, c) => x + badge(c.path), 0) : badge(i.path)), 0);
 
   return (
     <aside className={`sidebar${collapsed ? ' collapsed' : ''}${mobileOpen ? ' open' : ''}`} aria-label="Main navigation">
@@ -105,7 +120,7 @@ export default function Sidebar({ collapsed, mobileOpen, onNavigate, onToggleCol
       <nav>
         {sections.map((section) => (
           <div key={section.title} className="nav-section">
-            {!collapsed && <div className="nav-title">{section.title}</div>}
+            {!collapsed && <div className="nav-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>{section.title}<Badge n={sectionCount(section)} /></div>}
             {section.items.map((item) =>
               item.children ? (
                 <NavGroup

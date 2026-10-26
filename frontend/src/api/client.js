@@ -86,6 +86,7 @@ export const api = {
     synopsis: (id) => request(`/members/${id}/synopsis`),
     setBlocked: (id, data) => request(`/members/${id}/block`, { method: 'POST', body: data }),
     employees: (branch) => request(`/members/employees${qs({ branch })}`),
+    checkAccount: (accountNumber, except) => request(`/members/check-account${qs({ accountNumber, except })}`),
     pincode: (pin) => request(`/members/lookup/pincode/${pin}`),
     ifsc: (code) => request(`/members/lookup/ifsc/${code}`),
     districts: (state) => request(`/members/districts${qs({ state })}`),

@@ -21,6 +21,7 @@ import { LoanPayment } from '../models/LoanPayment.js';
 import { EmployeeTransfer } from '../models/EmployeeTransfer.js';
 import { CivilCheck } from '../models/CivilCheck.js';
 import { missingDetails, guarantorGaps } from '../utils/memberDetails.js';
+import { notifyApprovers } from '../services/notify.js';
 
 export const GENDERS = ['male', 'female', 'other'];
 export const OCCUPATIONS = ['Farmer', 'Agricultural labour', 'Dairy / animal husbandry', 'Small shop / trader', 'Tailoring / handicraft', 'Daily wage labour', 'Salaried', 'Self employed', 'Homemaker', 'Other'];
@@ -63,8 +64,8 @@ export function verhoeff(num) {
 
 // ---- helpers ---------------------------------------------------------------------------------
 const MANAGERS = ['super_admin', 'admin', 'branch_manager'];
-const HISTORY_PHOTOS = ['photo', 'signature', 'aadhaarPhoto', 'panPhoto', 'jointPhoto'].map((f) => `+guarantorHistory.${f}`).join(' ');
-const PARTY_PHOTOS = ['guarantor', 'nominee'].flatMap((k) => ['photo', 'signature', 'aadhaarPhoto', 'panPhoto', 'jointPhoto'].map((f) => `+${k}.${f}`)).join(' ');
+const HISTORY_PHOTOS = ['photo', 'signature', 'aadhaarPhoto', 'aadhaarBackPhoto', 'panPhoto', 'jointPhoto'].map((f) => `+guarantorHistory.${f}`).join(' ');
+const PARTY_PHOTOS = ['guarantor', 'nominee'].flatMap((k) => ['photo', 'signature', 'aadhaarPhoto', 'aadhaarBackPhoto', 'panPhoto', 'jointPhoto'].map((f) => `+${k}.${f}`)).join(' ');
 const maskAadhaar = (a) => (a ? `XXXXXXXX${a.slice(-4)}` : '');
 const maskPan = (p) => (p ? `${p.slice(0, 2)}XXXXX${p.slice(-3)}` : '');
 const dateOnly = (d) => (d ? d.toISOString().slice(0, 10) : null);
@@ -115,6 +116,7 @@ const present = (m, user, { detail = false } = {}) => {
       ifsc: m.ifsc,
       accountNumber: full ? m.accountNumber : m.accountNumber ? `XXXXX${m.accountNumber.slice(-4)}` : '',
       aadhaarPhoto: m.aadhaarPhoto || null,
+      aadhaarBackPhoto: m.aadhaarBackPhoto || null,
       panPhoto: m.panPhoto || null,
       memberPhoto: m.memberPhoto || null,
       signaturePhoto: m.signaturePhoto || null,
@@ -145,6 +147,7 @@ const presentPerson = (p, full) =>
         photo: p.photo || null,
         signature: p.signature || null,
         aadhaarPhoto: p.aadhaarPhoto || null,
+        aadhaarBackPhoto: p.aadhaarBackPhoto || null,
         panPhoto: p.panPhoto || null,
         jointPhoto: p.jointPhoto || null,
         sameAsGuarantor: Boolean(p.sameAsGuarantor),
@@ -202,6 +205,25 @@ async function assertMobileFree(mobile, exceptId, v) {
   if (!MOBILE_RE.test(mobile || '')) return;
   const taken = await Member.findOne({ mobile, isDeleted: false, ...(exceptId ? { _id: { $ne: exceptId } } : {}) }).select('code name');
   if (taken) v.add('mobile', `This mobile number is already registered to member ${taken.code}. Use a different number.`);
+}
+
+/** The message to show when a bank account number is already used by another member ('' when it is free). One account number belongs to one member only. */
+async function accountTakenMessage(accountNumber, exceptId) {
+  if (!ACCOUNT_RE.test(accountNumber || '')) return '';
+  const taken = await Member.findOne({ accountNumber, isDeleted: false, ...(exceptId ? { _id: { $ne: exceptId } } : {}) }).select('code name');
+  return taken ? `This account number is already registered to member ${taken.code} (${taken.name}). One account number can be used for one member only.` : '';
+}
+
+async function assertAccountFree(accountNumber, exceptId, v) {
+  const message = await accountTakenMessage(accountNumber, exceptId);
+  if (message) v.add('accountNumber', message);
+}
+
+/** Tells (before the form is saved) whether an account number is already used by another member. */
+export async function checkAccount(req, res) {
+  const except = mongoose.isValidObjectId(req.query.except) ? req.query.except : null;
+  const message = await accountTakenMessage(asString(req.query.accountNumber), except);
+  res.json({ free: !message, message });
 }
 
 export async function sendOtp(req, res) {
@@ -388,13 +410,16 @@ export async function createMember(req, res) {
   Object.assign(d, readMemberFields(b, v));
 
   d.memberPhoto = readImage(b.memberPhoto, 'memberPhoto', 'Member photo', v, { required: true });
-  d.aadhaarPhoto = readImage(b.aadhaarPhoto, 'aadhaarPhoto', 'Aadhaar photo', v, { required: true });
+  d.aadhaarPhoto = readImage(b.aadhaarPhoto, 'aadhaarPhoto', 'Aadhaar front photo', v, { required: true });
+  d.aadhaarBackPhoto = readImage(b.aadhaarBackPhoto, 'aadhaarBackPhoto', 'Aadhaar back photo', v, { required: true });
   d.signaturePhoto = readImage(b.signaturePhoto, 'signaturePhoto', 'Signature photo', v, { required: true });
   d.panPhoto = readImage(b.panPhoto, 'panPhoto', 'PAN photo', v, { required: Boolean(d.pan) });
   v.throwIfAny();
 
   // A mobile number belongs to one member only.
   await assertMobileFree(d.mobile, null, v);
+  // ... and so does a bank account number
+  await assertAccountFree(d.accountNumber, null, v);
   v.throwIfAny();
 
   // The mobile number must be verified with an OTP.
@@ -443,7 +468,7 @@ export async function createMember(req, res) {
       accountVerifiedAt: acctCheck.status === 'verified' ? new Date() : undefined,
       employeeCode,
       ...(fromApp ? { joiningApproval: { source: 'app', status: 'pending' } } : {}),
-      kycKeys: ['memberPhoto', 'signaturePhoto', 'aadhaarPhoto', ...(d.panPhoto ? ['panPhoto'] : [])],
+      kycKeys: ['memberPhoto', 'signaturePhoto', 'aadhaarPhoto', 'aadhaarBackPhoto', ...(d.panPhoto ? ['panPhoto'] : [])],
       createdBy: req.user._id,
       updatedBy: req.user._id,
     });
@@ -461,6 +486,7 @@ export async function createMember(req, res) {
     entityId: doc._id,
     after: { code: doc.code, formId: doc.formId, name: doc.name, branch: String(doc.branch._id), aadhaar: maskAadhaar(doc.aadhaar), pan: maskPan(doc.pan) },
   });
+  notifyApprovers({ branch: doc.branch._id, exceptUser: req.user._id, title: 'New member registered', message: `${doc.name} (${doc.code}) was registered at ${doc.branch.code} — ${doc.branch.name}. The documents are waiting for KYC approval.` });
   res.status(201).json({ member: present(doc, req.user) });
 }
 
@@ -525,7 +551,7 @@ export async function listMembers(req, res) {
 export async function getMember(req, res) {
   if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Member not found');
   const m = await Member.findOne({ _id: req.params.id, isDeleted: false, ...branchFilter(req.user) })
-    .select('+aadhaarPhoto +panPhoto +memberPhoto +signaturePhoto')
+    .select('+aadhaarPhoto +aadhaarBackPhoto +panPhoto +memberPhoto +signaturePhoto')
     .select(PARTY_PHOTOS)
     .select(HISTORY_PHOTOS)
     .populate(POPULATE);
@@ -535,7 +561,7 @@ export async function getMember(req, res) {
 
 // ---- guarantor / nominee -----------------------------------------------------------------------
 // Both use the same fields. The phone number's OTP verification is optional.
-const PARTY_FIELDS = ['photo', 'signature', 'aadhaarPhoto', 'panPhoto', 'jointPhoto'];
+const PARTY_FIELDS = ['photo', 'signature', 'aadhaarPhoto', 'aadhaarBackPhoto', 'panPhoto', 'jointPhoto'];
 
 async function loadMemberFor(req, { photos = false } = {}) {
   if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Member not found');
@@ -569,7 +595,8 @@ async function readPerson(req, kind, m, existing) {
 
   d.photo = readImage(b.photo, 'photo', `${label} photo`, v, { required: true });
   d.signature = readImage(b.signature, 'signature', 'Signature', v, { required: true });
-  d.aadhaarPhoto = readImage(b.aadhaarPhoto, 'aadhaarPhoto', 'Aadhaar photo', v, { required: true });
+  d.aadhaarPhoto = readImage(b.aadhaarPhoto, 'aadhaarPhoto', 'Aadhaar front photo', v, { required: true });
+  d.aadhaarBackPhoto = readImage(b.aadhaarBackPhoto, 'aadhaarBackPhoto', 'Aadhaar back photo', v, { required: true });
   d.panPhoto = readImage(b.panPhoto, 'panPhoto', 'PAN photo', v, { required: Boolean(d.pan) });
   d.jointPhoto = readImage(b.jointPhoto, 'jointPhoto', 'Joint photo', v, { required: false });
   v.throwIfAny();
@@ -683,6 +710,7 @@ export function savePerson(kind) {
         photo: g.photo,
         signature: g.signature,
         aadhaarPhoto: g.aadhaarPhoto,
+        aadhaarBackPhoto: g.aadhaarBackPhoto,
         panPhoto: g.panPhoto,
         jointPhoto: g.jointPhoto,
         sameAsGuarantor: true,
@@ -694,7 +722,7 @@ export function savePerson(kind) {
       person = await readPerson(req, kind, m, m[kind]);
       guardApproved(m, kind, old, person, req.user);
       if (fillOnly) {
-        const label = { name: 'Name', mobile: 'Phone number', aadhaar: 'Aadhaar number', pan: 'PAN', photo: 'Photo', signature: 'Signature', aadhaarPhoto: 'Aadhaar photo', panPhoto: 'PAN photo', jointPhoto: 'Joint photo' };
+        const label = { name: 'Name', mobile: 'Phone number', aadhaar: 'Aadhaar number', pan: 'PAN', photo: 'Photo', signature: 'Signature', aadhaarPhoto: 'Aadhaar front photo', aadhaarBackPhoto: 'Aadhaar back photo', panPhoto: 'PAN photo', jointPhoto: 'Joint photo' };
         for (const f of Object.keys(label)) {
           if (old?.[f] && String(person[f] || '') !== String(old[f])) throw new HttpError(403, `${label[f]} is already filled in. Only an admin can change it.`, { [f]: 'Only an admin can change it' });
         }
@@ -760,12 +788,14 @@ const cap = (s) => s[0].toUpperCase() + s.slice(1);
 export const KYC_DOCS = [
   { key: 'memberPhoto', who: 'Member', label: 'Member photo' },
   { key: 'signaturePhoto', who: 'Member', label: 'Signature' },
-  { key: 'aadhaarPhoto', who: 'Member', label: 'Aadhaar' },
+  { key: 'aadhaarPhoto', who: 'Member', label: 'Aadhaar front' },
+  { key: 'aadhaarBackPhoto', who: 'Member', label: 'Aadhaar back' },
   { key: 'panPhoto', who: 'Member', label: 'PAN' },
   ...['guarantor', 'nominee'].flatMap((k) => [
     { key: `${k}.photo`, who: cap(k), label: 'Photo' },
     { key: `${k}.signature`, who: cap(k), label: 'Signature' },
-    { key: `${k}.aadhaarPhoto`, who: cap(k), label: 'Aadhaar' },
+    { key: `${k}.aadhaarPhoto`, who: cap(k), label: 'Aadhaar front' },
+    { key: `${k}.aadhaarBackPhoto`, who: cap(k), label: 'Aadhaar back' },
     { key: `${k}.panPhoto`, who: cap(k), label: 'PAN' },
     { key: `${k}.jointPhoto`, who: cap(k), label: 'Joint photo with member' },
   ]),
@@ -849,7 +879,7 @@ const kycSummary = (m, keys = m.kycKeys || []) => {
   };
 };
 
-const KYC_PROJECTION = '+aadhaarPhoto +panPhoto +memberPhoto +signaturePhoto';
+const KYC_PROJECTION = '+aadhaarPhoto +aadhaarBackPhoto +panPhoto +memberPhoto +signaturePhoto';
 
 /** Date-wise queue of members whose documents need approval. */
 export async function listKyc(req, res) {
@@ -1127,6 +1157,7 @@ export async function employeeOptions(req, res) {
     throw new HttpError(403, 'You can only use branches assigned to you');
   }
   // the employees of the branch, and the ones brought over from the old system (they have no login yet, but groups and records carry their staff ID)
+  const branchDoc = await Branch.findById(branch).select('code name').lean();
   const users = await User.find({
     employeeCode: { $exists: true },
     // the staff of this branch only (an admin is not an employee of a branch), and the ones brought over from the old system
@@ -1137,7 +1168,7 @@ export async function employeeOptions(req, res) {
     .select('name employeeCode role isActive')
     .sort({ employeeCode: 1 });
   res.json({
-    items: users.map((u) => ({ code: u.employeeCode, name: u.name, role: u.role, migrated: !u.isActive })),
+    items: users.map((u) => ({ code: u.employeeCode, name: u.name, role: u.role, migrated: !u.isActive, branchCode: branchDoc?.code || '', branchName: branchDoc?.name || '' })),
     me: await staffId(req.user),
   });
 }
@@ -1159,7 +1190,8 @@ export async function ifscInfo(req, res) {
 const MEMBER_PHOTOS = [
   ['memberPhoto', 'Member photo', 'memberPhoto'],
   ['signaturePhoto', 'Signature photo', 'signaturePhoto'],
-  ['aadhaarPhoto', 'Aadhaar photo', 'aadhaarPhoto'],
+  ['aadhaarPhoto', 'Aadhaar front photo', 'aadhaarPhoto'],
+  ['aadhaarBackPhoto', 'Aadhaar back photo', 'aadhaarBackPhoto'],
   ['panPhoto', 'PAN photo', 'panPhoto'],
 ];
 
@@ -1230,7 +1262,11 @@ export async function updateMember(req, res) {
     accountVerifiedAt = ac.status === 'verified' ? new Date() : undefined;
   }
 
-  // Aadhaar / PAN stay unique.
+  // Aadhaar / PAN / the account number stay unique.
+  if (d.accountNumber !== m.accountNumber) {
+    await assertAccountFree(d.accountNumber, m._id, v);
+    v.throwIfAny();
+  }
   if (d.aadhaar !== m.aadhaar && (await Member.exists({ aadhaar: d.aadhaar, isDeleted: false, _id: { $ne: m._id } }))) {
     throw new HttpError(409, 'A member with this Aadhaar number already exists', { aadhaar: 'This Aadhaar number is already registered' });
   }
@@ -1341,7 +1377,7 @@ export async function completeMember(req, res) {
   }
   if (given('bankName')) { const x = asString(b.bankName); if (x.length < 2 || x.length > 80) v.add('bankName', 'Enter the bank name'); else take('bankName', 'Bank name', x); }
   if (given('ifsc')) { const x = asString(b.ifsc).toUpperCase(); if (!IFSC_RE.test(x)) v.add('ifsc', 'Enter a valid IFSC code (e.g. SBIN0001234)'); else take('ifsc', 'IFSC code', x); }
-  if (given('accountNumber')) { const x = asString(b.accountNumber); if (!ACCOUNT_RE.test(x)) v.add('accountNumber', 'Account number must be 9–18 digits'); else take('accountNumber', 'Account number', x); }
+  if (given('accountNumber')) { const x = asString(b.accountNumber); if (!ACCOUNT_RE.test(x)) v.add('accountNumber', 'Account number must be 9–18 digits'); else { const taken = x !== m.accountNumber ? await accountTakenMessage(x, m._id) : ''; if (taken) v.add('accountNumber', taken); else take('accountNumber', 'Account number', x); } }
 
   // photos
   const photoSet = {};
@@ -1414,6 +1450,6 @@ export async function completeMember(req, res) {
   await m.save();
   if (mobileCh) await OtpChallenge.updateOne({ _id: mobileCh._id }, { $set: { consumedAt: new Date() } });
   await audit(req, { action: 'member.complete', entity: 'Member', entityId: m._id, after: { code: m.code, filled: changed, by: admin ? 'admin' : 'branch' } });
-  const full = await Member.findById(m._id).select('+aadhaarPhoto +panPhoto +memberPhoto +signaturePhoto').populate(POPULATE);
+  const full = await Member.findById(m._id).select(KYC_PROJECTION).populate(POPULATE);
   res.json({ member: present(full, req.user, { detail: true }), filled: changed });
 }

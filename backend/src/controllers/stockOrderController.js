@@ -10,7 +10,10 @@ import { parseDateOnly, startOfToday, asString, parsePaging, HttpError } from '.
 import { generateCode } from '../services/codeSequence.js';
 import { audit } from '../utils/audit.js';
 import { isAdmin } from './groupController.js';
+import { notifyApprovers } from '../services/notify.js';
 
+// a payment has a bank account, an order has none (populating a path that is not in the schema is an error)
+const ORDER_POPULATE = [{ path: 'branch', select: 'code name' }];
 const POPULATE = [
   { path: 'branch', select: 'code name' },
   { path: 'bankAccount', select: 'bankName accountHolderName accountNumber' },
@@ -84,7 +87,7 @@ export async function listOrders(req, res) {
   const status = asString(req.query.status);
   if (['pending', 'approved', 'rejected', 'cancelled'].includes(status)) filter.status = status;
   const [items, total, pending] = await Promise.all([
-    ProductOrder.find(filter).populate(POPULATE).sort({ createdAt: -1 }).skip(skip).limit(limit),
+    ProductOrder.find(filter).populate(ORDER_POPULATE).sort({ createdAt: -1 }).skip(skip).limit(limit),
     ProductOrder.countDocuments(filter),
     ProductOrder.countDocuments({ isDeleted: false, ...scope(req.user), status: 'pending' }),
   ]);
@@ -100,7 +103,7 @@ async function load(req) {
 
 export async function getOrder(req, res) {
   const o = await load(req);
-  await o.populate(POPULATE);
+  await o.populate(ORDER_POPULATE);
   const out = present(o);
   // The admin deciding on an order sees where each product can be taken from.
   if (isAdmin(req.user) && o.status === 'pending') {
@@ -146,8 +149,9 @@ export async function createOrder(req, res) {
     requestedByCode: req.user.employeeCode || '',
     createdBy: req.user._id,
   });
-  await o.populate(POPULATE);
+  await o.populate(ORDER_POPULATE);
   await audit(req, { action: 'productOrder.create', entity: 'ProductOrder', entityId: o._id, after: { code: o.code, branch: o.branch.code, items: items.map((i) => `${i.name} x${i.requestedQty}`) } });
+  notifyApprovers({ branch: branchId, exceptUser: req.user._id, includeManagers: false, title: 'New product order', message: `Order ${o.code} from ${o.branch.code} — ${o.branch.name}: ${items.map((i) => `${i.name} × ${i.requestedQty}`).join(', ')}. It waits for approval.` });
   res.status(201).json({ order: present(o) });
 }
 
@@ -216,7 +220,7 @@ export async function approveOrder(req, res) {
   o.decidedBy = req.user._id;
   o.decidedByCode = req.user.employeeCode || '';
   await o.save();
-  await o.populate(POPULATE);
+  await o.populate(ORDER_POPULATE);
   await audit(req, { action: 'productOrder.approve', entity: 'ProductOrder', entityId: o._id, after: { code: o.code, items: o.items.map((i) => `${i.name}: ${i.requestedQty} -> ${i.approvedQty}`) } });
   res.json({ order: present(o) });
 }
@@ -232,7 +236,7 @@ export async function rejectOrder(req, res) {
   o.decidedBy = req.user._id;
   o.decidedByCode = req.user.employeeCode || '';
   await o.save();
-  await o.populate(POPULATE);
+  await o.populate(ORDER_POPULATE);
   await audit(req, { action: 'productOrder.reject', entity: 'ProductOrder', entityId: o._id, after: { code: o.code, reason } });
   res.json({ order: present(o) });
 }
@@ -243,7 +247,7 @@ export async function cancelOrder(req, res) {
   if (o.status !== 'pending') throw new HttpError(409, `This order is already ${o.status}`);
   o.status = 'cancelled';
   await o.save();
-  await o.populate(POPULATE);
+  await o.populate(ORDER_POPULATE);
   await audit(req, { action: 'productOrder.cancel', entity: 'ProductOrder', entityId: o._id, after: { code: o.code } });
   res.json({ order: present(o) });
 }

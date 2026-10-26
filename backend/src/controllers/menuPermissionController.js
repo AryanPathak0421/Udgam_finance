@@ -26,8 +26,13 @@ async function loadRank(id) {
 export async function getRankPermissions(req, res) {
   const rank = await loadRank(req.params.id);
   const userCount = await User.countDocuments({ rank: rank._id });
+  const users = await User.find({ rank: rank._id }).select('name employeeCode role isActive').sort({ name: 1 }).limit(60).lean();
+  // staff without a rank get no rank menus whatever is ticked: the admin has to give them a rank in User Master
+  const withoutRank = await User.find({ $or: [{ rank: { $exists: false } }, { rank: null }], isActive: true, role: { $nin: ['super_admin', 'admin'] } }).select('name employeeCode role').sort({ name: 1 }).limit(60).lean();
   res.json({
     rank: { id: rank._id, code: rank.code, name: rank.name, level: rank.level, userCount },
+    users: users.map((u) => ({ id: u._id, name: u.name, employeeCode: u.employeeCode || '', role: u.role, isActive: u.isActive })),
+    usersWithoutRank: withoutRank.map((u) => ({ id: u._id, name: u.name, employeeCode: u.employeeCode || '', role: u.role })),
     permissions: presentPerms(rank.menuPermissions),
   });
 }

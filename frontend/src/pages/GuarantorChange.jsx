@@ -7,7 +7,7 @@ import useDebounce from '../hooks/useDebounce.js';
 import { EmployeeSelect, OtpVerify, PhotoField } from './NewBorrower.jsx';
 import { downloadMemberPdf } from '../utils/memberPdf.js';
 
-const EMPTY = { employeeCode: '', name: '', mobile: '', aadhaar: '', pan: '', photo: '', signature: '', aadhaarPhoto: '', panPhoto: '', jointPhoto: '', reason: '' };
+const EMPTY = { employeeCode: '', name: '', mobile: '', aadhaar: '', pan: '', photo: '', signature: '', aadhaarPhoto: '', aadhaarBackPhoto: '', panPhoto: '', jointPhoto: '', reason: '' };
 const fmtTime = (d) => (d ? new Date(d).toLocaleString('en-IN') : '—');
 
 function PersonCard({ title, p, note }) {
@@ -17,7 +17,7 @@ function PersonCard({ title, p, note }) {
       {note && <div className="field-hint" style={{ marginBottom: 8 }}>{note}</div>}
       <DetailList items={[['Name', p.name], ['Phone', p.mobile ? `${p.mobile}${p.mobileVerified ? ' ✓' : ''}` : ''], ['Aadhaar', p.aadhaar], ['PAN', p.pan ? `${p.pan}${p.panVerified ? ' ✓ verified' : ''}` : ''], ['Employee ID', p.employeeCode]]} />
       <div className="stamp-view sign-row" style={{ marginTop: 12 }}>
-        {[['Photo', p.photo], ['Signature', p.signature], ['Aadhaar', p.aadhaarPhoto], ['PAN', p.panPhoto], ['Joint photo', p.jointPhoto]].map(([l, src]) => (
+        {[['Photo', p.photo], ['Signature', p.signature], ['Aadhaar front', p.aadhaarPhoto], ['Aadhaar back', p.aadhaarBackPhoto], ['PAN', p.panPhoto], ['Joint photo', p.jointPhoto]].map(([l, src]) => (
           <div key={l}>
             <div className="detail-label">{l}</div>
             {src ? <img src={src} alt={l} className="stamp-img" /> : <span className="muted">—</span>}
@@ -95,7 +95,8 @@ export default function GuarantorChange() {
     else if (form.pan && form.pan[3] !== 'P') found.pan = 'A PAN of an individual has P as the 4th letter';
     if (!form.photo) found.photo = 'Guarantor photo is required';
     if (!form.signature) found.signature = 'Signature is required';
-    if (!form.aadhaarPhoto) found.aadhaarPhoto = 'Aadhaar photo is required';
+    if (!form.aadhaarPhoto) found.aadhaarPhoto = 'Aadhaar front photo is required';
+    if (!form.aadhaarBackPhoto) found.aadhaarBackPhoto = 'Aadhaar back photo is required';
     if (form.pan && !form.panPhoto) found.panPhoto = 'PAN photo is required when a PAN is given';
     if (form.reason.trim().length < 3) found.reason = 'Enter the reason for the change';
     setErrors(found);
@@ -223,7 +224,8 @@ export default function GuarantorChange() {
               <div className="form-grid">
                 <PhotoField id="photo" label="Guarantor photo" required value={form.photo} error={errors.photo} onChange={setPhoto('photo')} />
                 <PhotoField id="signature" label="Signature" required value={form.signature} error={errors.signature} onChange={setPhoto('signature')} />
-                <PhotoField id="aadhaarPhoto" label="Aadhaar photo" required value={form.aadhaarPhoto} error={errors.aadhaarPhoto} onChange={setPhoto('aadhaarPhoto')} />
+                <PhotoField id="aadhaarPhoto" label="Aadhaar front photo" required value={form.aadhaarPhoto} error={errors.aadhaarPhoto} onChange={setPhoto('aadhaarPhoto')} />
+                <PhotoField id="aadhaarBackPhoto" label="Aadhaar back photo" required value={form.aadhaarBackPhoto} error={errors.aadhaarBackPhoto} onChange={setPhoto('aadhaarBackPhoto')} />
                 <PhotoField id="panPhoto" label="PAN photo" required={Boolean(form.pan)} value={form.panPhoto} error={errors.panPhoto} onChange={setPhoto('panPhoto')} />
                 <PhotoField id="jointPhoto" label="Member & guarantor joint photo (optional)" value={form.jointPhoto} error={errors.jointPhoto} onChange={setPhoto('jointPhoto')} />
               </div>

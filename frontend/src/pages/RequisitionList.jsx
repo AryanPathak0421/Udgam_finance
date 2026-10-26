@@ -223,7 +223,7 @@ export default function RequisitionList() {
       />
       <div className="panel">
         <div className="toolbar" style={{ flexWrap: 'wrap' }}>
-          <input type="search" className="toolbar-search" placeholder="Search form ID, borrower code or name" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search" />
+          <input type="search" className="toolbar-search" placeholder="Search form ID, group, member code or name" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search" />
           <select value={kind} onChange={(e) => setKind(e.target.value)} aria-label="Loan kind">
             <option value="">All loan kinds</option>
             <option value="personal">Personal</option>
@@ -252,7 +252,7 @@ export default function RequisitionList() {
             <div className={`table-wrap${loading ? ' dim' : ''}`}>
               <table className="data-table">
                 <thead>
-                  <tr><th>Form ID</th><th>Loan date</th><th>Type</th><th>Borrower / Group</th><th>Branch</th><th>Scheme</th><th className="num">Amount</th><th className="num">Cash</th><th className="num">EMI</th><th>Status</th><th className="actions-col">Actions</th></tr>
+                  <tr><th>Form ID</th><th>Loan date</th><th>Type</th><th>Borrower / Group</th><th>Member name</th><th>Branch</th><th>Scheme</th><th className="num">Amount</th><th className="num">Cash</th><th className="num">EMI</th><th>Status</th><th className="actions-col">Actions</th></tr>
                 </thead>
                 <tbody>
                   {data.items.map((r) => (
@@ -261,6 +261,14 @@ export default function RequisitionList() {
                       <td data-label="Loan date">{r.loanDate}</td>
                       <td data-label="Type">{r.kindLabel}</td>
                       <td data-label="Borrower">{r.subjectCode} — {r.subjectName}</td>
+                      <td data-label="Member name">
+                        {(r.members || []).length === 0 ? '—' : (
+                          <span title={r.members.map((x) => `${x.code} ${x.name}`).join('\n')}>
+                            {r.members.slice(0, 2).map((x) => x.name).join(', ')}{r.members.length > 2 ? ` +${r.members.length - 2} more` : ''}
+                            {r.kind === 'group' && <div className="muted small">{r.members.length} member{r.members.length === 1 ? '' : 's'}</div>}
+                          </span>
+                        )}
+                      </td>
                       <td data-label="Branch">{r.branch?.name || '—'}</td>
                       <td data-label="Scheme">{r.schemeName}</td>
                       <td data-label="Amount" className="num">

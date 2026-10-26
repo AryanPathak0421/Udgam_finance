@@ -22,7 +22,8 @@ const personSchema = new mongoose.Schema(
     jointPhoto: { type: String, select: false },
     photo: { type: String, required: neededInPerson, select: false },
     signature: { type: String, required: neededInPerson, select: false },
-    aadhaarPhoto: { type: String, required: neededInPerson, select: false },
+    aadhaarPhoto: { type: String, required: neededInPerson, select: false }, // the front of the Aadhaar card
+    aadhaarBackPhoto: { type: String, select: false }, // the back of the Aadhaar card
     panPhoto: { type: String, select: false },
     employeeCode: { type: String },
     savedAt: { type: Date, default: Date.now },
@@ -50,6 +51,7 @@ const historySchema = new mongoose.Schema(
     photo: { type: String, select: false },
     signature: { type: String, select: false },
     aadhaarPhoto: { type: String, select: false },
+    aadhaarBackPhoto: { type: String, select: false },
     panPhoto: { type: String, select: false },
     employeeCode: String,
     savedAt: Date,
@@ -118,7 +120,8 @@ const memberSchema = new mongoose.Schema(
     bankName: { type: String, required: needed, trim: true },
     ifsc: { type: String, required: needed, uppercase: true, trim: true },
     accountNumber: { type: String, required: needed, trim: true },
-    aadhaarPhoto: { type: String, required: needed, select: false },
+    aadhaarPhoto: { type: String, required: needed, select: false }, // the front of the Aadhaar card (older members have this one only)
+    aadhaarBackPhoto: { type: String, select: false }, // the back of the Aadhaar card
     panPhoto: { type: String, select: false },
     memberPhoto: { type: String, required: needed, select: false },
     signaturePhoto: { type: String, required: needed, select: false },
@@ -128,6 +131,9 @@ const memberSchema = new mongoose.Schema(
     guarantorHistory: { type: [historySchema], default: [] },
     // Which documents exist (kept in step with the uploads) and how each was reviewed.
     kycKeys: { type: [String], default: [] },
+    // kept in step with the documents when the member is saved (see below): a document waits for its review / a document was rejected
+    kycPending: { type: Boolean, default: false },
+    kycRejected: { type: Boolean, default: false },
     kycDocs: { type: [kycDocSchema], default: [] },
     nominee: { type: personSchema },
     // A blocked borrower is kept on record but must not be given new loans or services.
@@ -145,10 +151,28 @@ const memberSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+/** The flags of the document review of a member (a document without a review record waits for its review). */
+export function kycFlags(m) {
+  const reviewed = new Map((m.kycDocs || []).map((d) => [d.key, d.status]));
+  const keys = m.kycKeys || [];
+  return {
+    kycPending: keys.some((k) => !['approved', 'rejected'].includes(reviewed.get(k))),
+    kycRejected: keys.some((k) => reviewed.get(k) === 'rejected'),
+  };
+}
+memberSchema.pre('save', function kycFlagsOnSave(next) {
+  Object.assign(this, kycFlags(this));
+  next();
+});
+
 const live = { isDeleted: false };
 memberSchema.index({ code: 1 }, { unique: true, partialFilterExpression: live });
 memberSchema.index({ formId: 1 }, { unique: true, partialFilterExpression: live });
 // (a member of the old system may have no Aadhaar number yet: only a number that is there has to be unique)
+// one bank account number belongs to one member (checked when a member is registered or changed)
+memberSchema.index({ kycPending: 1 }, { partialFilterExpression: { kycPending: true } });
+memberSchema.index({ kycRejected: 1 }, { partialFilterExpression: { kycRejected: true } });
+memberSchema.index({ accountNumber: 1 }, { partialFilterExpression: { isDeleted: false, accountNumber: { $type: 'string' } } });
 memberSchema.index({ aadhaar: 1 }, { unique: true, partialFilterExpression: { isDeleted: false, aadhaar: { $type: 'string' } } });
 memberSchema.index({ pan: 1 }, { unique: true, partialFilterExpression: { isDeleted: false, pan: { $type: 'string' } } });
 memberSchema.index({ branch: 1, createdAt: -1 });

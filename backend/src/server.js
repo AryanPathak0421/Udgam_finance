@@ -10,6 +10,7 @@ import { EmiPayment } from './models/EmiPayment.js';
 import { autoSettleAll } from './services/autoSettle.js';
 import { autoAttendanceFor } from './controllers/hrController.js';
 import { syncEmployeesFromUsers } from './services/employeeSync.js';
+import { kycFlags } from './models/Member.js';
 
 const port = process.env.PORT || 5000;
 
@@ -39,6 +40,17 @@ async function migrate() {
   // every staff login gets its HR record, so the HR sections are not empty for the staff that existed before them
   const madeEmployees = await syncEmployeesFromUsers();
   if (madeEmployees) console.log(`Made ${madeEmployees} HR employee record(s) from the staff logins`);
+
+  // The review flags of the members (a document waits / was rejected) for the numbers in the menu: set once for the members saved before the flags existed.
+  const noFlags = Member.collection.find({ kycPending: { $exists: false }, 'kycKeys.0': { $exists: true } }, { projection: { kycKeys: 1, kycDocs: 1 } }).batchSize(100);
+  let flagged = 0;
+  let ops = [];
+  for await (const m of noFlags) {
+    ops.push({ updateOne: { filter: { _id: m._id }, update: { $set: kycFlags(m) } } });
+    if (ops.length >= 200) { await Member.collection.bulkWrite(ops, { ordered: false }); flagged += ops.length; ops = []; }
+  }
+  if (ops.length) { await Member.collection.bulkWrite(ops, { ordered: false }); flagged += ops.length; }
+  if (flagged) console.log(`Set the document review flags of ${flagged} member(s)`);
 
   // Members registered before KYC approval existed: record which documents they have.
   // (Streamed one by one with only the photo fields, and written only when a document is found: thousands of members must not be

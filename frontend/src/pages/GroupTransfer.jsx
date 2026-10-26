@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api/client.js';
+import { staffLabel } from '../utils/staffLabel.js';
 import ConfirmDialog from '../components/ui/ConfirmDialog.jsx';
 import FormField from '../components/ui/FormField.jsx';
 import { EmptyState, ErrorState, PageHeader, Spinner } from '../components/ui/Feedback.jsx';
@@ -158,7 +159,7 @@ export default function GroupTransfer() {
           <FormField id="tfrom" label="From employee" required>
             <select id="tfrom" value={from} disabled={!branch} onChange={(e) => { setFrom(e.target.value); setTo((t) => (t === e.target.value ? '' : t)); setData(null); setFormError(''); }}>
               <option value="">{branch ? (employees.length ? 'Select employee' : 'No employee in this branch') : 'Select the branch first'}</option>
-              {employees.map((e) => <option key={e.code} value={e.code}>{e.code} — {e.name}{e.isActive ? '' : e.migrated ? ' (old system)' : ' (not active)'}</option>)}
+              {employees.map((e) => <option key={e.code} value={e.code}>{staffLabel(e)}{e.isActive ? '' : e.migrated ? ' (old system)' : ' (not active)'}</option>)}
             </select>
           </FormField>
         </div>
@@ -218,7 +219,7 @@ export default function GroupTransfer() {
                 <FormField id="tto" label="Transfer to employee" required>
                   <select id="tto" value={to} onChange={(e) => { setTo(e.target.value); setFormError(''); }}>
                     <option value="">Select employee</option>
-                    {employees.filter((e) => (e.isActive || e.migrated) && e.code !== from).map((e) => <option key={e.code} value={e.code}>{e.code} — {e.name}</option>)}
+                    {employees.filter((e) => (e.isActive || e.migrated) && e.code !== from).map((e) => <option key={e.code} value={e.code}>{staffLabel(e)}</option>)}
                   </select>
                 </FormField>
                 {type === 'group' && <label className="small" style={{ display: 'flex', gap: 6, alignItems: 'center', paddingBottom: 10 }}><input type="checkbox" checked={withLoans} onChange={(e) => setWithLoans(e.target.checked)} /> Also move the running loans of these groups</label>}

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api/client.js';
+import { staffLabel } from '../utils/staffLabel.js';
 import FormField from '../components/ui/FormField.jsx';
 import Modal from '../components/ui/Modal.jsx';
 import ConfirmDialog from '../components/ui/ConfirmDialog.jsx';
@@ -228,7 +229,7 @@ function EmployeeForm({ item, onClose, onSaved }) {
         <FormField id="ensdep" label="Supervisor's department"><select id="ensdep" value={supDept} onChange={(e) => { setSupDept(e.target.value); setSupDes(''); }}><option value="">Select department</option>{opts.departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></FormField>
         <FormField id="ensdes" label="Supervisor's designation"><select id="ensdes" value={supDes} onChange={(e) => setSupDes(e.target.value)}><option value="">Select designation</option>{supDesigs.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></FormField>
         <FormField id="ensup" label="Supervisor name" className="span-2" error={errors.supervisor} hint="Choose the department and designation first; the employees of it are listed. This employee's details then show with the supervisor (Team in the list).">
-          <select id="ensup" value={f.supervisor} onChange={set('supervisor')}><option value="">No supervisor</option>{supList.map((x) => <option key={x.id} value={x.id}>{x.employeeCode} — {x.name}{x.designation?.name ? ` (${x.designation.name})` : ''}</option>)}</select>
+          <select id="ensup" value={f.supervisor} onChange={set('supervisor')}><option value="">No supervisor</option>{supList.map((x) => <option key={x.id} value={x.id}>{staffLabel(x)}{x.designation?.name ? ` · ${x.designation.name}` : ''}</option>)}</select>
         </FormField>
         <div className="span-2">
           <strong>Branches under this employee</strong> <span className="muted small">— tick the branches when the employee is a supervisor</span>
@@ -429,8 +430,8 @@ function SupervisorTransfer({ onClose, onDone }) {
     <Modal open title="Transfer employees to another supervisor" onClose={onClose} busy={busy} size="lg"
       footer={<><button className="btn" onClick={onClose} disabled={busy}>Close</button><button className="btn primary" onClick={go} disabled={busy || !from || !to || picked.size === 0}>{busy ? 'Moving…' : `Transfer ${picked.size || ''}`.trim()}</button></>}>
       <div className="form-grid">
-        <FormField id="stfrom" label="Supervisor 1 (from)" required error={errors.from}><select id="stfrom" value={from} onChange={(e) => setFrom(e.target.value)}><option value="">Select</option>{supervisors.map((e) => <option key={e.id} value={e.id}>{e.employeeCode} — {e.name} ({e.teamCount})</option>)}</select></FormField>
-        <FormField id="stto" label="Supervisor 2 (to)" required error={errors.to}><select id="stto" value={to} onChange={(e) => setTo(e.target.value)}><option value="">Select</option>{all.filter((e) => e.id !== from).map((e) => <option key={e.id} value={e.id}>{e.employeeCode} — {e.name}{e.branch?.code ? ` (${e.branch.code})` : ''}</option>)}</select></FormField>
+        <FormField id="stfrom" label="Supervisor 1 (from)" required error={errors.from}><select id="stfrom" value={from} onChange={(e) => setFrom(e.target.value)}><option value="">Select</option>{supervisors.map((e) => <option key={e.id} value={e.id}>{staffLabel(e)} · team {e.teamCount}</option>)}</select></FormField>
+        <FormField id="stto" label="Supervisor 2 (to)" required error={errors.to}><select id="stto" value={to} onChange={(e) => setTo(e.target.value)}><option value="">Select</option>{all.filter((e) => e.id !== from).map((e) => <option key={e.id} value={e.id}>{staffLabel(e)}</option>)}</select></FormField>
       </div>
       {from && (
         <>

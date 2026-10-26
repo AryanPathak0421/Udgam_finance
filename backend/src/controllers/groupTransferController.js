@@ -27,8 +27,8 @@ export async function employees(req, res) {
   const filter = { employeeCode: { $exists: true, $ne: '' }, role: { $nin: ADMIN_ROLES } };
   if (branch) filter.branches = branch;
   else if (!isAdmin(req.user)) filter.branches = { $in: own };
-  const users = await User.find(filter).select('name employeeCode role isActive legacyImport branches').sort({ employeeCode: 1 });
-  res.json({ items: users.map((u) => ({ code: u.employeeCode, name: u.name, role: u.role, isActive: u.isActive, migrated: !u.isActive && Boolean(u.legacyImport), branches: (u.branches || []).map(String) })) });
+  const users = await User.find(filter).select('name employeeCode role isActive legacyImport branches').populate('branches', 'code name').sort({ employeeCode: 1 });
+  res.json({ items: users.map((u) => ({ code: u.employeeCode, name: u.name, role: u.role, isActive: u.isActive, migrated: !u.isActive && Boolean(u.legacyImport), branches: (u.branches || []).map((b) => String(b._id)), branchCode: (u.branches || []).map((b) => b.code).join(', '), branchName: (u.branches || []).map((b) => b.name).join(', ') })) });
 }
 
 const groupRow = (g, running) => ({

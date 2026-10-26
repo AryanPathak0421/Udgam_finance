@@ -84,7 +84,7 @@ export async function downloadMemberPdf(m, { company = 'Udgam Microfinance' } = 
     ['Bank name', m.bankName], ['IFSC code', m.ifsc],
     ['Account number', m.accountNumber], ['', ''],
   ].filter((p, i, a) => p[0] || a[i ^ 1]?.[0]));
-  photos([['Member photo', m.memberPhoto], ['Signature', m.signaturePhoto], ['Aadhaar', m.aadhaarPhoto], ['PAN', m.panPhoto]]);
+  photos([['Member photo', m.memberPhoto], ['Signature', m.signaturePhoto], ['Aadhaar front', m.aadhaarPhoto], ['Aadhaar back', m.aadhaarBackPhoto], ['PAN', m.panPhoto]]);
 
   [['Guarantor details', m.guarantor], ['Nominee details', m.nominee]].forEach(([title, p]) => {
     heading(title);
@@ -98,7 +98,7 @@ export async function downloadMemberPdf(m, { company = 'Udgam Microfinance' } = 
       ['Aadhaar number', p.aadhaar], ['PAN number', p.pan],
       ...(p.sameAsGuarantor ? [['Note', 'Same person as the guarantor'], ['', '']] : []),
     ]);
-    photos([['Photo', p.photo], ['Signature', p.signature], ['Aadhaar', p.aadhaarPhoto], ['PAN', p.panPhoto], ['Joint photo', p.jointPhoto]]);
+    photos([['Photo', p.photo], ['Signature', p.signature], ['Aadhaar front', p.aadhaarPhoto], ['Aadhaar back', p.aadhaarBackPhoto], ['PAN', p.panPhoto], ['Joint photo', p.jointPhoto]]);
   });
 
   doc.save(`${m.code}-application.pdf`);

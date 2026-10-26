@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client.js';
+import { staffLabel } from '../utils/staffLabel.js';
 import FormField from '../components/ui/FormField.jsx';
 import Modal from '../components/ui/Modal.jsx';
 import ConfirmDialog from '../components/ui/ConfirmDialog.jsx';
@@ -122,7 +123,7 @@ export function AppUsers() {
     try { await api.app.removeUser(removing.id); toast.success('App access removed'); setRemoving(null); load(); } catch (err) { toast.error(err.message); } finally { setBusy(false); }
   }
 
-  const match = (s) => !find || `${s.employeeCode} ${s.name} ${s.role} ${s.branches}`.toLowerCase().includes(find.toLowerCase());
+  const match = (s) => !find || `${s.employeeCode} ${s.name} ${s.role} ${s.branchCode} ${s.branchName}`.toLowerCase().includes(find.toLowerCase());
   return (
     <>
       <PageHeader title="App User Creation" description="The staff who may use the mobile app. They sign in to the app with their own login. What they register or collect in the app waits for approval under this section." />
@@ -161,10 +162,10 @@ export function AppUsers() {
         <FormField id="auser" label="Staff member" required error={errors.user} hint={`Staff with an active login and an employee code. The app signs in with the same email and password.${noLogin.length ? ' Employees without a login are listed at the end: make their login first (User Master).' : ''}`}>
           <select id="auser" value={form.user} onChange={(e) => setForm((f) => ({ ...f, user: e.target.value }))}>
             <option value="">{staff.length ? `Select (${staff.filter(match).length} of ${staff.length})` : 'No staff available'}</option>
-            {staff.filter(match).map((s) => <option key={s.id} value={s.id}>{s.employeeCode} — {s.name} ({s.role.replace(/_/g, ' ')}{s.branches ? `, ${s.branches}` : ''})</option>)}
+            {staff.filter(match).map((s) => <option key={s.id} value={s.id}>{staffLabel(s)} · {s.role.replace(/_/g, ' ')}</option>)}
             {noLogin.filter((e) => !find || `${e.employeeCode} ${e.name}`.toLowerCase().includes(find.toLowerCase())).length > 0 && (
               <optgroup label="Employees without a staff login (cannot be app users yet)">
-                {noLogin.filter((e) => !find || `${e.employeeCode} ${e.name}`.toLowerCase().includes(find.toLowerCase())).map((e) => <option key={e.employeeCode} value="" disabled>{e.employeeCode} — {e.name}</option>)}
+                {noLogin.filter((e) => !find || `${e.employeeCode} ${e.name}`.toLowerCase().includes(find.toLowerCase())).map((e) => <option key={e.employeeCode} value="" disabled>{staffLabel(e)}</option>)}
               </optgroup>
             )}
           </select>

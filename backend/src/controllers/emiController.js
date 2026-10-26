@@ -417,8 +417,11 @@ export async function collectionList(req, res) {
     }
   }
   const staffAll = [...staffSet].sort();
-  const staffNames = await User.find({ employeeCode: { $in: staffAll } }).select('name employeeCode');
-  const staff = staffAll.map((c) => ({ code: c, name: staffNames.find((u) => u.employeeCode === c)?.name || '' }));
+  const staffNames = await User.find({ employeeCode: { $in: staffAll } }).select('name employeeCode branches').populate('branches', 'code name');
+  const staff = staffAll.map((c) => {
+    const u = staffNames.find((x) => x.employeeCode === c);
+    return { code: c, name: u?.name || '', branchCode: (u?.branches || []).map((b) => b.code).join(', '), branchName: (u?.branches || []).map((b) => b.name).join(', ') };
+  });
   const modes = [...modeSet];
 
   if (kindScope === 'group') {

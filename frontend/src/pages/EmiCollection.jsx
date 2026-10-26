@@ -1,6 +1,7 @@
 import BankAccountSelect from '../components/BankAccountSelect.jsx';
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client.js';
+import { staffLabel } from '../utils/staffLabel.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import FormField from '../components/ui/FormField.jsx';
 import Modal from '../components/ui/Modal.jsx';
@@ -48,7 +49,7 @@ function Filters({ f, set, branches, staff, modes }) {
       </label>
       <select value={f.staff} onChange={(e) => set({ staff: e.target.value })} aria-label="Staff">
         <option value="">All staff</option>
-        {staff.map((s) => <option key={s.code} value={s.code}>{s.code}{s.name ? ` — ${s.name}` : ''}</option>)}
+        {staff.map((s) => <option key={s.code} value={s.code}>{staffLabel(s)}</option>)}
       </select>
       <select value={f.mode} onChange={(e) => set({ mode: e.target.value })} aria-label="Repayment mode">
         <option value="">All modes</option>

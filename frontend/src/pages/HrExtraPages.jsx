@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/client.js';
+import { staffLabel } from '../utils/staffLabel.js';
 import FormField from '../components/ui/FormField.jsx';
 import Modal from '../components/ui/Modal.jsx';
 import BankAccountSelect from '../components/BankAccountSelect.jsx';
@@ -42,7 +43,7 @@ function EmployeePick({ value, onChange, error, label = 'Employee', id = 'empick
         </FormField>
       )}
       <FormField id={id} label={label} required error={error}>
-        <select id={id} value={value} onChange={(e) => onChange(e.target.value)}><option value="">Select</option>{emps.map((e) => <option key={e.id} value={e.id}>{e.employeeCode} — {e.name}{!branch && e.branch?.code ? ` (${e.branch.code})` : ''}</option>)}</select>
+        <select id={id} value={value} onChange={(e) => onChange(e.target.value)}><option value="">Select</option>{emps.map((e) => <option key={e.id} value={e.id}>{staffLabel(e)}</option>)}</select>
       </FormField>
     </>
   );
@@ -825,7 +826,7 @@ export function Letters() {
         {!company && <div className="notice" style={{ marginBottom: 8 }}>The Company Profile is not filled in yet (Admin Master → Company Profile). The letter will have no letterhead.</div>}
         <div className="form-grid">
           <BranchSelectField value={branch} onChange={(v) => { setBranch(v); setEmp(''); }} />
-          <FormField id="ltemp" label="Employee" required><select id="ltemp" value={emp} onChange={(ev) => setEmp(ev.target.value)}><option value="">{branch ? 'Select' : 'Select the branch first'}</option>{employees.map((x) => <option key={x.id} value={x.id}>{x.employeeCode} — {x.name}</option>)}</select></FormField>
+          <FormField id="ltemp" label="Employee" required><select id="ltemp" value={emp} onChange={(ev) => setEmp(ev.target.value)}><option value="">{branch ? 'Select' : 'Select the branch first'}</option>{employees.map((x) => <option key={x.id} value={x.id}>{staffLabel(x)}</option>)}</select></FormField>
         </div>
         {e && (
           <div style={{ border: '1px solid var(--border, #d8dee2)', borderRadius: 8, padding: 16, margin: '12px 0', maxWidth: 720 }}>
