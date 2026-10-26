@@ -110,7 +110,7 @@ export default function Dashboard() {
       </div>
 
       <section className="stat-grid">
-        {(stats || Array.from({ length: 8 }, (_, i) => ({ label: '…', icon: 'chart', tone: 'teal', key: i }))).map((s, i) => <StatCard key={s.label + i} {...s} />)}
+        {(stats || Array.from({ length: 8 }, (_, i) => ({ label: '…', icon: 'chart', tone: 'teal' }))).map((s, i) => <StatCard key={s.label + i} {...s} />)}
       </section>
 
       <section className="panel-grid">
