@@ -131,6 +131,28 @@ function ReviewDialog({ id, onClose, onDone }) {
                 )}
               </div>
             )}
+            {r.business && (
+              <>
+                <h3 className="section-title" style={{ marginTop: 14 }}>Business details and documents</h3>
+                <DetailList items={[
+                  ['Loan type', r.business.loanType === 'msme' ? 'MSME loan' : 'Business loan'], ['Business name', r.business.businessName || '—'],
+                  ['GST number', r.business.gstNumber ? `${r.business.gstNumber}${r.business.gstVerified ? ' ✓ verified' : ''}` : '—'],
+                  ...(r.business.loanType === 'msme' ? [['Udyam number', r.business.udgamNumber || '—']] : []),
+                  ['Civil score', String(r.business.civilScore ?? '—')],
+                ]} />
+                <div className="stamp-view sign-row" style={{ marginTop: 10 }}>
+                  {(r.business.shopPhotos?.length ? r.business.shopPhotos : [r.business.shopPhoto]).map((p, i) => (
+                    <div key={`shop${i}`}><div className="detail-label">Shop photo {i + 1}</div><Img src={p} alt={`Shop photo ${i + 1}`} /></div>
+                  ))}
+                  {[['Bank statement', 'bankStatement'], ['ITR', 'itr'], ['Shop / business agreement', 'agreement'], ['Udyam certificate', 'udyamCertificate']].map(([label, k]) => (
+                    <div key={k}>
+                      <div className="detail-label">{label}</div>
+                      {r.business[k] ? <a className="btn sm" href={r.business[k]} download={`${r.formId}-${k}`} target="_blank" rel="noreferrer">Open / download</a> : <span className="muted">—</span>}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
             <h3 className="section-title" style={{ marginTop: 14 }}>Offline application form</h3>
             {forms.map((x) => (
               <div key={x.label} style={{ marginBottom: 10 }}>
@@ -204,6 +226,7 @@ function ReviewDialog({ id, onClose, onDone }) {
 function LoanApproval({ status, fixedKind = '' }) {
   const { user } = useAuth();
   const canDecide = APPROVERS.includes(user?.role);
+  const isAdminUser = ['super_admin', 'admin'].includes(user?.role);
   const [data, setData] = useState({ items: [], total: 0, totalPages: 1 });
   const [branches, setBranches] = useState([]);
   const [groups, setGroups] = useState([]);
@@ -236,13 +259,13 @@ function LoanApproval({ status, fixedKind = '' }) {
     setLoading(true);
     setError('');
     try {
-      setData(await api.loanRequisitions.list({ page, limit: LIMIT, status, kind, branch, group, from, to, q }));
+      setData(await api.loanRequisitions.list({ page, limit: LIMIT, status, kind, branch, group, from, to, q, exclude: !fixedKind && status === 'pending' ? 'business' : undefined }));
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [page, status, kind, branch, group, from, to, q]);
+  }, [page, status, kind, branch, group, from, to, q, fixedKind]);
   useEffect(() => {
     load();
   }, [load]);
@@ -260,7 +283,7 @@ function LoanApproval({ status, fixedKind = '' }) {
       <PageHeader title={text.title} description={text.desc} />
       <div className="panel">
         {!fixedKind && <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
-          {KINDS.map(([k, label]) => <button key={k} className={`btn sm${kind === k ? ' primary' : ''}`} onClick={() => setKind(k)}>{label}</button>)}
+          {KINDS.filter(([k]) => !(status === 'pending' && k === 'business')).map(([k, label]) => <button key={k} className={`btn sm${kind === k ? ' primary' : ''}`} onClick={() => setKind(k)}>{label}</button>)}
         </div>}
         <div className="toolbar" style={{ flexWrap: 'wrap' }}>
           <input type="search" className="toolbar-search" placeholder="Search form ID, borrower or group code / name" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search" />
@@ -316,7 +339,7 @@ function LoanApproval({ status, fixedKind = '' }) {
                       {status !== 'pending' && <td data-label="Decided">{fmt(r.decidedAt)}{r.decidedByCode ? <div className="muted small">by {r.decidedByCode}</div> : null}</td>}
                       {status === 'rejected' && <td data-label="Reason" style={{ maxWidth: 260 }}>{r.rejectReason || '—'}</td>}
                       <td data-label="Actions" className="actions-col">
-                        {status === 'pending' && canDecide
+                        {status === 'pending' && canDecide && (r.kind !== 'business' || isAdminUser)
                           ? <button className="btn sm primary" onClick={() => setReviewId(r.id)}>Review</button>
                           : <button className="btn sm" onClick={() => setViewId(r.id)}>View</button>}
                       </td>

@@ -117,7 +117,7 @@ export const NAV_SECTIONS = [
           { label: 'Group Loan Approval', path: '/loan-approval/group', icon: 'group', roles: MGMT },
           { label: 'Personal Loan Approval', path: '/loan-approval/personal', icon: 'customer', roles: MGMT },
           { label: 'Product Loan Approval', path: '/loan-approval/product', icon: 'product', roles: MGMT },
-          { label: 'Business / MSME Loan Approval', path: '/loan-approval/business', icon: 'bank', roles: MGMT },
+          { label: 'Business / MSME Loan Approval', path: '/loan-approval/business', icon: 'bank', roles: ALL_ADMIN },
           { label: 'Approved Loans', path: '/loan-approval/approved', icon: 'check', roles: [...MGMT, 'loan_officer', 'field_officer', 'accountant', 'viewer'] },
           { label: 'Rejected Loans', path: '/loan-approval/rejected', icon: 'alert', roles: [...MGMT, 'loan_officer', 'field_officer', 'accountant', 'viewer'] },
         ],

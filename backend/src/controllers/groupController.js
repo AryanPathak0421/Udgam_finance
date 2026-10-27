@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { blockedCodes } from '../services/blockedStaff.js';
 import { Group } from '../models/Group.js';
 import { Branch } from '../models/Branch.js';
 import { Member } from '../models/Member.js';
@@ -148,7 +149,7 @@ async function readGroup(b, user, v, { current } = {}) {
   out.employeeCode = asString(b.employeeCode).toUpperCase();
   if (!out.employeeCode) v.add('employeeCode', 'Select the employee');
   else if (branch) {
-    const emp = await User.findOne({ employeeCode: out.employeeCode, $or: [{ isActive: true }, { legacyImport: true }] }).select('role branches');
+    const emp = await User.findOne({ employeeCode: { $eq: out.employeeCode, $nin: await blockedCodes() }, $or: [{ isActive: true }, { legacyImport: true }] }).select('role branches');
     const ok = emp && (ADMIN_ROLES.includes(emp.role) || (emp.branches || []).some((x) => String(x) === String(branch._id)));
     if (!emp) v.add('employeeCode', 'Select a valid employee');
     else if (!ok) v.add('employeeCode', 'This employee does not belong to the selected branch');

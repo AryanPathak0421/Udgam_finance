@@ -43,7 +43,8 @@ async function pendingCounts(user) {
     '/stock/orders': admin
       ? safe(Promise.all([ProductOrder.countDocuments({ status: 'pending' }), ProductPayment.countDocuments({ status: 'paid', isDeleted: { $ne: true } })]).then(([a, b]) => a + b))
       : STOCK_ROLES.includes(user.role) ? safe(ProductOrder.countDocuments({ status: { $in: ['approved', 'rejected'] }, updatedAt: { $gte: new Date(Date.now() - 3 * DAY) }, ...scope })) : 0,
-    '/loan-approval/pending': mgmt ? safe(LoanRequisition.countDocuments({ isDeleted: false, status: 'pending', ...scope })) : 0,
+    '/loan-approval/business': admin ? safe(LoanRequisition.countDocuments({ isDeleted: false, status: 'pending', kind: 'business', ...scope })) : 0,
+    '/loan-approval/pending': mgmt ? safe(LoanRequisition.countDocuments({ isDeleted: false, status: 'pending', kind: { $ne: 'business' }, ...scope })) : 0,
     '/loan-payment/pending': mgmt || user.role === 'accountant' ? safe(LoanRequisition.countDocuments({ isDeleted: false, status: 'approved', disbursedAt: { $exists: false }, ...scope })) : 0,
     '/accounts/day-close-approval': admin ? safe(DayClose.countDocuments({ status: 'submitted', ...scope })) : 0,
     '/savings/approval': admin ? safe(SecurityWithdrawal.countDocuments({ status: 'pending', ...scope })) : 0,

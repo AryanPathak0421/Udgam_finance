@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { blockedCodes } from '../services/blockedStaff.js';
 import { Group } from '../models/Group.js';
 import { Member } from '../models/Member.js';
 import { User } from '../models/User.js';
@@ -24,7 +25,7 @@ export async function employees(req, res) {
   const branch = mongoose.isValidObjectId(req.query.branch) ? String(req.query.branch) : null;
   const own = (req.user.branches || []).map(String);
   if (branch && !isAdmin(req.user) && !own.includes(branch)) throw new HttpError(403, 'You can only use branches assigned to you');
-  const filter = { employeeCode: { $exists: true, $ne: '' }, role: { $nin: ADMIN_ROLES } };
+  const filter = { employeeCode: { $exists: true, $ne: '', $nin: await blockedCodes() }, role: { $nin: ADMIN_ROLES } };
   if (branch) filter.branches = branch;
   else if (!isAdmin(req.user)) filter.branches = { $in: own };
   const users = await User.find(filter).select('name employeeCode role isActive legacyImport branches').populate('branches', 'code name').sort({ employeeCode: 1 });
@@ -93,7 +94,7 @@ async function readTarget(req, from, branchIds) {
   const to = code(req.body?.to);
   if (!to) throw invalid({ to: 'Select the employee who takes over' });
   if (to === from) throw invalid({ to: 'Choose a different employee' });
-  const emp = await User.findOne({ employeeCode: to, $or: [{ isActive: true }, { legacyImport: true }] }).select('name role branches');
+  const emp = await User.findOne({ employeeCode: { $eq: to, $nin: await blockedCodes() }, $or: [{ isActive: true }, { legacyImport: true }] }).select('name role branches');
   if (!emp) throw invalid({ to: 'Select a valid employee' });
   if (!ADMIN_ROLES.includes(emp.role)) {
     const own = new Set((emp.branches || []).map(String));

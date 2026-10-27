@@ -85,7 +85,7 @@ export function Detail({ id, onClose, onChanged }) {
                 ? [
                     ['Loan type', r.business.loanType === 'msme' ? 'MSME loan' : 'Business loan'], ['Business name', r.business.businessName],
                     ['Civil score', String(r.business.civilScore ?? '')],
-                    ...(r.business.loanType === 'msme' ? [['Udgam number', r.business.udgamNumber]] : []),
+                    ...(r.business.loanType === 'msme' ? [['Udyam number', r.business.udgamNumber]] : []),
                     ['GST number', r.business.gstNumber ? `${r.business.gstNumber}${r.business.gstVerified ? ' ✓ verified' : ''}` : ''],
                   ]
                 : []),
@@ -154,10 +154,12 @@ export function Detail({ id, onClose, onChanged }) {
           )}
           {r.business && (
             <div className="stamp-view sign-row" style={{ marginTop: 12 }}>
-              <div>
-                <div className="detail-label">Shop photo</div>
-                {r.business.shopPhoto ? <img src={r.business.shopPhoto} alt="Shop" className="stamp-img" /> : <span className="muted">—</span>}
-              </div>
+              {(r.business.shopPhotos?.length ? r.business.shopPhotos : [r.business.shopPhoto]).map((p, i) => (
+                <div key={i}>
+                  <div className="detail-label">Shop photo {i + 1}</div>
+                  {p ? <img src={p} alt={`Shop ${i + 1}`} className="stamp-img" /> : <span className="muted">—</span>}
+                </div>
+              ))}
               <div>
                 <div className="detail-label">Bank statement</div>
                 {r.business.bankStatement ? (

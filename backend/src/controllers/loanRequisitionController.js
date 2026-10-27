@@ -21,6 +21,7 @@ import { takeVerified, consumeChallenge, issueOtp } from '../services/otpChallen
 import { sendSms } from '../services/sms.js';
 import { verhoeff } from './memberController.js';
 import { notifyApprovers } from '../services/notify.js';
+import { blockedCodes } from '../services/blockedStaff.js';
 
 const FULL_MOBILE_ROLES = ['super_admin', 'admin', 'accountant'];
 const POPULATE = [{ path: 'branch', select: 'code name' }];
@@ -587,6 +588,7 @@ const present = (r, user, { detail = false } = {}) => {
             udgamNumber: r.business.udgamNumber || '',
             civilScore: r.business.civilScore ?? null,
             shopPhoto: r.business.shopPhoto || null,
+            shopPhotos: (r.business.shopPhotos && r.business.shopPhotos.length ? r.business.shopPhotos : r.business.shopPhoto ? [r.business.shopPhoto] : []),
             bankStatement: r.business.bankStatement || null,
             itr: r.business.itr || null,
             agreement: r.business.agreement || null,
@@ -636,7 +638,7 @@ const present = (r, user, { detail = false } = {}) => {
 const IMAGE_RE = /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/;
 const DOC_RE = /^data:(application\/pdf|image\/png|image\/jpeg);base64,[A-Za-z0-9+/=]+$/;
 const GST_RE = /^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
-// Udgam number: letters, digits, hyphen or slash (no fixed format is assumed).
+// Udyam number: letters, digits, hyphen or slash (no fixed format is assumed).
 const UDGAM_RE = /^[A-Z0-9][A-Z0-9/-]{4,29}$/;
 const MAX_PHOTO_CHARS = 300_000;
 const MAX_DOC_CHARS = 1_100_000; // ~800 KB file
@@ -648,10 +650,10 @@ async function readBusiness(b, errors, member, req) {
   if (!['business', 'msme'].includes(out.loanType)) errors.loanType = 'Select Business or MSME';
   out.businessName = asString(x.businessName);
   if (out.businessName.length < 2 || out.businessName.length > 100) errors.businessName = 'Enter the business name';
-  // GST number: required for a business loan, optional for MSME. It is checked as a GSTIN (state, check
+  // GST number: required for a business loan and for an MSME loan. It is checked as a GSTIN (state, check
   // character) and against the borrower's PAN; the GST network confirms the registration when connected.
   out.gstNumber = asString(x.gstNumber).toUpperCase();
-  if (out.loanType === 'business' && !out.gstNumber) errors.gstNumber = 'GST number is required for a business loan';
+  if (!out.gstNumber) errors.gstNumber = 'GST number is required for a business / MSME loan';
   if (out.gstNumber) {
     const c = checkGstin(out.gstNumber, { pan: member?.pan });
     if (!c.ok) errors.gstNumber = c.message;
@@ -662,11 +664,11 @@ async function readBusiness(b, errors, member, req) {
       else if (v.status === 'not_found') errors.gstNumber = 'This GST number was not found';
     }
   }
-  // The Udgam number belongs to an MSME loan only; a business loan has none.
+  // The Udyam number belongs to an MSME loan only; a business loan has none.
   out.udgamNumber = out.loanType === 'msme' ? asString(x.udgamNumber).toUpperCase() : '';
   if (out.loanType === 'msme') {
-    if (!out.udgamNumber) errors.udgamNumber = 'Udgam number is required for an MSME loan';
-    else if (!UDGAM_RE.test(out.udgamNumber)) errors.udgamNumber = 'Enter a valid Udgam number (5 to 30 letters or digits)';
+    if (!out.udgamNumber) errors.udgamNumber = 'Udyam number is required for an MSME loan';
+    else if (!UDGAM_RE.test(out.udgamNumber)) errors.udgamNumber = 'Enter a valid Udyam number (5 to 30 letters or digits)';
   }
   const latest = member?._id ? await civilSnapshot(member._id) : null;
   const score = latest?.score ?? null;
@@ -678,10 +680,13 @@ async function readBusiness(b, errors, member, req) {
     out.civilScore = score;
   }
 
-  out.shopPhoto = typeof x.shopPhoto === 'string' ? x.shopPhoto : '';
-  if (!out.shopPhoto) errors.shopPhoto = 'Shop photo is required';
-  else if (!IMAGE_RE.test(out.shopPhoto)) errors.shopPhoto = 'Shop photo must be a PNG or JPEG image';
-  else if (out.shopPhoto.length > MAX_PHOTO_CHARS) errors.shopPhoto = 'Shop photo is too large';
+  // three photos of the shop are needed (the first one is also kept as the shop photo of the older screens)
+  const shots = Array.isArray(x.shopPhotos) ? x.shopPhotos.map((p) => (typeof p === 'string' ? p : '')) : [typeof x.shopPhoto === 'string' ? x.shopPhoto : ''];
+  out.shopPhotos = shots.slice(0, 3);
+  if (shots.filter(Boolean).length < 3) errors.shopPhoto = 'Upload 3 photos of the shop';
+  else if (out.shopPhotos.some((p) => !IMAGE_RE.test(p))) errors.shopPhoto = 'The shop photos must be PNG or JPEG images';
+  else if (out.shopPhotos.some((p) => p.length > MAX_PHOTO_CHARS)) errors.shopPhoto = 'A shop photo is too large';
+  out.shopPhoto = out.shopPhotos[0] || '';
 
   const doc = (field, label, required) => {
     const v = typeof x[field] === 'string' ? x[field] : '';
@@ -869,7 +874,7 @@ export function createRequisition(kind) {
     // Employee: chosen on the web form, otherwise the signed-in employee.
     let employeeCode = asString(b.employeeCode).toUpperCase();
     if (employeeCode) {
-      const emp = await User.findOne({ employeeCode, $or: [{ isActive: true }, { legacyImport: true }] }).select('role branches'); // an employee from the old system can be named too
+      const emp = await User.findOne({ employeeCode: { $eq: employeeCode, $nin: await blockedCodes() }, $or: [{ isActive: true }, { legacyImport: true }] }).select('role branches'); // an employee from the old system can be named too
       const ok = emp && (['super_admin', 'admin'].includes(emp.role) || (emp.branches || []).some((x) => String(x) === branchId));
       if (!ok) throw invalid({ employeeCode: 'Select a valid employee of this branch' });
     } else {
@@ -986,7 +991,7 @@ export function createRequisition(kind) {
         ...(business ? { business: { loanType: business.loanType, civilScore: business.civilScore } } : {}),
       },
     });
-    notifyApprovers({ branch: doc.branch._id || doc.branch, exceptUser: req.user._id, title: 'New loan requisition', message: `${KIND_LABEL[kind] || 'Loan'} requisition ${doc.formId} for ${m ? `${m.code} ${m.name}` : `${g.code} ${g.name}`}: ₹${r.input.amount}. It waits for approval.` });
+    notifyApprovers({ branch: doc.branch._id || doc.branch, exceptUser: req.user._id, includeManagers: kind !== 'business', title: 'New loan requisition', message: `${KIND_LABEL[kind] || 'Loan'} requisition ${doc.formId} for ${m ? `${m.code} ${m.name}` : `${g.code} ${g.name}`}: ₹${r.input.amount}. It waits for approval.` });
     res.status(201).json({ requisition: present(doc, req.user, { detail: true }) });
   };
 }
@@ -1005,6 +1010,8 @@ export async function listRequisitions(req, res) {
   const kind = asString(req.query.kind);
   if (kind === 'personal') filter.kind = { $in: ['personal', null] };
   else if (REQUISITION_KINDS.includes(kind)) filter.kind = kind;
+  // Pending Loans: the business / MSME loans have their own approval page (the admin decides them with all their documents)
+  else if (asString(req.query.exclude) === 'business') filter.kind = { $ne: 'business' };
   const from = parseDateOnly(asString(req.query.from));
   const to = parseDateOnly(asString(req.query.to));
   if (from || to) {
@@ -1067,7 +1074,7 @@ export async function gstCheck(req, res) {
 export async function getRequisition(req, res) {
   if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Requisition not found');
   const r = await LoanRequisition.findOne({ _id: req.params.id, isDeleted: false, ...branchFilter(req.user) })
-    .select('+business.shopPhoto +business.bankStatement +business.itr +business.agreement +business.udyamCertificate +formFrontPhoto +formBackPhoto +memberForms.front +memberForms.back')
+    .select('+business.shopPhoto +business.shopPhotos +business.bankStatement +business.itr +business.agreement +business.udyamCertificate +formFrontPhoto +formBackPhoto +memberForms.front +memberForms.back')
     .populate(POPULATE);
   if (!r) throw new HttpError(404, 'Requisition not found');
   res.json({ requisition: present(r, req.user, { detail: true }) });
@@ -1150,6 +1157,8 @@ async function loadForDecision(req) {
   const r = await LoanRequisition.findOne({ _id: req.params.id, isDeleted: false, ...branchFilter(req.user) });
   if (!r) throw new HttpError(404, 'Requisition not found');
   if (r.status !== 'pending') throw new HttpError(409, `This requisition is already ${r.status}`);
+  // a business / MSME loan is a bigger loan: only the admin approves or rejects it
+  if (r.kind === 'business' && !isAdmin(req.user)) throw new HttpError(403, 'A business / MSME loan is approved or rejected by the admin only.');
   return r;
 }
 
@@ -1300,6 +1309,7 @@ export async function unapproveRequisition(req, res) {
   if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Requisition not found');
   const r = await LoanRequisition.findOne({ _id: req.params.id, isDeleted: false, ...branchFilter(req.user) });
   if (!r) throw new HttpError(404, 'Requisition not found');
+  if (r.kind === 'business' && !isAdmin(req.user)) throw new HttpError(403, 'A business / MSME loan is decided by the admin only.');
   if (r.status !== 'approved') throw new HttpError(409, `Only an approved loan can be taken back (this one is ${r.status})`);
   if (r.disbursedAt || (await LoanPayment.exists({ requisition: r._id, status: 'paid' }))) throw new HttpError(409, 'This loan is already paid and its approval cannot be taken back');
   const reason = asString(req.body?.reason);
@@ -1448,7 +1458,7 @@ export async function createGroupRequisition(req, res) {
   // Employee: chosen on the form, otherwise the signed-in employee.
   let employeeCode = asString(b.employeeCode).toUpperCase();
   if (employeeCode) {
-    const emp = await User.findOne({ employeeCode, $or: [{ isActive: true }, { legacyImport: true }] }).select('role branches');
+    const emp = await User.findOne({ employeeCode: { $eq: employeeCode, $nin: await blockedCodes() }, $or: [{ isActive: true }, { legacyImport: true }] }).select('role branches');
     const ok = emp && (['super_admin', 'admin'].includes(emp.role) || (emp.branches || []).some((x) => String(x) === branchId));
     if (!ok) throw invalid({ employeeCode: 'Select a valid employee of this branch' });
   } else {

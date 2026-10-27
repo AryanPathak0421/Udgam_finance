@@ -31,7 +31,7 @@ export function gstinCheckChar(first14) {
 export function checkGstin(gstin, { pan } = {}) {
   const g = String(gstin || '').toUpperCase();
   const m = GSTIN_RE.exec(g);
-  if (!m) return { ok: false, message: 'Enter a valid 15-character GST number (e.g. 27ABCPD1234F1Z5)' };
+  if (!m) return { ok: false, message: 'Enter a valid 15-character GST number (e.g. 27ABCPD1234F1ZC)' };
   if (!validStateCode(m[1])) return { ok: false, message: 'The state code of this GST number is not valid' };
   if (gstinCheckChar(g.slice(0, 14)) !== g[14]) return { ok: false, message: 'This GST number is not valid (check character does not match)' };
   if (pan && String(pan).toUpperCase() !== m[2]) {

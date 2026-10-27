@@ -293,7 +293,7 @@ function RequisitionForm({ kind }) {
   const [extras, setExtras] = useState({}); // group loan: additional product per member { memberId: { id, qty } }
   const [chosen, setChosen] = useState([]); // group loan: ids of the members who get the loan
   const [civilScore, setCivilScore] = useState('');
-  const [biz, setBiz] = useState({ loanType: '', businessName: '', gstNumber: '', udgamNumber: '', civilScore: '', shopPhoto: '', bankStatement: '', bankStatementName: '', itr: '', itrName: '', agreement: '', agreementName: '', udyamCertificate: '', udyamCertificateName: '' });
+  const [biz, setBiz] = useState({ loanType: '', businessName: '', gstNumber: '', udgamNumber: '', civilScore: '', shopPhotos: ['', '', ''], bankStatement: '', bankStatementName: '', itr: '', itrName: '', agreement: '', agreementName: '', udyamCertificate: '', udyamCertificateName: '' });
   const [otpId, setOtpId] = useState(''); // business loan: OTP sent to the borrower's registered mobile, verified
   const [memberForms, setMemberForms] = useState({}); // group loan: form photos of each member { memberId: { front, back } }
   const [picked, setPicked] = useState(null);
@@ -500,16 +500,18 @@ function RequisitionForm({ kind }) {
     if (isBusiness) {
       if (!biz.loanType) found['business.loanType'] = 'Select Business or MSME';
       if (biz.businessName.trim().length < 2) found['business.businessName'] = 'Enter the business name';
-      if (biz.loanType === 'msme' && !biz.udgamNumber.trim()) found['business.udgamNumber'] = 'Udgam number is required for an MSME loan';
-      if (biz.loanType === 'business' && !biz.gstNumber.trim()) found['business.gstNumber'] = 'GST number is required for a business loan';
-      else if (biz.gstNumber && gstInfo && gstInfo.ok === false) found['business.gstNumber'] = gstInfo.message;
+      if (biz.loanType === 'msme' && !biz.udgamNumber.trim()) found['business.udgamNumber'] = 'Udyam number is required for an MSME loan';
+      // the GST number is mandatory for a business loan and for an MSME loan; its format is checked here and again by the server
+      if (!biz.gstNumber.trim()) found['business.gstNumber'] = 'GST number is required for a business / MSME loan';
+      else if (!/^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(biz.gstNumber.trim().toUpperCase())) found['business.gstNumber'] = 'Enter a valid 15-character GST number (e.g. 27ABCPD1234F1ZC)';
+      else if (gstInfo && gstInfo.ok === false) found['business.gstNumber'] = gstInfo.message;
       const c = Number(biz.civilScore);
       if (!biz.civilScore || !Number.isInteger(c) || c < 300 || c > 900) {
         found['business.civilScore'] = 'No actual civil check on record. Complete Civil Check first.';
       } else if (scheme?.minCivilScore && c < scheme.minCivilScore) {
         found['business.civilScore'] = `The actual score (${c}) is below the ${scheme.minCivilScore} this scheme needs`;
       }
-      if (!biz.shopPhoto) found['business.shopPhoto'] = 'Shop photo is required';
+      if (biz.shopPhotos.filter(Boolean).length < 3) found['business.shopPhoto'] = 'Upload 3 photos of the shop';
       if (!biz.bankStatement) found['business.bankStatement'] = 'Upload the bank statement';
       if (biz.loanType === 'msme' && !biz.udyamCertificate) found['business.udyamCertificate'] = 'Upload the Udyam certificate';
       if (verif && !verif.aadhaar.present) found['business.aadhaarNumber'] = 'The borrower has no Aadhaar number on record';
@@ -556,7 +558,7 @@ function RequisitionForm({ kind }) {
         ...(isGroup && extraRows.length ? { additional: extraRows.map((r) => ({ member: r.m.id, stockProduct: r.p.id, quantity: r.qty })) } : {}),
         ...(isGroup ? { group: picked.id, memberIds: effective.map((m) => m.id) } : { member: picked.id }),
         ...(isBusiness
-          ? { business: { loanType: biz.loanType, businessName: biz.businessName.trim(), gstNumber: biz.gstNumber.trim(), udgamNumber: biz.loanType === 'msme' ? biz.udgamNumber.trim() : '', civilScore: Number(biz.civilScore), shopPhoto: biz.shopPhoto, bankStatement: biz.bankStatement, itr: biz.itr, agreement: biz.agreement, udyamCertificate: biz.udyamCertificate, otpChallengeId: otpId } }
+          ? { business: { loanType: biz.loanType, businessName: biz.businessName.trim(), gstNumber: biz.gstNumber.trim(), udgamNumber: biz.loanType === 'msme' ? biz.udgamNumber.trim() : '', civilScore: Number(biz.civilScore), shopPhotos: biz.shopPhotos, bankStatement: biz.bankStatement, itr: biz.itr, agreement: biz.agreement, udyamCertificate: biz.udyamCertificate, otpChallengeId: otpId } }
           : {}),
       };
       const r = await api.loanRequisitions.create(kind, payload);
@@ -866,16 +868,18 @@ function RequisitionForm({ kind }) {
                 <input id="civilScore" value={biz.civilScore || ''} readOnly disabled placeholder="No civil check on record" />
               </FormField>
               {biz.loanType === 'msme' && (
-                <FormField id="udgamNumber" label="Udgam number" required error={errors['business.udgamNumber']}>
+                <FormField id="udgamNumber" label="Udyam number" required error={errors['business.udgamNumber']}>
                   <input id="udgamNumber" value={biz.udgamNumber} onChange={(e) => { setBiz((x) => ({ ...x, udgamNumber: e.target.value.toUpperCase() })); setErrors((er) => ({ ...er, 'business.udgamNumber': undefined })); }} maxLength={30} />
                 </FormField>
               )}
-              <FormField id="gstNumber" label="GST number" required={biz.loanType === 'business'} error={errors['business.gstNumber'] || (gstInfo && gstInfo.ok === false ? gstInfo.message : '')}
-                hint={gstInfo?.ok ? `✓ Valid GST number — state code ${gstInfo.stateCode}${gstInfo.panMatched ? ', PAN matches the borrower' : ''}${gstInfo.registryChecked ? ', registration confirmed' : ''}` : biz.loanType === 'msme' ? 'Optional for an MSME loan' : 'Required for a business loan'}>
+              <FormField id="gstNumber" label="GST number" required error={errors['business.gstNumber'] || (gstInfo && gstInfo.ok === false ? gstInfo.message : '')}
+                hint={gstInfo?.ok ? `✓ Valid GST number — state code ${gstInfo.stateCode}${gstInfo.panMatched ? ', PAN matches the borrower' : ''}${gstInfo.registryChecked ? ', registration confirmed' : ''}` : 'Required: 15 characters, e.g. 27ABCPD1234F1ZC'}>
                 <input id="gstNumber" value={biz.gstNumber} onChange={(e) => { setBiz((x) => ({ ...x, gstNumber: e.target.value.toUpperCase().slice(0, 15) })); setErrors((er) => ({ ...er, 'business.gstNumber': undefined })); }} maxLength={15} />
               </FormField>
-              <PhotoField id="shopPhoto" label="Shop photo" required value={biz.shopPhoto} error={errors['business.shopPhoto']}
-                onChange={(v) => { setBiz((x) => ({ ...x, shopPhoto: v })); setErrors((er) => ({ ...er, 'business.shopPhoto': undefined })); }} />
+              {[0, 1, 2].map((i) => (
+                <PhotoField key={i} id={`shopPhoto${i + 1}`} label={`Shop photo ${i + 1}`} required value={biz.shopPhotos[i]} error={i === 0 ? errors['business.shopPhoto'] : undefined}
+                  onChange={(v) => { setBiz((x) => ({ ...x, shopPhotos: x.shopPhotos.map((p, j) => (j === i ? v : p)) })); setErrors((er) => ({ ...er, 'business.shopPhoto': undefined })); }} />
+              ))}
               <DocumentField id="bankStatement" label="Bank statement" required value={biz.bankStatement} name={biz.bankStatementName} error={errors['business.bankStatement']}
                 onChange={(v, n) => { setBiz((x) => ({ ...x, bankStatement: v, bankStatementName: n })); setErrors((er) => ({ ...er, 'business.bankStatement': undefined })); }} />
               <DocumentField id="itr" label="ITR (income tax return)" value={biz.itr} name={biz.itrName} error={errors['business.itr']}

@@ -22,6 +22,7 @@ import { EmployeeTransfer } from '../models/EmployeeTransfer.js';
 import { CivilCheck } from '../models/CivilCheck.js';
 import { missingDetails, guarantorGaps } from '../utils/memberDetails.js';
 import { notifyApprovers } from '../services/notify.js';
+import { blockedCodes } from '../services/blockedStaff.js';
 
 export const GENDERS = ['male', 'female', 'other'];
 export const OCCUPATIONS = ['Farmer', 'Agricultural labour', 'Dairy / animal husbandry', 'Small shop / trader', 'Tailoring / handicraft', 'Daily wage labour', 'Salaried', 'Self employed', 'Homemaker', 'Other'];
@@ -164,7 +165,7 @@ const POPULATE = { path: 'branch', select: 'code name' };
 async function resolveEmployee(req, v, branchId) {
   const given = asString(req.body?.employeeCode).toUpperCase();
   if (!given) return staffId(req.user);
-  const emp = await User.findOne({ employeeCode: given, $or: [{ isActive: true }, { legacyImport: true }] }).select('employeeCode role branches');
+  const emp = await User.findOne({ employeeCode: { $eq: given, $nin: await blockedCodes() }, $or: [{ isActive: true }, { legacyImport: true }] }).select('employeeCode role branches');
   const inBranch = emp && (['super_admin', 'admin'].includes(emp.role) || (emp.branches || []).some((x) => String(x) === String(branchId)));
   if (!emp) v.add('employeeCode', 'Select a valid employee');
   else if (!inBranch) v.add('employeeCode', 'This employee does not belong to the selected branch');
@@ -1159,7 +1160,7 @@ export async function employeeOptions(req, res) {
   // the employees of the branch, and the ones brought over from the old system (they have no login yet, but groups and records carry their staff ID)
   const branchDoc = await Branch.findById(branch).select('code name').lean();
   const users = await User.find({
-    employeeCode: { $exists: true },
+    employeeCode: { $exists: true, $nin: await blockedCodes() },
     // the staff of this branch only (an admin is not an employee of a branch), and the ones brought over from the old system
     role: { $nin: ['super_admin', 'admin'] },
     branches: branch,

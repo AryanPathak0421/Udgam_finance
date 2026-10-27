@@ -156,6 +156,8 @@ export async function listEmployees(req, res) {
   const filter = { isDeleted: false, ...scope(req) };
   const st = asString(req.query.status);
   if (['active', 'left'].includes(st)) filter.status = st;
+  // the pickers (leave, resignation ...) do not offer a blocked employee
+  if (asString(req.query.pick) === '1') filter.isBlocked = { $ne: true };
   for (const k of ['department', 'designation', 'supervisor']) if (mongoose.isValidObjectId(asString(req.query[k]))) filter[k] = req.query[k];
   const q = asString(req.query.q).toLowerCase();
   const rows = await Employee.find(filter).sort({ employeeCode: 1 }).limit(3000).populate(EMP_POPULATE);

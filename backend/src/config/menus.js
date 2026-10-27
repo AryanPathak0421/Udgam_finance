@@ -43,7 +43,7 @@ export const MENU_CATALOGUE = [
   { key: '/loan-approval/group', label: 'Group Loan Approval', group: 'Loan Approval' },
   { key: '/loan-approval/personal', label: 'Personal Loan Approval', group: 'Loan Approval' },
   { key: '/loan-approval/product', label: 'Product Loan Approval', group: 'Loan Approval' },
-  { key: '/loan-approval/business', label: 'Business / MSME Loan Approval', group: 'Loan Approval' },
+  { key: '/loan-approval/business', label: 'Business / MSME Loan Approval', group: 'Loan Approval', adminOnly: true },
   { key: '/loan-approval/approved', label: 'Approved Loans', group: 'Loan Approval' },
   { key: '/loan-approval/rejected', label: 'Rejected Loans', group: 'Loan Approval' },
   { key: '/loan-payment/pending', label: 'Pending Payment', group: 'Loan Payment' },

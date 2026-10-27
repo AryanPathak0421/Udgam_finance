@@ -195,7 +195,7 @@ export async function guarantorDeathList(req, res) {
 
 export async function listSettlements(req, res) {
   const { page, limit, skip } = parsePaging(req.query, { defaultLimit: 25 });
-  const filter = { ...branchFilter(req.user), kind: req.query.kind === 'death' ? 'death' : req.query.kind === 'auto' ? 'auto' : { $in: ['loan', 'auto'] }, status: req.query.status === 'cancelled' ? 'cancelled' : 'active' };
+  const filter = { ...branchFilter(req.user), kind: req.query.kind === 'death' ? 'death' : req.query.kind === 'auto' ? 'auto' : req.query.kind === 'manual' ? 'loan' : { $in: ['loan', 'auto'] }, status: req.query.status === 'cancelled' ? 'cancelled' : 'active' };
   if (mongoose.isValidObjectId(req.query.branch)) filter.branch = req.query.branch;
   const from = parseDateOnly(asString(req.query.from));
   const to = parseDateOnly(asString(req.query.to));

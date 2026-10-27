@@ -32,7 +32,7 @@ function EmployeePick({ value, onChange, error, label = 'Employee', id = 'empick
   useEffect(() => { api.groups.branchOptions().then((r) => { setBranches(r.items); if (!forced && r.items.length === 1) setBranch(r.items[0].id); }).catch(() => {}); }, [forced]);
   useEffect(() => {
     // no branch chosen yet: the employees of all the branches are listed, so an employee can be found without choosing the branch first
-    api.hr.employees({ branch, status: onlyActive ? 'active' : '' }).then((r) => setEmps(r.items)).catch(() => {});
+    api.hr.employees({ branch, status: onlyActive ? 'active' : '', pick: onlyActive ? '1' : undefined }).then((r) => setEmps(r.items)).catch(() => {});
     if (branch) onBranch?.(branch);
   }, [branch, onlyActive]); // eslint-disable-line react-hooks/exhaustive-deps
   return (

@@ -181,17 +181,34 @@ export async function requestWithdrawal(req, res) {
   if (m.isBlocked) throw new HttpError(409, 'This member is blocked. Unblock the member before any withdrawal.');
   const kind = asString(b.kind);
   if (!['withdraw', 'adjust'].includes(kind)) throw invalid({ kind: 'Choose Adjust EMI or Withdraw' });
-  const amountPaise = toMinor(typeof b.amount === 'number' ? String(b.amount) : asString(b.amount));
+  let amountPaise = toMinor(typeof b.amount === 'number' ? String(b.amount) : asString(b.amount));
   if (amountPaise === null || amountPaise < 100) throw invalid({ amount: 'Enter the amount (₹1 or more, up to 2 decimals)' });
+  // The amount can be asked for as the total: security + interest (security 500 and interest 50: ₹550 can be requested).
+  const asTotal = kind === 'withdraw' && (b.includesInterest === true || b.includesInterest === 'true');
+  let interestOverride;
   if (kind === 'withdraw' && !m.mobile) throw new HttpError(409, "This member has no mobile number, so the OTP of a withdrawal cannot be sent. Add the mobile number under Member Details first (an adjustment against an EMI needs no OTP).", { amount: 'The member has no mobile number' });
   const bal = await balanceOf(req, m._id);
+  if (asTotal) {
+    const wi0 = await withdrawInfo(req, m._id, bal);
+    const all = wi0.withdrawable + wi0.interestFor(wi0.withdrawable);
+    if (wi0.withdrawable <= 0) throw invalid({ amount: 'The security of a running loan cannot be withdrawn. It can only be adjusted against its EMI' });
+    if (amountPaise > all) throw invalid({ amount: `Only ${money(all)} can be withdrawn: security ${money(wi0.withdrawable)} + interest ${money(wi0.interestFor(wi0.withdrawable))}` });
+    if (amountPaise === all) { interestOverride = wi0.interestFor(wi0.withdrawable); amountPaise = wi0.withdrawable; } else {
+      // the part of the total that is security: security + its interest (in proportion) = the total asked for
+      const cr = wi0.closedRemaining;
+      const s0 = Math.round((amountPaise * cr) / (cr + wi0.interestRemaining));
+      interestOverride = wi0.interestFor(s0);
+      amountPaise -= interestOverride;
+    }
+    if (amountPaise < 100) throw invalid({ amount: 'The security part of this amount is less than ₹1' });
+  }
   if (amountPaise > bal.availablePaise) throw invalid({ amount: `Only ${money(bal.availablePaise)} of the security is available${bal.pendingPaise ? ` (${money(bal.pendingPaise)} is waiting for approval)` : ''}` });
   const data = {};
   if (kind === 'withdraw') {
     const wi = await withdrawInfo(req, m._id, bal);
     const can = wi.withdrawable;
     if (amountPaise > can) throw invalid({ amount: can > 0 ? `Only ${money(can)} can be withdrawn: the security of a running loan can only be adjusted against its EMI` : 'The security of a running loan cannot be withdrawn. It can only be adjusted against an EMI.' });
-    data.interestPaise = wi.interestFor(amountPaise);
+    data.interestPaise = interestOverride !== undefined ? interestOverride : wi.interestFor(amountPaise);
   }
 
   if (kind === 'adjust') {

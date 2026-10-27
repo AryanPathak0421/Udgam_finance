@@ -472,6 +472,7 @@ function History({ kind, reloadKey, onCancelled }) {
   const [error, setError] = useState('');
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState('active');
+  const [type, setType] = useState('all'); // loan settlements only, auto settle only, or both
   const [branch, setBranch] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -490,17 +491,17 @@ function History({ kind, reloadKey, onCancelled }) {
     setLoading(true);
     setError('');
     try {
-      setData(await api.settlements.list({ kind, page, limit: LIMIT, status, branch, from, to, q }));
+      setData(await api.settlements.list({ kind: kind === 'loan' && type !== 'all' ? type : kind, page, limit: LIMIT, status, branch, from, to, q }));
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [kind, page, status, branch, from, to, q]);
+  }, [kind, type, page, status, branch, from, to, q]);
   useEffect(() => {
     load();
   }, [load, reloadKey]);
-  useEffect(() => setPage(1), [status, branch, from, to, q]);
+  useEffect(() => setPage(1), [status, type, branch, from, to, q]);
 
   async function cancel() {
     if (reason.trim().length < 3) return setReasonError('Enter the reason');
@@ -525,6 +526,13 @@ function History({ kind, reloadKey, onCancelled }) {
       <h3 className="section-title">{death ? 'Death settlements' : 'Loan settlements'}</h3>
       <div className="toolbar" style={{ flexWrap: 'wrap' }}>
         <input type="search" className="toolbar-search" placeholder="Search receipt, Loan ID, borrower or group" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search settlements" />
+        {!death && (
+          <select value={type} onChange={(e) => setType(e.target.value)} aria-label="Settlement type">
+            <option value="all">All settlements</option>
+            <option value="manual">Loan settlement</option>
+            <option value="auto">Auto settle</option>
+          </select>
+        )}
         {branches.length > 1 && (
           <select value={branch} onChange={(e) => setBranch(e.target.value)} aria-label="Branch">
             <option value="">All branches</option>

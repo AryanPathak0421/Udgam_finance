@@ -321,7 +321,7 @@ export function SecurityWithdraw() {
   const [member, setMember] = useState(null); // savings of the chosen member
   const [error, setError] = useState('');
   const [kind, setKind] = useState('adjust');
-  const [form, setForm] = useState({ amount: '', loan: '', payMode: 'cash', bankAccount: '', reference: '', remark: '' });
+  const [form, setForm] = useState({ amount: '', loan: '', payMode: 'cash', bankAccount: '', reference: '', remark: '', includesInterest: false });
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
   const q = useDebounce(search);
@@ -358,8 +358,8 @@ export function SecurityWithdraw() {
     setBusy(true);
     setErrors({});
     try {
-      const r = await api.savings.request({ member: member.member.id, kind, amount: form.amount, loan: kind === 'adjust' ? form.loan : undefined, payMode: kind === 'withdraw' ? form.payMode : undefined, bankAccount: kind === 'withdraw' && form.payMode === 'bank' ? form.bankAccount : undefined, reference: form.reference, remark: form.remark });
-      toast.success(`Request ${r.withdrawal.receiptNo} for ${inr(r.withdrawal.amount)} sent to the admin for approval`);
+      const r = await api.savings.request({ member: member.member.id, kind, amount: form.amount, includesInterest: kind === 'withdraw' && form.includesInterest ? true : undefined, loan: kind === 'adjust' ? form.loan : undefined, payMode: kind === 'withdraw' ? form.payMode : undefined, bankAccount: kind === 'withdraw' && form.payMode === 'bank' ? form.bankAccount : undefined, reference: form.reference, remark: form.remark });
+      toast.success(`Request ${r.withdrawal.receiptNo} for ${inr(r.withdrawal.kind === 'withdraw' ? r.withdrawal.total : r.withdrawal.amount)} sent to the admin for approval`);
       await open(member.member.id);
     } catch (err) {
       setErrors(err.errors || {});
@@ -459,9 +459,15 @@ export function SecurityWithdraw() {
                       </select>
                     </FormField>
                   )}
-                  <FormField id="wamount" label="Amount (₹)" required error={errors.amount} hint={kind === 'adjust' ? `Security ${inr(member.available)}, EMI ${chosenLoan?.due > 0 ? 'due' : 'left'} ${inr(emiDue)} → up to ${inr(adjustable)} can be adjusted` : `Up to ${inr(member.withdrawable)} (security of closed loans). Interest is added: security + interest = total`}>
+                  <FormField id="wamount" label={kind === 'withdraw' && form.includesInterest ? 'Total amount (₹): security + interest' : 'Amount (₹)'} required error={errors.amount} hint={kind === 'adjust' ? `Security ${inr(member.available)}, EMI ${chosenLoan?.due > 0 ? 'due' : 'left'} ${inr(emiDue)} → up to ${inr(adjustable)} can be adjusted` : form.includesInterest ? `Up to ${inr(member.withdrawable + (member.withdrawable >= member.closedSecurity ? member.interestWithdrawable : Math.round((member.interestWithdrawable * member.withdrawable) / member.closedSecurity * 100) / 100))} in all: security ${inr(member.withdrawable)} + its interest` : `Up to ${inr(member.withdrawable)} (security of closed loans). Interest is added: security + interest = total`}>
                     <input id="wamount" inputMode="decimal" value={form.amount} onChange={(e) => { setForm((f) => ({ ...f, amount: e.target.value.replace(/[^\d.]/g, '') })); setErrors((x) => ({ ...x, amount: undefined })); }} />
                   </FormField>
+                  {kind === 'withdraw' && member.interestWithdrawable > 0 && (
+                    <label className="span-2" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <input type="checkbox" checked={form.includesInterest} onChange={(e) => { setForm((x) => ({ ...x, includesInterest: e.target.checked, amount: '' })); setErrors((x) => ({ ...x, amount: undefined })); }} />
+                      The amount I enter is the total (security + interest){form.includesInterest ? '' : ' — e.g. security ₹500 and interest ₹50: request ₹550'}
+                    </label>
+                  )}
                   {kind === 'withdraw' && (
                     <>
                       <FormField id="wmode" label="Paid back by" required error={errors.payMode}>
@@ -475,7 +481,15 @@ export function SecurityWithdraw() {
                   )}
                   <FormField id="wremark" label="Remark" className="span-2"><input id="wremark" value={form.remark} maxLength={300} onChange={set('remark')} /></FormField>
                 </div>
-                {kind === 'withdraw' && typed > 0 && typed <= member.withdrawable && member.closedSecurity > 0 && (() => {
+                {kind === 'withdraw' && form.includesInterest && typed > 0 && member.closedSecurity > 0 && (() => {
+                  // the total asked for is split into the security and the interest that goes with it
+                  const interestOf = (sec) => (sec >= member.closedSecurity ? member.interestWithdrawable : Math.round((member.interestWithdrawable * sec) / member.closedSecurity * 100) / 100);
+                  const all = member.withdrawable + interestOf(member.withdrawable);
+                  if (typed > all) return <div className="notice warn" style={{ margin: '10px 0' }}>Only {inr(all)} can be withdrawn: security {inr(member.withdrawable)} + interest {inr(interestOf(member.withdrawable))}.</div>;
+                  const sec = typed >= all ? member.withdrawable : Math.round(((typed * member.closedSecurity) / (member.closedSecurity + member.interestWithdrawable)) * 100) / 100;
+                  return <div className="notice" style={{ margin: '10px 0' }}>Total <strong>{inr(typed)}</strong> = security {inr(sec)} + interest {inr(Math.round((typed - sec) * 100) / 100)}. Both go to the admin for approval (confirmed with the member's OTP).{typed < all && <> <button type="button" className="link-btn" onClick={() => setForm((f) => ({ ...f, amount: String(all) }))}>Fill in {inr(all)}</button></>}</div>;
+                })()}
+                {kind === 'withdraw' && !form.includesInterest && typed > 0 && typed <= member.withdrawable && member.closedSecurity > 0 && (() => {
                   const interest = typed >= member.closedSecurity ? member.interestWithdrawable : Math.round((member.interestWithdrawable * typed) / member.closedSecurity * 100) / 100;
                   return <div className="notice" style={{ margin: '10px 0' }}>Security {inr(typed)} + interest {inr(interest)} = <strong>total {inr(typed + interest)}</strong> (confirmed with the member's OTP).</div>;
                 })()}

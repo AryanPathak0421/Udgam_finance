@@ -13,7 +13,8 @@ const businessSchema = new mongoose.Schema(
     gstVerifiedAt: Date, // set only when the GST network confirmed the number
     udgamNumber: String,
     civilScore: Number,
-    shopPhoto: { type: String, select: false },
+    shopPhoto: { type: String, select: false }, // the first of the shop photos (older requisitions have this one only)
+    shopPhotos: { type: [String], select: false }, // three photos of the shop
     bankStatement: { type: String, select: false }, // PDF or image data URL
     itr: { type: String, select: false }, // income tax return (PDF or image)
     agreement: { type: String, select: false }, // shop / business agreement
