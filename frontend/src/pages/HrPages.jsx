@@ -1019,7 +1019,7 @@ export function SalaryPayment() {
           </>
         )}
       </div>
-      <MonthWiseReport branch={branch} />
+      <MonthWiseReport branch={branch} version={list.data} />
       {open && <SlipDialog slip={open} onClose={() => setOpen(null)} onSaved={() => { setOpen(null); list.load(); }} />}
       {payFor && <PaySalaryDialog slip={payFor} busy={busy} errors={errors} defaultMode={payMode} onClose={() => setPayFor(null)} onPay={(amount, mode, bank) => pay([payFor.id], { [payFor.id]: amount }, mode, bank)} />}
     </>
@@ -1053,9 +1053,9 @@ function PaySalaryDialog({ slip, busy, errors, defaultMode, onClose, onPay }) {
 }
 
 /** The salary month by month of a year: slips, sent, earning, deduction, net, paid and still to pay. */
-function MonthWiseReport({ branch }) {
+function MonthWiseReport({ branch, version }) {
   const [year, setYear] = useState(String(new Date().getFullYear()));
-  const list = useLoad(() => api.hr.monthWiseSalary({ year, branch }), [year, branch]);
+  const list = useLoad(() => api.hr.monthWiseSalary({ year, branch }), [year, branch, version]);
   const d = list.data;
   const years = Array.from({ length: 5 }, (_, i) => String(new Date().getFullYear() - i));
   return (
