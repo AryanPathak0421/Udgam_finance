@@ -4,6 +4,7 @@ import { AppEmiCollection, APP_EMI_STATUS } from '../models/AppEmiCollection.js'
 import { Member } from '../models/Member.js';
 import { User } from '../models/User.js';
 import { Employee } from '../models/Hr.js';
+import { blockedCodes } from '../services/blockedStaff.js';
 import { asString, HttpError } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
 import { branchFilter, showMobile } from './groupController.js';
@@ -43,9 +44,9 @@ export async function listAppUsers(req, res) {
 /** Staff who can still be made app users: active, with an employee code, not yet app users. */
 export async function staffOptions(_req, res) {
   const taken = (await AppUser.find({}).select('user').lean()).map((a) => a.user);
-  const staff = await User.find({ _id: { $nin: taken }, isActive: true, employeeCode: { $exists: true, $ne: '' } }).select('name employeeCode role branches').populate('branches', 'code name').sort({ name: 1 }).lean();
+  const staff = await User.find({ _id: { $nin: taken }, isActive: true, employeeCode: { $exists: true, $nin: ['', ...(await blockedCodes())] } }).select('name employeeCode role branches').populate('branches', 'code name').sort({ name: 1 }).lean();
   // employees registered in HR who have no staff login yet: they cannot be app users until a login is made for them (User Master)
-  const noLogin = await Employee.find({ isDeleted: false, status: 'active', user: { $exists: false } }).select('employeeCode name branch').populate('branch', 'code name').sort({ name: 1 }).limit(500).lean();
+  const noLogin = await Employee.find({ isDeleted: false, status: 'active', isBlocked: { $ne: true }, user: { $exists: false } }).select('employeeCode name branch').populate('branch', 'code name').sort({ name: 1 }).limit(500).lean();
   res.json({ items: staff.map((u) => ({ id: u._id, employeeCode: u.employeeCode, name: u.name, role: u.role, branches: (u.branches || []).map((b) => b.code).join(', '), branchCode: (u.branches || []).map((b) => b.code).join(', '), branchName: (u.branches || []).map((b) => b.name).join(', ') })), noLogin: noLogin.map((e) => ({ employeeCode: e.employeeCode, name: e.name, branchCode: e.branch?.code || '', branchName: e.branch?.name || '' })) });
 }
 
@@ -53,7 +54,7 @@ export async function createAppUser(req, res) {
   const b = req.body || {};
   if (!mongoose.isValidObjectId(asString(b.user))) throw invalid({ user: 'Select the staff member' });
   const u = await User.findOne({ _id: b.user, isActive: true });
-  if (!u || !u.employeeCode) throw invalid({ user: 'This staff member is not available (needs an active login and an employee code)' });
+  if (!u || !u.employeeCode || (await blockedCodes()).includes(u.employeeCode)) throw invalid({ user: 'This staff member is not available (needs an active login and an employee code)' });
   if (await AppUser.exists({ user: u._id })) throw new HttpError(409, 'This staff member is already an app user', { user: 'Already an app user' });
   const a = await AppUser.create({ user: u._id, employeeCode: u.employeeCode, name: u.name, note: asString(b.note).slice(0, 100), createdBy: req.user._id, createdByCode: req.user.employeeCode || '' });
   await audit(req, { action: 'appUser.create', entity: 'AppUser', entityId: a._id, after: { employeeCode: a.employeeCode, name: a.name } });
