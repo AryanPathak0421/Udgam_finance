@@ -109,6 +109,14 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* the menus ticked by the admin are given to a rank: a login without a rank gets none of them */}
+      {user.rank === null && !['super_admin', 'admin'].includes(user.role) && (
+        <div className="notice" style={{ marginBottom: 14 }}><strong>Your login has no rank.</strong> The menus the admin ticks (Product, Members ...) are given to a rank, so you do not see them. Ask the admin to give you a rank in User Master.</div>
+      )}
+      {d?.usersWithoutRank > 0 && (
+        <div className="notice" style={{ marginBottom: 14 }}><strong>{d.usersWithoutRank} active staff login{d.usersWithoutRank === 1 ? ' has' : 's have'} no rank</strong>, so the menus you tick under Menu Permission do not reach {d.usersWithoutRank === 1 ? 'it' : 'them'}. <Link to="/admin-master/users">Give them a rank in User Master</Link>.</div>
+      )}
+
       <section className="stat-grid">
         {(stats || Array.from({ length: 8 }, (_, i) => ({ label: '…', icon: 'chart', tone: 'teal' }))).map((s, i) => <StatCard key={s.label + i} {...s} />)}
       </section>

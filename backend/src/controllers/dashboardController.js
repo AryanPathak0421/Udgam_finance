@@ -6,6 +6,7 @@ import { AppEmiCollection } from '../models/AppEmiCollection.js';
 import { DayClose } from '../models/DayClose.js';
 import { SecurityWithdrawal } from '../models/SecurityWithdrawal.js';
 import { Employee } from '../models/Hr.js';
+import { User } from '../models/User.js';
 import { Complaint, Leave, Resignation, Requirement } from '../models/HrExtra.js';
 import { ProductOrder } from '../models/ProductOrder.js';
 import { ProductPayment } from '../models/ProductPayment.js';
@@ -89,6 +90,8 @@ export async function summary(req, res) {
   const months = Array.from({ length: 6 }, (_, i) => { const k = iso(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 5 + i, 1)).slice(0, 7); return { month: k, collected: rupees(collBy.get(k) || 0), disbursed: rupees(disbBy.get(k) || 0) }; });
   res.json({
     members, employees, loansMonth: loansMonth[0]?.n || 0, disbursedMonth: rupees(loansMonth[0]?.t), collectedToday: rupees(collToday[0]?.t), collectedMonth: rupees(collMonth[0]?.t),
+    // admin: the active staff that have no rank (the menus ticked for a rank never reach them)
+    usersWithoutRank: isAdmin(req.user) ? await safe(User.countDocuments({ isActive: true, role: { $nin: ['super_admin', 'admin'] }, $or: [{ rank: { $exists: false } }, { rank: null }] })) : 0,
     openComplaints: complaints, pending: Object.values(pending).reduce((s, n) => s + n, 0), days, months,
   });
 }

@@ -172,6 +172,10 @@ export async function setUserStatus(req, res) {
   assertCanManage(req.user, user);
   if (String(user._id) === String(req.user._id)) throw new HttpError(409, 'You cannot deactivate your own account');
 
+  // The menus ticked under Menu Permission belong to a rank: a staff login without a rank would never get them (Product, Members ...).
+  if (req.body.isActive && !user.rank && !['super_admin', 'admin'].includes(user.role)) {
+    throw new HttpError(422, 'Give this user a rank first (Edit → Rank). The menus you tick under Menu Permission are given to a rank, so a login without a rank never gets them.', { rank: 'Select a rank' });
+  }
   user.isActive = req.body.isActive;
   user.updatedBy = req.user._id;
   await user.save();
