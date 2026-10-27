@@ -28,6 +28,7 @@ export default function MenuPermission() {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
+  const [copySource, setCopySource] = useState('');
 
   useEffect(() => {
     Promise.all([api.ranks.list({ limit: 100 }), api.menuPermissions.catalogue()])
@@ -83,6 +84,22 @@ export default function MenuPermission() {
   function setCell(key, action, value) {
     setGrid((g) => ({ ...g, [key]: applyCell(g[key] || blank(), action, value) }));
     setDirty(true);
+  }
+
+  // Fills the grid with the menus of another rank (e.g. the rank of the other branch's staff); nothing is saved until Save permissions is pressed.
+  async function copyFromRank() {
+    if (!copySource) return;
+    try {
+      const d = await api.menuPermissions.get(copySource);
+      if (!Array.isArray(d.permissions) || !d.permissions.length) { toast.error(`"${d.rank.name}" has no ticked menus to copy`); return; }
+      const g = {};
+      d.permissions.forEach((p) => { g[p.menu] = { view: p.view, add: p.add, edit: p.edit, delete: p.delete }; });
+      setGrid(g);
+      setDirty(true);
+      toast.success(`Menus of "${d.rank.name}" copied. Press Save permissions to give them to ${target.rank.name}.`);
+    } catch (err) {
+      toast.error(err.message);
+    }
   }
 
   function setColumn(action, value) {
@@ -169,6 +186,14 @@ export default function MenuPermission() {
             Admin and Super Admin users always have full access.
           </div>
 
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', margin: '10px 0' }}>
+            <label htmlFor="copyRank" className="small muted">Same menus as another rank:</label>
+            <select id="copyRank" value={copySource} onChange={(e) => setCopySource(e.target.value)} aria-label="Copy the menus of this rank">
+              <option value="">Select a rank</option>
+              {ranks.filter((r) => r.id !== rankId).map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+            </select>
+            <button type="button" className="btn sm" onClick={copyFromRank} disabled={!copySource}>Copy menus</button>
+          </div>
           {(target.users || []).length > 0 && (
             <div className="small" style={{ margin: '10px 0' }}>
               <strong>Users who get these menus ({target.users.length}):</strong>{' '}
