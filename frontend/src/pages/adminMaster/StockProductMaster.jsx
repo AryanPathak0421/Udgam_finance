@@ -232,7 +232,7 @@ export default function StockProductMaster() {
         ) : error ? (
           <ErrorState message={error} onRetry={load} />
         ) : data.items.length === 0 ? (
-          <EmptyState title={filtered ? 'No products match your filters' : 'No products yet'} description={filtered ? 'Try changing the filters.' : 'Add the first product.'} />
+          <EmptyState title={filtered ? 'No products match your filters' : 'No products yet'} description={filtered ? 'Try changing the filters.' : ['super_admin', 'admin'].includes(user?.role) ? 'Add the first product.' : 'Your branch has no stock yet. Order products from the head office under Branch Order; once the admin approves the order, the stock shows here.'} />
         ) : (
           <>
             <div className={`table-wrap${loading ? ' dim' : ''}`}>
