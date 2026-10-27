@@ -31,6 +31,18 @@ export function fixedOf(emp) {
   return out;
 }
 
+/** The fields of a salary set-up (Set Salary), kept by month. */
+export const SETUP_KEYS = ['salaryStructure', 'monthlySalaryPaise', 'pfPercent', 'esiPercent', 'professionalTaxPaise', 'advanceDeductionPaise', 'securityAmountPaise', 'securityMonths', 'securityNeverEnds', 'pfDeduction', 'esiDeduction'];
+/** The employee with the salary set-up that holds for a month: the latest one made for that month or before it. */
+export function setupAt(emp, month) {
+  const hist = (emp.salaryHistory || []).filter((h) => h.month <= month).sort((a, b) => a.month.localeCompare(b.month));
+  const h = hist[hist.length - 1];
+  if (!h) return emp;
+  const out = { ...emp };
+  SETUP_KEYS.forEach((k) => { if (h[k] !== undefined && h[k] !== null) out[k] = h[k]; });
+  return out;
+}
+
 /** Whether the employee's verification is complete: mobile and email (when there is one) by OTP, and the documents. */
 export const isVerified = (e) => (!e.mobile || Boolean(e.mobileVerifiedAt)) && (!e.email || Boolean(e.emailVerifiedAt)) && Boolean(e.documentsVerifiedAt);
 
@@ -68,7 +80,8 @@ export function buildLines(emp, ratio, variable, priorSecurity, kept = new Map()
   const basicEarned = fixed.basic * r;
   const secAmount = emp.securityAmountPaise || 0;
   const months = Math.min(Math.max(emp.securityMonths || 1, 1), 5);
-  const secCut = secAmount && isVerified(emp) ? Math.max(Math.min(Math.ceil(secAmount / months), secAmount - priorSecurity), 0) : 0;
+  // the security is cut in 1 to 5 equal months, or (never ends) the security amount is cut every month
+  const secCut = !secAmount || !isVerified(emp) ? 0 : emp.securityNeverEnds ? secAmount : Math.max(Math.min(Math.ceil(secAmount / months), secAmount - priorSecurity), 0);
   const auto = {
     ...fixed,
     loanIncentive: variable?.loanIncentive || 0, productIncentive: variable?.productIncentive || 0, grt: variable?.grt || 0, senior: variable?.senior || 0, npaRecovery: variable?.npaRecovery || 0, bonus: 0,

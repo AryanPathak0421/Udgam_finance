@@ -140,6 +140,7 @@ const loanRequisitionSchema = new mongoose.Schema(
     totalInterestPaise: Number,
     totalPayablePaise: Number,
     processingFeePaise: Number,
+    legalFeePaise: Number, // legal charges (loans of the old system)
     insuranceFeePaise: Number, // the scheme's "cost" (insurance / other)
     securityAmountPaise: Number,
     cashPaise: Number, // loan amount - security - processing fee - insurance fee (per borrower)

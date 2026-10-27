@@ -32,6 +32,7 @@ const RECEIVE = [
   { key: 'business_collection', label: 'Business loan collection' },
   { key: 'msme_collection', label: 'MSME loan collection' },
   { key: 'processing_fee', label: 'Processing fee' },
+  { key: 'legal_fee', label: 'Legal charges', optional: true },
   { key: 'insurance_fee', label: 'Insurance fee' },
   { key: 'security_amount', label: 'Security amount' },
   { key: 'goods_in_kind', label: 'Goods given with loans (in kind, not cash)', optional: true },
@@ -112,6 +113,7 @@ async function fastOpening(scope, head, from, mode = '') {
         $project: {
           paidAmount: { $ifNull: ['$totalAmountPaise', { $sum: '$lines.amountPaise' }] },
           processing: { $sum: '$lines.processingFeePaise' },
+          legal: { $sum: '$lines.legalFeePaise' },
           insurance: { $sum: '$lines.insuranceFeePaise' },
           security: { $sum: '$lines.securityPaise' },
           goods: {
@@ -128,6 +130,7 @@ async function fastOpening(scope, head, from, mode = '') {
           _id: null,
           totalPaid: { $sum: '$paidAmount' },
           totalProcessing: { $sum: '$processing' },
+          totalLegal: { $sum: '$legal' },
           totalInsurance: { $sum: '$insurance' },
           totalSecurity: { $sum: '$security' },
           totalGoods: { $sum: '$goods' },
@@ -168,7 +171,7 @@ async function fastOpening(scope, head, from, mode = '') {
   const entryPay = entrySums?.find((x) => x._id === 'payment')?.total || 0;
 
   const totalReceive = (emiSum?.total || 0) + (settleSum?.total || 0)
-    + (loanSum?.totalProcessing || 0) + (loanSum?.totalInsurance || 0) + (loanSum?.totalSecurity || 0) + (loanSum?.totalGoods || 0)
+    + (loanSum?.totalProcessing || 0) + (loanSum?.totalLegal || 0) + (loanSum?.totalInsurance || 0) + (loanSum?.totalSecurity || 0) + (loanSum?.totalGoods || 0)
     + (gotSum?.total || 0) + (civilSum?.total || 0) + entryRec;
 
   const totalPayment = (loanSum?.totalPaid || 0)
@@ -309,6 +312,7 @@ export async function cashbookData(req, query) {
       const amount = l.totalAmountPaise || sum('amountPaise');
       add('payment', disbursementKey(l), { ...base, particulars: `Loan paid — ${who}`, amount });
       if (sum('processingFeePaise') > 0) add('receive', 'processing_fee', { ...base, particulars: `Processing fee — ${who}`, amount: sum('processingFeePaise') });
+      if (sum('legalFeePaise') > 0) add('receive', 'legal_fee', { ...base, particulars: `Legal charges — ${who}`, amount: sum('legalFeePaise') });
       if (sum('insuranceFeePaise') > 0) add('receive', 'insurance_fee', { ...base, particulars: `Insurance fee — ${who}`, amount: sum('insuranceFeePaise') });
       if (sum('securityPaise') > 0) add('receive', 'security_amount', { ...base, particulars: `Security amount — ${who}`, amount: sum('securityPaise') });
       // a product loan is all goods; for other loans it is the goods taken at payment time

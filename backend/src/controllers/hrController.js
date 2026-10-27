@@ -19,7 +19,7 @@ import { ensureEmployees } from '../services/employeeSync.js';
 import { OtpChallenge } from '../models/OtpChallenge.js';
 import { issueOtp, hashOtp } from '../services/otpChallenges.js';
 import { sendMail, mailConfigured } from '../services/mailer.js';
-import { EARN_FIXED, ALL_LINES, loadVariable, buildLines, totalsOf, legacyLines, fixedOf, isVerified } from '../services/salaryLines.js';
+import { EARN_FIXED, ALL_LINES, SETUP_KEYS, setupAt, loadVariable, buildLines, totalsOf, legacyLines, fixedOf, isVerified } from '../services/salaryLines.js';
 import { audit } from '../utils/audit.js';
 import { branchFilter, isAdmin, showMobile } from './groupController.js';
 
@@ -42,6 +42,22 @@ const MARITAL = ['single', 'married', 'divorced', 'widowed'];
 const yes = (v) => v === true || v === 'yes' || v === 'true';
 
 /** The branches of a request: the user's own, narrowed to the chosen one (never widened). */
+/** The branches the HR pages offer: every branch for an admin and for an accountant (the head office pays the staff of every branch), the own branches for a branch manager. */
+export async function hrBranchOptions(req, res) {
+  const filter = { isDeleted: false, isActive: true };
+  if (!['super_admin', 'admin', 'accountant'].includes(req.user.role)) filter._id = { $in: req.user.branches || [] };
+  const items = await Branch.find(filter).sort({ code: 1 }).select('code name').lean();
+  res.json({ items: items.map((b) => ({ id: b._id, code: b.code, name: b.name })) });
+}
+
+/** Salary slips: an accountant sees and pays the slips of every branch (the head office pays the staff of other branches too); a branch manager only its own. */
+const slipScope = (user) => (user.role === 'accountant' ? {} : branchFilter(user));
+const salaryScope = (req) => {
+  const wanted = asString(req.query.branch);
+  if (req.user.role !== 'accountant') return scope(req);
+  return mongoose.isValidObjectId(wanted) ? { branch: new mongoose.Types.ObjectId(wanted) } : {};
+};
+
 function scope(req, field = 'branch') {
   const filter = branchFilter(req.user);
   const wanted = asString(req.query.branch);
@@ -146,8 +162,13 @@ const presentEmployee = (e, user) => ({
   mobileVerified: Boolean(e.mobileVerifiedAt), emailVerified: Boolean(e.emailVerifiedAt), documentsVerified: Boolean(e.documentsVerifiedAt), verified: isVerified(e),
   salarySetup: {
     ...Object.fromEntries(EARN_FIXED.map(([k]) => [k, rupees(fixedOf(e)[k])])), pfPercent: e.pfPercent ?? 12, esiPercent: e.esiPercent ?? 0.75, professionalTax: rupees(e.professionalTaxPaise),
-    advanceDeduction: rupees(e.advanceDeductionPaise), securityAmount: rupees(e.securityAmountPaise), securityMonths: e.securityMonths || 1,
+    advanceDeduction: rupees(e.advanceDeductionPaise), securityAmount: rupees(e.securityAmountPaise), securityMonths: e.securityMonths || 1, securityNeverEnds: Boolean(e.securityNeverEnds),
+    pfDeduction: Boolean(e.pfDeduction), esiDeduction: Boolean(e.esiDeduction),
   },
+  salaryHistory: (e.salaryHistory || []).map((h) => ({
+    month: h.month, ...Object.fromEntries(EARN_FIXED.map(([k]) => [k, rupees(fixedOf(h)[k])])), pfPercent: h.pfPercent ?? 12, esiPercent: h.esiPercent ?? 0.75, professionalTax: rupees(h.professionalTaxPaise),
+    advanceDeduction: rupees(h.advanceDeductionPaise), securityAmount: rupees(h.securityAmountPaise), securityMonths: h.securityMonths || 1, securityNeverEnds: Boolean(h.securityNeverEnds), pfDeduction: Boolean(h.pfDeduction), esiDeduction: Boolean(h.esiDeduction),
+  })).sort((a, b) => a.month.localeCompare(b.month)),
 });
 const EMP_POPULATE = [{ path: 'department', select: 'name' }, { path: 'designation', select: 'name' }, { path: 'branch', select: 'code name' }, { path: 'supervisor', select: 'employeeCode name' }, { path: 'supervisedBranches', select: 'code name' }];
 
@@ -285,6 +306,7 @@ export async function verifyEmployeeDocuments(req, res) {
 export async function saveSalarySetup(req, res) {
   const e = await loadEmployee(req);
   const b = req.body || {};
+  const before = Object.fromEntries(SETUP_KEYS.map((k) => [k, e[k]?.toObject ? e[k].toObject() : e[k]])); // the set-up as it was: it keeps holding for the months before the one that is set now
   const money = (v, label) => {
     const p = v === '' || v === undefined || v === null ? 0 : toMinor(typeof v === 'number' ? String(v) : asString(v));
     if (p === null || p < 0) throw invalid({ [label]: 'Enter an amount (₹, up to 2 decimals)' });
@@ -304,12 +326,28 @@ export async function saveSalarySetup(req, res) {
   e.professionalTaxPaise = money(b.professionalTax, 'professionalTax');
   e.advanceDeductionPaise = money(b.advanceDeduction, 'advanceDeduction');
   e.securityAmountPaise = money(b.securityAmount, 'securityAmount');
-  const months = Number(b.securityMonths || 1);
-  if (!Number.isInteger(months) || months < 1 || months > 5) throw invalid({ securityMonths: 'The security is cut in 1 to 5 months' });
+  const never = b.securityMonths === 'never' || yes(b.securityNeverEnds);
+  const months = never ? (e.securityMonths || 1) : Number(b.securityMonths || 1);
+  if (!Number.isInteger(months) || months < 1 || months > 5) throw invalid({ securityMonths: 'The security is cut in 1 to 5 months, or never ends' });
   e.securityMonths = months;
+  e.securityNeverEnds = never;
   Object.assign(e, readStatutory(b)); // the numbers can be filled in here too, when the salary is set
   if (b.pfDeduction !== undefined) e.pfDeduction = yes(b.pfDeduction);
   if (b.esiDeduction !== undefined) e.esiDeduction = yes(b.esiDeduction);
+  // the month the salary is set for: this month or an earlier one (it holds from that month on); the salary of a month is worked out with the set-up of that month
+  const thisMonth = new Date().toISOString().slice(0, 7);
+  const month = asString(b.month) || thisMonth;
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw invalid({ month: 'Choose the month' });
+  if (month > thisMonth) throw invalid({ month: 'Choose this month or an earlier month' });
+  const snap = { month, salaryStructure: { ...(e.salaryStructure?.toObject ? e.salaryStructure.toObject() : e.salaryStructure) }, monthlySalaryPaise: e.monthlySalaryPaise, pfPercent: e.pfPercent, esiPercent: e.esiPercent, professionalTaxPaise: e.professionalTaxPaise, advanceDeductionPaise: e.advanceDeductionPaise, securityAmountPaise: e.securityAmountPaise, securityMonths: e.securityMonths, securityNeverEnds: e.securityNeverEnds, pfDeduction: Boolean(e.pfDeduction), esiDeduction: Boolean(e.esiDeduction) };
+  const hist = (e.salaryHistory || []).map((h) => (h.toObject ? h.toObject() : h));
+  if (!hist.length && (before.monthlySalaryPaise || before.securityAmountPaise || before.professionalTaxPaise || before.advanceDeductionPaise)) hist.push({ month: '0000-00', ...before });
+  const at = hist.findIndex((h) => h.month === month);
+  if (at >= 0) hist[at] = snap; else hist.push(snap);
+  e.salaryHistory = hist.sort((x, y) => x.month.localeCompare(y.month));
+  // the fields of the employee always hold the latest set-up
+  const latest = e.salaryHistory[e.salaryHistory.length - 1];
+  if (latest.month !== month) SETUP_KEYS.forEach((k) => { if (latest[k] !== undefined) e[k] = latest[k]; });
   await e.save();
   await e.populate(EMP_POPULATE);
   await audit(req, { action: 'employee.salary-setup', entity: 'Employee', entityId: e._id, after: { employeeCode: e.employeeCode, monthlySalary: rupees(e.monthlySalaryPaise) } });
@@ -676,11 +714,15 @@ function compute(emp, marks, range, bonusPaise = 0, otherDeductionPaise = 0, hol
   return { sundays, presentDays: present, halfDays: half, leaveDays: leave, holidayDays: holiday, absentDays: absent, unmarkedDays: unmarked, payableDays: payable, grossPaise: gross, earnedPaise: earned, netPaise: net };
 }
 
+/** What has been paid of a slip: all of it when it is paid (also the slips paid before payments were made in parts), else the parts paid so far. */
+const paidOf = (s) => (s.status === 'paid' ? s.netPaise || 0 : s.paidPaise || 0);
+
 const presentSalary = (s, user) => ({
   id: s._id, employeeId: s.employee, employeeCode: s.employeeCode, name: s.name, mobile: showMobile(user, s.mobile), branch: s.branch?._id ? { id: s.branch._id, code: s.branch.code, name: s.branch.name } : null,
   department: s.department || '', designation: s.designation || '', month: s.month, daysInMonth: s.daysInMonth, sundays: s.sundays, presentDays: s.presentDays, halfDays: s.halfDays, leaveDays: s.leaveDays, holidayDays: s.holidayDays,
   absentDays: s.absentDays, unmarkedDays: s.unmarkedDays, payableDays: s.payableDays, gross: rupees(s.grossPaise), earned: rupees(s.earnedPaise), bonus: rupees(s.bonusPaise), otherDeduction: rupees(s.otherDeductionPaise), net: rupees(s.netPaise),
-  remark: s.remark || '', status: s.status, sentAt: s.sentAt, paidOn: iso(s.paidOn), payMode: s.payMode || '',
+  remark: s.remark || '', status: s.status, sentAt: s.sentAt, paidOn: iso(s.paidOn), payMode: s.payMode || '', paid: rupees(paidOf(s)), balance: rupees(Math.max((s.netPaise || 0) - paidOf(s), 0)),
+  payments: (s.payments || []).map((p) => ({ on: iso(p.on), amount: rupees(p.amountPaise), mode: p.mode })),
   lines: (s.lines?.length ? s.lines : legacyLines(s)).map((l) => ({ key: l.key, label: l.label, side: l.side, amount: rupees(l.amountPaise), manual: Boolean(l.manual) })),
   totalEarning: rupees(s.totalEarningPaise ?? (s.earnedPaise || 0) + (s.bonusPaise || 0)), totalDeduction: rupees(s.totalDeductionPaise ?? s.otherDeductionPaise), securityCut: rupees(s.securityCutPaise),
 });
@@ -692,7 +734,8 @@ export async function generateSalary(req, res) {
   if (!range) throw invalid({ month: 'Choose the month' });
   if (range.to > startOfToday()) throw invalid({ month: 'The salary of a month is generated once the month is over' });
   const emps = (await Employee.find({ isDeleted: false, ...scope({ query: { branch: req.body?.branch }, user: req.user }) }).populate(EMP_POPULATE).lean())
-    .filter((e) => (!e.joiningDate || e.joiningDate <= range.to) && (e.status === 'active' || (e.leftOn && e.leftOn >= range.from)));
+    .filter((e) => (!e.joiningDate || e.joiningDate <= range.to) && (e.status === 'active' || (e.leftOn && e.leftOn >= range.from)))
+    .map((e) => setupAt(e, month)); // each employee with the salary set for that month
   const marksAll = await Attendance.find({ date: { $gte: range.from, $lte: range.to }, employee: { $in: emps.map((e) => e._id) } }).select('employee date status').lean();
   const marks = new Map();
   marksAll.forEach((a) => { const k = String(a.employee); if (!marks.has(k)) marks.set(k, new Map()); marks.get(k).set(iso(a.date), a.status); });
@@ -726,7 +769,7 @@ export async function generateSalary(req, res) {
 export async function listSalary(req, res) {
   const month = asString(req.query.month);
   if (!monthRange(month)) throw invalid({ month: 'Choose the month' });
-  const filter = { month, ...scope(req) };
+  const filter = { month, ...salaryScope(req) };
   const st = asString(req.query.status);
   if (['generated', 'sent', 'paid', 'unpaid', 'topay'].includes(st)) filter.status = st === 'unpaid' ? { $ne: 'paid' } : st === 'topay' ? 'sent' : st; // topay: sent to the employee and not paid yet
   const q = asString(req.query.q).toLowerCase();
@@ -737,12 +780,12 @@ export async function listSalary(req, res) {
     return { ...presentSalary(s, req.user), employee: { bankName: e.bankName || '', accountNumber: e.accountNumber ? `XXXXX${String(e.accountNumber).slice(-4)}` : '', joiningDate: iso(e.joiningDate), panNo: e.panNo || '', pfNumber: e.pfNumber || '', uanNumber: e.uanNumber || '', esiNumber: e.esiNumber || '' } };
   }).filter((s) => !q || [s.employeeCode, s.name].some((v) => String(v).toLowerCase().includes(q)));
   const sum = (f) => Math.round(items.reduce((t, s) => t + f(s), 0) * 100) / 100;
-  res.json({ items, summary: { slips: items.length, gross: sum((s) => s.gross), net: sum((s) => s.net), paid: sum((s) => (s.status === 'paid' ? s.net : 0)), due: sum((s) => (s.status === 'paid' ? 0 : s.net)) } });
+  res.json({ items, summary: { slips: items.length, gross: sum((s) => s.gross), net: sum((s) => s.net), paid: sum((s) => s.paid), due: sum((s) => s.balance) } });
 }
 
 async function loadSlip(req) {
   if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Salary not found');
-  const s = await Salary.findOne({ _id: req.params.id, ...branchFilter(req.user) });
+  const s = await Salary.findOne({ _id: req.params.id, ...slipScope(req.user) });
   if (!s) throw new HttpError(404, 'Salary not found');
   return s;
 }
@@ -768,6 +811,7 @@ export async function adjustSalary(req, res) {
     if (line.amountPaise !== paise || line.manual) { line.amountPaise = paise; line.manual = true; }
   }
   Object.assign(s, totalsOf(lines));
+  if ((s.paidPaise || 0) > s.netPaise) throw new HttpError(409, `${rupees(s.paidPaise)} of this salary is already paid; the net salary cannot be less than that`);
   s.lines = lines;
   s.remark = asString(req.body?.remark).slice(0, 200);
   if (s.status === 'sent') s.status = 'generated'; // the slip that was sent is out of date
@@ -787,7 +831,7 @@ const slipText = (s) => {
 export async function sendSalary(req, res) {
   const ids = (Array.isArray(req.body?.ids) ? req.body.ids : []).filter((x) => mongoose.isValidObjectId(String(x)));
   if (!ids.length) throw invalid({ ids: 'Select the salaries to send' });
-  const slips = await Salary.find({ _id: { $in: ids }, ...branchFilter(req.user) });
+  const slips = await Salary.find({ _id: { $in: ids }, ...slipScope(req.user) });
   const emails = new Map((await Employee.find({ _id: { $in: slips.map((s) => s.employee) } }).select('email').lean()).map((e) => [String(e._id), e.email || '']));
   const out = { sent: 0, noMobile: 0, mailed: 0, failed: 0 };
   for (const s of slips) {
@@ -838,25 +882,35 @@ export async function paySalary(req, res) {
   const payMode = asString(req.body?.payMode) || 'cash';
   if (!['cash', 'bank', 'upi', 'cheque'].includes(payMode)) throw invalid({ payMode: 'Select how the salary is paid' });
   const bankAccount = await readBankAccount(req.body, payMode);
-  const today = startOfToday();
-  const slips = await Salary.find({ _id: { $in: ids }, ...branchFilter(req.user) });
+  // an amount can be given for a slip (a part of the salary); without one the whole balance is paid
+  const amounts = req.body?.amounts && typeof req.body.amounts === 'object' ? req.body.amounts : {};
+  const slips = await Salary.find({ _id: { $in: ids }, ...slipScope(req.user) });
   const out = { paid: 0, skipped: 0, amount: 0, failed: [] };
   for (const s of slips) {
-    if (s.status === 'paid' || !s.netPaise) { out.skipped += 1; continue; }
+    const balance = (s.netPaise || 0) - paidOf(s);
+    if (s.status === 'paid' || balance <= 0) { out.skipped += 1; continue; }
     try {
+      const given = amounts[String(s._id)];
+      const pay = given === undefined || given === '' ? balance : toMinor(typeof given === 'number' ? String(given) : asString(given));
+      if (pay === null || pay <= 0) throw new Error('Enter the amount to pay (₹, up to 2 decimals)');
+      if (pay > balance) throw new Error(`Only ${rupees(balance)} is left to pay of this salary`);
       // eslint-disable-next-line no-await-in-loop
       const payDate = await defaultWorkDate(s.branch, req.user);
       // eslint-disable-next-line no-await-in-loop
       await assertDayOpen(s.branch, payDate, req.user);
+      const part = pay < balance;
       // eslint-disable-next-line no-await-in-loop
       const entry = await CashEntry.create({
-        branch: s.branch || null, date: payDate, side: 'payment', category: 'staff_salary', amountPaise: s.netPaise, mode: payMode, bankAccount, remark: `Salary ${s.month} — ${s.employeeCode} ${s.name}`.slice(0, 200),
-        enteredByCode: req.user.employeeCode || '', createdBy: req.user._id,
+        branch: s.branch || null, date: payDate, side: 'payment', category: 'staff_salary', amountPaise: pay, mode: payMode, bankAccount,
+        remark: `Salary ${s.month} — ${s.employeeCode} ${s.name}${part ? ' (part)' : ''}`.slice(0, 200), enteredByCode: req.user.employeeCode || '', createdBy: req.user._id,
       });
-      s.status = 'paid'; s.paidOn = payDate; s.payMode = payMode; s.bankAccount = bankAccount; s.cashEntry = entry._id; s.paidByCode = req.user.employeeCode || '';
+      s.paidPaise = (s.paidPaise || 0) + pay;
+      s.payments = [...(s.payments || []), { on: payDate, amountPaise: pay, mode: payMode, cashEntry: entry._id, byCode: req.user.employeeCode || '' }];
+      s.payMode = payMode; s.bankAccount = bankAccount; s.cashEntry = entry._id; s.paidByCode = req.user.employeeCode || '';
+      if (!part) { s.status = 'paid'; s.paidOn = payDate; }
       // eslint-disable-next-line no-await-in-loop
       await s.save();
-      out.paid += 1; out.amount += s.netPaise / 100;
+      out.paid += 1; out.amount += pay / 100;
     } catch (err) {
       out.failed.push({ employeeCode: s.employeeCode, message: err.message });
     }
@@ -870,12 +924,12 @@ export async function monthWiseSalary(req, res) {
   const year = asString(req.query.year) || String(new Date().getUTCFullYear());
   if (!/^\d{4}$/.test(year)) throw invalid({ year: 'Choose the year' });
   const agg = await Salary.aggregate([
-    { $match: { month: { $regex: `^${year}-` }, ...scope(req) } },
+    { $match: { month: { $regex: `^${year}-` }, ...salaryScope(req) } },
     { $group: {
       _id: '$month', slips: { $sum: 1 }, gross: { $sum: { $ifNull: ['$grossPaise', 0] } },
       earning: { $sum: { $ifNull: ['$totalEarningPaise', { $add: [{ $ifNull: ['$earnedPaise', 0] }, { $ifNull: ['$bonusPaise', 0] }] }] } },
       deduction: { $sum: { $ifNull: ['$totalDeductionPaise', { $ifNull: ['$otherDeductionPaise', 0] }] } }, net: { $sum: { $ifNull: ['$netPaise', 0] } },
-      paid: { $sum: { $cond: [{ $eq: ['$status', 'paid'] }, '$netPaise', 0] } }, paidCount: { $sum: { $cond: [{ $eq: ['$status', 'paid'] }, 1, 0] } }, sentCount: { $sum: { $cond: [{ $in: ['$status', ['sent', 'paid']] }, 1, 0] } },
+      paid: { $sum: { $cond: [{ $eq: ['$status', 'paid'] }, '$netPaise', { $ifNull: ['$paidPaise', 0] }] } }, paidCount: { $sum: { $cond: [{ $eq: ['$status', 'paid'] }, 1, 0] } }, sentCount: { $sum: { $cond: [{ $in: ['$status', ['sent', 'paid']] }, 1, 0] } },
     } },
     { $sort: { _id: 1 } },
   ]);
@@ -890,9 +944,9 @@ export async function branchWiseSalary(req, res) {
   const range = monthRange(month);
   if (!range) throw invalid({ month: 'Choose the month' });
   const agg = await Salary.aggregate([
-    { $match: { month, ...scope(req) } },
+    { $match: { month, ...salaryScope(req) } },
     { $group: { _id: '$branch', employees: { $sum: 1 }, gross: { $sum: '$grossPaise' }, earned: { $sum: '$earnedPaise' }, bonus: { $sum: '$bonusPaise' }, deduction: { $sum: '$otherDeductionPaise' }, net: { $sum: '$netPaise' },
-      paid: { $sum: { $cond: [{ $eq: ['$status', 'paid'] }, '$netPaise', 0] } }, paidCount: { $sum: { $cond: [{ $eq: ['$status', 'paid'] }, 1, 0] } } } },
+      paid: { $sum: { $cond: [{ $eq: ['$status', 'paid'] }, '$netPaise', { $ifNull: ['$paidPaise', 0] }] } }, paidCount: { $sum: { $cond: [{ $eq: ['$status', 'paid'] }, 1, 0] } } } },
   ]);
   const active = await Employee.aggregate([{ $match: { isDeleted: false, status: 'active', ...scope(req) } }, { $group: { _id: '$branch', n: { $sum: 1 } } }]);
   const activeBy = new Map(active.map((a) => [String(a._id), a.n]));

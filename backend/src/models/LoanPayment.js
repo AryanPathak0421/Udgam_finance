@@ -37,6 +37,7 @@ const loanPaymentSchema = new mongoose.Schema(
         name: String,
         amountPaise: Number,
         processingFeePaise: Number,
+        legalFeePaise: Number, // legal charges (a loan of the old system had them besides the processing fee)
         insuranceFeePaise: Number,
         securityPaise: Number,
         productPaise: Number,

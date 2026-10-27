@@ -283,10 +283,11 @@ async function main() {
     const gdoc = gcode && gcode !== '--' ? groupDocs.get(gcode) : null;
     const isGroup = Boolean(gdoc) || sc.t.type === 'group' || sc.t.type === 'product';
     const b = bid(r[17]) || m.branch;
-    const proc = paise(r[9]) + paise(r[10]) + paise(r[12]); // processing + legal + GST
+    const proc = paise(r[9]) + paise(r[12]); // processing fee + its GST
+    const legal = paise(r[10]); // legal charges: a charge of its own, not part of the processing fee
     const ins = paise(r[13]);
     const security = (secByLoan.get(lid) || 0) + (latestOf.get(m.code)?.lid === lid ? secByMember.get(m.code) || 0 : 0);
-    const net = r[14] !== undefined ? paise(r[14]) : amountPaise - proc - ins;
+    const net = r[14] !== undefined ? paise(r[14]) : amountPaise - proc - legal - ins;
     const empCode = gdoc?.employeeCode || m.employeeCode || 'LEGACY';
     const reqId = oid();
     const payMode = ['cash', 'bank', 'upi', 'cheque'].includes(String(r[16] || '').toLowerCase()) ? String(r[16]).toLowerCase() : 'cash';
@@ -298,14 +299,14 @@ async function main() {
         ? { group: gdoc?._id, groupInfo: { code: gdoc?.code || '', name: gdoc?.name || String(r[19] || ''), leaderName: '', employeeCode: gdoc?.employeeCode || '', meetingType: gdoc?.meetingType || sc.t.mode, members: [{ code: m.code, name: m.name }] }, members: [m._id], memberCount: 1, totalAmountPaise: amountPaise }
         : { member: m._id, borrower: { code: m.code, name: m.name, dob: m.dob, gender: m.gender, address: m.address, pincode: m.pincode, district: '', state: 'Bihar', mobile: '', guarantorName: m.guarantor?.name || '' } }),
       previousLoanPaise: 0, scheme: sc.id, schemeCode: sc.code, schemeName: sc.name, ...common, calculationType: 'flat', emiType: 'equal',
-      totalInterestPaise: calc.totalInterest, totalPayablePaise: calc.totalPayable, processingFeePaise: proc, insuranceFeePaise: ins, securityAmountPaise: security, cashPaise: net, securityType: 'none',
+      totalInterestPaise: calc.totalInterest, totalPayablePaise: calc.totalPayable, processingFeePaise: proc, legalFeePaise: legal, insuranceFeePaise: ins, securityAmountPaise: security, cashPaise: net, securityType: 'none',
       employeeCode: empCode, decidedAt: loanDate, decidedByCode: 'LEGACY', disbursedAt: paidOn, status: 'approved', memberForms: [], additionalProducts: [], isDeleted: false, ...stamp(loanDate),
     });
     payDocs.push({
       _id: oid(), receiptNo: `LEGRCP-${String(receiptSeq).padStart(6, '0')}`, loanId: lid, requisition: reqId, formId: lid, kind: isGroup ? 'group' : 'personal', branch: b,
       ...(gdoc ? { group: { code: gdoc.code, name: gdoc.name } } : {}), paidOn, emiStartDate: calc.firstDueDate, emiEndDate: calc.lastDueDate, installments: sc.t.term,
       modeLabel: MODES[sc.t.mode].label, mode: sc.t.mode, loanType: isGroup ? 'group' : 'personal', schemeName: sc.name, annualRateBp: sc.rBp, installmentPaise: calc.installmentAmount, payMode, reference: 'Old system', schedule,
-      lines: [{ member: m._id, code: m.code, name: m.name, amountPaise, processingFeePaise: proc, insuranceFeePaise: ins, securityPaise: security, productPaise: 0, products: [], cashPaise: net, extraEmiPaise: 0 }],
+      lines: [{ member: m._id, code: m.code, name: m.name, amountPaise, processingFeePaise: proc, legalFeePaise: legal, insuranceFeePaise: ins, securityPaise: security, productPaise: 0, products: [], cashPaise: net, extraEmiPaise: 0 }],
       totalAmountPaise: amountPaise, totalCashPaise: net, status: 'paid', employeeCode: empCode, createdByCode: 'LEGACY', ...stamp(paidOn),
     });
     loanInfo.set(lid, { pay: payDocs[payDocs.length - 1], m, schedule, branch: b, group: gdoc ? `${gdoc.code} — ${gdoc.name}` : '', empCode });

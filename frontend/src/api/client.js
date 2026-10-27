@@ -137,6 +137,7 @@ export const api = {
   },
   dashboard: () => request('/dashboard/summary'),
   badges: () => request('/badges'),
+  offDays: (params) => request(`/off-days${qs(params)}`),
   myNotifications: () => request('/notifications/mine'),
   readNotifications: (ids) => request('/notifications/read', { method: 'POST', body: { ids } }),
   hr: {
@@ -173,6 +174,7 @@ export const api = {
     generateSalary: (data) => request('/hr/salary/generate', { method: 'POST', body: data }),
     adjustSalary: (id, data) => request(`/hr/salary/${id}`, { method: 'PATCH', body: data }),
     sendSalary: (data) => request('/hr/salary/send', { method: 'POST', body: data }),
+    branchOptions: () => request('/hr/branch-options'),
     paySalary: (data) => request('/hr/salary/pay', { method: 'POST', body: data }),
     branchSalary: (params) => request(`/hr/salary/branch-wise${qs(params)}`),
     monthWiseSalary: (params) => request(`/hr/salary/month-wise${qs(params)}`),

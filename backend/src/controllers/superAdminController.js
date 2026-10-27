@@ -225,7 +225,7 @@ export async function profitLoss(req, res) {
   const expense = new Map();
   for (const r of rows.cur) {
     if (r.memo || /_due$/.test(r.cat)) continue;
-    if (['processing_fee', 'insurance_fee', 'civil_fee'].includes(r.cat)) add(income, r.cat, CATEGORY_LABEL.get(r.cat), r.amount);
+    if (['processing_fee', 'legal_fee', 'insurance_fee', 'civil_fee'].includes(r.cat)) add(income, r.cat, CATEGORY_LABEL.get(r.cat), r.amount);
     else if (['staff_salary', 'room_rent', 'leader_commission', 'other_payment'].includes(r.cat)) add(expense, r.cat, CATEGORY_LABEL.get(r.cat), r.amount);
     else if (r.cat.startsWith('ledger:')) {
       const l = ledgers.get(r.cat.slice(7));
@@ -293,7 +293,7 @@ async function disbursedLines(scope, from, to) {
     { $match: { status: 'paid', paidOn: { $gte: from, $lte: to }, ...scope } },
     { $unwind: '$lines' },
     { $group: {
-      _id: '$branch', loans: { $sum: 1 }, amount: { $sum: { $ifNull: ['$lines.amountPaise', 0] } }, processing: { $sum: { $ifNull: ['$lines.processingFeePaise', 0] } }, insurance: { $sum: { $ifNull: ['$lines.insuranceFeePaise', 0] } },
+      _id: '$branch', loans: { $sum: 1 }, amount: { $sum: { $ifNull: ['$lines.amountPaise', 0] } }, processing: { $sum: { $ifNull: ['$lines.processingFeePaise', 0] } }, legal: { $sum: { $ifNull: ['$lines.legalFeePaise', 0] } }, insurance: { $sum: { $ifNull: ['$lines.insuranceFeePaise', 0] } },
       security: { $sum: { $ifNull: ['$lines.securityPaise', 0] } }, product: { $sum: { $ifNull: ['$lines.productPaise', 0] } },
       qty: { $sum: { $reduce: { input: { $ifNull: ['$lines.products', []] }, initialValue: 0, in: { $add: ['$$value', { $ifNull: ['$$this.quantity', 0] }] } } } },
     } },
@@ -340,7 +340,7 @@ async function buildCompanySummary(req) {
       branchId: b._id, branch: `${b.code} — ${b.name}`,
       members: get(members, b._id), joined: get(joined, b._id), blocked: get(blocked, b._id), groups: get(groups, b._id), newGroups: get(newGroups, b._id), employees: get(employees, b._id),
       borrowers: bw.borrowers || 0, loanMembers: bw.perMember ? bw.perMember.size : 0, dualMembers: dual,
-      loans: get(lines, b._id, 'loans'), disbursed: rupees(get(lines, b._id, 'amount')), processing: rupees(get(lines, b._id, 'processing')), insurance: rupees(get(lines, b._id, 'insurance')), securityDeposit: rupees(get(lines, b._id, 'security')),
+      loans: get(lines, b._id, 'loans'), disbursed: rupees(get(lines, b._id, 'amount')), processing: rupees(get(lines, b._id, 'processing')), legalCharges: rupees(get(lines, b._id, 'legal')), insurance: rupees(get(lines, b._id, 'insurance')), securityDeposit: rupees(get(lines, b._id, 'security')),
       securityWithdrawal: rupees(get(drawn, b._id, 'amount')), securityInterestWithdrawal: rupees(get(drawn, b._id, 'interest')),
       duePrincipal: rupees(Math.round(duePrincipal * 100)), dueInterest: rupees(Math.round(dueInterest * 100)), portfolio: round2(duePrincipal + dueInterest),
       outstanding: round2(bw.outstanding || 0), interestCollection: rupees(Math.round(interest.get(String(b._id)) || 0)), collected: rupees(get(collected, b._id, 't')), penalty: 0,

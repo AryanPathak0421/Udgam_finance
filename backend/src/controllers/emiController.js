@@ -13,6 +13,7 @@ import { asString, escapeRegex, parseDateOnly, parsePaging, HttpError } from '..
 import { toMinor } from '../utils/money.js';
 import { audit } from '../utils/audit.js';
 import { branchFilter, isAdmin } from './groupController.js';
+import { loadHolidays, offDaysOf, nextWorking } from '../services/holidays.js';
 
 const invalid = (errors) => new HttpError(422, 'Please correct the highlighted fields', errors);
 const POPULATE = [{ path: 'branch', select: 'code name' }];
@@ -346,9 +347,13 @@ export async function collectionList(req, res) {
   const dateStr = asString(req.query.date).slice(0, 10);
   let asOf = /^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? new Date(`${dateStr}T00:00:00.000Z`) : startOfToday();
   if (!asOf || Number.isNaN(asOf.getTime())) throw invalid({ date: 'Enter a valid date' });
-  // Sunday is weekly off: if a Sunday date is requested, advance to Monday
-  if (asOf.getUTCDay() === 0) {
-    asOf = new Date(asOf.getTime() + DAY);
+  // Sunday is the weekly off and a holiday of the Holiday Master is a day off: a date that falls on one moves to the next working day
+  {
+    const holidays = await loadHolidays();
+    const own = isAdmin(req.user) ? [] : (req.user.branches || []);
+    const asked = mongoose.isValidObjectId(req.query.branch) ? [req.query.branch] : own;
+    const off = asked.length === 1 ? offDaysOf(holidays, asked[0]) : new Set(holidays.company); // one branch: its own holidays too; several: only those of every branch
+    asOf = nextWorking(asOf, off);
   }
   const dayStr = iso(asOf);
   const dayStart = new Date(`${dayStr}T00:00:00.000Z`);

@@ -9,6 +9,7 @@ import Pagination from '../components/ui/Pagination.jsx';
 import { EmptyState, ErrorState, PageHeader, Spinner } from '../components/ui/Feedback.jsx';
 import { useToast } from '../components/ui/Toast.jsx';
 import useDebounce from '../hooks/useDebounce.js';
+import useOffDays from '../utils/offDays.js';
 import { ReceiptDialog } from './EmiPayment.jsx';
 
 const LIMIT = 25;
@@ -34,6 +35,14 @@ const cleanAmount = (v) => v.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1');
 
 // The filters of both collection screens.
 function Filters({ f, set, branches, staff, modes }) {
+  const off = useOffDays(f.branch);
+  const [moved, setMoved] = useState('');
+  useEffect(() => {
+    // holidays are known a moment after the page opens: a date on a holiday moves then
+    const d = off.skip(f.date);
+    if (d !== f.date) { setMoved(`${off.reason(f.date)}: showing ${d}`); set({ date: d }); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [off]);
   return (
     <div className="toolbar" style={{ flexWrap: 'wrap' }}>
       <input type="search" className="toolbar-search" placeholder="Search Loan ID, borrower or group" value={f.search} onChange={(e) => set({ search: e.target.value })} aria-label="Search" />
@@ -45,8 +54,9 @@ function Filters({ f, set, branches, staff, modes }) {
       )}
       <label className="small muted" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         EMI due up to
-        <input type="date" value={f.date} onChange={(e) => set({ date: skipSunday(e.target.value) })} aria-label="Date" />
+        <input type="date" value={f.date} onChange={(e) => { const v = e.target.value; const d = off.skip(v); setMoved(d !== v ? `${off.reason(v)}: showing ${d}` : ''); set({ date: d }); }} aria-label="Date" />
       </label>
+      {moved && <span className="badge amber" role="status">{moved} (a Sunday or a holiday is a day off)</span>}
       <select value={f.staff} onChange={(e) => set({ staff: e.target.value })} aria-label="Staff">
         <option value="">All staff</option>
         {staff.map((s) => <option key={s.code} value={s.code}>{staffLabel(s)}</option>)}

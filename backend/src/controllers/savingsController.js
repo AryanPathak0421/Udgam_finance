@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import { LoanPayment } from '../models/LoanPayment.js';
 import { SecurityWithdrawal } from '../models/SecurityWithdrawal.js';
 import { Member } from '../models/Member.js';
+import { Branch } from '../models/Branch.js';
 import { generateCode } from '../services/codeSequence.js';
 import { asString, escapeRegex, parseDateOnly, parsePaging, HttpError } from '../utils/http.js';
 import { toMinor } from '../utils/money.js';
@@ -21,45 +22,67 @@ const iso = (d) => (d ? new Date(d).toISOString().slice(0, 10) : null);
 const money = (p) => (p === undefined || p === null ? null : p / 100);
 
 // ---- security deposits: the security amount kept from each loan when it was paid out -----------------------------------
-/** One row per borrower per loan with a security amount. */
-async function depositRows(req, { memberId } = {}) {
-  const filter = { status: 'paid', ...branchFilter(req.user) };
-  if (mongoose.isValidObjectId(req.query.branch)) filter.branch = req.query.branch;
-  if (memberId) filter['lines.member'] = memberId;
+const oid = (v) => new mongoose.Types.ObjectId(String(v));
+
+/**
+ * The stages that give one row per borrower per loan with a security amount. The database does the work (only the
+ * fields shown are read, never the schedule of a loan), so "All branches" stays quick however many loans there are.
+ */
+function depositStages(req, { memberId } = {}) {
+  const match = { status: 'paid', ...branchFilter(req.user) };
+  if (mongoose.isValidObjectId(req.query.branch)) match.branch = oid(req.query.branch);
+  if (memberId) match['lines.member'] = oid(memberId);
   const from = parseDateOnly(asString(req.query.from));
   const to = parseDateOnly(asString(req.query.to));
   if (from || to) {
-    filter.paidOn = {};
-    if (from) filter.paidOn.$gte = from;
-    if (to) filter.paidOn.$lte = to;
+    match.paidOn = {};
+    if (from) match.paidOn.$gte = from;
+    if (to) match.paidOn.$lte = to;
   }
-  // (read one loan at a time: only the rows are kept, never all the loans with their schedules)
-  const loans = LoanPayment.find(filter).populate(POPULATE).sort({ paidOn: -1, createdAt: -1 }).limit(20000).lean().cursor({ batchSize: 100 });
-  const q = asString(req.query.q).toLowerCase();
-  const rows = [];
-  for await (const l of loans) {
-    for (const line of l.lines) {
-      if (!(line.securityPaise > 0)) continue;
-      if (memberId && String(line.member) !== String(memberId)) continue;
-      const text = `${line.code} ${line.name} ${l.loanId} ${l.formId} ${l.receiptNo}`.toLowerCase();
-      if (q && !text.includes(q)) continue;
-      rows.push({
-        loanPaymentId: l._id, loanId: l.loanId || '', formId: l.formId, receiptNo: l.receiptNo, date: iso(l.paidOn), member: line.member, code: line.code, name: line.name,
-        group: l.group?.code ? `${l.group.code} — ${l.group.name}` : '', branch: l.branch ? { id: l.branch._id, code: l.branch.code, name: l.branch.name } : null, schemeName: l.schemeName,
-        loanAmount: money(line.amountPaise), amountPaise: line.securityPaise, amount: money(line.securityPaise),
-      });
-    }
+  const stages = [
+    { $match: match },
+    { $project: { loanId: 1, formId: 1, receiptNo: 1, paidOn: 1, createdAt: 1, group: 1, branch: 1, schemeName: 1, lines: { $filter: { input: '$lines', as: 'l', cond: { $gt: ['$$l.securityPaise', 0] } } } } },
+    { $unwind: '$lines' },
+  ];
+  if (memberId) stages.push({ $match: { 'lines.member': oid(memberId) } });
+  const q = asString(req.query.q).trim();
+  if (q) {
+    const re = new RegExp(escapeRegex(q), 'i');
+    stages.push({ $match: { $or: [{ 'lines.code': re }, { 'lines.name': re }, { loanId: re }, { formId: re }, { receiptNo: re }] } });
   }
-  return rows;
+  return stages;
+}
+
+const branchesOf = async (loans) => new Map((await Branch.find({ _id: { $in: [...new Set(loans.map((l) => String(l.branch)))] } }).select('code name').lean()).map((b) => [String(b._id), b]));
+
+const depositRow = (l, branch) => ({
+  loanPaymentId: l._id, loanId: l.loanId || '', formId: l.formId, receiptNo: l.receiptNo, date: iso(l.paidOn), member: l.lines.member, code: l.lines.code, name: l.lines.name,
+  group: l.group?.code ? `${l.group.code} — ${l.group.name}` : '', branch: branch ? { id: branch._id, code: branch.code, name: branch.name } : null, schemeName: l.schemeName,
+  loanAmount: money(l.lines.amountPaise), amountPaise: l.lines.securityPaise, amount: money(l.lines.securityPaise),
+});
+
+/** Every row (one member's, for the balance). */
+async function depositRows(req, { memberId } = {}) {
+  const loans = await LoanPayment.aggregate([...depositStages(req, { memberId }), { $sort: { paidOn: -1, createdAt: -1, _id: -1 } }]);
+  const branches = await branchesOf(loans);
+  return loans.map((l) => depositRow(l, branches.get(String(l.branch))));
 }
 
 /** Security Deposit List: branch wise, from - to date. */
 export async function depositList(req, res) {
-  const rows = await depositRows(req);
   const { page, limit, skip } = parsePaging(req.query, { defaultLimit: 25 });
+  const [r] = await LoanPayment.aggregate([
+    ...depositStages(req),
+    { $facet: {
+      items: [{ $sort: { paidOn: -1, createdAt: -1, _id: -1 } }, { $skip: skip }, { $limit: limit }],
+      totals: [{ $group: { _id: null, n: { $sum: 1 }, t: { $sum: '$lines.securityPaise' }, codes: { $addToSet: '$lines.code' } } }],
+    } },
+  ]);
+  const t = r?.totals?.[0] || { n: 0, t: 0, codes: [] };
+  const branches = await branchesOf(r?.items || []);
   res.json({
-    items: rows.slice(skip, skip + limit).map(({ amountPaise, ...r }) => r), total: rows.length, page, limit, totalPages: Math.max(Math.ceil(rows.length / limit), 1),
-    totalAmount: money(rows.reduce((s, r) => s + r.amountPaise, 0)), members: new Set(rows.map((r) => r.code)).size,
+    items: (r?.items || []).map((l) => { const { amountPaise, ...row } = depositRow(l, branches.get(String(l.branch))); return row; }),
+    total: t.n, page, limit, totalPages: Math.max(Math.ceil(t.n / limit), 1), totalAmount: money(t.t), members: t.codes.length,
   });
 }
 

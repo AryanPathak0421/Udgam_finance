@@ -20,7 +20,7 @@ const MODE_LABEL = { cash: 'Cash', bank: 'Bank', upi: 'UPI', cheque: 'Cheque' };
 
 function BranchSelect({ value, onChange, all = 'All branches' }) {
   const [branches, setBranches] = useState([]);
-  useEffect(() => { api.groups.branchOptions().then((r) => setBranches(r.items)).catch(() => {}); }, []);
+  useEffect(() => { api.hr.branchOptions().then((r) => setBranches(r.items)).catch(() => {}); }, []);
   if (branches.length < 2) return null;
   return (
     <select value={value} onChange={(e) => onChange(e.target.value)} aria-label="Branch">
@@ -531,15 +531,19 @@ export function SetSalary() {
   const [f, setF] = useState(null);
   const [errors, setErrors] = useState({});
   const [state, setState] = useState(''); // '', saving, saved
+  const thisMonth = new Date().toISOString().slice(0, 7);
+  const [month, setMonth] = useState(thisMonth); // the month the salary is set for: this month or an earlier one, it holds from that month on
   const first = useRef(true);
   const items = list.data?.items || [];
-  function choose(e) {
+  // the set-up that holds in a month: the latest one made for that month or before it, else the current one
+  const setupOf = (e, m) => [...(e.salaryHistory || [])].filter((h) => h.month <= m).pop() || e.salarySetup;
+  function choose(e, m = month) {
     first.current = true;
     setPicked(e);
     setErrors({});
     setState('');
-    const st = e.salarySetup;
-    setF({ ...Object.fromEntries(SETUP_EARN.map(([k]) => [k, st[k] ? String(st[k]) : ''])), pfPercent: String(st.pfPercent), esiPercent: String(st.esiPercent), professionalTax: st.professionalTax ? String(st.professionalTax) : '', advanceDeduction: st.advanceDeduction ? String(st.advanceDeduction) : '', securityAmount: st.securityAmount ? String(st.securityAmount) : '', securityMonths: String(st.securityMonths || 1), pfDeduction: e.pfDeduction, esiDeduction: e.esiDeduction, pfNumber: e.pfNumber || '', uanNumber: e.uanNumber || '', esiNumber: e.esiNumber || '' });
+    const st = setupOf(e, m);
+    setF({ ...Object.fromEntries(SETUP_EARN.map(([k]) => [k, st[k] ? String(st[k]) : ''])), pfPercent: String(st.pfPercent), esiPercent: String(st.esiPercent), professionalTax: st.professionalTax ? String(st.professionalTax) : '', advanceDeduction: st.advanceDeduction ? String(st.advanceDeduction) : '', securityAmount: st.securityAmount ? String(st.securityAmount) : '', securityMonths: st.securityNeverEnds ? 'never' : String(st.securityMonths || 1), pfDeduction: st.pfDeduction ?? e.pfDeduction, esiDeduction: st.esiDeduction ?? e.esiDeduction, pfNumber: e.pfNumber || '', uanNumber: e.uanNumber || '', esiNumber: e.esiNumber || '' });
   }
   // every change is saved by itself a moment after it was made; what is typed can be corrected by hand any time
   useEffect(() => {
@@ -547,11 +551,16 @@ export function SetSalary() {
     if (first.current) { first.current = false; return undefined; }
     setState('saving');
     const t = setTimeout(async () => {
-      try { const r = await api.hr.saveSalarySetup(picked.id, f); setErrors({}); setState('saved'); setPicked(r.item); list.load(); } catch (err) { setErrors(err.errors || {}); setState(''); toast.error(err.message); }
+      try { const r = await api.hr.saveSalarySetup(picked.id, { ...f, month }); setErrors({}); setState('saved'); setPicked(r.item); list.load(); } catch (err) { setErrors(err.errors || {}); setState(''); toast.error(err.message); }
     }, 900);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [f]);
+  function changeMonth(m) {
+    const v = m && m <= thisMonth ? m : thisMonth;
+    setMonth(v);
+    if (picked) choose(picked, v); // the set-up of that month is shown (nothing is saved by looking at it)
+  }
   const set = (k) => (e) => { first.current = false; setF((x) => ({ ...x, [k]: e.target.value })); };
   const setMoney = (k) => (e) => { first.current = false; setF((x) => ({ ...x, [k]: moneyField(e.target.value) })); };
   const setFlag = (k) => (e) => { first.current = false; setF((x) => ({ ...x, [k]: e.target.checked })); };
@@ -559,13 +568,15 @@ export function SetSalary() {
   const pf = f && f.pfDeduction ? Math.round((num(f.basic) * num(f.pfPercent))) / 100 : 0;
   const esi = f && f.esiDeduction ? Math.round((num(f.basic) * num(f.esiPercent))) / 100 : 0;
   const ded = f ? pf + esi + num(f.professionalTax) + num(f.advanceDeduction) : 0;
-  const secCut = f && num(f.securityAmount) ? Math.ceil(num(f.securityAmount) / Math.max(num(f.securityMonths), 1)) : 0;
+  const neverEnds = f?.securityMonths === 'never';
+  const secCut = f && num(f.securityAmount) ? (neverEnds ? num(f.securityAmount) : Math.ceil(num(f.securityAmount) / Math.max(num(f.securityMonths), 1))) : 0;
   return (
     <>
       <PageHeader title="Set Salary" description="Search an employee and set the salary: the fixed components, PF / ESI, professional tax, advance and the security that is cut from the salary. Every change is saved by itself and can be edited by hand any time. Loan incentive, product sell incentive, GRT commission, senior commission (supervisors) and NPA recovery 10% come in automatically when the salary is generated." />
       <div className="panel">
         <div className="toolbar" style={{ flexWrap: 'wrap' }}>
           <input type="search" placeholder="Search employee: name, code, mobile" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search employee" style={{ minWidth: 260 }} />
+          <label className="small muted" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>Salary month <input type="month" value={month} max={thisMonth} onChange={(e) => changeMonth(e.target.value)} aria-label="Salary month" /></label>
           <Refresh onClick={list.load} loading={list.loading} />
         </div>
         {list.loading && !list.data ? <Spinner label="Loading…" /> : list.error ? <ErrorState message={list.error} onRetry={list.load} /> : items.length === 0 ? <EmptyState title="No employee" description="Register the employee first (Employee Registration)." /> : (
@@ -587,7 +598,7 @@ export function SetSalary() {
       </div>
       {picked && f && (
         <div className="panel" style={{ marginTop: 16 }}>
-          <h3 className="section-title">{picked.employeeCode} — {picked.name} <span className="muted small" style={{ marginLeft: 8 }}>{state === 'saving' ? 'Saving…' : state === 'saved' ? 'Saved' : ''}</span></h3>
+          <h3 className="section-title">{picked.employeeCode} — {picked.name} · salary of {monthLabel(month)} <span className="muted small" style={{ marginLeft: 8 }}>{state === 'saving' ? 'Saving…' : state === 'saved' ? 'Saved' : ''}</span></h3>
           <div className="panel-grid" style={{ marginTop: 0 }}>
             <div>
               <h4>Receive side</h4>
@@ -609,11 +620,11 @@ export function SetSalary() {
                 <FormField id="ssesin" label="ESI number" error={errors.esiNumber}><input id="ssesin" inputMode="numeric" value={f.esiNumber} onChange={(e) => { first.current = false; setF((x) => ({ ...x, esiNumber: e.target.value.replace(/\D/g, '').slice(0, 17) })); }} /></FormField>
                 <FormField id="sspt" label="Professional tax (₹ a month)" error={errors.professionalTax}><input id="sspt" inputMode="decimal" value={f.professionalTax} onChange={setMoney('professionalTax')} /></FormField>
                 <FormField id="ssadv" label="Advance deduction (₹ a month)" error={errors.advanceDeduction}><input id="ssadv" inputMode="decimal" value={f.advanceDeduction} onChange={setMoney('advanceDeduction')} /></FormField>
-                <FormField id="sssec" label="Security amount (₹)" error={errors.securityAmount} hint="Cut after the verification is complete"><input id="sssec" inputMode="decimal" value={f.securityAmount} onChange={setMoney('securityAmount')} /></FormField>
-                <FormField id="sssecm" label="Security cut in months" error={errors.securityMonths}><select id="sssecm" value={f.securityMonths} onChange={set('securityMonths')}>{[1, 2, 3, 4, 5].map((m) => <option key={m} value={m}>{m} month{m === 1 ? '' : 's'}</option>)}</select></FormField>
+                <FormField id="sssec" label={neverEnds ? 'Security amount (₹ every month)' : 'Security amount (₹)'} error={errors.securityAmount} hint={neverEnds ? 'Cut every month, with no end, once the verification is complete' : 'Cut after the verification is complete'}><input id="sssec" inputMode="decimal" value={f.securityAmount} onChange={setMoney('securityAmount')} /></FormField>
+                <FormField id="sssecm" label="Security cut in months" error={errors.securityMonths}><select id="sssecm" value={f.securityMonths} onChange={set('securityMonths')}>{[1, 2, 3, 4, 5].map((m) => <option key={m} value={m}>{m} month{m === 1 ? '' : 's'}</option>)}<option value="never">Never end</option></select></FormField>
               </div>
               <p className="muted small">Leave (the pay cut for days not worked), recovery amount and other deduction are worked out or entered on the salary slip.</p>
-              <p style={{ margin: '8px 0 0' }}><strong>Fixed deductions a month: {inr(ded + secCut)}</strong> <span className="muted small">(PF {inr(pf)} · ESI {inr(esi)}{secCut ? ` · security ${inr(secCut)}` : ''})</span></p>
+              <p style={{ margin: '8px 0 0' }}><strong>Fixed deductions a month: {inr(ded + secCut)}</strong> <span className="muted small">(PF {inr(pf)} · ESI {inr(esi)}{secCut ? ` · security ${inr(secCut)}${neverEnds ? ' every month' : ''}` : ''})</span></p>
             </div>
           </div>
           <p style={{ margin: '12px 0 0' }}><strong>Total − total deduction = {inr(gross - ded - secCut)}</strong> <span className="muted small">(before leave, incentives and recovery)</span></p>
@@ -884,8 +895,8 @@ function SalaryTable({ items, picked, setPicked, onOpen, onPay, selectable }) {
               <td data-label="Branch">{branchLabel(s.branch)}</td>
               <td data-label="Payable days" className="num">{s.payableDays}/{s.daysInMonth}{s.unmarkedDays > 0 && <div className="muted small">{s.unmarkedDays} not marked</div>}</td>
               <td data-label="Salary" className="num">{inr(s.earned)}</td><td data-label="Bonus" className="num">{s.bonus ? inr(s.bonus) : '—'}</td><td data-label="Deduction" className="num">{s.otherDeduction ? inr(s.otherDeduction) : '—'}</td>
-              <td data-label="Net" className="num"><strong>{inr(s.net)}</strong></td>
-              <td data-label="Status"><SalBadge s={s.status} />{s.sentAt && s.status !== 'paid' && <div className="muted small">sent {dmy(s.sentAt)}</div>}</td>
+              <td data-label="Net" className="num"><strong>{inr(s.net)}</strong>{s.paid > 0 && s.status !== 'paid' && <div className="muted small">paid {inr(s.paid)} · balance {inr(s.balance)}</div>}</td>
+              <td data-label="Status"><SalBadge s={s.status} />{s.paid > 0 && s.status !== 'paid' && <div><span className="badge amber">part paid</span></div>}{s.sentAt && s.status !== 'paid' && <div className="muted small">sent {dmy(s.sentAt)}</div>}</td>
               <td><div style={{ display: 'flex', gap: 6 }}><button className="btn sm" onClick={() => onOpen(s)}>Slip</button>{onPay && s.status === 'sent' && <button className="btn sm primary" onClick={() => onPay(s)}>Pay</button>}</div></td>
             </tr>
           ))}
@@ -954,6 +965,7 @@ export function SalaryPayment() {
   const list = useLoad(() => api.hr.salary({ month, branch, status }), [month, branch, status]);
   const [picked, setPicked] = useState(new Set());
   const [open, setOpen] = useState(null);
+  const [payFor, setPayFor] = useState(null); // the slip a payment (the whole balance or a part) is made for
   const [payMode, setPayMode] = useState('cash');
   const [bankAccount, setBankAccount] = useState('');
   const [busy, setBusy] = useState(false);
@@ -968,13 +980,14 @@ export function SalaryPayment() {
     items.filter((i) => i.status === 'sent').forEach((i) => { const k = i.branch?.code || '—'; const v = m.get(k) || { code: k, name: i.branch?.name || '', ids: [], total: 0 }; v.ids.push(i.id); v.total += i.net; m.set(k, v); });
     return [...m.values()].sort((a, b) => a.code.localeCompare(b.code));
   }, [items]);
-  async function pay(only) {
+  async function pay(only, amounts, mode = payMode, bank = bankAccount) {
     setBusy(true);
     setErrors({});
     try {
-      const r = await api.hr.paySalary({ ids: only || [...picked], payMode, bankAccount: payMode === 'bank' ? bankAccount : undefined });
+      const r = await api.hr.paySalary({ ids: only || [...picked], amounts, payMode: mode, bankAccount: mode === 'bank' ? bank : undefined });
       toast.success(`${r.paid} salar${r.paid === 1 ? 'y' : 'ies'} paid (${inr(r.amount)}). They are in the Cashbook as Staff salary paid.`);
       if (r.failed.length) toast.error(`${r.failed.length} not paid: ${r.failed[0].message}`);
+      setPayFor(null);
       list.load();
     } catch (err) { setErrors(err.errors || {}); toast.error(err.message); } finally { setBusy(false); }
   }
@@ -997,7 +1010,7 @@ export function SalaryPayment() {
                 {byBranch.map((b) => <button key={b.code} className="btn sm" onClick={() => setPicked(new Set(b.ids))} title={b.name}>{b.code}: {b.ids.length} to pay · {inr(b.total)} (select)</button>)}
               </div>
             )}
-            <SalaryTable items={items} picked={picked} setPicked={setPicked} onOpen={setOpen} onPay={(row) => pay([row.id])} selectable />
+            <SalaryTable items={items} picked={picked} setPicked={setPicked} onOpen={setOpen} onPay={setPayFor} selectable />
             <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap', marginTop: 12 }}>
               <FormField id="spmode" label="Pay by" error={errors.payMode}><select id="spmode" value={payMode} onChange={(e) => setPayMode(e.target.value)}>{Object.entries(MODE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></FormField>
               <BankAccountSelect id="spbank" mode={payMode} value={bankAccount} onChange={setBankAccount} error={errors.bankAccount} />
@@ -1008,7 +1021,34 @@ export function SalaryPayment() {
       </div>
       <MonthWiseReport branch={branch} />
       {open && <SlipDialog slip={open} onClose={() => setOpen(null)} onSaved={() => { setOpen(null); list.load(); }} />}
+      {payFor && <PaySalaryDialog slip={payFor} busy={busy} errors={errors} defaultMode={payMode} onClose={() => setPayFor(null)} onPay={(amount, mode, bank) => pay([payFor.id], { [payFor.id]: amount }, mode, bank)} />}
     </>
+  );
+}
+
+/** Pays a salary: the whole balance, or a part of it (the balance stays to be paid later). */
+function PaySalaryDialog({ slip, busy, errors, defaultMode, onClose, onPay }) {
+  const [amount, setAmount] = useState(String(slip.balance));
+  const [mode, setMode] = useState(defaultMode);
+  const [bank, setBank] = useState('');
+  const entered = num(amount);
+  const left = Math.round((slip.balance - entered) * 100) / 100;
+  return (
+    <Modal open title={`Pay salary — ${slip.employeeCode} ${slip.name}`} onClose={onClose} busy={busy}
+      footer={<><button className="btn" onClick={onClose} disabled={busy}>Cancel</button><button className="btn primary" onClick={() => onPay(amount, mode, bank)} disabled={busy || !(entered > 0) || entered > slip.balance}>{busy ? 'Paying…' : `Pay ${inr(entered || 0)}`}</button></>}>
+      <p className="muted">{monthLabel(slip.month)} · {branchLabel(slip.branch)}</p>
+      <div className="table-wrap"><table className="data-table"><tbody>
+        <tr><td>Net salary</td><td className="num">{inr(slip.net)}</td></tr>
+        <tr><td>Paid so far</td><td className="num">{inr(slip.paid)}</td></tr>
+        <tr><td><strong>Balance to pay</strong></td><td className="num"><strong>{inr(slip.balance)}</strong></td></tr>
+      </tbody></table></div>
+      <div className="form-grid" style={{ marginTop: 12 }}>
+        <FormField id="pdamt" label="Amount to pay (₹)" error={errors.amounts || (entered > slip.balance ? `Only ${inr(slip.balance)} is left` : '')} hint="The whole balance, or a part of it"><input id="pdamt" inputMode="decimal" value={amount} onChange={(e) => setAmount(moneyField(e.target.value))} /></FormField>
+        <FormField id="pdmode" label="Pay by" error={errors.payMode}><select id="pdmode" value={mode} onChange={(e) => setMode(e.target.value)}>{Object.entries(MODE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></FormField>
+        <BankAccountSelect id="pdbank" mode={mode} value={bank} onChange={setBank} error={errors.bankAccount} />
+      </div>
+      <p style={{ margin: '8px 0 0' }}>{entered > 0 && entered <= slip.balance ? (left > 0 ? <>After this payment <strong>{inr(left)}</strong> is left to pay.</> : <>This pays the salary in full.</>) : null}</p>
+    </Modal>
   );
 }
 

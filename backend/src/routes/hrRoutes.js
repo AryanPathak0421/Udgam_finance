@@ -3,7 +3,7 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler as h } from '../utils/http.js';
 import {
   departments, designations, listEmployees, getEmployee, employeePincode, pendingVerification, supervisorTransfer, sendEmployeeOtp, verifyEmployeeOtp, verifyEmployeeDocuments, saveSalarySetup, employeeStaffOptions, createEmployee, updateEmployee, setEmployeeStatus, syncFromUsers, hrOptions,
-  attendanceDay, markAttendance, setAttendanceLocation, punchAttendance, autoAttendance, generateSalary, listSalary, adjustSalary, sendSalary, paySalary, branchWiseSalary, monthWiseSalary, mySalarySlips,
+  hrBranchOptions, attendanceDay, markAttendance, setAttendanceLocation, punchAttendance, autoAttendance, generateSalary, listSalary, adjustSalary, sendSalary, paySalary, branchWiseSalary, monthWiseSalary, mySalarySlips,
 } from '../controllers/hrController.js';
 
 const router = Router();
@@ -47,6 +47,7 @@ router.get('/hr/attendance', requireAuth, requireRole(...HR), h(attendanceDay));
 router.post('/hr/attendance', requireAuth, requireRole(...HR), h(markAttendance));
 router.post('/hr/attendance/auto', requireAuth, requireRole(...HR), h(autoAttendance));
 
+router.get('/hr/branch-options', requireAuth, requireRole(...HR), h(hrBranchOptions));
 router.get('/hr/salary', requireAuth, requireRole(...HR), h(listSalary));
 router.get('/hr/salary/branch-wise', requireAuth, requireRole(...HR), h(branchWiseSalary));
 router.post('/hr/salary/generate', requireAuth, requireRole(...PAY), h(generateSalary));

@@ -12,12 +12,15 @@ let running = null;
 export async function syncEmployeesFromUsers() {
   const linked = new Set((await Employee.find({ isDeleted: false, user: { $exists: true } }).select('user').lean()).map((e) => String(e.user)));
   const codes = new Set((await Employee.find({ isDeleted: false }).select('employeeCode').lean()).map((e) => e.employeeCode));
-  const users = await User.find({ employeeCode: { $exists: true, $ne: '' } }).select('name employeeCode mobile branches isActive').lean();
+  const users = await User.find({ employeeCode: { $exists: true, $ne: '' } }).select('name employeeCode mobile branches isActive legacyImport joinedOn').lean();
   let made = 0;
+  // the staff of the old system have their login switched off only because no password is known; they work, so they are active employees
+  const legacy = users.filter((u) => u.legacyImport).map((u) => u._id);
+  if (legacy.length) await Employee.updateMany({ user: { $in: legacy }, status: 'left', leftOn: { $exists: false }, createdByCode: 'AUTO', isBlocked: { $ne: true } }, { $set: { status: 'active' } });
   for (const u of users) {
     if (linked.has(String(u._id)) || codes.has(u.employeeCode)) continue;
     // eslint-disable-next-line no-await-in-loop
-    await Employee.create({ employeeCode: u.employeeCode, user: u._id, name: u.name, mobile: MOBILE_RE.test(u.mobile || '') ? u.mobile : undefined, branch: (u.branches || [])[0], status: u.isActive === false ? 'left' : 'active', createdByCode: 'AUTO' });
+    await Employee.create({ employeeCode: u.employeeCode, user: u._id, name: u.name, mobile: MOBILE_RE.test(u.mobile || '') ? u.mobile : undefined, branch: (u.branches || [])[0], status: u.isActive === false && !u.legacyImport ? 'left' : 'active', joiningDate: u.joinedOn instanceof Date && !Number.isNaN(u.joinedOn.getTime()) ? u.joinedOn : undefined, createdByCode: 'AUTO' });
     made += 1;
   }
   return made;

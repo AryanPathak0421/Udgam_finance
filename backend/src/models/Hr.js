@@ -94,6 +94,12 @@ const employeeSchema = new mongoose.Schema(
     advanceDeductionPaise: { type: Number, default: 0 }, // monthly cut for an advance
     securityAmountPaise: { type: Number, default: 0 }, // security kept from the salary: cut in 1 to 5 equal months once the verification is complete
     securityMonths: { type: Number, default: 1, min: 1, max: 5 },
+    securityNeverEnds: { type: Boolean, default: false }, // the security amount is cut every month, with no end
+    // the salary set-up by month (Set Salary): what holds from that month on; the fields above are the latest
+    salaryHistory: [{
+      _id: false, month: String, salaryStructure: Object, monthlySalaryPaise: Number, pfPercent: Number, esiPercent: Number, professionalTaxPaise: Number, advanceDeductionPaise: Number,
+      securityAmountPaise: Number, securityMonths: Number, securityNeverEnds: Boolean, pfDeduction: Boolean, esiDeduction: Boolean,
+    }],
     // verification: mobile and email by OTP, documents by hand
     mobileVerifiedAt: Date,
     emailVerifiedAt: Date,
@@ -174,8 +180,11 @@ const salarySchema = new mongoose.Schema(
     paidOn: Date,
     payMode: String,
     bankAccount: { type: mongoose.Schema.Types.ObjectId, ref: 'BankAccount' },
-    cashEntry: { type: mongoose.Schema.Types.ObjectId, ref: 'CashEntry' }, // the Cashbook entry of the payment
+    cashEntry: { type: mongoose.Schema.Types.ObjectId, ref: 'CashEntry' }, // the Cashbook entry of the payment (the last one)
     paidByCode: String,
+    // payments are made in parts: what has been paid so far and each payment (the slip is paid when this reaches the net salary)
+    paidPaise: { type: Number, default: 0 },
+    payments: [{ _id: false, on: Date, amountPaise: Number, mode: String, cashEntry: { type: mongoose.Schema.Types.ObjectId, ref: 'CashEntry' }, byCode: String }],
     generatedByCode: String,
   },
   { timestamps: true }

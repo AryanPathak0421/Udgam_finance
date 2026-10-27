@@ -11,6 +11,9 @@ import { Complaint, Leave, Resignation, Requirement } from '../models/HrExtra.js
 import { ProductOrder } from '../models/ProductOrder.js';
 import { ProductPayment } from '../models/ProductPayment.js';
 import { branchFilter, isAdmin } from './groupController.js';
+import { Holiday } from '../models/SuperAdmin.js';
+import { asString } from '../utils/http.js';
+import mongoose from 'mongoose';
 
 const startOfToday = () => new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
 const DAY = 24 * 3600 * 1000;
@@ -57,6 +60,21 @@ async function pendingCounts(user) {
   const values = await Promise.all(keys.map((k) => jobs[k]));
   keys.forEach((k, i) => { if (values[i] > 0) out[k] = values[i]; });
   return out;
+}
+
+/**
+ * The holidays (Holiday Master) between two dates that apply to the user: those of every branch, and those of the branch asked for (or of the
+ * branches of the user). The screens skip Sundays and these days when a date is chosen.
+ */
+export async function offDays(req, res) {
+  const from = new Date(`${asString(req.query.from).slice(0, 10)}T00:00:00.000Z`);
+  const to = new Date(`${asString(req.query.to).slice(0, 10)}T00:00:00.000Z`);
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || to < from || to - from > 800 * DAY) return res.status(422).json({ message: 'Give a valid range of dates' });
+  const wanted = asString(req.query.branch);
+  const own = isAdmin(req.user) ? null : (req.user.branches || []).map(String);
+  const branches = mongoose.isValidObjectId(wanted) ? [wanted] : own || [];
+  const rows = await Holiday.find({ isDeleted: false, isActive: true, date: { $gte: from, $lte: to }, $or: [{ branch: null }, { branch: { $exists: false } }, ...(branches.length ? [{ branch: { $in: branches } }] : [])] }).select('date name').sort({ date: 1 }).lean();
+  res.json({ items: rows.map((h) => ({ date: iso(h.date), name: h.name })) });
 }
 
 export async function badges(req, res) {

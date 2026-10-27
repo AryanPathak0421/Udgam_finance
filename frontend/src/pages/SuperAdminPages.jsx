@@ -294,7 +294,7 @@ export function ComplaintOverview() {
 // Company summary (the columns of the old software's summary report)
 const SUMMARY_COLUMNS = [
   ['New member', 'joined'], ['Total branch member', 'members'], ['Actual loan member', 'loanMembers'], ['Dual loan member', 'dualMembers'], ['Number of disbursement', 'loans'],
-  ['Processing amount', 'processing', true], ['Insurance', 'insurance', true], ['Security deposit', 'securityDeposit', true], ['Security withdrawal', 'securityWithdrawal', true], ['Security interest withdrawal', 'securityInterestWithdrawal', true],
+  ['Processing amount', 'processing', true], ['Legal charges', 'legalCharges', true], ['Insurance', 'insurance', true], ['Security deposit', 'securityDeposit', true], ['Security withdrawal', 'securityWithdrawal', true], ['Security interest withdrawal', 'securityInterestWithdrawal', true],
   ['Portfolio', 'portfolio', true], ['Due principal', 'duePrincipal', true], ['Due interest', 'dueInterest', true], ['Interest collection', 'interestCollection', true], ['Penalty receive', 'penalty', true],
   ['NPA member', 'npa'], ['NPA amount', 'npaOutstanding', true], ['Settlement account', 'settlements'], ['Auto settle', 'autoSettle'], ['Settlement amount', 'settlementAmount', true],
   ['Death settle', 'deathSettle'], ['Death settle amount', 'deathSettleAmount', true], ['Write-off member', 'writeOff'], ['Write-off member amount', 'writeOffAmount', true], ['Block member', 'blocked'],
