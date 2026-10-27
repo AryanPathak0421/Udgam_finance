@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.jsx';
+import { branchLabel } from '../../utils/staffLabel.js';
 import FormField from '../../components/ui/FormField.jsx';
 import Modal from '../../components/ui/Modal.jsx';
 import ConfirmDialog from '../../components/ui/ConfirmDialog.jsx';
@@ -294,8 +295,8 @@ export default function UserMaster() {
                       <td data-label="Login (email)">{u.email}</td>
                       <td data-label="Rank">{u.rank?.name || '—'}</td>
                       <td data-label="Role">{ROLE_LABELS[u.role] || u.role}</td>
-                      <td data-label="Branches">{u.branches.map((b) => b.code).join(', ') || '—'}</td>
-                      <td data-label="Menus">{['super_admin', 'admin'].includes(u.role) ? 'Full' : u.hasCustomMenus ? 'By rank' : 'Role default'}</td>
+                      <td data-label="Branches">{u.branches.map((b) => branchLabel(b)).join(', ') || '—'}</td>
+                      <td data-label="Menus">{['super_admin', 'admin'].includes(u.role) ? 'Full' : !u.rank ? <span className="badge danger" title="The menus ticked under Menu Permission are given to a rank: this user has none">No rank</span> : u.hasCustomMenus ? <>By rank · {u.menuCount} menu{u.menuCount === 1 ? '' : 's'}<div className="muted small">Product: {u.productMenuCount ? `${u.productMenuCount} ticked` : 'not ticked'}</div></> : <>Role default<div className="muted small">Nothing ticked for {u.rank.name}; Product not shown</div></>}</td>
                       <td data-label="Status"><StatusBadge active={u.isActive} /></td>
                       <td data-label="Actions" className="actions-col">
                         <div className="row-actions">

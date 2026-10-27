@@ -205,7 +205,7 @@ export async function pendingVerification(req, res) {
     if (e.email && !e.emailVerifiedAt) pending.push('email');
     if (!e.documentsVerifiedAt) pending.push('documents');
     return {
-      id: e._id, employeeCode: e.employeeCode, name: e.name, branch: e.branch?.code || '', mobile: e.mobile || '', email: e.email || '', pending,
+      id: e._id, employeeCode: e.employeeCode, name: e.name, branch: e.branch?.code || '', branchName: e.branch?.name || '', mobile: e.mobile || '', email: e.email || '', pending,
       mobileVerified: Boolean(e.mobileVerifiedAt), emailVerified: Boolean(e.emailVerifiedAt), documentsVerified: Boolean(e.documentsVerifiedAt),
       has: { photo: Boolean(fl.photo), aadhaar: Boolean(fl.aadhaar), pan: Boolean(fl.pan) }, securityAmount: rupees(e.securityAmountPaise), securityMonths: e.securityMonths || 1,
     };
@@ -532,7 +532,7 @@ export async function attendanceDay(req, res) {
   const marks = new Map((await Attendance.find({ date, employee: { $in: emps.map((e) => e._id) } }).lean()).map((a) => [String(a.employee), a]));
   const items = emps.map((e) => {
     const a = marks.get(String(e._id));
-    return { id: e._id, employeeCode: e.employeeCode, name: e.name, branch: e.branch?.code || '', designation: e.designation?.name || '', status: a?.status || '', source: a?.source || '', firstActivity: a?.firstActivity || null, lastActivity: a?.lastActivity || null, remark: a?.remark || '', hasLogin: Boolean(e.user),
+    return { id: e._id, employeeCode: e.employeeCode, name: e.name, branch: e.branch?.code || '', branchName: e.branch?.name || '', designation: e.designation?.name || '', status: a?.status || '', source: a?.source || '', firstActivity: a?.firstActivity || null, lastActivity: a?.lastActivity || null, remark: a?.remark || '', hasLogin: Boolean(e.user),
       location: e.attendanceLocation?.lat !== undefined && e.attendanceLocation?.lat !== null ? { lat: e.attendanceLocation.lat, lng: e.attendanceLocation.lng, radius: e.attendanceLocation.radius || 100 } : null, distanceM: a?.distanceM ?? null };
   });
   const count = (s) => items.filter((i) => i.status === s).length;

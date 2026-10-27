@@ -24,6 +24,9 @@ const present = (u) => ({
   lastLoginAt: u.lastLoginAt || null,
   // Menu permissions come from the rank; true when the rank has an explicit whitelist.
   hasCustomMenus: Array.isArray(u.rank?.menuPermissions),
+  // what the rank gives: how many menus are ticked and how many of them are in the Product section
+  menuCount: Array.isArray(u.rank?.menuPermissions) ? u.rank.menuPermissions.filter((p) => p.view).length : 0,
+  productMenuCount: Array.isArray(u.rank?.menuPermissions) ? u.rank.menuPermissions.filter((p) => p.view && String(p.menu).startsWith('/stock/')).length : 0,
   createdAt: u.createdAt,
 });
 

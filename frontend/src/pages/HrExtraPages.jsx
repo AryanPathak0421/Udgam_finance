@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/client.js';
-import { staffLabel } from '../utils/staffLabel.js';
+import { staffLabel, branchLabel } from '../utils/staffLabel.js';
 import FormField from '../components/ui/FormField.jsx';
 import Modal from '../components/ui/Modal.jsx';
 import BankAccountSelect from '../components/BankAccountSelect.jsx';
@@ -141,7 +141,7 @@ function RentParties({ branches, onClose }) {
             <tbody>
               {items.map((p) => (
                 <tr key={p.id}>
-                  <td data-label="Type">{KIND[p.kind]}</td><td data-label="Name"><strong>{p.name}</strong>{p.address && <div className="muted small">{p.address}</div>}</td><td data-label="Branch">{p.branch?.code}</td><td data-label="Mobile">{p.mobile}</td>
+                  <td data-label="Type">{KIND[p.kind]}</td><td data-label="Name"><strong>{p.name}</strong>{p.address && <div className="muted small">{p.address}</div>}</td><td data-label="Branch">{branchLabel(p.branch)}</td><td data-label="Mobile">{p.mobile}</td>
                   <td data-label="Amount" className="num">{inr(p.amount)}</td>
                   <td data-label="Meter">{p.meterIncluded ? <>Last reading {p.lastReading}<div className="muted small">{inr(p.perUnit)} per unit</div></> : <span className="muted">{p.kind === 'room' ? 'Not included' : '—'}</span>}</td>
                   <td><div style={{ display: 'flex', gap: 6 }}><button className="btn sm" onClick={() => setForm({ kind: p.kind, item: p })}>Edit</button><button className="btn sm danger-outline" onClick={() => remove(p)}>Remove</button></div></td>
@@ -210,7 +210,7 @@ export function RoomRent() {
               <tbody>
                 {items.map((r) => (
                   <tr key={r.id}>
-                    <td data-label="Paid on">{dmy(r.paidOn)}</td><td data-label="Branch">{r.branch?.code}</td><td data-label="Rent of">{new Date(`${r.month}-01T00:00:00`).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}</td>
+                    <td data-label="Paid on">{dmy(r.paidOn)}</td><td data-label="Branch">{branchLabel(r.branch)}</td><td data-label="Rent of">{new Date(`${r.month}-01T00:00:00`).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}</td>
                     <td data-label="Paid to">{r.landlord}{r.kind !== 'other' && <div className="muted small">{KIND[r.kind]}</div>}{r.remark && <div className="muted small">{r.remark}</div>}</td>
                     <td data-label="Rent" className="num">{inr(r.rent)}</td>
                     <td data-label="Electricity" className="num">{r.hasMeter ? <>{inr(r.electricity)}<div className="muted small">{r.prevReading} → {r.currentReading} = {r.units} units × {inr(r.perUnit)}</div><button className="btn sm" onClick={() => viewPhoto(r)}>Meter photo</button></> : '—'}</td>
@@ -403,7 +403,7 @@ function PlainTasks() {
                   <tr key={t.id}>
                     <td data-label="Task"><strong>{t.title}</strong>{t.description && <div className="muted small">{t.description}</div>}</td>
                     <td data-label="Given to">{t.assignedTo.code} {t.assignedTo.name}<div className="muted small">by {t.createdBy}</div></td>
-                    <td data-label="Branch">{t.branch?.code}</td>
+                    <td data-label="Branch">{branchLabel(t.branch)}</td>
                     <td data-label="Due">{dmy(t.dueDate)}{t.overdue && <div><span className="badge danger">Overdue</span></div>}</td>
                     <td data-label="Priority"><span className={`badge ${t.priority === 'high' ? 'danger' : t.priority === 'medium' ? 'amber' : 'grey'}`}>{cap(t.priority)}</span></td>
                     <td data-label="Status"><Badge s={t.status} />{t.history.length > 1 && t.history[t.history.length - 1].remark && <div className="muted small">{t.history[t.history.length - 1].remark}</div>}</td>
@@ -483,7 +483,7 @@ export function Complaints() {
                     <td data-label="Complaint"><strong>{c.complaintNo}</strong><div className="muted small">{dmy(c.date)}</div></td>
                     <td data-label="Caller">{c.callerName}<div className="muted small">{c.callerMobile}</div>{c.husbandName && <div className="muted small">Husband: {c.husbandName}</div>}{(c.groupCode || c.groupName) && <div className="muted small">Group: {[c.groupCode, c.groupName].filter(Boolean).join(' · ')}{c.groupLeaderName ? ` · Leader ${c.groupLeaderName}` : ''}</div>}</td>
                     <td data-label="About">{cap(c.category)}{c.memberCode ? ` · ${c.memberCode}` : ''}<div className="muted small">{c.description}</div></td>
-                    <td data-label="Branch">{c.branch?.code || '—'}</td><td data-label="Looked into by">{c.assignedTo || '—'}</td>
+                    <td data-label="Branch">{branchLabel(c.branch)}</td><td data-label="Looked into by">{c.assignedTo || '—'}</td>
                     <td data-label="Status"><Badge s={c.status} />{c.resolution && <div className="muted small">{c.resolution}</div>}</td>
                     <td><button className="btn sm" onClick={() => { setEditing(c); setNext({ status: '', resolution: '', assignedTo: '' }); sv.setErrors({}); }}>Update</button></td>
                   </tr>
@@ -560,7 +560,7 @@ export function Requirements() {
               <tbody>
                 {items.map((r) => (
                   <tr key={r.id}>
-                    <td data-label="Requirement"><strong>{r.reqNo}</strong><div className="muted small">{r.reason}</div></td><td data-label="Branch">{r.branch?.code}</td>
+                    <td data-label="Requirement"><strong>{r.reqNo}</strong><div className="muted small">{r.reason}</div></td><td data-label="Branch">{branchLabel(r.branch)}</td>
                     <td data-label="Post">{r.designation || '—'}<div className="muted small">{r.department}</div></td><td data-label="Needed" className="num">{r.count}</td><td data-label="Required by">{dmy(r.requiredBy)}</td><td data-label="Expected time">{r.expectedTime || '—'}</td>
                     <td data-label="Status"><Badge s={r.status} />{r.remark && <div className="muted small">{r.remark}</div>}</td>
                     <td>
@@ -627,7 +627,7 @@ export function LeaveApply() {
           <div className="table-wrap" style={{ maxHeight: 260, overflow: 'auto' }}>
             <table className="data-table">
               <thead><tr><th>Employee</th><th>Branch</th><th className="num">Carried</th><th className="num">Earned</th><th className="num">Taken</th><th className="num">Available</th></tr></thead>
-              <tbody>{balances.data.items.map((b) => <tr key={b.id}><td data-label="Employee"><strong>{b.employeeCode}</strong> {b.name}</td><td data-label="Branch">{b.branch?.code}</td><td data-label="Carried" className="num">{b.opening}</td><td data-label="Earned" className="num">{b.earned}</td><td data-label="Taken" className="num">{b.used}</td><td data-label="Available" className="num"><strong>{b.available}</strong></td></tr>)}</tbody>
+              <tbody>{balances.data.items.map((b) => <tr key={b.id}><td data-label="Employee"><strong>{b.employeeCode}</strong> {b.name}</td><td data-label="Branch">{branchLabel(b.branch)}</td><td data-label="Carried" className="num">{b.opening}</td><td data-label="Earned" className="num">{b.earned}</td><td data-label="Taken" className="num">{b.used}</td><td data-label="Available" className="num"><strong>{b.available}</strong></td></tr>)}</tbody>
             </table>
           </div>
         )}</Body>
@@ -642,7 +642,7 @@ export function LeaveApply() {
               <tbody>
                 {items.slice(0, 100).map((l) => (
                   <tr key={l.id}>
-                    <td data-label="Employee"><strong>{l.employeeCode}</strong> {l.employeeName}</td><td data-label="Branch">{l.branch?.code}</td><td data-label="Kind">{cap(l.type)}</td><td data-label="From – To">{dmy(l.from)} – {dmy(l.to)}</td>
+                    <td data-label="Employee"><strong>{l.employeeCode}</strong> {l.employeeName}</td><td data-label="Branch">{branchLabel(l.branch)}</td><td data-label="Kind">{cap(l.type)}</td><td data-label="From – To">{dmy(l.from)} – {dmy(l.to)}</td>
                     <td data-label="Days" className="num">{l.days}</td><td data-label="Reason">{l.reason}</td><td data-label="Status"><Badge s={l.status} />{l.rejectReason && <div className="muted small">{l.rejectReason}</div>}</td>
                   </tr>
                 ))}
@@ -685,7 +685,7 @@ export function LeaveApproval() {
               <tbody>
                 {items.map((l) => (
                   <tr key={l.id}>
-                    <td data-label="Employee"><strong>{l.employeeCode}</strong> {l.employeeName}<div className="muted small">applied by {l.appliedBy}</div></td><td data-label="Branch">{l.branch?.code}</td><td data-label="Supervisor">{l.approver || <span className="muted">none set</span>}</td><td data-label="Kind">{cap(l.type)}</td>
+                    <td data-label="Employee"><strong>{l.employeeCode}</strong> {l.employeeName}<div className="muted small">applied by {l.appliedBy}</div></td><td data-label="Branch">{branchLabel(l.branch)}</td><td data-label="Supervisor">{l.approver || <span className="muted">none set</span>}</td><td data-label="Kind">{cap(l.type)}</td>
                     <td data-label="From – To">{dmy(l.from)} – {dmy(l.to)}</td><td data-label="Days" className="num">{l.days}</td><td data-label="Reason">{l.reason}</td>
                     <td data-label="Status"><Badge s={l.status} />{l.rejectReason && <div className="muted small">{l.rejectReason}</div>}{l.decisionRemark && <div className="muted small">{l.decisionRemark}</div>}{l.decidedBy && <div className="muted small">{l.decidedBy}</div>}</td>
                     <td>{l.status === 'pending' && <div style={{ display: 'flex', gap: 6 }}><button className="btn sm primary" onClick={() => setApproving(l)}>Approve</button><button className="btn sm danger-outline" onClick={() => setRejecting(l)}>Reject</button></div>}</td>
@@ -741,7 +741,7 @@ export function Resignations() {
               <tbody>
                 {items.map((r) => (
                   <tr key={r.id}>
-                    <td data-label="Employee"><strong>{r.employeeCode}</strong> {r.employeeName}</td><td data-label="Branch">{r.branch?.code}</td><td data-label="Resigned on">{dmy(r.appliedOn)}</td><td data-label="Last working day">{dmy(r.lastWorkingDate)}</td><td data-label="Notice period till">{r.noticePeriodDate ? dmy(r.noticePeriodDate) : <span className="muted">set when approving</span>}</td><td data-label="Reason">{r.reason}</td>
+                    <td data-label="Employee"><strong>{r.employeeCode}</strong> {r.employeeName}</td><td data-label="Branch">{branchLabel(r.branch)}</td><td data-label="Resigned on">{dmy(r.appliedOn)}</td><td data-label="Last working day">{dmy(r.lastWorkingDate)}</td><td data-label="Notice period till">{r.noticePeriodDate ? dmy(r.noticePeriodDate) : <span className="muted">set when approving</span>}</td><td data-label="Reason">{r.reason}</td>
                     <td data-label="Status"><Badge s={r.status} />{r.rejectReason && <div className="muted small">{r.rejectReason}</div>}{r.decidedBy && <div className="muted small">{r.decidedBy}</div>}</td>
                     <td>{r.status === 'pending' && <div style={{ display: 'flex', gap: 6 }}><button className="btn sm primary" disabled={busy === r.id} onClick={() => { setApproving(r); setNotice(r.lastWorkingDate || today()); setNoticeError(''); }}>Approve</button><button className="btn sm danger-outline" onClick={() => setRejecting(r)}>Reject</button></div>}</td>
                   </tr>
@@ -964,7 +964,7 @@ export function EmployeeList() {
                   <tr key={e.id}>
                     <td data-label="Employee"><strong>{e.employeeCode}</strong> {e.name}{e.hasLogin && <div className="muted small">has login</div>}</td>
                     <td data-label="Department">{e.department?.name || '—'}<div className="muted small">{e.designation?.name || '—'}</div></td>
-                    <td data-label="Branch">{e.branch?.code || '—'}</td><td data-label="Mobile">{e.mobile || '—'}</td>
+                    <td data-label="Branch">{branchLabel(e.branch)}</td><td data-label="Mobile">{e.mobile || '—'}</td>
                     <td data-label="Status">{e.isBlocked ? <><span className="badge danger">Blocked</span><div className="muted small">{e.blockReason}</div></> : <span className={`badge ${e.status === 'active' ? 'green' : 'grey'}`}>{e.status === 'active' ? 'Working' : `Left ${dmy(e.leftOn)}`}</span>}</td>
                     <td>{e.isBlocked ? <button className="btn sm" onClick={() => unblock(e)}>Unblock</button> : <button className="btn sm danger-outline" onClick={() => setBlocking(e)}>Block</button>}</td>
                   </tr>

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api/client.js';
-import { staffLabel } from '../utils/staffLabel.js';
+import { staffLabel, branchLabel } from '../utils/staffLabel.js';
 import FormField from '../components/ui/FormField.jsx';
 import Modal from '../components/ui/Modal.jsx';
 import ConfirmDialog from '../components/ui/ConfirmDialog.jsx';
@@ -304,7 +304,7 @@ function TeamModal({ supervisor, onClose }) {
                 <tr key={e.id}>
                   <td data-label="Employee"><strong>{e.employeeCode}</strong> {e.name}<div className="muted small">{e.mobile || '—'}{e.email ? ` · ${e.email}` : ''}</div></td>
                   <td data-label="Department">{e.department?.name || '—'}<div className="muted small">{e.designation?.name || '—'}</div></td>
-                  <td data-label="Branch">{e.branch?.code || '—'}</td><td data-label="Joined">{dmy(e.joiningDate)}</td><td data-label="Home town">{e.homeTown || '—'}<div className="muted small">{[e.area, e.district, e.state].filter(Boolean).join(', ')}</div></td>
+                  <td data-label="Branch">{branchLabel(e.branch)}</td><td data-label="Joined">{dmy(e.joiningDate)}</td><td data-label="Home town">{e.homeTown || '—'}<div className="muted small">{[e.area, e.district, e.state].filter(Boolean).join(', ')}</div></td>
                   <td data-label="Father">{e.fatherName || '—'}<div className="muted small">{e.fatherMobile}</div></td><td data-label="Marital">{e.maritalStatus ? e.maritalStatus[0].toUpperCase() + e.maritalStatus.slice(1) : '—'}</td>
                   <td data-label="PF">{e.pfDeduction ? 'Yes' : 'No'}</td><td data-label="ESI">{e.esiDeduction ? 'Yes' : 'No'}</td><td data-label="Salary" className="num">{e.monthlySalary ? inr(e.monthlySalary) : '—'}</td>
                   <td data-label="Bank">{e.bankName || '—'}<div className="muted small">{e.accountNumber}</div></td><td data-label="Status">{e.status === 'active' ? 'Working' : 'Left'}</td>
@@ -379,7 +379,7 @@ function PendingVerification({ onClose }) {
               {items.map((e) => (
                 <tr key={e.id}>
                   <td data-label="Employee"><strong>{e.employeeCode}</strong> {e.name}</td>
-                  <td data-label="Branch">{e.branch || '—'}</td>
+                  <td data-label="Branch">{branchLabel({ code: e.branch, name: e.branchName })}</td>
                   <td data-label="Mobile OTP"><OtpCell emp={e} channel="mobile" onDone={list.load} /></td>
                   <td data-label="Email OTP"><OtpCell emp={e} channel="email" onDone={list.load} /></td>
                   <td data-label="Documents">
@@ -493,7 +493,7 @@ export function EmployeeRegistration() {
                     <tr key={e.id}>
                       <td data-label="Employee"><strong>{e.employeeCode}</strong> {e.name}<div className="muted small">{e.mobile || '—'}{e.hasLogin ? ' · has login' : ''}</div>{e.supervisedBranches?.length > 0 && <div className="muted small">Supervises: {e.supervisedBranches.map((b) => b.code).join(', ')}</div>}</td>
                       <td data-label="Department">{e.department?.name || '—'}<div className="muted small">{e.designation?.name || '—'}</div></td>
-                      <td data-label="Branch">{e.branch?.code || '—'}</td>
+                      <td data-label="Branch">{branchLabel(e.branch)}</td>
                       <td data-label="Supervisor">{e.supervisor ? `${e.supervisor.code} ${e.supervisor.name}` : '—'}</td>
                       <td data-label="Joined">{dmy(e.joiningDate)}</td>
                       <td data-label="Monthly salary" className="num">{e.monthlySalary ? inr(e.monthlySalary) : <span className="muted">not set</span>}</td>
@@ -575,7 +575,7 @@ export function SetSalary() {
               <tbody>
                 {items.slice(0, 100).map((e) => (
                   <tr key={e.id} style={picked?.id === e.id ? { background: 'var(--surface-2, #f6f8f8)' } : undefined}>
-                    <td data-label="Employee"><strong>{e.employeeCode}</strong> {e.name}</td><td data-label="Branch">{e.branch?.code || '—'}</td><td data-label="Designation">{e.designation?.name || '—'}</td>
+                    <td data-label="Employee"><strong>{e.employeeCode}</strong> {e.name}</td><td data-label="Branch">{branchLabel(e.branch)}</td><td data-label="Designation">{e.designation?.name || '—'}</td>
                     <td data-label="Monthly salary" className="num">{e.monthlySalary ? inr(e.monthlySalary) : <span className="muted">not set</span>}</td>
                     <td><button className="btn sm" onClick={() => choose(e)}>{picked?.id === e.id ? 'Selected' : 'Set salary'}</button></td>
                   </tr>
@@ -736,7 +736,7 @@ export function Attendance() {
                       <tr key={i.id} style={edits[i.id] ? { background: 'var(--surface-2, #f6f8f8)' } : undefined}>
                         <td><input type="checkbox" aria-label={`Select ${i.employeeCode}`} checked={picked.has(i.id)} onChange={() => setPicked((p) => { const n = new Set(p); if (n.has(i.id)) n.delete(i.id); else n.add(i.id); return n; })} /></td>
                         <td data-label="Employee"><strong>{i.employeeCode}</strong> {i.name}<div className="muted small">{i.designation || '—'}</div></td>
-                        <td data-label="Branch">{i.branch || '—'}</td>
+                        <td data-label="Branch">{branchLabel({ code: i.branch, name: i.branchName })}</td>
                         <td data-label="Location">{i.location ? <><div className="small">{i.location.lat.toFixed(5)}, {i.location.lng.toFixed(5)}</div><div className="muted small">within {i.location.radius} m</div></> : <span className="muted small">Not set</span>}<button className="btn sm" onClick={() => setLocating(i)}>{i.location ? 'Change' : 'Set'}</button></td>
                         <td data-label="Attendance"><select aria-label={`Attendance of ${i.employeeCode}`} value={cur} onChange={(e) => setRow(i.id, { status: e.target.value })}>{ATT.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></td>
                         <td data-label="Marked">{i.status ? <><span className={`badge ${ATT_BADGE[i.status] || 'grey'}`}>{i.source === 'auto' ? 'Auto' : 'Manual'}</span>{i.source === 'auto' && i.firstActivity && <div className="muted small">{time(i.firstActivity)} – {time(i.lastActivity)}</div>}</> : '—'}</td>
@@ -847,7 +847,7 @@ function SlipDialog({ slip, onClose, onSaved }) {
   return (
     <Modal open title={`Salary slip — ${slip.employeeCode} ${slip.name}`} onClose={onClose} busy={busy} size="lg"
       footer={<><button className="btn" onClick={print}>Print</button><button className="btn" onClick={onClose} disabled={busy}>Close</button>{!paid && <button className="btn primary" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>}</>}>
-      <p className="muted">{monthLabel(slip.month)} · {slip.branch?.code} · {slip.designation || slip.department || ''}</p>
+      <p className="muted">{monthLabel(slip.month)} · {branchLabel(slip.branch)} · {slip.designation || slip.department || ''}</p>
       <div className="table-wrap">
         <table className="data-table">
           <tbody>
@@ -881,7 +881,7 @@ function SalaryTable({ items, picked, setPicked, onOpen, onPay, selectable }) {
             <tr key={s.id}>
               {selectable && <td><input type="checkbox" aria-label={`Select ${s.employeeCode}`} disabled={s.status === 'paid'} checked={picked.has(s.id)} onChange={() => setPicked((p) => { const n = new Set(p); if (n.has(s.id)) n.delete(s.id); else n.add(s.id); return n; })} /></td>}
               <td data-label="Employee"><strong>{s.employeeCode}</strong> {s.name}<div className="muted small">{s.designation || s.department || ''}</div></td>
-              <td data-label="Branch">{s.branch?.code || '—'}</td>
+              <td data-label="Branch">{branchLabel(s.branch)}</td>
               <td data-label="Payable days" className="num">{s.payableDays}/{s.daysInMonth}{s.unmarkedDays > 0 && <div className="muted small">{s.unmarkedDays} not marked</div>}</td>
               <td data-label="Salary" className="num">{inr(s.earned)}</td><td data-label="Bonus" className="num">{s.bonus ? inr(s.bonus) : '—'}</td><td data-label="Deduction" className="num">{s.otherDeduction ? inr(s.otherDeduction) : '—'}</td>
               <td data-label="Net" className="num"><strong>{inr(s.net)}</strong></td>

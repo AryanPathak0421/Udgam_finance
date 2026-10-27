@@ -1,3 +1,10 @@
+/** A branch as the lists show it: "IND — Indore Main" (code and name; whichever is there when only one is). */
+export function branchLabel(b) {
+  const code = b?.code || '';
+  const name = b?.name || '';
+  return code && name ? `${code} — ${name}` : code || name || '—';
+}
+
 /**
  * An employee as the lists show him: "EMP0007 — Name (BR01 — Indore)", the branch code and the branch name next to the employee.
  * It takes what the API sends: { code | employeeCode, name | employeeName, branchCode, branchName } or { branch: { code, name } }.

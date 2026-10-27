@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client.js';
-import { staffLabel } from '../utils/staffLabel.js';
+import { staffLabel, branchLabel } from '../utils/staffLabel.js';
 import FormField from '../components/ui/FormField.jsx';
 import Modal from '../components/ui/Modal.jsx';
 import ConfirmDialog from '../components/ui/ConfirmDialog.jsx';
@@ -144,7 +144,7 @@ export function AppUsers() {
                     <td data-label="Employee"><strong>{a.employeeCode}</strong></td>
                     <td data-label="Name">{a.name}<div className="muted small">{a.email}</div></td>
                     <td data-label="Role">{a.role.replace(/_/g, ' ')}</td>
-                    <td data-label="Branches">{a.branches.map((b) => b.code).join(', ') || '—'}</td>
+                    <td data-label="Branches">{a.branches.map((b) => branchLabel(b)).join(', ') || '—'}</td>
                     <td data-label="Note">{a.note || '—'}</td>
                     <td data-label="Status"><span className={`badge ${a.isActive && a.staffActive ? 'green' : 'grey'}`}>{a.isActive ? (a.staffActive ? 'Active' : 'Login stopped') : 'Stopped'}</span></td>
                     <td data-label="Created">{dmy(a.createdAt)}<div className="muted small">{a.createdBy ? `by ${a.createdBy}` : ''}</div></td>
