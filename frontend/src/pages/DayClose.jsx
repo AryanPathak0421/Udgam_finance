@@ -8,7 +8,7 @@ import { todayIso } from '../utils/format.js';
 
 const inr = (n) => (n === null || n === undefined || Number.isNaN(n) ? '—' : `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const dmy = (s) => (s ? new Date(`${s}T00:00:00`).toLocaleDateString('en-IN') : '—');
-const STATUS = { submitted: ['Waiting for admin', 'amber'], approved: ['Approved', 'green'], rejected: ['Cancelled', 'danger'], revoked: ['Revoked', 'danger'] };
+const STATUS = { submitted: ['Waiting for admin', 'amber'], approved: ['Approved', 'green'], rejected: ['Cancelled', 'danger'], revoked: ['Pending (revoked)', 'danger'] };
 export const StatusBadge = ({ s }) => <span className={`badge ${STATUS[s]?.[1] || 'grey'}`}>{STATUS[s]?.[0] || s}</span>;
 
 /** Denomination: the branch counts its notes and coins against the cash closing of its Cashbook. Making it closes the day. */
@@ -95,6 +95,7 @@ export default function DayClose() {
               </FormField>
             )}
             {data.reason && <div className="notice" style={{ margin: '8px 0' }}>{data.reason}</div>}
+            {data.rejected && <div className="notice" style={{ margin: '8px 0', borderColor: 'var(--danger, #c0392b)' }}><strong>The denomination of {dmy(data.rejected.date)} was rejected{data.rejected.rejectReason ? `: ${data.rejected.rejectReason}` : ''}.</strong> Only EMI collection is allowed until you make it again and the admin approves it. Requisition, approval, payment, product entry, settlement, new member, group, security, commission payment, vouchers and bank deposit / withdrawal are stopped.</div>}
             <div className="table-wrap" style={{ marginTop: 8 }}>
               <table className="data-table">
                 <thead><tr><th>Cashbook (cash) of {dmy(data.date)}</th><th className="num">Amount</th></tr></thead>

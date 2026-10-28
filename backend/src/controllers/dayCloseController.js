@@ -5,6 +5,7 @@ import { asString, parseDateOnly, startOfToday, escapeRegex, HttpError } from '.
 import { audit } from '../utils/audit.js';
 import { isAdmin } from './groupController.js';
 import { cashbookData } from './cashbookController.js';
+import { branchWorkingDate } from '../services/dayOpen.js';
 
 /**
  * Day close. The denomination of a branch (the count of every note and coin) is made against the cash closing of its Cashbook; once it is made
@@ -45,12 +46,13 @@ const present = (c, branch) => ({
 /** Where a branch stands: its working date (the day after the last approved close), a close waiting for approval, and the cash closing of the date to close. */
 export async function status(req, res) {
   const branch = await branchOf(req, asString(req.query.branch));
-  const [lastApproved, pending, recent] = await Promise.all([
+  const [lastApproved, pending, recent, rejectedClose] = await Promise.all([
     DayClose.findOne({ branch: branch._id, status: 'approved' }).sort({ date: -1 }).lean(),
     DayClose.findOne({ branch: branch._id, status: 'submitted' }).sort({ date: -1 }).lean(),
     DayClose.find({ branch: branch._id }).sort({ date: -1 }).limit(10).lean(),
+    DayClose.findOne({ branch: branch._id, status: 'rejected' }).sort({ date: -1 }).lean(),
   ]);
-  const workingDate = lastApproved ? new Date(lastApproved.date.getTime() + DAY) : null;
+  const workingDate = await branchWorkingDate(branch._id);
   const today = startOfToday();
   let date = pending ? pending.date : workingDate || parseDateOnly(asString(req.query.date)) || today;
   if (date > today) date = today;
@@ -58,8 +60,8 @@ export async function status(req, res) {
   const cash = await cashOf(req, branch._id, date);
   res.json({
     branch: { id: branch._id, code: branch.code, name: branch.name }, workingDate: iso(workingDate), lastClosed: iso(lastApproved?.date), date: iso(date), dateFixed: Boolean(workingDate || pending),
-    canClose, waiting: pending ? present(pending, null) : null,
-    reason: pending ? `The close of ${iso(pending.date)} is waiting for the admin's approval` : workingDate && workingDate > today ? `The day ${iso(lastApproved.date)} is closed. The next day opens on ${iso(workingDate)}` : '',
+    canClose, waiting: pending ? present(pending, null) : null, rejected: rejectedClose ? present(rejectedClose, null) : null,
+    reason: pending ? `The close of ${iso(pending.date)} is waiting for the admin's approval` : workingDate && workingDate > today ? `The day ${iso(lastApproved?.date)} is closed. The next day opens on ${iso(workingDate)}` : '',
     cashbook: { opening: cash.opening / 100, receipts: cash.receipts / 100, payments: cash.payments / 100, closing: cash.closing / 100 },
     denominations: DENOMINATIONS, recent: recent.map((c) => present(c, null)),
   });
@@ -95,7 +97,8 @@ export async function submit(req, res) {
   const waiting = await DayClose.findOne({ branch: branch._id, status: 'submitted' }).lean();
   if (waiting) throw new HttpError(409, `The close of ${iso(waiting.date)} is already waiting for the admin's approval`);
   let date = parseDateOnly(asString(b.date)) || today;
-  if (lastApproved) date = new Date(lastApproved.date.getTime() + DAY); // the branch goes date by date
+  const working = await branchWorkingDate(branch._id);
+  if (working) date = working; // the branch goes date by date (a day the admin revoked first)
   if (date > today) throw invalid({ date: 'A day can be closed only on or after that day' });
   const { counts, total } = readCounts(b.counts);
   const cash = await cashOf(req, branch._id, date);
@@ -167,14 +170,15 @@ export async function approve(req, res) {
 
 /**
  * The admin takes back an approved day: the branch is on that date again and can work on it (a back date), and has to make the denomination again.
- * The days after it were closed on top of it, so they are taken back too.
+ * The days after it stay as they are; when this day is approved again the branch is back on the day after its last approved close.
  */
 export async function revoke(req, res) {
   const c = await load(req);
   if (c.status !== 'approved') throw new HttpError(409, 'Only an approved day can be revoked');
   const reason = asString(req.body?.reason).slice(0, 200);
   if (reason.length < 3) throw invalid({ reason: 'Enter the reason' });
-  const later = await DayClose.updateMany({ branch: c.branch._id, date: { $gt: c.date }, status: { $in: ['approved', 'submitted'] } }, { $set: { status: 'revoked', rejectReason: `Revoked with ${iso(c.date)}: ${reason}`, decidedByCode: req.user.employeeCode || '', decidedAt: new Date() } });
+  // only this day is taken back: the days after it stay approved, and the branch returns to its date once this day is approved again
+  const later = { modifiedCount: 0 };
   c.status = 'revoked';
   c.rejectReason = reason;
   c.decidedByCode = req.user.employeeCode || '';
@@ -189,11 +193,11 @@ export async function workingDates(req, res) {
   if (isAdmin(req.user)) return res.json({ restricted: false, items: [] });
   const ids = (req.user.branches || []).map((b) => new mongoose.Types.ObjectId(String(b)));
   const branches = await Branch.find({ _id: { $in: ids } }).select('code name').lean();
-  const last = new Map((await DayClose.aggregate([{ $match: { branch: { $in: ids }, status: 'approved' } }, { $group: { _id: '$branch', d: { $max: '$date' } } }])).map((x) => [String(x._id), x.d]));
+  const dates = new Map(await Promise.all(ids.map(async (id) => [String(id), await branchWorkingDate(id)])));
   const waiting = new Map((await DayClose.find({ branch: { $in: ids }, status: 'submitted' }).select('branch date').lean()).map((x) => [String(x.branch), x.date]));
   res.json({
     restricted: true,
-    items: branches.map((b) => ({ branch: { id: b._id, code: b.code, name: b.name }, workingDate: last.get(String(b._id)) ? iso(new Date(last.get(String(b._id)).getTime() + DAY)) : null, waitingForApproval: waiting.get(String(b._id)) ? iso(waiting.get(String(b._id))) : null })),
+    items: branches.map((b) => ({ branch: { id: b._id, code: b.code, name: b.name }, workingDate: dates.get(String(b._id)) ? iso(dates.get(String(b._id))) : null, waitingForApproval: waiting.get(String(b._id)) ? iso(waiting.get(String(b._id))) : null })),
   });
 }
 

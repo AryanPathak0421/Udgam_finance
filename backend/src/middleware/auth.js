@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { User } from '../models/User.js';
+import { assertNotRejected } from '../services/dayOpen.js';
 
 export async function requireAuth(req, res, next) {
   try {
@@ -14,10 +15,16 @@ export async function requireAuth(req, res, next) {
       return res.status(401).json({ message: 'Session expired. Please sign in again.' });
     }
     req.user = user;
-    next();
   } catch {
-    res.status(401).json({ message: 'Not authenticated' });
+    return res.status(401).json({ message: 'Not authenticated' });
   }
+  // a branch whose denomination the admin rejected can only collect EMIs
+  try {
+    await assertNotRejected(req);
+  } catch (err) {
+    return res.status(err.status || 500).json({ message: err.message, errors: err.errors });
+  }
+  return next();
 }
 
 export const requireRole = (...roles) => (req, res, next) =>

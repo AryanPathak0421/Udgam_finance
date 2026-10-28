@@ -78,7 +78,7 @@ export default function DayCloseApproval() {
     setReasonError('');
     try {
       const r = await api.dayClose.revoke(revoking.id, reason);
-      toast.success(`${revoking.branch?.code} ${dmy(revoking.date)} revoked. The branch can work on ${dmy(r.workingDate)} again${r.laterRevoked ? ` (${r.laterRevoked} later day${r.laterRevoked === 1 ? '' : 's'} revoked with it)` : ''}.`);
+      toast.success(`${revoking.branch?.code} ${dmy(revoking.date)} revoked. The branch can work on ${dmy(r.workingDate)} only, and its denomination shows as pending. After you approve it the branch is back on its date.`);
       setRevoking(null);
       setReason('');
       load();
@@ -199,7 +199,7 @@ export default function DayCloseApproval() {
       </div>
       <Modal open={Boolean(revoking)} title="Revoke the approved day" onClose={() => setRevoking(null)} busy={Boolean(busy)}
         footer={<><button className="btn" onClick={() => setRevoking(null)}>Close</button><button className="btn danger" onClick={revoke} disabled={Boolean(busy)}>Revoke</button></>}>
-        <p className="muted">{revoking ? `${revoking.branch?.code} · ${dmy(revoking.date)}: the branch is back on this date and can work on it (a back date). Every later day that was closed after it is revoked too, and the branch makes the denomination again.` : ''}</p>
+        <p className="muted">{revoking ? `${revoking.branch?.code} · ${dmy(revoking.date)}: the branch can work on this date only (a back date) and makes its denomination again, which shows as pending. The days after it stay approved; once you approve this day the branch is back on its date.` : ''}</p>
         <FormField id="dcrevoke" label="Reason" required error={reasonError}><input id="dcrevoke" value={reason} maxLength={200} onChange={(e) => setReason(e.target.value)} /></FormField>
       </Modal>
       <Modal open={Boolean(rejecting)} title="Cancel the day close" onClose={() => setRejecting(null)} busy={Boolean(busy)}

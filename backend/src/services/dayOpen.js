@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import { DayClose } from '../models/DayClose.js';
 import { HttpError, startOfToday } from '../utils/http.js';
 
@@ -12,8 +13,41 @@ const isAdminUser = (user) => Boolean(user && ADMIN.includes(user.role));
  */
 export async function branchWorkingDate(branchId) {
   if (!branchId) return null;
-  const last = await DayClose.findOne({ branch: branchId, status: 'approved' }).sort({ date: -1 }).select('date').lean();
+  const [revoked, last] = await Promise.all([
+    DayClose.findOne({ branch: branchId, status: 'revoked' }).sort({ date: 1 }).select('date').lean(),
+    DayClose.findOne({ branch: branchId, status: 'approved' }).sort({ date: -1 }).select('date').lean(),
+  ]);
+  // a day the admin has revoked (a back date) is worked on first; once its denomination is approved the branch is back on the day after its last approved close
+  if (revoked) return revoked.date;
   return last ? new Date(last.date.getTime() + DAY) : null;
+}
+
+/** What a branch may still do while the admin has REJECTED its denomination: collect EMIs (and make the denomination again). */
+const ALLOWED_WHEN_REJECTED = [/^\/emi\/(collect|pay)\b/, /^\/app\/emi-(collections|payments)\b/, /^\/day-close\b/];
+/** What is blocked then: requisition, approval, loan payment, product entry, settlement, new member, group and security (savings) work, commission payment, vouchers, bank deposit / withdrawal. */
+const BLOCKED_WHEN_REJECTED = [
+  /^\/loan-requisitions\b/, /^\/loan-payments\b/, /^\/stock-(entries|orders|payments|products|transfers)\b/, /^\/settlements\b/, /^\/members\b/, /^\/app\/members\b/,
+  /^\/groups\b/, /^\/group-transfer\b/, /^\/savings\b/, /^\/group-leader-commission\/pay\b/, /^\/accounts\/(payment-vouchers|receive-vouchers|bank-deposits|bank-withdrawals|branch-transfers)\b/,
+  /^\/cashbook\/entries\b/, /^\/hr\/(room-rents|salary\/pay)\b/,
+];
+
+/**
+ * While the admin has rejected the denomination of a branch, its users can only collect EMIs (the admin is not held to this; the day is made again
+ * on the Denomination screen). Called for every request that writes, once the user is known.
+ */
+export async function assertNotRejected(req) {
+  const user = req.user;
+  if (!user || isAdminUser(user) || !['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return;
+  const path = String(req.originalUrl || '').split('?')[0].replace(/^\/api/, '');
+  if (ALLOWED_WHEN_REJECTED.some((rx) => rx.test(path)) || !BLOCKED_WHEN_REJECTED.some((rx) => rx.test(path))) return;
+  const wanted = req.body?.branch && mongoose.isValidObjectId(String(req.body.branch)) ? [String(req.body.branch)] : (user.branches || []).map(String);
+  if (!wanted.length) return;
+  const rejected = await DayClose.find({ branch: { $in: wanted }, status: 'rejected' }).select('branch date').lean();
+  // a user of several branches is held only when every branch in question is rejected
+  if (rejected.length && new Set(rejected.map((r) => String(r.branch))).size === wanted.length) {
+    const d = iso(rejected.sort((a, b) => b.date - a.date)[0].date);
+    throw new HttpError(409, `The denomination of ${d} was rejected by the admin. Only EMI collection is allowed until the denomination is made again and approved.`, { date: 'Denomination rejected: only EMI collection is allowed' });
+  }
 }
 
 /**
@@ -22,11 +56,14 @@ export async function branchWorkingDate(branchId) {
  */
 export async function assertDayOpen(branchId, date, user) {
   if (!branchId || isAdminUser(user)) return;
-  const closed = await DayClose.findOne({ branch: branchId, date: { $gte: date }, status: { $in: ['submitted', 'approved'] } }).select('date status').lean();
-  if (closed) {
+  // a closed day (denomination made) takes no more entries; a day the admin revoked is open again, whatever the days after it
+  const closed = await DayClose.findOne({ branch: branchId, date: { $gte: date }, status: { $in: ['submitted', 'approved'] } }).sort({ date: 1 }).select('date status').lean();
+  if (closed && (closed.status === 'submitted' || closed.date.getTime() === date.getTime() || !(await DayClose.exists({ branch: branchId, date, status: 'revoked' })))) {
     throw new HttpError(409, `The day ${iso(closed.date)} of this branch is closed${closed.status === 'submitted' ? ' (waiting for the admin)' : ''}. Work is made on ${iso(new Date(closed.date.getTime() + DAY))} only.`, { date: 'This day is closed' });
   }
   if (!user) return;
+  const waiting = await DayClose.findOne({ branch: branchId, status: 'submitted' }).select('date').lean();
+  if (waiting) throw new HttpError(409, `The denomination of ${iso(waiting.date)} is waiting for the admin. Work continues after it is approved.`, { date: 'Waiting for the admin' });
   const working = await branchWorkingDate(branchId);
   if (working && date.getTime() !== working.getTime()) {
     throw new HttpError(409, `This branch works on ${iso(working)} (the day after its last approved day close). Work cannot be made for ${iso(date)}.`, { date: `The branch works on ${iso(working)}` });
