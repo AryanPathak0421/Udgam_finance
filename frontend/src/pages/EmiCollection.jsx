@@ -11,16 +11,17 @@ import { useToast } from '../components/ui/Toast.jsx';
 import useDebounce from '../hooks/useDebounce.js';
 import useOffDays from '../utils/offDays.js';
 import { ReceiptDialog } from './EmiPayment.jsx';
+import { todayIso } from '../utils/format.js';
 
 const LIMIT = 25;
 const COLLECTORS = ['super_admin', 'admin', 'branch_manager', 'accountant', 'collection_officer', 'field_officer'];
 const MODE_LABEL = { cash: 'Cash', bank: 'Bank transfer', upi: 'UPI', cheque: 'Cheque' };
 const REPAY_LABEL = { daily: 'Daily', weekly: 'Weekly', biweekly: 'Bi-weekly', monthly: 'Monthly', quarterly: 'Quarterly', halfyearly: 'Half-yearly', yearly: 'Yearly' };
 const LOAN_TYPES = [['', 'All loan types'], ['personal', 'Personal'], ['business', 'Business'], ['msme', 'MSME'], ['product', 'Product']];
-const todayISO = () => new Date().toISOString().slice(0, 10);
+const todayISO = () => todayIso();
 // Sunday is weekly off: skip Sunday forward to Monday so calendar never defaults to or displays Sunday.
 const skipSunday = (isoStr) => {
-  const base = isoStr || new Date().toISOString().slice(0, 10);
+  const base = isoStr || todayIso();
   const [y, m, d] = base.split('-').map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d));
   if (dt.getUTCDay() === 0) {

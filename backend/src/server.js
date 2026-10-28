@@ -11,6 +11,7 @@ import { autoSettleAll } from './services/autoSettle.js';
 import { autoAttendanceFor } from './controllers/hrController.js';
 import { syncEmployeesFromUsers } from './services/employeeSync.js';
 import { kycFlags } from './models/Member.js';
+import { startOfToday } from './utils/http.js';
 
 const port = process.env.PORT || 5000;
 
@@ -86,7 +87,7 @@ connectDB()
     setInterval(settleAuto, 6 * 60 * 60 * 1000).unref();
     // attendance of employees with a staff login: present when they worked in the system that day (today and yesterday, so the late hours of a day count)
     const attend = async () => {
-      const today = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
+      const today = startOfToday();
       for (const d of [today, new Date(today.getTime() - 24 * 3600 * 1000)]) await autoAttendanceFor(d);
     };
     const runAttend = () => attend().catch((err) => console.error('auto attendance failed', err.message));

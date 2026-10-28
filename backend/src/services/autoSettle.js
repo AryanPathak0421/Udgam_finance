@@ -3,6 +3,7 @@ import { LoanSettlement } from '../models/LoanSettlement.js';
 import { EmiPayment } from '../models/EmiPayment.js';
 import { generateCode } from './codeSequence.js';
 import { runningBorrowers } from './loanRunning.js';
+import { startOfToday } from '../utils/http.js';
 
 /**
  * Auto settle. A borrower who has paid every installment is settled automatically: the loan is closed, no EMI shows for it any more, and it
@@ -12,7 +13,6 @@ import { runningBorrowers } from './loanRunning.js';
  */
 const MIN_PERCENT = Math.min(Math.max(Number(process.env.AUTO_SETTLE_MIN_PERCENT) || 95, 1), 100);
 const DAY = 24 * 60 * 60 * 1000;
-const startOfToday = () => new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
 
 function record(loan, line, settledOn, outstandingPaise = 0) {
   const group = loan.group?.code ? `${loan.group.code} — ${loan.group.name}` : '';

@@ -7,7 +7,7 @@ import { issueOtp, takeVerified, consumeChallenge } from '../services/otpChallen
 import { parseMonth } from '../services/groupLeaderCommission.js';
 import { sendSms, isDevSms } from '../services/sms.js';
 import { branchFilter, maskMobile, showMobile } from './groupController.js';
-import { asString, createValidator, escapeRegex, HttpError } from '../utils/http.js';
+import { asString, createValidator, escapeRegex, HttpError, todayDateString } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
 
 const OTP_TTL_MS = 5 * 60 * 1000;
@@ -17,7 +17,7 @@ const OTP_MAX_SENDS_PER_HOUR = 5;
 const HOUR_MS = 60 * 60 * 1000;
 
 const POPULATE = [{ path: 'group', select: 'code name leaderName leaderMobile isActive' }, { path: 'branch', select: 'code name' }];
-const currentMonth = () => new Date().toISOString().slice(0, 7);
+const currentMonth = () => todayDateString().slice(0, 7);
 
 const present = (e, user) => ({
   id: e._id,

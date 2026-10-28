@@ -1,9 +1,10 @@
 import FormField from './ui/FormField.jsx';
 import { EmployeeSelect } from '../pages/NewBorrower.jsx';
+import { todayIso } from '../utils/format.js';
 
 export const WEEKDAYS = ['', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 export const MEETING_LABEL = { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly' };
-export const todayISO = () => new Date().toISOString().slice(0, 10);
+export const todayISO = () => todayIso();
 
 export const EMPTY_GROUP = {
   branch: '', name: '', openingDate: todayISO(), employeeCode: '', leaderName: '', leaderMobile: '',

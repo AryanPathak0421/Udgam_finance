@@ -10,7 +10,7 @@ import { GroupLeaderCommission } from '../models/GroupLeaderCommission.js';
 import { generateCode } from '../services/codeSequence.js';
 import { loadRuleContext, ruleForMonth, payoutMonths, syncGroupEntries } from '../services/groupLeaderPayout.js';
 import { parseMonth } from '../services/groupLeaderCommission.js';
-import { asString, createValidator, escapeRegex, parseDateOnly, parsePaging, HttpError } from '../utils/http.js';
+import { asString, createValidator, escapeRegex, parseDateOnly, parsePaging, HttpError, startOfToday, todayDateString } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
 
 const MOBILE_RE = /^[6-9]\d{9}$/;
@@ -129,7 +129,7 @@ async function readGroup(b, user, v, { current } = {}) {
 
   // Opening date: today by default; once created only an Admin may change it.
   if (isBlankDate(b.openingDate)) {
-    if (!current) out.openingDate = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
+    if (!current) out.openingDate = startOfToday();
   } else {
     const d = parseDateOnly(asString(b.openingDate));
     if (!d) v.add('openingDate', 'Enter a valid date');
@@ -138,7 +138,7 @@ async function readGroup(b, user, v, { current } = {}) {
       if (!isAdmin(user)) throw new HttpError(403, 'Only an admin can change the opening date', { openingDate: 'Only an admin can change this date' });
       out.openingDate = d;
     } else if (!current) {
-      if (!isAdmin(user) && dateOnly(d) !== new Date().toISOString().slice(0, 10)) {
+      if (!isAdmin(user) && dateOnly(d) !== todayDateString()) {
         throw new HttpError(403, 'Only an admin can set the opening date', { openingDate: 'Only an admin can change this date' });
       }
       out.openingDate = d;
@@ -319,7 +319,7 @@ export async function listDisbursements(req, res) {
   res.json({ items: items.map((d) => ({ id: d._id, month: d.month, loans: d.loans })) });
 }
 
-const currentMonth = () => new Date().toISOString().slice(0, 7);
+const currentMonth = () => todayDateString().slice(0, 7);
 
 /** Sets the number of loans disbursed in a month (0 removes the entry). */
 export async function saveDisbursement(req, res) {

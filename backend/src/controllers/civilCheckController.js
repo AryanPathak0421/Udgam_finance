@@ -7,7 +7,7 @@ import { issueOtp, takeVerified, consumeChallenge } from '../services/otpChallen
 import { sendSms } from '../services/sms.js';
 import { civilApiConfigured, fetchCivilScore } from '../services/civilBureau.js';
 import { checkPanFormat } from '../services/kycVerify.js';
-import { asString, createValidator, parseDateOnly, HttpError } from '../utils/http.js';
+import { asString, createValidator, parseDateOnly, HttpError, startOfToday } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
 import { AppSetting, CIVIL_FEE_KEY, civilFeePaise } from '../models/AppSetting.js';
 import { toMinor } from '../utils/money.js';
@@ -68,7 +68,7 @@ export async function addCheck(req, res) {
   const score = Number(b.score);
   if (!Number.isInteger(score) || score < 300 || score > 900) v.add('score', 'Enter the civil score (300 to 900)');
   const reportDate = parseDateOnly(asString(b.reportDate));
-  const today = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
+  const today = startOfToday();
   if (!reportDate) v.add('reportDate', 'Enter the date of the report');
   else if (reportDate > today) v.add('reportDate', 'The report date cannot be in the future');
   const bureau = asString(b.bureau) || 'CIBIL';
@@ -131,7 +131,7 @@ export async function bureauFetch(req, res) {
   if (r.status === 'error') throw new HttpError(424, r.message); // 4xx so that the message reaches the screen
   let employeeCode = req.user.employeeCode;
   if (!employeeCode) employeeCode = (await User.findById(req.user._id).select('employeeCode'))?.employeeCode;
-  const today = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
+  const today = startOfToday();
   const doc = await CivilCheck.create({
     member: m._id, branch: m.branch._id, score: r.score, reportDate: today, bureau: r.bureau, reportNumber: r.reportNumber || undefined,
     remark: 'Fetched from the bureau with the PAN number and the OTP of the phone number', employeeCode, feePaise: await civilFeePaise(), createdBy: req.user._id,

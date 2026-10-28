@@ -9,12 +9,13 @@ import { useToast } from '../components/ui/Toast.jsx';
 import useDebounce from '../hooks/useDebounce.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { EmployeeSelect } from './NewBorrower.jsx';
+import { todayIso } from '../utils/format.js';
 
 const MODE_LABEL = { cash: 'Cash', bank: 'Bank', upi: 'UPI', cheque: 'Cheque' };
 const inr = (n) => (n === null || n === undefined || Number.isNaN(n) ? '—' : `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const dmy = (s) => (s ? new Date(`${String(s).slice(0, 10)}T00:00:00`).toLocaleDateString('en-IN') : '—');
-const today = () => new Date().toISOString().slice(0, 10);
-const monthStart = () => `${new Date().toISOString().slice(0, 7)}-01`;
+const today = () => todayIso();
+const monthStart = () => `${todayIso().slice(0, 7)}-01`;
 const LIMIT = 50;
 const cap = (s) => (s ? String(s).charAt(0).toUpperCase() + String(s).slice(1) : '—');
 

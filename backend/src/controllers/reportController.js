@@ -7,7 +7,7 @@ import { Member } from '../models/Member.js';
 import { Branch } from '../models/Branch.js';
 import { User } from '../models/User.js';
 import { ReportCall } from '../models/ReportCall.js';
-import { asString, parseDateOnly, HttpError } from '../utils/http.js';
+import { asString, parseDateOnly, HttpError, startOfToday } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
 import { branchFilter, showMobile } from './groupController.js';
 import { dueSummary, loanDetail, loadLoan, receive, borrowerState } from './emiController.js';
@@ -26,7 +26,6 @@ const MAX_ROWS = 5000;
 const NPA_TERM = 120; // a loan of 120 days: once the 121st day has come and it is still due, it is NPA
 const iso = (d) => (d ? new Date(d).toISOString().slice(0, 10) : null);
 const rupees = (p) => (p || 0) / 100;
-const startOfToday = () => new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
 
 /** The branches of a request: the user's own, narrowed to the chosen one (never widened). */
 function branchScope(req) {

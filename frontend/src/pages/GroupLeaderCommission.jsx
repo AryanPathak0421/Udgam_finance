@@ -7,9 +7,10 @@ import Modal from '../components/ui/Modal.jsx';
 import { EmptyState, ErrorState, PageHeader, Spinner } from '../components/ui/Feedback.jsx';
 import { useToast } from '../components/ui/Toast.jsx';
 import useDebounce from '../hooks/useDebounce.js';
+import { todayIso } from '../utils/format.js';
 
 const FINANCE = ['super_admin', 'admin', 'accountant'];
-const thisMonth = () => new Date().toISOString().slice(0, 7);
+const thisMonth = () => todayIso().slice(0, 7);
 const inr = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const monthLabel = (m) => {
   const [y, mm] = m.split('-').map(Number);

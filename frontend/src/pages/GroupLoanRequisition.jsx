@@ -11,8 +11,9 @@ import { EmployeeSelect, PhotoField } from './NewBorrower.jsx';
 import { ProductSchemeField } from './ProductSchemeField.jsx';
 import CivilMatch from '../components/CivilMatch.jsx';
 import { Search, GroupTopUp } from './PersonalLoanRequisition.jsx';
+import { todayIso } from '../utils/format.js';
 
-const todayISO = () => new Date().toISOString().slice(0, 10);
+const todayISO = () => todayIso();
 const inr = (n) => (n === null || n === undefined || Number.isNaN(n) ? '—' : `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const EXTRA_PERCENT = 25;
 // Days in one term unit / one repayment period (the same 30-day month the scheme limits use).

@@ -17,4 +17,11 @@ export function daysBetween(startIso, endIso) {
 export const formatINR = (n) =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 2 }).format(Number(n) || 0);
 
-export const todayIso =() => new Date().toISOString().slice(0, 10);
+// today's date as YYYY-MM-DD: the Indian date (the later of it and the UTC date), the same day the server works on
+export const todayIso = () => {
+  const d = new Date();
+  const utc = d.toISOString().slice(0, 10);
+  let ist = utc;
+  try { ist = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(d); } catch { ist = new Date(d.getTime() + 5.5 * 3600 * 1000).toISOString().slice(0, 10); }
+  return ist > utc ? ist : utc;
+};

@@ -359,7 +359,7 @@ export async function cashbookData(req, query) {
     : 0;
 
   // today due: the EMI scheduled on the end date (information, not cash)
-  const asOf = to || new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
+  const asOf = to || startOfToday();
   const dueBy = query.skipDue ? new Map() : await fastDue(scope, asOf);
   dueBy.forEach((amount, cat) => cur.push({ side: 'payment', cat, date: iso(asOf), particulars: 'EMI due on this date (actual collection less received today)', ref: '', mode: '', amount, branchId: null, memo: true }));
 

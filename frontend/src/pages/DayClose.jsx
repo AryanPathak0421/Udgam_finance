@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 import FormField from '../components/ui/FormField.jsx';
 import { EmptyState, ErrorState, PageHeader, Spinner } from '../components/ui/Feedback.jsx';
 import { useToast } from '../components/ui/Toast.jsx';
+import { todayIso } from '../utils/format.js';
 
 const inr = (n) => (n === null || n === undefined || Number.isNaN(n) ? '—' : `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const dmy = (s) => (s ? new Date(`${s}T00:00:00`).toLocaleDateString('en-IN') : '—');
@@ -90,7 +91,7 @@ export default function DayClose() {
             </div>
             {!data.dateFixed && (
               <FormField id="dcdate" label="Date to close" hint="Only for the very first close. After that the branch goes date by date.">
-                <input id="dcdate" type="date" value={date || data.date} max={new Date().toISOString().slice(0, 10)} onChange={(e) => setDate(e.target.value)} />
+                <input id="dcdate" type="date" value={date || data.date} max={todayIso()} onChange={(e) => setDate(e.target.value)} />
               </FormField>
             )}
             {data.reason && <div className="notice" style={{ margin: '8px 0' }}>{data.reason}</div>}

@@ -9,7 +9,7 @@ import { generateCode } from '../services/codeSequence.js';
 import { assertDayOpen, defaultWorkDate } from '../services/dayOpen.js';
 import { readBankAccount } from '../services/bankAccountPick.js';
 import { sendSms } from '../services/sms.js';
-import { asString, parseDateOnly, HttpError } from '../utils/http.js';
+import { asString, parseDateOnly, HttpError, startOfToday, todayDateString } from '../utils/http.js';
 import { toMinor } from '../utils/money.js';
 import { lookupPincode } from '../services/lookup.js';
 import crypto from 'crypto';
@@ -31,7 +31,6 @@ const DAY = 24 * 3600 * 1000;
 const iso = (d) => (d ? new Date(d).toISOString().slice(0, 10) : null);
 const invalid = (errors) => new HttpError(422, 'Please correct the highlighted fields', errors);
 const rupees = (p) => (p || 0) / 100;
-const startOfToday = () => new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
 const MOBILE_RE = /^[6-9]\d{9}$/;
 const IFSC_RE = /^[A-Z]{4}0[A-Z0-9]{6}$/;
 const IMAGE_RE = /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/;
@@ -335,7 +334,7 @@ export async function saveSalarySetup(req, res) {
   if (b.pfDeduction !== undefined) e.pfDeduction = yes(b.pfDeduction);
   if (b.esiDeduction !== undefined) e.esiDeduction = yes(b.esiDeduction);
   // the month the salary is set for: this month or an earlier one (it holds from that month on); the salary of a month is worked out with the set-up of that month
-  const thisMonth = new Date().toISOString().slice(0, 7);
+  const thisMonth = todayDateString().slice(0, 7);
   const month = asString(b.month) || thisMonth;
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw invalid({ month: 'Choose the month' });
   if (month > thisMonth) throw invalid({ month: 'Choose this month or an earlier month' });

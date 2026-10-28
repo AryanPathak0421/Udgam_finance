@@ -10,11 +10,12 @@ import { useToast } from '../components/ui/Toast.jsx';
 import useDebounce from '../hooks/useDebounce.js';
 import { useNavigate } from 'react-router-dom';
 import GroupFields, { MEETING_LABEL, WEEKDAYS, collectionLabel, formatTime, todayISO, validateGroup } from '../components/GroupFields.jsx';
+import { todayIso } from '../utils/format.js';
 
 const LIMIT = 25;
 const ADMINS = ['super_admin', 'admin'];
 const MANAGERS = [...ADMINS, 'branch_manager', 'loan_officer', 'field_officer'];
-const thisMonth = () => new Date().toISOString().slice(0, 7);
+const thisMonth = () => todayIso().slice(0, 7);
 
 function GroupForm({ item, branches, isAdmin, onClose, onSaved }) {
   const toast = useToast();

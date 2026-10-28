@@ -9,10 +9,11 @@ import { EmptyState, ErrorState, PageHeader, Spinner } from '../components/ui/Fe
 import { useToast } from '../components/ui/Toast.jsx';
 import useDebounce from '../hooks/useDebounce.js';
 import { PhotoField } from './NewBorrower.jsx';
+import { todayIso } from '../utils/format.js';
 
 const inr = (n) => (n === null || n === undefined || Number.isNaN(n) ? '—' : `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const dmy = (s) => (s ? new Date(`${String(s).slice(0, 10)}T00:00:00`).toLocaleDateString('en-IN') : '—');
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => todayIso();
 const time = (s) => (s ? new Date(s).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '');
 const lastMonth = () => { const d = new Date(); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() - 1); return d.toISOString().slice(0, 7); };
 const monthLabel = (m) => new Date(`${m}-01T00:00:00`).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
@@ -531,7 +532,7 @@ export function SetSalary() {
   const [f, setF] = useState(null);
   const [errors, setErrors] = useState({});
   const [state, setState] = useState(''); // '', saving, saved
-  const thisMonth = new Date().toISOString().slice(0, 7);
+  const thisMonth = todayIso().slice(0, 7);
   const [month, setMonth] = useState(thisMonth); // the month the salary is set for: this month or an earlier one, it holds from that month on
   const first = useRef(true);
   const items = list.data?.items || [];

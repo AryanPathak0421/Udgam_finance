@@ -9,12 +9,13 @@ import { DetailList, EmptyState, ErrorState, PageHeader, Spinner } from '../comp
 import { useToast } from '../components/ui/Toast.jsx';
 import useDebounce from '../hooks/useDebounce.js';
 import { compressImage } from '../utils/image.js';
+import { todayIso } from '../utils/format.js';
 
 const LIMIT = 25;
 const SETTLERS = ['super_admin', 'admin', 'branch_manager', 'accountant'];
 const MODE_LABEL = { cash: 'Cash', bank: 'Bank transfer', upi: 'UPI', cheque: 'Cheque' };
 const MAX_DOC_BYTES = 800 * 1024;
-const todayISO = () => new Date().toISOString().slice(0, 10);
+const todayISO = () => todayIso();
 const inr = (n) => (n === null || n === undefined || Number.isNaN(n) ? '—' : `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const dmy = (s) => (s ? new Date(`${s}T00:00:00`).toLocaleDateString('en-IN') : '—');
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);

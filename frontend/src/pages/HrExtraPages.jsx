@@ -10,8 +10,9 @@ import useDebounce from '../hooks/useDebounce.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { PhotoField } from './NewBorrower.jsx';
 import { BranchSelect, Refresh, Summary, useLoad, inr, dmy, today, MODE_LABEL } from './HrPages.jsx';
+import { todayIso } from '../utils/format.js';
 
-const monthNow = () => new Date().toISOString().slice(0, 7);
+const monthNow = () => todayIso().slice(0, 7);
 const monthStart = () => `${monthNow()}-01`;
 const cap = (s) => (s ? String(s).charAt(0).toUpperCase() + String(s).slice(1).replace(/_/g, ' ') : '—');
 const BADGE = { pending: 'amber', approved: 'green', rejected: 'danger', open: 'amber', in_progress: 'amber', done: 'green', resolved: 'green', cancelled: 'grey', paid: 'green', filled: 'green' };

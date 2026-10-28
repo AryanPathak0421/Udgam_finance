@@ -2,14 +2,13 @@ import mongoose from 'mongoose';
 import { CenterSurvey, SURVEY_STATUS } from '../models/CenterSurvey.js';
 import { Branch } from '../models/Branch.js';
 import { generateCode } from '../services/codeSequence.js';
-import { asString, parseDateOnly, HttpError } from '../utils/http.js';
+import { asString, parseDateOnly, HttpError, startOfToday } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
 import { branchFilter, isAdmin } from './groupController.js';
 
 /** New Center Survey: the survey of a place where a new center (group) may be opened, and its status. */
 const invalid = (errors) => new HttpError(422, 'Please correct the highlighted fields', errors);
 const iso = (d) => (d ? new Date(d).toISOString().slice(0, 10) : null);
-const startOfToday = () => new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
 
 const present = (s) => ({
   id: s._id, surveyNo: s.surveyNo, branch: s.branch?._id ? { id: s.branch._id, code: s.branch.code, name: s.branch.name } : null, centerName: s.centerName, area: s.area || '', pincode: s.pincode || '', district: s.district || '',

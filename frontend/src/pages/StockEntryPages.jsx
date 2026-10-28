@@ -7,8 +7,9 @@ import { EmptyState, ErrorState, PageHeader, Spinner } from '../components/ui/Fe
 import { useToast } from '../components/ui/Toast.jsx';
 import useDebounce from '../hooks/useDebounce.js';
 import { Refresh, Summary, useLoad, inr, dmy, today } from './HrPages.jsx';
+import { todayIso } from '../utils/format.js';
 
-const monthStart = () => `${new Date().toISOString().slice(0, 7)}-01`;
+const monthStart = () => `${todayIso().slice(0, 7)}-01`;
 const Dates = ({ from, setFrom, to, setTo }) => (
   <>
     <label className="small muted" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>From <input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} aria-label="From date" /></label>

@@ -5,11 +5,12 @@ import FormField from '../components/ui/FormField.jsx';
 import { EmptyState, ErrorState, PageHeader, Spinner } from '../components/ui/Feedback.jsx';
 import { useToast } from '../components/ui/Toast.jsx';
 import useDebounce from '../hooks/useDebounce.js';
+import { todayIso } from '../utils/format.js';
 
 const BUREAUS = ['CIBIL', 'Equifax', 'Experian', 'CRIF High Mark', 'Other'];
 const CREATORS = ['super_admin', 'admin', 'branch_manager', 'loan_officer', 'field_officer'];
 const BAND_TONE = { excellent: 'green', good: 'green', fair: 'grey', poor: 'danger' };
-const todayISO = () => new Date().toISOString().slice(0, 10);
+const todayISO = () => todayIso();
 
 function ScoreCard({ check }) {
   if (!check) return <div className="notice">No civil check has been recorded for this member yet.</div>;

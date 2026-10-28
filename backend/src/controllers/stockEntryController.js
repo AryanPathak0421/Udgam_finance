@@ -3,7 +3,7 @@ import { StockEntry } from '../models/StockEntry.js';
 import { StockProduct } from '../models/StockProduct.js';
 import { StockTransfer } from '../models/StockTransfer.js';
 import { generateCode } from '../services/codeSequence.js';
-import { asString, parseDateOnly, HttpError } from '../utils/http.js';
+import { asString, parseDateOnly, HttpError, startOfToday, todayDateString } from '../utils/http.js';
 import { toMinor } from '../utils/money.js';
 import { audit } from '../utils/audit.js';
 import { isAdmin } from './groupController.js';
@@ -13,7 +13,6 @@ import { scopeOf } from './stockProductController.js';
 const iso = (d) => (d ? new Date(d).toISOString().slice(0, 10) : null);
 const invalid = (errors) => new HttpError(422, 'Please correct the highlighted fields', errors);
 const rupees = (p) => (p || 0) / 100;
-const startOfToday = () => new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
 const oid = (v) => mongoose.isValidObjectId(String(v || ''));
 const branchLabel = (b) => (b?._id ? `${b.code} — ${b.name}` : 'Head office');
 const POP = { path: 'branch', select: 'code name' };
@@ -100,7 +99,7 @@ export async function cancelEntry(req, res) {
 
 /** Quantity Report: every product with the units in stock, their value, the units received and transferred in the period. */
 export async function quantityReport(req, res) {
-  const from = parseDateOnly(asString(req.query.from)) || new Date(`${new Date().toISOString().slice(0, 7)}-01T00:00:00.000Z`);
+  const from = parseDateOnly(asString(req.query.from)) || new Date(`${todayDateString().slice(0, 7)}-01T00:00:00.000Z`);
   const to = parseDateOnly(asString(req.query.to)) || startOfToday();
   const filter = { isDeleted: false, ...placeFilter(req) };
   const category = asString(req.query.category);

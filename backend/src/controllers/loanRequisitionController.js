@@ -11,7 +11,7 @@ import { evaluateLoan } from './loanCalculatorController.js';
 import { borrowerState } from './emiController.js';
 import { missingDetails } from '../utils/memberDetails.js';
 import { branchFilter, isAdmin, maskMobile } from './groupController.js';
-import { asString, escapeRegex, parseDateOnly, parsePaging, HttpError } from '../utils/http.js';
+import { asString, escapeRegex, parseDateOnly, parsePaging, HttpError, startOfToday } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
 import { checkGstin, verifyGstin } from '../services/gstVerify.js';
 import { StockProduct } from '../models/StockProduct.js';
@@ -134,7 +134,7 @@ async function unfinishedRows(rows) {
   const closed = new Map();
   if (paid.length) {
     const pays = await LoanPayment.find({ requisition: { $in: paid.map((r) => r._id) }, status: 'paid' });
-    const asOf = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
+    const asOf = startOfToday();
     for (const p of pays) {
       const done = new Set();
       for (const line of p.lines) {
@@ -509,7 +509,7 @@ export async function preview(req, res) {
   let extras;
   if (Array.isArray(req.body?.extras) && req.body.extras.length) {
     const scheme = await LoanScheme.findById(r.input.scheme.id);
-    const today = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
+    const today = startOfToday();
     extras = req.body.extras.slice(0, 100).map((v) => {
       const paise = Math.round(Number(v) * 100);
       if (!Number.isFinite(paise) || paise < 100) return { value: Number(v) || 0, error: 'Too small' };
@@ -744,7 +744,7 @@ export function createRequisition(kind) {
     }
 
     // Loan date: every loan requisition (personal, product, business / MSME, group) is made for today only (no back date).
-    const today = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
+    const today = startOfToday();
     const loanDate = today;
     if (b.loanDate !== undefined && b.loanDate !== null && String(b.loanDate).trim() !== '') {
       const d = parseDateOnly(asString(b.loanDate));
@@ -1116,7 +1116,7 @@ export async function addGroupTopUp(req, res) {
   const maxPaise = Math.floor((r.amountPaise * ADDITIONAL_PRODUCT_PERCENT) / 100);
   const usedBy = (mid) => (r.additionalProducts || []).filter((a) => String(a.member) === String(mid)).reduce((s, a) => s + a.valuePaise, 0);
   const scheme = await LoanScheme.findById(r.scheme);
-  const today = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
+  const today = startOfToday();
   const added = await buildAdditional({
     items,
     members: loanMembers,
@@ -1367,7 +1367,7 @@ export async function createGroupRequisition(req, res) {
   if (!mongoose.isValidObjectId(branchId)) throw invalid({ branch: 'Select a branch' });
   if (!isAdmin(req.user) && !(req.user.branches || []).some((x) => String(x) === branchId)) throw new HttpError(403, 'You can only use branches assigned to you');
 
-  const today = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
+  const today = startOfToday();
   if (b.loanDate !== undefined && b.loanDate !== null && String(b.loanDate).trim() !== '') {
     const d = parseDateOnly(asString(b.loanDate));
     if (!d || d.getTime() !== today.getTime()) throw invalid({ loanDate: 'A group loan requisition is made for today only (no back date)' });

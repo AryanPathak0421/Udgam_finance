@@ -18,7 +18,7 @@ import { SecurityWithdrawal } from '../models/SecurityWithdrawal.js';
 import { GroupLeaderCommission } from '../models/GroupLeaderCommission.js';
 import { slowRun } from '../services/slowRun.js';
 import { sendSms } from '../services/sms.js';
-import { asString, parseDateOnly, HttpError } from '../utils/http.js';
+import { asString, parseDateOnly, HttpError, startOfToday, todayDateString } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
 import { cashbookData, CATEGORY_LABEL } from './cashbookController.js';
 import { scanBorrowers } from './reportController.js';
@@ -31,7 +31,6 @@ const DAY = 24 * 3600 * 1000;
 const iso = (d) => (d ? new Date(d).toISOString().slice(0, 10) : null);
 const invalid = (errors) => new HttpError(422, 'Please correct the highlighted fields', errors);
 const rupees = (p) => (p || 0) / 100;
-const startOfToday = () => new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
 const MOBILE_RE = /^[6-9]\d{9}$/;
 const oid = (v) => mongoose.isValidObjectId(String(v || ''));
 const round2 = (n) => Math.round(n * 100) / 100;
@@ -216,7 +215,7 @@ async function interestCollected(branchFilter, from, to, perBranch = false) {
 }
 
 export async function profitLoss(req, res) {
-  const monthStart = new Date(`${new Date().toISOString().slice(0, 7)}-01T00:00:00.000Z`);
+  const monthStart = new Date(`${todayDateString().slice(0, 7)}-01T00:00:00.000Z`);
   const { from, to } = rangeOf(req, monthStart);
   const { _rows: rows } = await cashbookData(req, { branch: req.query.branch, from: iso(from), to: iso(to), skipDue: true });
   const ledgers = new Map((await Ledger.find({ isDeleted: false }).select('name group').populate('group', 'nature').lean()).map((l) => [String(l._id), l]));
@@ -302,7 +301,7 @@ async function disbursedLines(scope, from, to) {
 }
 
 async function buildCompanySummary(req) {
-  const monthStart = new Date(`${new Date().toISOString().slice(0, 7)}-01T00:00:00.000Z`);
+  const monthStart = new Date(`${todayDateString().slice(0, 7)}-01T00:00:00.000Z`);
   const { from, to } = rangeOf(req, monthStart);
   const branches = await Branch.find(oid(asString(req.query.branch)) ? { _id: req.query.branch } : { isDeleted: { $ne: true } }).select('code name').sort({ code: 1 }).lean();
   const scope = oid(asString(req.query.branch)) ? { branch: new mongoose.Types.ObjectId(asString(req.query.branch)) } : {};

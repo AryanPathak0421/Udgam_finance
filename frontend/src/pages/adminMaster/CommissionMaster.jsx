@@ -6,7 +6,7 @@ import ConfirmDialog from '../../components/ui/ConfirmDialog.jsx';
 import Pagination from '../../components/ui/Pagination.jsx';
 import { EmptyState, ErrorState, PageHeader, Spinner, StatusBadge } from '../../components/ui/Feedback.jsx';
 import { useToast } from '../../components/ui/Toast.jsx';
-import { formatINR } from '../../utils/format.js';
+import { formatINR, todayIso } from '../../utils/format.js';
 
 const LIMIT = 10;
 const MONEY_RE = /^\d{1,12}(\.\d{1,2})?$/;
@@ -188,7 +188,7 @@ function TierPreview({ rule, slabs }) {
 
 // "What would the group leader earn?" — runs the real calculation on the server.
 function GroupLeaderPreview({ amount, durationMonths, startDelayMonths }) {
-  const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [month, setMonth] = useState(() => todayIso().slice(0, 7));
   const [loans, setLoans] = useState('1');
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');

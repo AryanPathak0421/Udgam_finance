@@ -10,7 +10,7 @@ import { MODES, calculateLoan } from '../services/loanCalculator.js';
 import { LoanScheme } from '../models/LoanScheme.js';
 import { Group } from '../models/Group.js';
 import { EmiPayment } from '../models/EmiPayment.js';
-import { asString, escapeRegex, parseDateOnly, parsePaging, HttpError } from '../utils/http.js';
+import { asString, escapeRegex, parseDateOnly, parsePaging, HttpError, startOfToday } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
 import { branchFilter, isAdmin } from './groupController.js';
 import { reserveStock, releaseStock } from './loanRequisitionController.js';
@@ -19,7 +19,6 @@ const invalid = (errors) => new HttpError(422, 'Please correct the highlighted f
 const POPULATE = [{ path: 'branch', select: 'code name' }];
 const iso = (d) => (d ? new Date(d).toISOString().slice(0, 10) : null);
 const money = (p) => (p === undefined || p === null ? null : p / 100);
-const startOfToday = () => new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
 const DAY = 24 * 3600 * 1000;
 
 async function loadApproved(req, id) {

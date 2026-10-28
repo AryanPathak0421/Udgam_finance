@@ -10,6 +10,7 @@ import Pagination from '../components/ui/Pagination.jsx';
 import { EmptyState, ErrorState, PageHeader, Spinner } from '../components/ui/Feedback.jsx';
 import { useToast } from '../components/ui/Toast.jsx';
 import useDebounce from '../hooks/useDebounce.js';
+import { todayIso } from '../utils/format.js';
 
 const LIMIT = 25;
 const PAYERS = ['super_admin', 'admin', 'branch_manager', 'accountant'];
@@ -106,7 +107,7 @@ function BatchPayDialog({ batch, onClose, onPaid }) {
   const toast = useToast();
   const [preps, setPreps] = useState(null);
   const [error, setError] = useState('');
-  const [paidOn, setPaidOn] = useState(new Date().toISOString().slice(0, 10));
+  const [paidOn, setPaidOn] = useState(todayIso());
   const [emiStart, setEmiStart] = useState('');
   const off = useOffDays();
   const [payMode, setPayMode] = useState('cash');
@@ -167,7 +168,7 @@ function BatchPayDialog({ batch, onClose, onPaid }) {
           <p className="muted small" style={{ marginTop: 0 }}>{batch.group} · {preps.length} approved member loan{preps.length === 1 ? '' : 's'} waiting for payment. Each member keeps her own scheme, installments and deductions.</p>
           <div className="form-grid">
             <FormField id="bpaidOn" label="Payment date" required error={errors.paidOn}>
-              <input id="bpaidOn" type="date" min={preps.map((p) => p.dates.minPaidOn).sort().pop()} max={new Date().toISOString().slice(0, 10)} value={paidOn} onChange={(e) => { setPaidOn(e.target.value); setEmiStart(''); }} />
+              <input id="bpaidOn" type="date" min={preps.map((p) => p.dates.minPaidOn).sort().pop()} max={todayIso()} value={paidOn} onChange={(e) => { setPaidOn(e.target.value); setEmiStart(''); }} />
             </FormField>
             <FormField id="bstart" label="First installment date" hint="Leave empty: each member's first installment is one period after the payment date (on the group's collection day). It cannot be earlier; no Sundays or holidays." error={errors.emiStartDate}>
               <input id="bstart" type="date" min={preps.map((p) => p.dates.defaultEmiStartDate).sort().pop()} value={emiStart} onChange={(e) => setEmiStart(off.skip(e.target.value))} />
@@ -295,7 +296,7 @@ function PayDialog({ id, onClose, onPaid }) {
           </p>
           <div className="form-grid">
             <FormField id="ppaidOn" label="Payment date" required error={errors.paidOn}>
-              <input id="ppaidOn" type="date" min={prep.dates.minPaidOn} max={new Date().toISOString().slice(0, 10)} value={paidOn} onChange={(e) => setPaidOn(e.target.value)} />
+              <input id="ppaidOn" type="date" min={prep.dates.minPaidOn} max={todayIso()} value={paidOn} onChange={(e) => setPaidOn(e.target.value)} />
             </FormField>
             <FormField id="pstart" label="First installment date" error={errors.emiStartDate} hint={prep.dates.collectionDay ? `The group collects on ${prep.dates.collectionDay}: only those dates` : `Not before ${dmy(prep.dates.defaultEmiStartDate)} (one period after the payment date); no Sundays`}>
               {prep.dates.allowedEmiStartDates ? (

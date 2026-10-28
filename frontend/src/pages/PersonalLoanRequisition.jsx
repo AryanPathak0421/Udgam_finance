@@ -12,9 +12,10 @@ import useDebounce from '../hooks/useDebounce.js';
 import { compressImage } from '../utils/image.js';
 import { EmployeeSelect, PhotoField } from './NewBorrower.jsx';
 import { ProductSchemeField } from './ProductSchemeField.jsx';
+import { todayIso } from '../utils/format.js';
 
 const ADMINS = ['super_admin', 'admin'];
-const todayISO = () => new Date().toISOString().slice(0, 10);
+const todayISO = () => todayIso();
 const inr = (n) => (n === null || n === undefined || Number.isNaN(n) ? '—' : `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : '');
 const MAX_DOC_BYTES = 800 * 1024;

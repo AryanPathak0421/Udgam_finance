@@ -7,10 +7,10 @@ import { syncAllGroups } from '../services/groupLeaderPayout.js';
 import { parseMonth } from '../services/groupLeaderCommission.js';
 import { typeMeta } from '../config/commissionTypes.js';
 import { branchFilter } from './groupController.js';
-import { asString, escapeRegex, HttpError } from '../utils/http.js';
+import { asString, escapeRegex, HttpError, todayDateString } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
 
-const currentMonth = () => new Date().toISOString().slice(0, 7);
+const currentMonth = () => todayDateString().slice(0, 7);
 
 function readMonth(raw) {
   const month = asString(raw) || currentMonth();

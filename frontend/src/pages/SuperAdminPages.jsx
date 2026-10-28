@@ -7,8 +7,9 @@ import { EmptyState, ErrorState, PageHeader, Spinner } from '../components/ui/Fe
 import { useToast } from '../components/ui/Toast.jsx';
 import useDebounce from '../hooks/useDebounce.js';
 import { BranchSelect, Refresh, Summary, useLoad, inr, dmy, today } from './HrPages.jsx';
+import { todayIso } from '../utils/format.js';
 
-const monthStart = () => `${new Date().toISOString().slice(0, 7)}-01`;
+const monthStart = () => `${todayIso().slice(0, 7)}-01`;
 const cap = (s) => (s ? String(s).charAt(0).toUpperCase() + String(s).slice(1).replace(/_/g, ' ') : '—');
 const Dates = ({ from, setFrom, to, setTo }) => (
   <>

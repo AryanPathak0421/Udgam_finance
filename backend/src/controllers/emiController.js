@@ -9,7 +9,7 @@ import { isAppRequest } from '../services/appRequest.js';
 import { queueAppEmi } from './appController.js';
 import { autoSettleLine } from '../services/autoSettle.js';
 import { generateCode } from '../services/codeSequence.js';
-import { asString, escapeRegex, parseDateOnly, parsePaging, HttpError } from '../utils/http.js';
+import { asString, escapeRegex, parseDateOnly, parsePaging, HttpError, startOfToday } from '../utils/http.js';
 import { toMinor } from '../utils/money.js';
 import { audit } from '../utils/audit.js';
 import { branchFilter, isAdmin } from './groupController.js';
@@ -19,7 +19,6 @@ const invalid = (errors) => new HttpError(422, 'Please correct the highlighted f
 const POPULATE = [{ path: 'branch', select: 'code name' }];
 const iso = (d) => (d ? new Date(d).toISOString().slice(0, 10) : null);
 const money = (p) => (p === undefined || p === null ? null : p / 100);
-const startOfToday = () => new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
 const DAY = 24 * 3600 * 1000;
 const PAY_MODES = ['cash', 'bank', 'upi', 'cheque'];
 const KIND_LABEL = { personal: 'Personal', group: 'Group', business: 'Business', msme: 'MSME', product: 'Product' };

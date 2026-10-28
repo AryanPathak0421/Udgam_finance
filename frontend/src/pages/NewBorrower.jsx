@@ -10,10 +10,11 @@ import { useToast } from '../components/ui/Toast.jsx';
 import useDebounce from '../hooks/useDebounce.js';
 import { compressImage } from '../utils/image.js';
 import { downloadMemberPdf } from '../utils/memberPdf.js';
+import { todayIso } from '../utils/format.js';
 
 const LIMIT = 25;
 const CREATORS = ['super_admin', 'admin', 'branch_manager', 'loan_officer', 'field_officer'];
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => todayIso();
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : '');
 // Whole years since a 'YYYY-MM-DD' date.
 const yearsSince = (iso) => {

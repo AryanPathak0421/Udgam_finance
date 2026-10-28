@@ -1,10 +1,9 @@
 import { DayClose } from '../models/DayClose.js';
-import { HttpError } from '../utils/http.js';
+import { HttpError, startOfToday } from '../utils/http.js';
 
 const DAY = 24 * 3600 * 1000;
 const ADMIN = ['super_admin', 'admin'];
 const iso = (d) => new Date(d).toISOString().slice(0, 10);
-const startOfToday = () => new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
 const isAdminUser = (user) => Boolean(user && ADMIN.includes(user.role));
 
 /**

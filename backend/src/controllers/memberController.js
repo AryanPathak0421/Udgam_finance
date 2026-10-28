@@ -8,7 +8,7 @@ import { generateCode } from '../services/codeSequence.js';
 import { sendSms } from '../services/sms.js';
 import { INDIA_LOCATIONS } from '../data/indiaLocations.js';
 import { branchFilter, isAdmin, maskMobile } from './groupController.js';
-import { asString, createValidator, escapeRegex, parseDateOnly, parsePaging, HttpError } from '../utils/http.js';
+import { asString, createValidator, escapeRegex, parseDateOnly, parsePaging, HttpError, startOfToday } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
 import { User } from '../models/User.js';
 import { lookupPincode, lookupIfsc } from '../services/lookup.js';
@@ -461,7 +461,7 @@ export async function createMember(req, res) {
       husbandName: d.husbandName || undefined,
       code,
       formId,
-      joiningDate: new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`),
+      joiningDate: startOfToday(),
       mobileVerifiedAt: mobileCh.verifiedAt,
       panVerifiedAt: panCheck.status === 'verified' ? new Date() : undefined,
       pincodeVerified: pin.status === 'ok',

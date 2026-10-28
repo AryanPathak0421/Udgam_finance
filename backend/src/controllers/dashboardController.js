@@ -12,10 +12,9 @@ import { ProductOrder } from '../models/ProductOrder.js';
 import { ProductPayment } from '../models/ProductPayment.js';
 import { branchFilter, isAdmin } from './groupController.js';
 import { Holiday } from '../models/SuperAdmin.js';
-import { asString } from '../utils/http.js';
+import { asString, startOfToday } from '../utils/http.js';
 import mongoose from 'mongoose';
 
-const startOfToday = () => new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
 const DAY = 24 * 3600 * 1000;
 const rupees = (p) => Math.round((p || 0)) / 100;
 const iso = (d) => new Date(d).toISOString().slice(0, 10);

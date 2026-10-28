@@ -6,10 +6,11 @@ import Modal from '../components/ui/Modal.jsx';
 import { EmptyState, ErrorState, PageHeader, Spinner } from '../components/ui/Feedback.jsx';
 import { useToast } from '../components/ui/Toast.jsx';
 import useDebounce from '../hooks/useDebounce.js';
+import { todayIso } from '../utils/format.js';
 
 const dmy = (s) => (s ? new Date(`${String(s).slice(0, 10)}T00:00:00`).toLocaleDateString('en-IN') : '—');
-const today = () => new Date().toISOString().slice(0, 10);
-const monthStart = () => `${new Date().toISOString().slice(0, 7)}-01`;
+const today = () => todayIso();
+const monthStart = () => `${todayIso().slice(0, 7)}-01`;
 const STATUS = { surveyed: ['Surveyed', 'grey'], under_review: ['Under review', 'amber'], approved: ['Approved', 'green'], rejected: ['Rejected', 'danger'], formed: ['Center formed', 'green'] };
 const Badge = ({ s }) => <span className={`badge ${STATUS[s]?.[1] || 'grey'}`}>{STATUS[s]?.[0] || s}</span>;
 
