@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import { LoanPayment } from '../models/LoanPayment.js';
 import { EmiPayment } from '../models/EmiPayment.js';
 import { User } from '../models/User.js';
+import { Member } from '../models/Member.js';
 import { LoanSettlement } from '../models/LoanSettlement.js';
 import { readBankAccount } from '../services/bankAccountPick.js';
 import { assertDayOpen, defaultWorkDate } from '../services/dayOpen.js';
@@ -12,7 +13,7 @@ import { generateCode } from '../services/codeSequence.js';
 import { asString, escapeRegex, parseDateOnly, parsePaging, HttpError, startOfToday } from '../utils/http.js';
 import { toMinor } from '../utils/money.js';
 import { audit } from '../utils/audit.js';
-import { branchFilter, isAdmin } from './groupController.js';
+import { branchFilter, isAdmin, showMobile } from './groupController.js';
 import { loadHolidays, offDaysOf, nextWorking } from '../services/holidays.js';
 
 const invalid = (errors) => new HttpError(422, 'Please correct the highlighted fields', errors);
@@ -420,6 +421,14 @@ export async function collectionList(req, res) {
       }
     }
   }
+  // the mobile number of every borrower on the list (the collection staff call them); the roles that may not see a full number get it masked
+  const mobiles = new Map();
+  const codes = [...new Set(rows.map((r) => r.code))];
+  for (let at = 0; at < codes.length; at += 1000) {
+    // eslint-disable-next-line no-await-in-loop
+    (await Member.find({ code: { $in: codes.slice(at, at + 1000) } }).select('code mobile').lean()).forEach((m) => mobiles.set(m.code, m.mobile));
+  }
+  rows.forEach((r) => { r.mobile = showMobile(req.user, mobiles.get(r.code)) || ''; });
   const staffAll = [...staffSet].sort();
   const staffNames = await User.find({ employeeCode: { $in: staffAll } }).select('name employeeCode branches').populate('branches', 'code name');
   const staff = staffAll.map((c) => {

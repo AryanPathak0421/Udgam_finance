@@ -166,13 +166,14 @@ export function SingleLoanEmi() {
             <div className={`table-wrap${c.loading ? ' dim' : ''}`}>
               <table className="data-table">
                 <thead>
-                  <tr><th>Loan ID</th><th>Borrower</th><th>Type</th><th>Branch</th><th>Staff</th><th>Mode</th><th>Due</th><th className="num">EMI</th><th className="num">Amount to receive</th><th className="actions-col">Actions</th></tr>
+                  <tr><th>Loan ID</th><th>Borrower</th><th>Mobile</th><th>Type</th><th>Branch</th><th>Staff</th><th>Mode</th><th>Due</th><th className="num">EMI</th><th className="num">Amount to receive</th><th className="actions-col">Actions</th></tr>
                 </thead>
                 <tbody>
                   {rows.map((r) => (
                     <tr key={key(r)}>
                       <td data-label="Loan ID"><strong>{r.loanId || r.formId}</strong></td>
                       <td data-label="Borrower"><strong>{r.code}</strong> {r.name}</td>
+                      <td data-label="Mobile">{r.mobile || '—'}</td>
                       <td data-label="Type">{r.loanTypeLabel}</td>
                       <td data-label="Branch">{r.branch?.name || '—'}</td>
                       <td data-label="Staff">{r.employeeCode || '—'}</td>
@@ -246,7 +247,7 @@ function GroupCollect({ group, date, canCollect, onClose, onDone }) {
                 <thead>
                   <tr>
                     <th style={{ width: 40 }}><input type="checkbox" aria-label="Select all members" checked={dueMembers.length > 0 && chosen.length === dueMembers.length} disabled={!dueMembers.length} onChange={(e) => setTicked(e.target.checked ? new Set(dueMembers.map(key)) : new Set())} /></th>
-                    <th>Member</th><th>Loan ID</th><th>Due</th><th className="num">EMI</th><th className="num">Amount to receive</th>
+                    <th>Member</th><th>Mobile</th><th>Loan ID</th><th>Due</th><th className="num">EMI</th><th className="num">Amount to receive</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -254,6 +255,7 @@ function GroupCollect({ group, date, canCollect, onClose, onDone }) {
                     <tr key={key(m)} style={m.status !== 'due' || !ticked.has(key(m)) ? { opacity: 0.55 } : undefined}>
                       <td><input type="checkbox" aria-label={`Select ${m.code}`} checked={ticked.has(key(m))} onChange={() => toggle(m)} disabled={!canCollect || m.status !== 'due'} /></td>
                       <td data-label="Member"><strong>{m.code}</strong> {m.name}</td>
+                      <td data-label="Mobile">{m.mobile || '—'}</td>
                       <td data-label="Loan ID">{m.loanId || m.formId}</td>
                       <td data-label="Due">{m.status !== 'due' ? <span className="badge green">Paid</span> : <>{m.dueCount} installment{m.dueCount === 1 ? '' : 's'}</>}{m.overdueDays > 0 && <div className="muted small">{m.overdueDays} day{m.overdueDays === 1 ? '' : 's'} overdue</div>}</td>
                       <td data-label="EMI" className="num">{inr(m.emi)}</td>

@@ -695,29 +695,115 @@ const ATT = [['', 'Not marked'], ['present', 'Present'], ['half_day', 'Half day'
 const ATT_BADGE = { present: 'green', half_day: 'amber', leave: 'grey', holiday: 'grey', absent: 'danger' };
 
 // The place an employee marks the attendance from: latitude, longitude and how many metres around it count. The attendance passes only from there.
-function LocationDialog({ item, onClose, onSaved }) {
+const blankPlace = () => ({ name: '', lat: '', lng: '', radius: '100' });
+const decimalText = (v) => v.replace(/[^\d.-]/g, '');
+
+/** The places an employee can mark the attendance from: any number of rows (name, latitude, longitude, the distance around it), and a button that fills a row with where the user is now. */
+function PlacesEditor({ places, setPlaces, errors = {} }) {
   const toast = useToast();
-  const [f, setF] = useState({ lat: item.location ? String(item.location.lat) : '', lng: item.location ? String(item.location.lng) : '', radius: String(item.location?.radius || 100) });
-  const [errors, setErrors] = useState({});
-  const [busy, setBusy] = useState(false);
-  const decimal = (v) => v.replace(/[^\d.-]/g, '');
-  function here() {
+  const set = (i, patch) => setPlaces((x) => x.map((p, j) => (j === i ? { ...p, ...patch } : p)));
+  function here(i) {
     if (!navigator.geolocation) { toast.error('This browser cannot read the location'); return; }
-    navigator.geolocation.getCurrentPosition((p) => setF((x) => ({ ...x, lat: p.coords.latitude.toFixed(6), lng: p.coords.longitude.toFixed(6) })), () => toast.error('The location could not be read. Allow it in the browser or type it.'));
-  }
-  async function save(clear) {
-    setBusy(true); setErrors({});
-    try { await api.hr.setAttendanceLocation(item.id, clear ? { clear: true } : f); toast.success(clear ? 'Location removed' : 'Location saved'); onSaved(); } catch (err) { setErrors(err.errors || {}); toast.error(err.message); } finally { setBusy(false); }
+    navigator.geolocation.getCurrentPosition((p) => set(i, { lat: p.coords.latitude.toFixed(6), lng: p.coords.longitude.toFixed(6) }), () => toast.error('The location could not be read. Allow it in the browser or type it.'));
   }
   return (
-    <Modal open title={`Attendance location — ${item.employeeCode} ${item.name}`} onClose={onClose} busy={busy}
-      footer={<><button className="btn" onClick={onClose} disabled={busy}>Close</button>{item.location && <button className="btn danger-outline" onClick={() => save(true)} disabled={busy}>Remove</button>}<button className="btn primary" onClick={() => save(false)} disabled={busy}>{busy ? 'Saving…' : 'Save'}</button></>}>
-      <p className="muted small" style={{ marginTop: 0 }}>The employee's attendance in the app passes only when they are within this distance of this latitude and longitude.</p>
-      <div className="form-grid">
-        <FormField id="lclat" label="Latitude" required error={errors.lat}><input id="lclat" inputMode="decimal" value={f.lat} onChange={(e) => setF((x) => ({ ...x, lat: decimal(e.target.value) }))} /></FormField>
-        <FormField id="lclng" label="Longitude" required error={errors.lng}><input id="lclng" inputMode="decimal" value={f.lng} onChange={(e) => setF((x) => ({ ...x, lng: decimal(e.target.value) }))} /></FormField>
-        <FormField id="lcr" label="Allowed distance (metres)" error={errors.radius} hint="20 to 5000"><input id="lcr" inputMode="numeric" value={f.radius} onChange={(e) => setF((x) => ({ ...x, radius: e.target.value.replace(/\D/g, '').slice(0, 4) }))} /></FormField>
-        <div style={{ alignSelf: 'end' }}><button type="button" className="btn" onClick={here}>Use my current location</button></div>
+    <div>
+      {places.map((p, i) => (
+        <div key={i} style={{ border: '1px solid var(--border, #d8dee2)', borderRadius: 8, padding: 10, marginBottom: 8 }}>
+          <div className="form-grid">
+            <FormField id={`plname${i}`} label={`Place ${i + 1} name`} hint="Optional, e.g. Head office"><input id={`plname${i}`} value={p.name} maxLength={60} onChange={(e) => set(i, { name: e.target.value })} /></FormField>
+            <FormField id={`pllat${i}`} label="Latitude" required error={errors[`locations.${i}.lat`]}><input id={`pllat${i}`} inputMode="decimal" value={p.lat} onChange={(e) => set(i, { lat: decimalText(e.target.value) })} /></FormField>
+            <FormField id={`pllng${i}`} label="Longitude" required error={errors[`locations.${i}.lng`]}><input id={`pllng${i}`} inputMode="decimal" value={p.lng} onChange={(e) => set(i, { lng: decimalText(e.target.value) })} /></FormField>
+            <FormField id={`plrad${i}`} label="Allowed distance (metres)" hint="20 to 5000" error={errors[`locations.${i}.radius`]}><input id={`plrad${i}`} inputMode="numeric" value={p.radius} onChange={(e) => set(i, { radius: e.target.value.replace(/\D/g, '').slice(0, 4) })} /></FormField>
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+            <button type="button" className="btn sm" onClick={() => here(i)}>Use my current location</button>
+            {places.length > 1 && <button type="button" className="btn sm danger-outline" onClick={() => setPlaces((x) => x.filter((_, j) => j !== i))}>Remove this place</button>}
+          </div>
+        </div>
+      ))}
+      {errors.locations && <div className="field-error small">{errors.locations}</div>}
+      <button type="button" className="btn sm" disabled={places.length >= 10} onClick={() => setPlaces((x) => [...x, blankPlace()])}>+ Add another place</button>
+    </div>
+  );
+}
+const toPlaces = (list) => (list?.length ? list.map((l) => ({ name: l.name || '', lat: String(l.lat), lng: String(l.lng), radius: String(l.radius || 100) })) : [blankPlace()]);
+
+function LocationDialog({ item, onClose, onSaved }) {
+  const toast = useToast();
+  const [places, setPlaces] = useState(() => toPlaces(item.locations));
+  const [errors, setErrors] = useState({});
+  const [busy, setBusy] = useState(false);
+  async function save(clear) {
+    setBusy(true); setErrors({});
+    try { await api.hr.setAttendanceLocation(item.id, clear ? { clear: true } : { locations: places }); toast.success(clear ? 'Places removed' : `${places.length} place${places.length === 1 ? '' : 's'} saved`); onSaved(); } catch (err) { setErrors(err.errors || {}); toast.error(err.message); } finally { setBusy(false); }
+  }
+  return (
+    <Modal open title={`Attendance places — ${item.employeeCode} ${item.name}`} onClose={onClose} busy={busy} size="lg"
+      footer={<><button className="btn" onClick={onClose} disabled={busy}>Close</button>{item.locations?.length > 0 && <button className="btn danger-outline" onClick={() => save(true)} disabled={busy}>Remove all places</button>}<button className="btn primary" onClick={() => save(false)} disabled={busy}>{busy ? 'Saving…' : 'Save'}</button></>}>
+      <p className="muted small" style={{ marginTop: 0 }}>The employee's attendance in the app passes when they are within the allowed distance of <strong>any</strong> of these places (the office and a field place, for example).</p>
+      <PlacesEditor places={places} setPlaces={setPlaces} errors={errors} />
+    </Modal>
+  );
+}
+
+/** The attendance places and / or the attendance time for many employees in one click: all that are shown, or the ones ticked. */
+function BulkAttendanceDialog({ shown, picked, branch, onClose, onSaved }) {
+  const toast = useToast();
+  const [who, setWho] = useState(picked.length ? 'picked' : 'shown');
+  const [setTimeOn, setSetTimeOn] = useState(true);
+  const [time, setTime] = useState({ from: '09:00', to: '10:00', any: false });
+  const [setPlacesOn, setSetPlacesOn] = useState(true);
+  const [mode, setMode] = useState('replace');
+  const [places, setPlaces] = useState([blankPlace()]);
+  const [removePlaces, setRemovePlaces] = useState(false);
+  const [errors, setErrors] = useState({});
+  const [busy, setBusy] = useState(false);
+  const ids = who === 'picked' ? picked : shown;
+  async function save() {
+    setBusy(true); setErrors({});
+    try {
+      const body = { employees: ids, branch: branch || undefined };
+      if (setTimeOn) { if (time.any) body.clearTime = true; else body.time = { from: time.from, to: time.to }; }
+      if (setPlacesOn) { if (removePlaces) body.clearLocations = true; else { body.locations = places; body.locationMode = mode; } }
+      const r = await api.hr.bulkAttendanceSettings(body);
+      toast.success(`${r.updated} employee${r.updated === 1 ? '' : 's'} updated`);
+      onSaved();
+    } catch (err) { setErrors(err.errors || {}); toast.error(err.errors?.locations || err.errors?.employees || err.message); } finally { setBusy(false); }
+  }
+  return (
+    <Modal open title="Attendance time and places for many employees" onClose={onClose} busy={busy} size="lg"
+      footer={<><button className="btn" onClick={onClose} disabled={busy}>Close</button><button className="btn primary" onClick={save} disabled={busy || !ids.length || (!setTimeOn && !setPlacesOn)}>{busy ? 'Saving…' : `Apply to ${ids.length} employee${ids.length === 1 ? '' : 's'}`}</button></>}>
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 8 }}>
+        <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}><input type="radio" name="bkwho" checked={who === 'shown'} onChange={() => setWho('shown')} /> All {shown.length} employees shown</label>
+        <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}><input type="radio" name="bkwho" checked={who === 'picked'} disabled={!picked.length} onChange={() => setWho('picked')} /> Only the {picked.length} selected</label>
+      </div>
+      <div className="panel" style={{ padding: 12, marginBottom: 10 }}>
+        <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}><input type="checkbox" checked={setTimeOn} onChange={(e) => setSetTimeOn(e.target.checked)} /> <strong>Set the attendance time</strong></label>
+        {setTimeOn && (
+          <div className="form-grid" style={{ marginTop: 8 }}>
+            <label className="span-2" style={{ display: 'flex', gap: 6, alignItems: 'center' }}><input type="checkbox" checked={time.any} onChange={(e) => setTime((x) => ({ ...x, any: e.target.checked }))} /> Any time of the day (take the time limit off)</label>
+            {!time.any && <><FormField id="bkf" label="Attendance opens" required error={errors.from}><input id="bkf" type="time" value={time.from} onChange={(e) => setTime((x) => ({ ...x, from: e.target.value }))} /></FormField>
+            <FormField id="bkt" label="Attendance closes" required error={errors.to}><input id="bkt" type="time" value={time.to} onChange={(e) => setTime((x) => ({ ...x, to: e.target.value }))} /></FormField></>}
+          </div>
+        )}
+      </div>
+      <div className="panel" style={{ padding: 12 }}>
+        <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}><input type="checkbox" checked={setPlacesOn} onChange={(e) => setSetPlacesOn(e.target.checked)} /> <strong>Set the places (latitude / longitude)</strong></label>
+        {setPlacesOn && (
+          <div style={{ marginTop: 8 }}>
+            <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 8 }}><input type="checkbox" checked={removePlaces} onChange={(e) => setRemovePlaces(e.target.checked)} /> Remove every place (no place check)</label>
+            {!removePlaces && (
+              <>
+                <div style={{ display: 'flex', gap: 16, marginBottom: 8 }}>
+                  <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}><input type="radio" name="bkmode" checked={mode === 'replace'} onChange={() => setMode('replace')} /> Replace their places with these</label>
+                  <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}><input type="radio" name="bkmode" checked={mode === 'add'} onChange={() => setMode('add')} /> Add these to their places</label>
+                </div>
+                <PlacesEditor places={places} setPlaces={setPlaces} errors={errors} />
+              </>
+            )}
+          </div>
+        )}
       </div>
     </Modal>
   );
@@ -758,6 +844,7 @@ export function Attendance() {
   const [bulk, setBulk] = useState('leave');
   const [locating, setLocating] = useState(null);
   const [timing, setTiming] = useState(null);
+  const [bulkSet, setBulkSet] = useState(false);
   useEffect(() => { setEdits({}); setPicked(new Set()); }, [list.data]);
   const items = list.data?.items || [];
   const changed = Object.keys(edits).length;
@@ -800,6 +887,7 @@ export function Attendance() {
           <select value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Show"><option value="">All</option><option value="present">Present</option><option value="absent">Absent</option><option value="half_day">Half day</option><option value="leave">Leave</option><option value="holiday">Holiday</option><option value="none">Not marked</option></select>
           <input type="search" placeholder="Search name, code, branch" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search" style={{ minWidth: 180 }} />
           <Refresh onClick={list.load} loading={list.loading} />
+          <button className="btn" onClick={() => setBulkSet(true)} disabled={!items.length}>Time / places for all</button>
           <button className="btn" onClick={auto} disabled={busy === 'auto'}>{busy === 'auto' ? 'Marking…' : 'Auto attendance'}</button>
           <button className="btn primary" onClick={save} disabled={!changed || busy === 'save'}>{busy === 'save' ? 'Saving…' : `Save${changed ? ` (${changed})` : ''}`}</button>
         </div>
@@ -826,7 +914,7 @@ export function Attendance() {
                         <td><input type="checkbox" aria-label={`Select ${i.employeeCode}`} checked={picked.has(i.id)} onChange={() => setPicked((p) => { const n = new Set(p); if (n.has(i.id)) n.delete(i.id); else n.add(i.id); return n; })} /></td>
                         <td data-label="Employee"><strong>{i.employeeCode}</strong> {i.name}<div className="muted small">{i.designation || '—'}</div></td>
                         <td data-label="Branch">{branchLabel({ code: i.branch, name: i.branchName })}</td>
-                        <td data-label="Location">{i.location ? <><div className="small">{i.location.lat.toFixed(5)}, {i.location.lng.toFixed(5)}</div><div className="muted small">within {i.location.radius} m</div></> : <span className="muted small">Not set</span>}<button className="btn sm" onClick={() => setLocating(i)}>{i.location ? 'Change' : 'Set'}</button></td>
+                        <td data-label="Location">{i.locations?.length ? <><div className="small">{i.locations.length === 1 ? `${i.locations[0].lat.toFixed(5)}, ${i.locations[0].lng.toFixed(5)}` : `${i.locations.length} places`}{i.locations[0].name ? ` · ${i.locations[0].name}${i.locations.length > 1 ? ' …' : ''}` : ''}</div><div className="muted small">within {i.locations[0].radius} m{i.locations.length > 1 ? ' of any' : ''}</div></> : <span className="muted small">Not set</span>}<button className="btn sm" onClick={() => setLocating(i)}>{i.locations?.length ? 'Change' : 'Set'}</button></td>
                         <td data-label="Attendance time">{i.time ? <div className="small">{i.time.from} – {i.time.to}</div> : <span className="muted small">Any time</span>}<button className="btn sm" onClick={() => setTiming(i)}>{i.time ? 'Change' : 'Set'}</button></td>
                         <td data-label="Attendance"><select aria-label={`Attendance of ${i.employeeCode}`} value={cur} onChange={(e) => setRow(i.id, { status: e.target.value })}>{ATT.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></td>
                         <td data-label="Marked">{i.status ? <><span className={`badge ${ATT_BADGE[i.status] || 'grey'}`}>{i.source === 'auto' ? 'Auto' : 'Manual'}</span>{i.source === 'auto' && i.firstActivity && <div className="muted small">{time(i.firstActivity)} – {time(i.lastActivity)}</div>}</> : '—'}</td>
@@ -841,6 +929,7 @@ export function Attendance() {
         )}
       </div>
       {locating && <LocationDialog item={locating} onClose={() => setLocating(null)} onSaved={() => { setLocating(null); list.load(); }} />}
+      {bulkSet && <BulkAttendanceDialog shown={shown.map((i) => i.id)} picked={[...picked]} branch={branch} onClose={() => setBulkSet(false)} onSaved={() => { setBulkSet(false); list.load(); }} />}
       {timing && <TimeDialog item={timing} onClose={() => setTiming(null)} onSaved={() => { setTiming(null); list.load(); }} />}
     </>
   );

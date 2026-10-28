@@ -225,7 +225,7 @@ export async function profitLoss(req, res) {
   for (const r of rows.cur) {
     if (r.memo || /_due$/.test(r.cat)) continue;
     if (['processing_fee', 'legal_fee', 'insurance_fee', 'civil_fee'].includes(r.cat)) add(income, r.cat, CATEGORY_LABEL.get(r.cat), r.amount);
-    else if (['staff_salary', 'room_rent', 'leader_commission', 'other_payment'].includes(r.cat)) add(expense, r.cat, CATEGORY_LABEL.get(r.cat), r.amount);
+    else if (['staff_salary', 'room_rent', 'messenger_payment', 'leader_commission', 'other_payment'].includes(r.cat)) add(expense, r.cat, CATEGORY_LABEL.get(r.cat), r.amount);
     else if (r.cat.startsWith('ledger:')) {
       const l = ledgers.get(r.cat.slice(7));
       const nature = l?.group?.nature;

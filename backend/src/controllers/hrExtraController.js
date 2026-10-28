@@ -17,7 +17,7 @@ import { CashEntry } from '../models/CashEntry.js';
 import { generateCode } from '../services/codeSequence.js';
 import { assertDayOpen, defaultWorkDate } from '../services/dayOpen.js';
 import { readBankAccount } from '../services/bankAccountPick.js';
-import { asString, parseDateOnly, HttpError, startOfToday } from '../utils/http.js';
+import { asString, parseDateOnly, HttpError, startOfToday, escapeRegex } from '../utils/http.js';
 import { toMinor } from '../utils/money.js';
 import { audit } from '../utils/audit.js';
 import { branchFilter, isAdmin } from './groupController.js';
@@ -123,6 +123,9 @@ export async function createRoomRent(req, res) {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw invalid({ month: 'Choose the month the rent is for' });
   const landlord = party ? party.name : asString(b.landlord).replace(/\s+/g, ' ');
   if (landlord.length < 2 || landlord.length > 80) throw invalid({ landlord: 'Enter the name of the landlord (2–80 characters)' });
+  // the rent of a month is paid once to a room owner / messenger (cancel the entry first to pay it again)
+  const already = await RoomRent.findOne({ status: 'paid', month, ...(party ? { party: party._id } : { party: { $exists: false }, branch, landlord: new RegExp(`^${escapeRegex(landlord)}$`, 'i') }) }).select('amountPaise paidOn').lean();
+  if (already) throw new HttpError(409, `The rent of ${month} was already paid to ${landlord}: ₹${already.amountPaise / 100} on ${iso(already.paidOn)}. Cancel that entry first if it has to be paid again.`, { month: `Already paid on ${iso(already.paidOn)} (₹${already.amountPaise / 100})` });
   // rent: for a room owner / messenger from the list it is the amount set for them (it cannot be changed in the entry); for "other" it is what is typed
   const typed = b.rent !== undefined && b.rent !== '' ? b.rent : b.amount;
   const rentPaise = party ? party.amountPaise : readMoney(typed, 'rent', 'the rent');
@@ -147,7 +150,7 @@ export async function createRoomRent(req, res) {
   const bankAccount = await readBankAccount(b, payMode);
   await assertDayOpen(branch, paidOn, req.user);
   const label = KIND_LABEL[party?.kind || 'room'];
-  const entry = await CashEntry.create({ branch, date: paidOn, side: 'payment', category: 'room_rent', amountPaise, mode: payMode, bankAccount, remark: `${label} ${month} — ${landlord}${electricityPaise ? ` (rent ${rentPaise / 100} + electricity ${electricityPaise / 100})` : ''}`.slice(0, 200), enteredByCode: req.user.employeeCode || '', createdBy: req.user._id });
+  const entry = await CashEntry.create({ branch, date: paidOn, side: 'payment', category: party?.kind === 'messenger' ? 'messenger_payment' : 'room_rent', amountPaise, mode: payMode, bankAccount, remark: `${label} ${month} — ${landlord}${electricityPaise ? ` (rent ${rentPaise / 100} + electricity ${electricityPaise / 100})` : ''}`.slice(0, 200), enteredByCode: req.user.employeeCode || '', createdBy: req.user._id });
   const r = await RoomRent.create({ branch, month, landlord, kind: party?.kind || 'other', party: party?._id, rentPaise, amountPaise, ...meter, paidOn, payMode, bankAccount, reference: asString(b.reference).slice(0, 60), remark: asString(b.remark).slice(0, 200), cashEntry: entry._id, enteredByCode: req.user.employeeCode || '' });
   if (meter.currentReading !== undefined) await RentParty.updateOne({ _id: party._id }, { $set: { lastReading: meter.currentReading } });
   await r.populate(POP_BRANCH);

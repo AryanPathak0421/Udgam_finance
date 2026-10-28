@@ -631,7 +631,7 @@ export async function attendanceDay(req, res) {
   const items = emps.map((e) => {
     const a = marks.get(String(e._id));
     return { id: e._id, employeeCode: e.employeeCode, name: e.name, branch: e.branch?.code || '', branchName: e.branch?.name || '', designation: e.designation?.name || '', status: a?.status || '', source: a?.source || '', firstActivity: a?.firstActivity || null, lastActivity: a?.lastActivity || null, remark: a?.remark || '', hasLogin: Boolean(e.user),
-      location: e.attendanceLocation?.lat !== undefined && e.attendanceLocation?.lat !== null ? { lat: e.attendanceLocation.lat, lng: e.attendanceLocation.lng, radius: e.attendanceLocation.radius || 100 } : null, distanceM: a?.distanceM ?? null,
+      locations: locationsOf(e), distanceM: a?.distanceM ?? null,
       time: e.attendanceTime?.from ? { from: e.attendanceTime.from, to: e.attendanceTime.to } : null };
   });
   const count = (s) => items.filter((i) => i.status === s).length;
@@ -639,23 +639,86 @@ export async function attendanceDay(req, res) {
   res.json({ date: iso(date), sunday: date.getUTCDay() === 0, holidays, items, summary: { employees: items.length, present: count('present'), half_day: count('half_day'), leave: count('leave'), holiday: count('holiday'), absent: count('absent'), notMarked: items.filter((i) => !i.status).length } });
 }
 
-/** The place an employee marks the attendance from (latitude, longitude and how many metres around it count); empty it with clear. */
+/** The places an employee can mark the attendance from: the list, or (an employee saved before the list existed) the one place. */
+const locationsOf = (e) => {
+  const list = (e.attendanceLocations || []).filter((l) => l && Number.isFinite(l.lat) && Number.isFinite(l.lng));
+  if (list.length) return list.map((l) => ({ name: l.name || '', lat: l.lat, lng: l.lng, radius: l.radius || 100 }));
+  const one = e.attendanceLocation;
+  return one?.lat !== undefined && one?.lat !== null ? [{ name: '', lat: one.lat, lng: one.lng, radius: one.radius || 100 }] : [];
+};
+
+/** One place as typed (latitude, longitude, the distance around it that counts, and an optional name). */
+function readPlace(raw, at = '') {
+  const lat = Number(asString(raw?.lat));
+  const lng = Number(asString(raw?.lng));
+  const radius = raw?.radius === '' || raw?.radius === undefined ? 100 : Number(asString(raw.radius));
+  const f = (k) => (at ? `locations.${at}.${k}` : k);
+  if (!Number.isFinite(lat) || lat < -90 || lat > 90 || asString(raw?.lat) === '') throw invalid({ [f('lat')]: 'Latitude is between −90 and 90' });
+  if (!Number.isFinite(lng) || lng < -180 || lng > 180 || asString(raw?.lng) === '') throw invalid({ [f('lng')]: 'Longitude is between −180 and 180' });
+  if (!Number.isFinite(radius) || radius < 20 || radius > 5000) throw invalid({ [f('radius')]: 'The distance is 20 to 5000 metres' });
+  return { name: asString(raw?.name).slice(0, 60), lat, lng, radius };
+}
+const readPlaces = (list) => {
+  if (!Array.isArray(list)) throw invalid({ locations: 'Give the places as a list' });
+  if (list.length > 10) throw invalid({ locations: 'Up to 10 places for an employee' });
+  return list.map((p, i) => readPlace(p, String(i)));
+};
+
+/** The places an employee marks the attendance from: send `locations` (the whole list; empty removes them), or the older single lat / lng / radius, or clear. */
 export async function setAttendanceLocation(req, res) {
   const e = await loadEmployee(req);
   const b = req.body || {};
-  if (b.clear === true) e.attendanceLocation = undefined;
-  else {
-    const lat = Number(asString(b.lat));
-    const lng = Number(asString(b.lng));
-    const radius = b.radius === '' || b.radius === undefined ? 100 : Number(asString(b.radius));
-    if (!Number.isFinite(lat) || lat < -90 || lat > 90 || asString(b.lat) === '') throw invalid({ lat: 'Latitude is between −90 and 90' });
-    if (!Number.isFinite(lng) || lng < -180 || lng > 180 || asString(b.lng) === '') throw invalid({ lng: 'Longitude is between −180 and 180' });
-    if (!Number.isFinite(radius) || radius < 20 || radius > 5000) throw invalid({ radius: 'The distance is 20 to 5000 metres' });
-    e.attendanceLocation = { lat, lng, radius };
-  }
+  const list = b.clear === true ? [] : Array.isArray(b.locations) ? readPlaces(b.locations) : [readPlace(b)];
+  e.attendanceLocations = list;
+  e.attendanceLocation = undefined;
   await e.save();
-  await audit(req, { action: 'attendance.location', entity: 'Employee', entityId: e._id, after: { employee: e.employeeCode, location: b.clear === true ? null : e.attendanceLocation } });
-  res.json({ location: e.attendanceLocation?.lat !== undefined ? { lat: e.attendanceLocation.lat, lng: e.attendanceLocation.lng, radius: e.attendanceLocation.radius } : null });
+  await audit(req, { action: 'attendance.location', entity: 'Employee', entityId: e._id, after: { employee: e.employeeCode, places: list.length } });
+  res.json({ locations: locationsOf(e) });
+}
+
+/**
+ * The same places and / or attendance time for many employees in one go (all of the branch(es) in view, or the ones chosen).
+ * locations: the list; locationMode replace (default) or add; clearLocations removes them; time { from, to } or clearTime.
+ */
+export async function bulkAttendanceSettings(req, res) {
+  const b = req.body || {};
+  const filter = { isDeleted: false, status: 'active', ...scope({ query: { branch: b.branch }, user: req.user }) };
+  if (!b.all) {
+    const ids = (Array.isArray(b.employees) ? b.employees : []).filter((x) => mongoose.isValidObjectId(String(x)));
+    if (!ids.length) throw invalid({ employees: 'Choose the employees (or all of them)' });
+    filter._id = { $in: ids };
+  }
+  const doLocations = b.clearLocations === true || (Array.isArray(b.locations) && b.locations.length > 0);
+  const doTime = b.clearTime === true || (b.time && (asString(b.time.from) || asString(b.time.to)));
+  if (!doLocations && !doTime) throw invalid({ locations: 'Give the places and / or the time to set' });
+  let places = [];
+  if (doLocations && b.clearLocations !== true) places = readPlaces(b.locations);
+  let time;
+  if (doTime && b.clearTime !== true) {
+    const from = asString(b.time.from);
+    const to = asString(b.time.to);
+    if (!HHMM.test(from)) throw invalid({ from: 'Enter the time the attendance opens (HH:MM)' });
+    if (!HHMM.test(to)) throw invalid({ to: 'Enter the time the attendance closes (HH:MM)' });
+    if (to <= from) throw invalid({ to: 'The closing time must be after the opening time' });
+    time = { from, to };
+  }
+  const emps = await Employee.find(filter).select('attendanceLocations attendanceLocation').lean();
+  if (!emps.length) throw invalid({ employees: 'No working employee found in your branches' });
+  const ops = emps.map((e) => {
+    const $set = {};
+    const $unset = {};
+    if (doLocations) {
+      const add = b.locationMode === 'add' && b.clearLocations !== true;
+      const merged = add ? [...locationsOf(e), ...places].filter((p, i, all) => all.findIndex((q) => q.lat === p.lat && q.lng === p.lng) === i).slice(0, 10) : places;
+      $set.attendanceLocations = merged;
+      $unset.attendanceLocation = '';
+    }
+    if (doTime) { if (time) $set.attendanceTime = time; else $unset.attendanceTime = ''; }
+    return { updateOne: { filter: { _id: e._id }, update: { ...(Object.keys($set).length ? { $set } : {}), ...(Object.keys($unset).length ? { $unset } : {}) } } };
+  });
+  await Employee.bulkWrite(ops);
+  await audit(req, { action: 'attendance.bulk', entity: 'Employee', after: { employees: emps.length, places: doLocations ? places.length : undefined, mode: b.locationMode || 'replace', time: doTime ? (time || null) : undefined } });
+  res.json({ updated: emps.length, places: doLocations ? places.length : null, time: doTime ? (time || null) : null });
 }
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -696,14 +759,16 @@ export async function punchAttendance(req, res) {
     const now = nowIst();
     if (now < e.attendanceTime.from || now > e.attendanceTime.to) throw new HttpError(422, `The attendance can be marked only between ${e.attendanceTime.from} and ${e.attendanceTime.to} (it is ${now} now).`, { time: `${e.attendanceTime.from} – ${e.attendanceTime.to}` });
   }
-  const loc = e.attendanceLocation;
-  if (loc?.lat === undefined || loc?.lat === null) throw new HttpError(422, 'Your attendance location is not set. Ask HR to set it.');
+  const places = locationsOf(e);
+  if (!places.length) throw new HttpError(422, 'Your attendance location is not set. Ask HR to set it.');
   const lat = Number(req.body?.lat);
   const lng = Number(req.body?.lng);
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) throw invalid({ lat: 'Your location could not be read' });
-  const distance = Math.round(metresBetween(loc.lat, loc.lng, lat, lng));
-  const radius = loc.radius || 100;
-  if (distance > radius) throw new HttpError(422, `You are ${distance} m away from your attendance location. The attendance passes within ${radius} m.`, { distance });
+  // the attendance passes from any of the places; the nearest one decides
+  const measured = places.map((p) => ({ ...p, distance: Math.round(metresBetween(p.lat, p.lng, lat, lng)) })).sort((a, b) => a.distance - b.distance);
+  const nearest = measured[0];
+  const distance = nearest.distance;
+  if (measured.every((p) => p.distance > p.radius)) throw new HttpError(422, `You are ${distance} m away from ${places.length > 1 ? `the nearest of your ${places.length} attendance locations${nearest.name ? ` (${nearest.name})` : ''}` : 'your attendance location'}. The attendance passes within ${nearest.radius} m.`, { distance });
   const date = startOfToday();
   const now = new Date();
   const existing = await Attendance.findOne({ employee: e._id, date });

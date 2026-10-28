@@ -12,6 +12,8 @@ import { autoAttendanceFor } from './controllers/hrController.js';
 import { syncEmployeesFromUsers } from './services/employeeSync.js';
 import { kycFlags } from './models/Member.js';
 import { startOfToday } from './utils/http.js';
+import { RoomRent } from './models/HrExtra.js';
+import { CashEntry } from './models/CashEntry.js';
 
 const port = process.env.PORT || 5000;
 
@@ -38,6 +40,12 @@ async function migrate() {
     await User.updateOne({ _id: u._id, employeeCode: { $exists: false } }, { $set: { employeeCode: await generateCode('employee') } });
   }
   if (users.length) console.log(`Assigned employee codes to ${users.length} user(s)`);
+  // the payments to a messenger have their own Cashbook line (they were under Room rent)
+  const messengerEntries = (await RoomRent.find({ kind: 'messenger', cashEntry: { $exists: true } }).select('cashEntry').lean()).map((r) => r.cashEntry);
+  if (messengerEntries.length) {
+    const moved = await CashEntry.updateMany({ _id: { $in: messengerEntries }, category: 'room_rent' }, { $set: { category: 'messenger_payment' } });
+    if (moved.modifiedCount) console.log(`Moved ${moved.modifiedCount} messenger payment(s) to their own Cashbook line`);
+  }
   // every staff login gets its HR record, so the HR sections are not empty for the staff that existed before them
   const madeEmployees = await syncEmployeesFromUsers();
   if (madeEmployees) console.log(`Made ${madeEmployees} HR employee record(s) from the staff logins`);

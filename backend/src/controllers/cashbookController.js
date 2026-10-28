@@ -71,6 +71,7 @@ const PAYMENT = [
   { key: 'fund_transfer', label: 'Fund transfer to' },
   { key: 'staff_salary', label: 'Staff salary paid' },
   { key: 'room_rent', label: 'Room rent' },
+  { key: 'messenger_payment', label: 'Messenger payment' },
   { key: 'other_payment', label: 'Other' },
 ];
 export const CATEGORY_LABEL = new Map([...RECEIVE, ...PAYMENT].map((x) => [x.key, x.label]));

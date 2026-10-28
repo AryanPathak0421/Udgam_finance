@@ -175,6 +175,7 @@ export const api = {
     adjustSalary: (id, data) => request(`/hr/salary/${id}`, { method: 'PATCH', body: data }),
     sendSalary: (data) => request('/hr/salary/send', { method: 'POST', body: data }),
     branchOptions: () => request('/hr/branch-options'),
+    bulkAttendanceSettings: (data) => request('/hr/attendance/settings', { method: 'POST', body: data }),
     setAttendanceTime: (id, data) => request(`/hr/employees/${id}/attendance-time`, { method: 'PUT', body: data }),
     sendNewEmployeeOtp: (data) => request('/hr/employees/otp/send', { method: 'POST', body: data }),
     verifyNewEmployeeOtp: (data) => request('/hr/employees/otp/verify', { method: 'POST', body: data }),
