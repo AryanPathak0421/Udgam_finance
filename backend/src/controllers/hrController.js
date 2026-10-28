@@ -20,6 +20,8 @@ import { OtpChallenge } from '../models/OtpChallenge.js';
 import { issueOtp, hashOtp, takeVerified, consumeChallenge } from '../services/otpChallenges.js';
 import { sendMail, mailConfigured } from '../services/mailer.js';
 import { EARN_FIXED, ALL_LINES, SETUP_KEYS, setupAt, loadVariable, buildLines, totalsOf, legacyLines, fixedOf, isVerified } from '../services/salaryLines.js';
+import { effectiveOn, monthDays } from '../services/attendanceRules.js';
+import { elBalance } from '../services/earnedLeave.js';
 import { audit } from '../utils/audit.js';
 import { branchFilter, isAdmin, showMobile } from './groupController.js';
 
@@ -161,12 +163,12 @@ const presentEmployee = (e, user) => ({
   mobileVerified: Boolean(e.mobileVerifiedAt), emailVerified: Boolean(e.emailVerifiedAt), documentsVerified: Boolean(e.documentsVerifiedAt), verified: isVerified(e),
   salarySetup: {
     ...Object.fromEntries(EARN_FIXED.map(([k]) => [k, rupees(fixedOf(e)[k])])), pfPercent: e.pfPercent ?? 12, esiPercent: e.esiPercent ?? 0.75, professionalTax: rupees(e.professionalTaxPaise),
-    advanceDeduction: rupees(e.advanceDeductionPaise), securityAmount: rupees(e.securityAmountPaise), securityMonths: e.securityMonths || 1, securityNeverEnds: Boolean(e.securityNeverEnds),
+    advanceDeduction: rupees(e.advanceDeductionPaise), securityAmount: rupees(e.securityAmountPaise), securityMonths: e.securityMonths || 1, securityNeverEnds: Boolean(e.securityNeverEnds), yearlyIncrementPercent: e.yearlyIncrementPercent ?? 10,
     pfDeduction: Boolean(e.pfDeduction), esiDeduction: Boolean(e.esiDeduction),
   },
   salaryHistory: (e.salaryHistory || []).map((h) => ({
     month: h.month, ...Object.fromEntries(EARN_FIXED.map(([k]) => [k, rupees(fixedOf(h)[k])])), pfPercent: h.pfPercent ?? 12, esiPercent: h.esiPercent ?? 0.75, professionalTax: rupees(h.professionalTaxPaise),
-    advanceDeduction: rupees(h.advanceDeductionPaise), securityAmount: rupees(h.securityAmountPaise), securityMonths: h.securityMonths || 1, securityNeverEnds: Boolean(h.securityNeverEnds), pfDeduction: Boolean(h.pfDeduction), esiDeduction: Boolean(h.esiDeduction),
+    advanceDeduction: rupees(h.advanceDeductionPaise), securityAmount: rupees(h.securityAmountPaise), securityMonths: h.securityMonths || 1, securityNeverEnds: Boolean(h.securityNeverEnds), yearlyIncrementPercent: h.yearlyIncrementPercent ?? 10, pfDeduction: Boolean(h.pfDeduction), esiDeduction: Boolean(h.esiDeduction),
   })).sort((a, b) => a.month.localeCompare(b.month)),
 });
 const EMP_POPULATE = [{ path: 'department', select: 'name' }, { path: 'designation', select: 'name' }, { path: 'branch', select: 'code name' }, { path: 'supervisor', select: 'employeeCode name' }, { path: 'supervisedBranches', select: 'code name' }];
@@ -191,7 +193,11 @@ export async function getEmployee(req, res) {
   if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Employee not found');
   const e = await Employee.findOne({ _id: req.params.id, isDeleted: false, ...scope(req) }).select(EMP_IMAGES.map((k) => `+${k}`).join(' ')).populate(EMP_POPULATE);
   if (!e) throw new HttpError(404, 'Employee not found');
-  res.json({ item: { ...presentEmployee(e, req.user), ...Object.fromEntries(EMP_IMAGES.map((k) => [k, e[k] || ''])) } });
+  // the security cut from the salary of this employee so far, and the earned leave due
+  const cutRow = (await Salary.aggregate([{ $match: { employee: e._id } }, { $group: { _id: null, cut: { $sum: { $ifNull: ['$securityCutPaise', 0] } }, slips: { $sum: { $cond: [{ $gt: [{ $ifNull: ['$securityCutPaise', 0] }, 0] }, 1, 0] } } } }]))[0] || { cut: 0, slips: 0 };
+  const bal = await elBalance(e);
+  const security = { amount: rupees(e.securityAmountPaise), months: e.securityMonths || 1, neverEnds: Boolean(e.securityNeverEnds), cut: rupees(cutRow.cut), slips: cutRow.slips, remaining: e.securityNeverEnds ? null : Math.max(rupees(e.securityAmountPaise) - rupees(cutRow.cut), 0), verified: isVerified(e) };
+  res.json({ item: { ...presentEmployee(e, req.user), ...Object.fromEntries(EMP_IMAGES.map((k) => [k, e[k] || ''])), security, earnedLeave: bal } });
 }
 
 /** Location of a pincode (state, district, post office areas), for the registration form. */
@@ -386,6 +392,11 @@ export async function saveSalarySetup(req, res) {
   if (!Number.isInteger(months) || months < 1 || months > 5) throw invalid({ securityMonths: 'The security is cut in 1 to 5 months, or never ends' });
   e.securityMonths = months;
   e.securityNeverEnds = never;
+  if (b.yearlyIncrementPercent !== undefined && b.yearlyIncrementPercent !== '') {
+    const yp = Number(b.yearlyIncrementPercent);
+    if (!Number.isFinite(yp) || yp < 0 || yp > 100) throw invalid({ yearlyIncrementPercent: 'The yearly increase is between 0 and 100 percent' });
+    e.yearlyIncrementPercent = yp;
+  }
   Object.assign(e, readStatutory(b)); // the numbers can be filled in here too, when the salary is set
   if (b.pfDeduction !== undefined) e.pfDeduction = yes(b.pfDeduction);
   if (b.esiDeduction !== undefined) e.esiDeduction = yes(b.esiDeduction);
@@ -394,7 +405,7 @@ export async function saveSalarySetup(req, res) {
   const month = asString(b.month) || thisMonth;
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw invalid({ month: 'Choose the month' });
   if (month > thisMonth) throw invalid({ month: 'Choose this month or an earlier month' });
-  const snap = { month, salaryStructure: { ...(e.salaryStructure?.toObject ? e.salaryStructure.toObject() : e.salaryStructure) }, monthlySalaryPaise: e.monthlySalaryPaise, pfPercent: e.pfPercent, esiPercent: e.esiPercent, professionalTaxPaise: e.professionalTaxPaise, advanceDeductionPaise: e.advanceDeductionPaise, securityAmountPaise: e.securityAmountPaise, securityMonths: e.securityMonths, securityNeverEnds: e.securityNeverEnds, pfDeduction: Boolean(e.pfDeduction), esiDeduction: Boolean(e.esiDeduction) };
+  const snap = { month, salaryStructure: { ...(e.salaryStructure?.toObject ? e.salaryStructure.toObject() : e.salaryStructure) }, monthlySalaryPaise: e.monthlySalaryPaise, pfPercent: e.pfPercent, esiPercent: e.esiPercent, professionalTaxPaise: e.professionalTaxPaise, advanceDeductionPaise: e.advanceDeductionPaise, securityAmountPaise: e.securityAmountPaise, securityMonths: e.securityMonths, securityNeverEnds: e.securityNeverEnds, yearlyIncrementPercent: e.yearlyIncrementPercent ?? 10, pfDeduction: Boolean(e.pfDeduction), esiDeduction: Boolean(e.esiDeduction) };
   const hist = (e.salaryHistory || []).map((h) => (h.toObject ? h.toObject() : h));
   if (!hist.length && (before.monthlySalaryPaise || before.securityAmountPaise || before.professionalTaxPaise || before.advanceDeductionPaise)) hist.push({ month: '0000-00', ...before });
   const at = hist.findIndex((h) => h.month === month);
@@ -627,10 +638,22 @@ export async function attendanceDay(req, res) {
   const date = parseDateOnly(asString(req.query.date)) || startOfToday();
   // a blocked employee is not on the attendance
   const emps = (await Employee.find({ isDeleted: false, isBlocked: { $ne: true }, ...scope(req) }).sort({ employeeCode: 1 }).populate(EMP_POPULATE)).filter((e) => activeOn(e, date) && (!e.joiningDate || e.joiningDate <= date));
-  const marks = new Map((await Attendance.find({ date, employee: { $in: emps.map((e) => e._id) } }).lean()).map((a) => [String(a.employee), a]));
+  // the days before it as well: the Sunday and the Monday after an absence on a Saturday are absent too
+  const back = new Date(date.getTime() - 2 * DAY);
+  const markRows = await Attendance.find({ date: { $gte: back, $lte: date }, employee: { $in: emps.map((e) => e._id) } }).lean();
+  const marks = new Map(markRows.filter((a) => iso(a.date) === iso(date)).map((a) => [String(a.employee), a]));
+  const markMaps = new Map();
+  markRows.forEach((a) => { const k = String(a.employee); if (!markMaps.has(k)) markMaps.set(k, new Map()); markMaps.get(k).set(iso(a.date), { status: a.status, source: a.source }); });
+  const holRows = await Holiday.find({ date: { $gte: back, $lte: date }, isDeleted: false, isActive: true }).select('date branch').lean();
+  const holidaysOf = (e) => new Set(holRows.filter((h) => !h.branch || String(h.branch) === String(e.branch?._id)).map((h) => iso(h.date)));
+  const today = startOfToday();
   const items = emps.map((e) => {
     const a = marks.get(String(e._id));
-    return { id: e._id, employeeCode: e.employeeCode, name: e.name, branch: e.branch?.code || '', branchName: e.branch?.name || '', designation: e.designation?.name || '', status: a?.status || '', source: a?.source || '', firstActivity: a?.firstActivity || null, lastActivity: a?.lastActivity || null, remark: a?.remark || '', hasLogin: Boolean(e.user),
+    // the day as the rules see it: a past working day with no attendance is absent by itself (today is not over); an absence on the Saturday before takes the Sunday and the Monday
+    const eff = effectiveOn(date, e, markMaps.get(String(e._id)) || new Map(), holidaysOf(e));
+    const auto = !a && date < today && eff?.status === 'absent' && eff.source === 'auto';
+    const rule = eff?.source === 'rule';
+    return { id: e._id, employeeCode: e.employeeCode, name: e.name, branch: e.branch?.code || '', branchName: e.branch?.name || '', designation: e.designation?.name || '', status: rule || auto ? 'absent' : a?.status || '', source: rule ? 'rule' : auto ? 'auto' : a?.source || '', reason: rule ? eff.reason : auto ? 'No attendance: absent by itself' : '', firstActivity: a?.firstActivity || null, lastActivity: a?.lastActivity || null, remark: a?.remark || '', hasLogin: Boolean(e.user),
       locations: locationsOf(e), distanceM: a?.distanceM ?? null,
       time: e.attendanceTime?.from ? { from: e.attendanceTime.from, to: e.attendanceTime.to } : null };
   });
@@ -840,28 +863,15 @@ const monthRange = (month) => {
 };
 
 function compute(emp, marks, range, bonusPaise = 0, otherDeductionPaise = 0, holidays = new Set()) {
-  let sundays = 0;
-  let present = 0; let half = 0; let leave = 0; let holiday = 0; let absent = 0; let unmarked = 0;
-  for (let i = 0; i < range.days; i += 1) {
-    const day = new Date(range.from.getTime() + i * DAY);
-    if (emp.joiningDate && day < emp.joiningDate) { continue; }
-    if (emp.leftOn && day > emp.leftOn) { continue; }
-    const m = marks.get(iso(day));
-    if (day.getUTCDay() === 0 && !m) { sundays += 1; continue; } // Sunday is the weekly off, paid
-    if (!m && holidays.has(iso(day))) { holiday += 1; continue; } // a holiday of the company (Holiday Master), paid
-    if (!m) { unmarked += 1; absent += 1; continue; }
-    if (m === 'present') present += 1;
-    else if (m === 'half_day') half += 1;
-    else if (m === 'leave') leave += 1;
-    else if (m === 'holiday') holiday += 1;
-    else absent += 1;
-  }
+  // marks: 'YYYY-MM-DD' -> { status, source }; the rules (a day with no attendance is absent, the Sunday and the Monday after an unplanned Saturday absence) are in services/attendanceRules.js
+  const d = monthDays(emp, marks, range, holidays);
+  const { sundays, present, half, leave, holiday, absent, unmarked } = d;
   const payable = present + half * 0.5 + leave + holiday + sundays;
   const gross = emp.monthlySalaryPaise || 0;
   const perDay = gross / range.days;
   const earned = Math.round(perDay * payable);
   const net = Math.max(earned + bonusPaise - otherDeductionPaise, 0);
-  return { sundays, presentDays: present, halfDays: half, leaveDays: leave, holidayDays: holiday, absentDays: absent, unmarkedDays: unmarked, payableDays: payable, grossPaise: gross, earnedPaise: earned, netPaise: net };
+  return { sundays, presentDays: present, halfDays: half, leaveDays: leave, holidayDays: holiday, absentDays: absent, unmarkedDays: unmarked, ruleAbsentDays: d.ruleAbsent, payableDays: payable, grossPaise: gross, earnedPaise: earned, netPaise: net };
 }
 
 /** What has been paid of a slip: all of it when it is paid (also the slips paid before payments were made in parts), else the parts paid so far. */
@@ -870,7 +880,7 @@ const paidOf = (s) => (s.status === 'paid' ? s.netPaise || 0 : s.paidPaise || 0)
 const presentSalary = (s, user) => ({
   id: s._id, employeeId: s.employee, employeeCode: s.employeeCode, name: s.name, mobile: showMobile(user, s.mobile), branch: s.branch?._id ? { id: s.branch._id, code: s.branch.code, name: s.branch.name } : null,
   department: s.department || '', designation: s.designation || '', month: s.month, daysInMonth: s.daysInMonth, sundays: s.sundays, presentDays: s.presentDays, halfDays: s.halfDays, leaveDays: s.leaveDays, holidayDays: s.holidayDays,
-  absentDays: s.absentDays, unmarkedDays: s.unmarkedDays, payableDays: s.payableDays, gross: rupees(s.grossPaise), earned: rupees(s.earnedPaise), bonus: rupees(s.bonusPaise), otherDeduction: rupees(s.otherDeductionPaise), net: rupees(s.netPaise),
+  absentDays: s.absentDays, unmarkedDays: s.unmarkedDays, ruleAbsentDays: s.ruleAbsentDays || 0, payableDays: s.payableDays, gross: rupees(s.grossPaise), earned: rupees(s.earnedPaise), bonus: rupees(s.bonusPaise), otherDeduction: rupees(s.otherDeductionPaise), net: rupees(s.netPaise),
   remark: s.remark || '', status: s.status, sentAt: s.sentAt, paidOn: iso(s.paidOn), payMode: s.payMode || '', paid: rupees(paidOf(s)), balance: rupees(Math.max((s.netPaise || 0) - paidOf(s), 0)),
   payments: (s.payments || []).map((p) => ({ on: iso(p.on), amount: rupees(p.amountPaise), mode: p.mode })),
   lines: (s.lines?.length ? s.lines : legacyLines(s)).map((l) => ({ key: l.key, label: l.label, side: l.side, amount: rupees(l.amountPaise), manual: Boolean(l.manual) })),
@@ -886,13 +896,15 @@ export async function generateSalary(req, res) {
   const emps = (await Employee.find({ isDeleted: false, ...scope({ query: { branch: req.body?.branch }, user: req.user }) }).populate(EMP_POPULATE).lean())
     .filter((e) => (!e.joiningDate || e.joiningDate <= range.to) && (e.status === 'active' || (e.leftOn && e.leftOn >= range.from)))
     .map((e) => setupAt(e, month)); // each employee with the salary set for that month
-  const marksAll = await Attendance.find({ date: { $gte: range.from, $lte: range.to }, employee: { $in: emps.map((e) => e._id) } }).select('employee date status').lean();
+  // two days before the month as well: a Saturday at the end of the last month takes the Sunday and the Monday of this one
+  const back = new Date(range.from.getTime() - 2 * DAY);
+  const marksAll = await Attendance.find({ date: { $gte: back, $lte: range.to }, employee: { $in: emps.map((e) => e._id) } }).select('employee date status source').lean();
   const marks = new Map();
-  marksAll.forEach((a) => { const k = String(a.employee); if (!marks.has(k)) marks.set(k, new Map()); marks.get(k).set(iso(a.date), a.status); });
+  marksAll.forEach((a) => { const k = String(a.employee); if (!marks.has(k)) marks.set(k, new Map()); marks.get(k).set(iso(a.date), { status: a.status, source: a.source }); });
   const existing = new Map((await Salary.find({ month, employee: { $in: emps.map((e) => e._id) } }).lean()).map((s) => [String(s.employee), s]));
   const supIds = new Set((await Employee.distinct('supervisor', { isDeleted: false, supervisor: { $ne: null } })).map(String));
   const { by: variable, securityCut } = await loadVariable(month, range, emps.map((e) => e.employeeCode), new Set(emps.filter((e) => supIds.has(String(e._id))).map((e) => e.employeeCode)));
-  const holidayRows = await Holiday.find({ isDeleted: false, isActive: true, date: { $gte: range.from, $lte: range.to } }).select('date branch').lean();
+  const holidayRows = await Holiday.find({ isDeleted: false, isActive: true, date: { $gte: back, $lte: range.to } }).select('date branch').lean();
   const holidaysOf = (e) => new Set(holidayRows.filter((h) => !h.branch || String(h.branch) === String(e.branch?._id)).map((h) => iso(h.date)));
   let made = 0; let updated = 0; let keptPaid = 0; let noSalary = 0;
   const ops = [];
@@ -904,7 +916,7 @@ export async function generateSalary(req, res) {
     // what was changed by hand on the slip stays; a slip from before the lines existed keeps its bonus and other deduction
     const kept = new Map((ex?.lines || []).filter((l) => l.manual).map((l) => [l.key, l.amountPaise]));
     if (ex && !ex.lines?.length) { if (ex.bonusPaise) kept.set('bonus', ex.bonusPaise); if (ex.otherDeductionPaise) kept.set('other', ex.otherDeductionPaise); }
-    const lines = buildLines(e, c.payableDays / range.days, variable.get(e.employeeCode), securityCut.get(String(e._id)) || 0, kept);
+    const lines = buildLines(e, c.payableDays / range.days, variable.get(e.employeeCode), securityCut.get(String(e._id)) || 0, kept, month);
     const doc = {
       employee: e._id, employeeCode: e.employeeCode, name: e.name, mobile: e.mobile, branch: e.branch?._id, department: e.department?.name || '', designation: e.designation?.name || '', month, daysInMonth: range.days, ...c, lines, ...totalsOf(lines), generatedByCode: req.user.employeeCode || '',
     };

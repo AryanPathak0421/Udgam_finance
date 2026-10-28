@@ -101,10 +101,11 @@ const employeeSchema = new mongoose.Schema(
     securityAmountPaise: { type: Number, default: 0 }, // security kept from the salary: cut in 1 to 5 equal months once the verification is complete
     securityMonths: { type: Number, default: 1, min: 1, max: 5 },
     securityNeverEnds: { type: Boolean, default: false }, // the security amount is cut every month, with no end
+    yearlyIncrementPercent: { type: Number, default: 10, min: 0, max: 100 }, // the Basic grows by this much every April (financial year) by itself
     // the salary set-up by month (Set Salary): what holds from that month on; the fields above are the latest
     salaryHistory: [{
       _id: false, month: String, salaryStructure: Object, monthlySalaryPaise: Number, pfPercent: Number, esiPercent: Number, professionalTaxPaise: Number, advanceDeductionPaise: Number,
-      securityAmountPaise: Number, securityMonths: Number, securityNeverEnds: Boolean, pfDeduction: Boolean, esiDeduction: Boolean,
+      securityAmountPaise: Number, securityMonths: Number, securityNeverEnds: Boolean, yearlyIncrementPercent: Number, pfDeduction: Boolean, esiDeduction: Boolean,
     }],
     // verification: mobile and email by OTP, documents by hand
     mobileVerifiedAt: Date,
@@ -168,6 +169,7 @@ const salarySchema = new mongoose.Schema(
     holidayDays: Number,
     absentDays: Number, // including the days that were not marked
     unmarkedDays: Number,
+    ruleAbsentDays: { type: Number, default: 0 }, // the Sunday and the Monday lost after an absence on a Saturday without leave
     payableDays: Number,
     grossPaise: Number, // monthly salary
     earnedPaise: Number, // for the payable days

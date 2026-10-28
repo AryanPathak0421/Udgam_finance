@@ -13,6 +13,7 @@ import { branchFilter, showMobile } from './groupController.js';
 import { dueSummary, loanDetail, loadLoan, receive, borrowerState } from './emiController.js';
 import { slowRun } from '../services/slowRun.js';
 import { Employee } from '../models/Hr.js';
+import { blockedCodes } from '../services/blockedStaff.js';
 import { Group } from '../models/Group.js';
 import { readBankAccount } from '../services/bankAccountPick.js';
 import { toMinor } from '../utils/money.js';
@@ -517,9 +518,13 @@ export async function npaPayment(req, res) {
   // the staff member who gets the credit of the recovery: it counts in their NPA recovery target and 10% of it goes to their salary slip
   let staffCode = '';
   if (asString(b.employee)) {
-    const emp = await Employee.findOne({ employeeCode: asString(b.employee).toUpperCase(), isDeleted: false, status: 'active' }).select('employeeCode').lean();
-    if (!emp) throw new HttpError(422, 'Select the staff member from the list', { employee: 'Select the staff member from the list' });
-    staffCode = emp.employeeCode;
+    // the staff the dialog offers: the working employees, and the staff brought over from the old system (their HR record may say left, or they have none)
+    const code = asString(b.employee).toUpperCase();
+    const emp = await Employee.findOne({ employeeCode: code, isDeleted: false }).select('employeeCode status').lean();
+    const oldStaff = await User.exists({ employeeCode: code, legacyImport: true });
+    const blocked = (await blockedCodes()).includes(code);
+    if (blocked || (!oldStaff && !(emp && emp.status === 'active'))) throw new HttpError(422, 'Select the staff member from the list', { employee: 'Select the staff member from the list' });
+    staffCode = code;
   }
   const doc = await receive(req, p, line, { amountPaise, paidOn: today, payMode, reference: asString(b.reference), bankAccount, npa: true, employeeCode: staffCode });
   await audit(req, { action: 'report.npaPayment', entity: 'EmiPayment', entityId: doc._id, after: { loan: p.loanId, member: line.code, amount: amountPaise / 100, staff: staffCode || req.user.employeeCode } });

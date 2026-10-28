@@ -30,13 +30,23 @@ const qs = (params = {}) => {
 };
 
 // A heavy report answers "pending" while the server works it out; ask again until it is there (about 10 minutes at most).
+// Only the latest request of a report counts: when the filter is changed again (another branch ...) while the first answer is still being worked out, the first
+// one is dropped, so that a slow older answer can never replace the newer one on the screen.
+const latestSlow = new Map();
+const never = () => new Promise(() => {});
 async function slow(path, params) {
+  const token = Symbol(path);
+  latestSlow.set(path, token);
+  const stale = () => latestSlow.get(path) !== token;
   let data = await request(`${path}${qs(params)}`);
+  if (stale()) return never();
   for (let i = 0; data?.pending && i < 200; i += 1) {
     // eslint-disable-next-line no-await-in-loop
     await new Promise((r) => { setTimeout(r, 3000); });
+    if (stale()) return never();
     // eslint-disable-next-line no-await-in-loop
     data = await request(`${path}${qs({ ...params, poll: 1 })}`);
+    if (stale()) return never();
   }
   if (data?.pending) throw new Error('The report is taking too long. Try a smaller period or one branch.');
   return data;

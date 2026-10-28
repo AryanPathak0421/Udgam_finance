@@ -15,7 +15,7 @@ export const EARN_AUTO = [
   ['loanIncentive', 'Loan incentive (auto)'], ['productIncentive', 'Product sell incentive'], ['grt', 'GRT commission (new group)'], ['senior', 'Senior commission (supervisor)'], ['npaRecovery', 'NPA recovery 10% (auto)'], ['bonus', 'Bonus / addition'],
 ];
 export const DEDUCTIONS = [
-  ['pf', 'PF'], ['esi', 'ESI'], ['profTax', 'Professional tax'], ['advance', 'Advance deduction'], ['leave', 'Leave (auto)'], ['recovery', 'Recovery amount'], ['security', 'Security amount'], ['other', 'Other deduction'],
+  ['pf', 'PF'], ['esi', 'ESI'], ['profTax', 'Professional tax'], ['advance', 'Advance deduction'], ['leave', 'Absent / unpaid days (auto)'], ['recovery', 'Recovery amount'], ['security', 'Security amount'], ['other', 'Other deduction'],
 ];
 export const ALL_LINES = [...EARN_FIXED.map(([k, l]) => [k, l, 'earn']), ...EARN_AUTO.map(([k, l]) => [k, l, 'earn']), ...DEDUCTIONS.map(([k, l]) => [k, l, 'ded'])];
 export const NPA_RECOVERY_SHARE = 0.1;
@@ -24,23 +24,43 @@ const LOAN_TYPES = new Set(['loan_disbursement', 'group_loan_disbursement', 'per
 const sum = (a) => a.reduce((s, x) => s + x, 0);
 
 /** The fixed components of an employee (an employee with only a monthly salary has it all as Basic). */
-export function fixedOf(emp) {
+export function fixedOf(emp, month) {
   const st = emp.salaryStructure || {};
   const out = Object.fromEntries(EARN_FIXED.map(([k]) => [k, st[k] || 0]));
   if (!sum(Object.values(out)) && emp.monthlySalaryPaise) out.basic = emp.monthlySalaryPaise;
+  // the Basic of a slip with the yearly increase (only the Basic grows)
+  if (month) {
+    const n = yearlyIncrements(emp, month);
+    const pct = emp.yearlyIncrementPercent ?? 10;
+    if (n > 0 && pct > 0 && out.basic > 0) out.basic = Math.round(out.basic * (1 + pct / 100) ** n);
+  }
   return out;
 }
 
 /** The fields of a salary set-up (Set Salary), kept by month. */
-export const SETUP_KEYS = ['salaryStructure', 'monthlySalaryPaise', 'pfPercent', 'esiPercent', 'professionalTaxPaise', 'advanceDeductionPaise', 'securityAmountPaise', 'securityMonths', 'securityNeverEnds', 'pfDeduction', 'esiDeduction'];
+export const SETUP_KEYS = ['salaryStructure', 'monthlySalaryPaise', 'pfPercent', 'esiPercent', 'professionalTaxPaise', 'advanceDeductionPaise', 'securityAmountPaise', 'securityMonths', 'securityNeverEnds', 'yearlyIncrementPercent', 'pfDeduction', 'esiDeduction'];
 /** The employee with the salary set-up that holds for a month: the latest one made for that month or before it. */
 export function setupAt(emp, month) {
   const hist = (emp.salaryHistory || []).filter((h) => h.month <= month).sort((a, b) => a.month.localeCompare(b.month));
   const h = hist[hist.length - 1];
   if (!h) return emp;
-  const out = { ...emp };
+  const out = { ...emp, setupMonth: h.month };
   SETUP_KEYS.forEach((k) => { if (h[k] !== undefined && h[k] !== null) out[k] = h[k]; });
   return out;
+}
+
+/**
+ * The Basic grows by itself every April (the start of the financial year) by the yearly increase of the employee (10% unless set otherwise): how many Aprils there
+ * are after the month the salary was set from, up to and including the month of the slip.
+ */
+export function yearlyIncrements(emp, month) {
+  const from = emp.setupMonth && emp.setupMonth !== '0000-00' ? emp.setupMonth : new Date(emp.joiningDate || emp.createdAt || Date.now()).toISOString().slice(0, 7);
+  let n = 0;
+  for (let y = Number(from.slice(0, 4)); y <= Number(month.slice(0, 4)); y += 1) {
+    const april = `${y}-04`;
+    if (april > from && april <= month) n += 1;
+  }
+  return n;
 }
 
 /** Whether the employee's verification is complete: mobile and email (when there is one) by OTP, and the documents. */
@@ -73,8 +93,10 @@ export async function loadVariable(month, range, codes, supervisorCodes) {
  * The lines of one employee's slip for a month. `ratio` is payable days / days in the month; `variable` what loadVariable gave for the employee;
  * `kept` the lines changed by hand on the slip that is being generated again.
  */
-export function buildLines(emp, ratio, variable, priorSecurity, kept = new Map()) {
-  const fixed = fixedOf(emp);
+export function buildLines(emp, ratio, variable, priorSecurity, kept = new Map(), month) {
+  const fixed = fixedOf(emp, month);
+  const grown = month ? yearlyIncrements(emp, month) : 0;
+  const pct = emp.yearlyIncrementPercent ?? 10;
   const gross = sum(Object.values(fixed));
   const r = Math.min(Math.max(ratio, 0), 1);
   const basicEarned = fixed.basic * r;
@@ -91,7 +113,7 @@ export function buildLines(emp, ratio, variable, priorSecurity, kept = new Map()
   };
   return ALL_LINES.map(([key, label, side]) => {
     const manual = kept.has(key);
-    return { key, label, side, amountPaise: manual ? kept.get(key) : auto[key] || 0, manual };
+    return { key, label: key === 'basic' && grown > 0 && pct > 0 ? `Basic (+${pct}% a year, ${grown} time${grown === 1 ? '' : 's'})` : label, side, amountPaise: manual ? kept.get(key) : auto[key] || 0, manual };
   });
 }
 

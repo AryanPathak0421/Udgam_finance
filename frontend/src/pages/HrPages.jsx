@@ -503,6 +503,50 @@ function SupervisorTransfer({ onClose, onDone }) {
   );
 }
 
+/** The profile of an employee: who, the salary, the security cut from it so far (and what is left) and the earned leave due. */
+function EmployeeProfile({ item, onClose }) {
+  const [e, setE] = useState(null);
+  const [error, setError] = useState('');
+  useEffect(() => { api.hr.employee(item.id).then((r) => setE(r.item)).catch((err) => setError(err.message)); }, [item.id]);
+  const sec = e?.security;
+  const el = e?.earnedLeave;
+  const row = (l, v, strong) => <tr><td className="muted" style={{ width: '45%' }}>{l}</td><td>{strong ? <strong>{v}</strong> : v}</td></tr>;
+  return (
+    <Modal open title={`Profile — ${item.employeeCode} ${item.name}`} onClose={onClose} size="lg" footer={<button className="btn" onClick={onClose}>Close</button>}>
+      {error ? <ErrorState message={error} /> : !e ? <Spinner label="Loading…" /> : (
+        <>
+          <div className="table-wrap"><table className="data-table"><tbody>
+            {row('Employee', `${e.employeeCode} · ${e.name}`, true)}
+            {row('Branch', branchLabel(e.branch))}
+            {row('Post', [e.designation?.name, e.department?.name].filter(Boolean).join(' · ') || '—')}
+            {row('Joined', e.joiningDate ? dmy(e.joiningDate) : '—')}
+            {row('Status', e.status === 'active' ? 'Working' : 'Left')}
+            {row('Monthly salary (set)', e.monthlySalary ? inr(e.monthlySalary) : 'Not set')}
+            {row('Yearly increase of the Basic', `${e.salarySetup?.yearlyIncrementPercent ?? 10}% every April`)}
+          </tbody></table></div>
+          <h3 className="section-title" style={{ marginTop: 14 }}>Security cut from the salary</h3>
+          {sec.amount > 0 ? (
+            <div className="table-wrap"><table className="data-table"><tbody>
+              {row('Security to be kept', sec.neverEnds ? `${inr(sec.amount)} every month, with no end` : `${inr(sec.amount)} in ${sec.months} month${sec.months === 1 ? '' : 's'}`)}
+              {row('Cut from the salary so far', `${inr(sec.cut)} (${sec.slips} salary slip${sec.slips === 1 ? '' : 's'})`, true)}
+              {row('Still to be cut', sec.neverEnds ? 'It keeps being cut every month' : inr(sec.remaining), true)}
+              {row('Verification', sec.verified ? 'Complete: the security is being cut' : 'Not complete: the security is cut only after the mobile, the email and the documents are verified')}
+            </tbody></table></div>
+          ) : <p className="muted">No security is set for this employee (Set Salary).</p>}
+          <h3 className="section-title" style={{ marginTop: 14 }}>Earned leave (EL) due</h3>
+          <div className="table-wrap"><table className="data-table"><tbody>
+            {row(`Due now (financial year ${el.financialYear})`, `${el.available} day${el.available === 1 ? '' : 's'}`, true)}
+            {row('Brought forward from the earlier years (added in April)', `${el.opening}`)}
+            {row('Earned in this financial year', `${el.earned} (${el.perYear} a year, 1 a month)`)}
+            {row('Taken (approved)', `${el.used}`)}
+          </tbody></table></div>
+          <p className="muted small" style={{ marginTop: 8 }}>An earned leave is paid: nothing is cut from the salary for it. What is not taken is carried into the next financial year in April.</p>
+        </>
+      )}
+    </Modal>
+  );
+}
+
 export function EmployeeRegistration() {
   const toast = useToast();
   const [branch, setBranch] = useState('');
@@ -512,6 +556,7 @@ export function EmployeeRegistration() {
   const list = useLoad(() => api.hr.employees({ branch, status, q }), [branch, status, q]);
   const [form, setForm] = useState(null);
   const [team, setTeam] = useState(null);
+  const [profile, setProfile] = useState(null);
   const [pending, setPending] = useState(false);
   const [transferring, setTransferring] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -554,7 +599,7 @@ export function EmployeeRegistration() {
                       <td data-label="Monthly salary" className="num">{e.monthlySalary ? inr(e.monthlySalary) : <span className="muted">not set</span>}</td>
                       <td data-label="Bank">{e.bankName || '—'}<div className="muted small">{e.accountNumber}</div></td>
                       <td data-label="Status"><span className={`badge ${e.status === 'active' ? 'green' : 'grey'}`}>{e.status === 'active' ? 'Working' : `Left ${dmy(e.leftOn)}`}</span></td>
-                      <td><div style={{ display: 'flex', gap: 6 }}><button className="btn sm" onClick={() => setForm(e)}>Edit</button>{e.teamCount > 0 && <button className="btn sm" onClick={() => setTeam(e)}>Team ({e.teamCount})</button>}<button className="btn sm" onClick={() => toggle(e)}>{e.status === 'active' ? 'Left' : 'Rejoin'}</button></div></td>
+                      <td><div style={{ display: 'flex', gap: 6 }}><button className="btn sm" onClick={() => setProfile(e)}>Profile</button><button className="btn sm" onClick={() => setForm(e)}>Edit</button>{e.teamCount > 0 && <button className="btn sm" onClick={() => setTeam(e)}>Team ({e.teamCount})</button>}<button className="btn sm" onClick={() => toggle(e)}>{e.status === 'active' ? 'Left' : 'Rejoin'}</button></div></td>
                     </tr>
                   ))}
                 </tbody>
@@ -564,6 +609,7 @@ export function EmployeeRegistration() {
         )}
       </div>
       {team && <TeamModal supervisor={team} onClose={() => setTeam(null)} />}
+      {profile && <EmployeeProfile item={profile} onClose={() => setProfile(null)} />}
       {transferring && <SupervisorTransfer onClose={() => setTransferring(false)} onDone={() => { setTransferring(false); list.load(); }} />}
       {pending && <PendingVerification onClose={() => { setPending(false); list.load(); }} />}
       {form && <EmployeeForm item={form.id ? form : null} onClose={() => setForm(null)} onSaved={() => { setForm(null); list.load(); }} />}
@@ -598,7 +644,7 @@ export function SetSalary() {
     setErrors({});
     setState('');
     const st = setupOf(e, m);
-    setF({ ...Object.fromEntries(SETUP_EARN.map(([k]) => [k, st[k] ? String(st[k]) : ''])), pfPercent: String(st.pfPercent), esiPercent: String(st.esiPercent), professionalTax: st.professionalTax ? String(st.professionalTax) : '', advanceDeduction: st.advanceDeduction ? String(st.advanceDeduction) : '', securityAmount: st.securityAmount ? String(st.securityAmount) : '', securityMonths: st.securityNeverEnds ? 'never' : String(st.securityMonths || 1), pfDeduction: st.pfDeduction ?? e.pfDeduction, esiDeduction: st.esiDeduction ?? e.esiDeduction, pfNumber: e.pfNumber || '', uanNumber: e.uanNumber || '', esiNumber: e.esiNumber || '' });
+    setF({ ...Object.fromEntries(SETUP_EARN.map(([k]) => [k, st[k] ? String(st[k]) : ''])), yearlyIncrementPercent: String(st.yearlyIncrementPercent ?? 10), pfPercent: String(st.pfPercent), esiPercent: String(st.esiPercent), professionalTax: st.professionalTax ? String(st.professionalTax) : '', advanceDeduction: st.advanceDeduction ? String(st.advanceDeduction) : '', securityAmount: st.securityAmount ? String(st.securityAmount) : '', securityMonths: st.securityNeverEnds ? 'never' : String(st.securityMonths || 1), pfDeduction: st.pfDeduction ?? e.pfDeduction, esiDeduction: st.esiDeduction ?? e.esiDeduction, pfNumber: e.pfNumber || '', uanNumber: e.uanNumber || '', esiNumber: e.esiNumber || '' });
   }
   // every change is saved by itself a moment after it was made; what is typed can be corrected by hand any time
   useEffect(() => {
@@ -661,6 +707,7 @@ export function SetSalary() {
                 {SETUP_EARN.map(([k, label], i) => <FormField key={k} id={`ss${k}`} label={`${i + 1}. ${label} (₹)`} error={errors[k]}><input id={`ss${k}`} inputMode="decimal" value={f[k]} onChange={setMoney(k)} /></FormField>)}
               </div>
               <p className="muted small">Automatic when the salary is generated: loan incentive, product sell incentive, GRT commission (a new group opened with 5 new members, in the employee's name), senior commission (only for a supervisor) and 10% of the NPA recovery.</p>
+              <FormField id="ssyi" label="Yearly increase of the Basic (%)" error={errors.yearlyIncrementPercent} hint="The Basic grows by this much every April (the new financial year), by itself, on the salary slip. 0 = no increase"><input id="ssyi" inputMode="decimal" value={f.yearlyIncrementPercent} onChange={setMoney('yearlyIncrementPercent')} /></FormField>
               <p style={{ margin: '8px 0 0' }}><strong>Total fixed salary: {inr(gross)}</strong></p>
             </div>
             <div>
@@ -917,7 +964,7 @@ export function Attendance() {
                         <td data-label="Location">{i.locations?.length ? <><div className="small">{i.locations.length === 1 ? `${i.locations[0].lat.toFixed(5)}, ${i.locations[0].lng.toFixed(5)}` : `${i.locations.length} places`}{i.locations[0].name ? ` · ${i.locations[0].name}${i.locations.length > 1 ? ' …' : ''}` : ''}</div><div className="muted small">within {i.locations[0].radius} m{i.locations.length > 1 ? ' of any' : ''}</div></> : <span className="muted small">Not set</span>}<button className="btn sm" onClick={() => setLocating(i)}>{i.locations?.length ? 'Change' : 'Set'}</button></td>
                         <td data-label="Attendance time">{i.time ? <div className="small">{i.time.from} – {i.time.to}</div> : <span className="muted small">Any time</span>}<button className="btn sm" onClick={() => setTiming(i)}>{i.time ? 'Change' : 'Set'}</button></td>
                         <td data-label="Attendance"><select aria-label={`Attendance of ${i.employeeCode}`} value={cur} onChange={(e) => setRow(i.id, { status: e.target.value })}>{ATT.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></td>
-                        <td data-label="Marked">{i.status ? <><span className={`badge ${ATT_BADGE[i.status] || 'grey'}`}>{i.source === 'auto' ? 'Auto' : 'Manual'}</span>{i.source === 'auto' && i.firstActivity && <div className="muted small">{time(i.firstActivity)} – {time(i.lastActivity)}</div>}</> : '—'}</td>
+                        <td data-label="Marked">{i.status ? <><span className={`badge ${ATT_BADGE[i.status] || 'grey'}`}>{i.source === 'rule' ? 'Rule' : i.source === 'auto' ? (i.status === 'absent' && !i.firstActivity ? 'Auto absent' : 'Auto') : i.source === 'app' ? 'App' : 'Manual'}</span>{i.reason && <div className="muted small">{i.reason}</div>}{i.source === 'auto' && i.firstActivity && <div className="muted small">{time(i.firstActivity)} – {time(i.lastActivity)}</div>}</> : '—'}</td>
                         <td data-label="Remark"><input aria-label={`Remark of ${i.employeeCode}`} value={edits[i.id]?.remark ?? i.remark} maxLength={100} onChange={(e) => setRow(i.id, { remark: e.target.value })} style={{ minWidth: 140 }} /></td>
                       </tr>
                     );
@@ -1032,7 +1079,7 @@ function SlipDialog({ slip, onClose, onSaved }) {
         <table className="data-table">
           <tbody>
             {row('Days in the month', slip.daysInMonth)}{row('Present', slip.presentDays)}{row('Half days', slip.halfDays)}{row('Leave (paid)', slip.leaveDays)}{row('Holiday', slip.holidayDays)}{row('Sundays (weekly off)', slip.sundays)}
-            {row('Absent', `${slip.absentDays}${slip.unmarkedDays ? ` (${slip.unmarkedDays} not marked)` : ''}`)}{row('Payable days', slip.payableDays)}
+            {row('Absent', `${slip.absentDays}${slip.unmarkedDays ? ` (${slip.unmarkedDays} with no attendance)` : ''}${slip.ruleAbsentDays ? ` (${slip.ruleAbsentDays} Sunday / Monday lost after an absence on a Saturday without leave)` : ''}`)}{row('Payable days', slip.payableDays)}
           </tbody>
         </table>
       </div>
