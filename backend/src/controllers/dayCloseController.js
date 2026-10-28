@@ -185,7 +185,7 @@ export async function revoke(req, res) {
   c.decidedAt = new Date();
   await c.save();
   await audit(req, { action: 'dayClose.revoke', entity: 'DayClose', entityId: c._id, after: { branch: c.branch.code, date: iso(c.date), reason, laterRevoked: later.modifiedCount } });
-  res.json({ close: present(c, null), laterRevoked: later.modifiedCount, workingDate: iso(c.date) });
+  res.json({ close: present(c, null), laterRevoked: later.modifiedCount, workingDate: iso(await branchWorkingDate(c.branch._id)) });
 }
 
 /** The working date of each branch of the user (the other users work on that date only; the admin is not held to it). */
