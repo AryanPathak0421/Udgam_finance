@@ -116,7 +116,10 @@ input:focus {
 .nav-badge { margin-left: auto; background: #d1495b; color: #fff; border-radius: 10px; padding: 0 7px; min-width: 18px; text-align: center; font-size: 11px; font-weight: 700; line-height: 18px; }
 .nav-item .nav-badge + .caret { margin-left: 8px; }
 .chart-box svg { width: 100%; height: auto; display: block; }
+/* a heading that is only on paper (the company and the title of what is printed) */
+.print-only { display: none; }
 @media print {
+  .print-only { display: block !important; margin-bottom: 8px; }
   .sidebar, .header, .toolbar, .pagination, .no-print, .btn { display: none !important; }
   .main, .app-shell.is-collapsed .main { margin-left: 0 !important; }
   .panel { box-shadow: none !important; border: 0 !important; }

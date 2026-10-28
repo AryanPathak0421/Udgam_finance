@@ -415,6 +415,8 @@ export function LoanLedger() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(0);
+  const [company, setCompany] = useState(null);
+  useEffect(() => { api.hr.letterhead().then((r) => setCompany(r.company)).catch(() => {}); }, []);
 
   async function find(e) {
     e?.preventDefault();
@@ -444,6 +446,7 @@ export function LoanLedger() {
         </form>
         {data && (
           <>
+            <div className="print-only"><h2 style={{ margin: 0 }}>{company?.name || ''}</h2><div>Loan Account Ledger — {L.loanId} · printed on {dmy(today())}</div></div>
             <div className="table-wrap" style={{ marginTop: 10 }}>
               <table className="data-table">
                 <tbody>
