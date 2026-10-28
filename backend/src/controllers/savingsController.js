@@ -231,7 +231,8 @@ export async function requestWithdrawal(req, res) {
     const wi = await withdrawInfo(req, m._id, bal);
     const can = wi.withdrawable;
     if (amountPaise > can) throw invalid({ amount: can > 0 ? `Only ${money(can)} can be withdrawn: the security of a running loan can only be adjusted against its EMI` : 'The security of a running loan cannot be withdrawn. It can only be adjusted against an EMI.' });
-    data.interestPaise = interestOverride !== undefined ? interestOverride : wi.interestFor(amountPaise);
+    // the interest goes into the request only when it was asked for (the total with interest was ticked); otherwise only the security is withdrawn
+    data.interestPaise = interestOverride !== undefined ? interestOverride : 0;
   }
 
   if (kind === 'adjust') {

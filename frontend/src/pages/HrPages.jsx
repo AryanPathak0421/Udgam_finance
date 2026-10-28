@@ -985,7 +985,7 @@ export function SalaryPayment() {
     setErrors({});
     try {
       const r = await api.hr.paySalary({ ids: only || [...picked], amounts, payMode: mode, bankAccount: mode === 'bank' ? bank : undefined });
-      toast.success(`${r.paid} salar${r.paid === 1 ? 'y' : 'ies'} paid (${inr(r.amount)}). They are in the Cashbook as Staff salary paid.`);
+      toast.success(`${r.paid} salar${r.paid === 1 ? 'y' : 'ies'} paid (${inr(r.amount)}). It is in the Cashbook as Staff salary paid${r.dates?.length ? ` on ${r.dates.map(dmy).join(', ')}` : ''}.`);
       if (r.failed.length) toast.error(`${r.failed.length} not paid: ${r.failed[0].message}`);
       setPayFor(null);
       list.load();

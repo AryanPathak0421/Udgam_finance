@@ -334,8 +334,9 @@ async function buildCompanySummary(req) {
     const dual = [...(bw.perMember || new Map()).values()].filter((n) => n > 1).length;
     const duePrincipal = round2((bw.duePrincipal || 0));
     const dueInterest = round2((bw.dueInterest || 0));
-    const waivers = st(b._id, 'loan', 'waivers') + st(b._id, 'auto', 'waivers') + st(b._id, 'death', 'waivers');
-    const waived = st(b._id, 'loan', 'waiver') + st(b._id, 'auto', 'waiver') + st(b._id, 'death', 'waiver');
+    // written off = the loan settlements with a waiver (an auto settle and a death settlement have their own columns)
+    const waivers = st(b._id, 'loan', 'waivers');
+    const waived = st(b._id, 'loan', 'waiver');
     return {
       branchId: b._id, branch: `${b.code} — ${b.name}`,
       members: get(members, b._id), joined: get(joined, b._id), blocked: get(blocked, b._id), groups: get(groups, b._id), newGroups: get(newGroups, b._id), employees: get(employees, b._id),

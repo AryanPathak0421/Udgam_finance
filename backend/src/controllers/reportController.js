@@ -311,11 +311,11 @@ Object.assign(REPORTS, {
   groupCollectionSheet: collectionSheet((r) => r.loanType === 'group', true),
   // any kind of loan: all, or one kind (group, personal, business, msme, product)
   allCollectionSheet: collectionSheet((r, req) => { const t = asString(req.query.type); return !t || r.loanType === t; }),
-  // balance given up: death settlements, automatic settlements and loan settlements with a waiver
+  // balance given up: loan settlements with a waiver, and the loans written off by themselves 3 years after the last installment; an auto settle and a death settlement are not written off
   async writeOff(req) {
     const q = asString(req.query.q).toLowerCase();
-    const kind = ['death', 'auto', 'loan', 'auto_npa'].includes(asString(req.query.status)) ? asString(req.query.status) : '';
-    const sets = kind === 'auto_npa' ? [] : await LoanSettlement.find({ status: 'active', waiverPaise: { $gt: 0 }, ...(kind ? { kind } : {}), ...branchScope(req), ...dateRange(req, 'settledOn') }).sort({ settledOn: -1 }).limit(20000).populate('branch', 'code').lean();
+    const kind = ['loan', 'auto_npa'].includes(asString(req.query.status)) ? asString(req.query.status) : '';
+    const sets = kind === 'auto_npa' ? [] : await LoanSettlement.find({ status: 'active', waiverPaise: { $gt: 0 }, kind: 'loan', ...branchScope(req), ...dateRange(req, 'settledOn') }).sort({ settledOn: -1 }).limit(20000).populate('branch', 'code').lean();
     const mobiles = await mobileMap(req, sets.map((x) => x.memberCode));
     const rows = sets.filter((x) => matches(q, x.receiptNo, x.loanId, x.formId, x.memberCode, x.memberName, x.group)).map((x) => ({
       mobile: mobiles.get(x.memberCode) || '', key: String(x._id), receiptNo: x.receiptNo, date: iso(x.settledOn), kind: x.kind, loanId: x.loanId || x.formId, memberCode: x.memberCode, memberName: x.memberName, group: x.group || '', branch: x.branch?.code || '',

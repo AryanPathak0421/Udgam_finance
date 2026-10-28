@@ -885,7 +885,7 @@ export async function paySalary(req, res) {
   // an amount can be given for a slip (a part of the salary); without one the whole balance is paid
   const amounts = req.body?.amounts && typeof req.body.amounts === 'object' ? req.body.amounts : {};
   const slips = await Salary.find({ _id: { $in: ids }, ...slipScope(req.user) });
-  const out = { paid: 0, skipped: 0, amount: 0, failed: [] };
+  const out = { paid: 0, skipped: 0, amount: 0, failed: [], dates: [] }; // dates: the day of the branch cashbook each payment went into
   for (const s of slips) {
     const balance = (s.netPaise || 0) - paidOf(s);
     if (s.status === 'paid' || balance <= 0) { out.skipped += 1; continue; }
@@ -911,6 +911,7 @@ export async function paySalary(req, res) {
       // eslint-disable-next-line no-await-in-loop
       await s.save();
       out.paid += 1; out.amount += pay / 100;
+      if (!out.dates.includes(iso(payDate))) out.dates.push(iso(payDate));
     } catch (err) {
       out.failed.push({ employeeCode: s.employeeCode, message: err.message });
     }

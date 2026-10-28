@@ -465,7 +465,7 @@ export function SecurityWithdraw() {
                   {kind === 'withdraw' && member.interestWithdrawable > 0 && (
                     <label className="span-2" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                       <input type="checkbox" checked={form.includesInterest} onChange={(e) => { setForm((x) => ({ ...x, includesInterest: e.target.checked, amount: '' })); setErrors((x) => ({ ...x, amount: undefined })); }} />
-                      The amount I enter is the total (security + interest){form.includesInterest ? '' : ' — e.g. security ₹500 and interest ₹50: request ₹550'}
+                      Also withdraw the interest: the amount I enter is the total (security + interest){form.includesInterest ? '' : ' — e.g. security ₹500 and interest ₹50: request ₹550'}
                     </label>
                   )}
                   {kind === 'withdraw' && (
@@ -491,7 +491,7 @@ export function SecurityWithdraw() {
                 })()}
                 {kind === 'withdraw' && !form.includesInterest && typed > 0 && typed <= member.withdrawable && member.closedSecurity > 0 && (() => {
                   const interest = typed >= member.closedSecurity ? member.interestWithdrawable : Math.round((member.interestWithdrawable * typed) / member.closedSecurity * 100) / 100;
-                  return <div className="notice" style={{ margin: '10px 0' }}>Security {inr(typed)} + interest {inr(interest)} = <strong>total {inr(typed + interest)}</strong> (confirmed with the member's OTP).</div>;
+                  return <div className="notice" style={{ margin: '10px 0' }}>Only the security <strong>{inr(typed)}</strong> is requested, without interest (confirmed with the member's OTP). {interest > 0 ? <>The interest on it ({inr(interest)}) is not part of this request; tick "Also withdraw the interest" to request it too.</> : null}</div>;
                 })()}
                 {kind === 'adjust' && chosenLoan && (
                   <div style={{ margin: '10px 0' }}>
