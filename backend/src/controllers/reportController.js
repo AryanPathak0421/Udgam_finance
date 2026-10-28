@@ -187,7 +187,7 @@ export async function scanBorrowers(req, asOf, pick, opts = {}) {
 }
 
 const sumOf = (rows, f) => Math.round(rows.reduce((s, r) => s + (r[f] || 0), 0) * 100) / 100;
-const borrowerMatch = (q) => (r) => matches(q, r.loanId, r.memberCode, r.memberName, r.group);
+const borrowerMatch = (q) => (r) => matches(q, r.loanId, r.memberCode, r.memberName, r.group, r.mobile, r.staff, r.branch, r.scheme);
 
 const REPORTS = {
   // borrowers whose installment falls due on the date and is not paid yet
@@ -298,7 +298,7 @@ const collectionSheet = (match, byGroup = false) => async (req) => {
   const mode = ['daily', 'weekly'].includes(asString(req.query.mode)) ? asString(req.query.mode) : '';
   const wd = /^[0-6]$/.test(asString(req.query.weekday)) ? Number(asString(req.query.weekday)) : null;
   const staff = asString(req.query.staff).trim().toUpperCase();
-  const keep = (r) => match(r, req) && r.due > 0 && borrowerMatch(q)(r) && (!mode || r.mode === mode) && (wd === null || r.mode !== 'weekly' || r.weekday === wd) && (!staff || String(r.staff || '').toUpperCase().includes(staff));
+  const keep = (r) => match(r, req) && (r.due > 0 || r.todayReceive > 0) && borrowerMatch(q)(r) && (!mode || r.mode === mode) && (wd === null || r.mode !== 'weekly' || r.weekday === wd) && (!staff || String(r.staff || '').toUpperCase().includes(staff));
   const rows = (await scanBorrowers(req, asOf, (r) => (keep(r) ? r : null), { sheet: true })).sort((a, b) => a.branch.localeCompare(b.branch) || (byGroup ? String(a.groupCode).localeCompare(String(b.groupCode)) || a.memberCode.localeCompare(b.memberCode) : b.overdueDays - a.overdueDays || a.loanId.localeCompare(b.loanId)));
   return { asOf: iso(asOf), rows, summary: { borrowers: rows.length, due: sumOf(rows, 'due'), todayReceive: sumOf(rows, 'todayReceive'), outstanding: sumOf(rows, 'outstanding') } };
 };
@@ -348,7 +348,8 @@ Object.assign(REPORTS, {
       v.borrowers += 1; v.loanAmount += r.loanAmount; v.outstanding += r.outstanding; v.oldest = Math.max(v.oldest, r.daysPastEnd);
       by.set(r.staff, v);
     });
-    const rows = staffFilter(req, await rowsByStaff(by));
+    const qs = asString(req.query.q).toLowerCase();
+    const rows = staffFilter(req, await rowsByStaff(by)).filter((r) => matches(qs, r.staff, r.staffName));
     rows.forEach((r) => { r.loanAmount = Math.round(r.loanAmount * 100) / 100; r.outstanding = Math.round(r.outstanding * 100) / 100; });
     return { asOf: iso(asOf), rows, noCall: true, summary: { staff: rows.length, borrowers: sumOf(rows, 'borrowers'), outstanding: sumOf(rows, 'outstanding') } };
   },
@@ -359,7 +360,8 @@ Object.assign(REPORTS, {
       { $group: { _id: '$employeeCode', receipts: { $sum: 1 }, amount: { $sum: '$amountPaise' } } },
     ]);
     const by = new Map(agg.map((a) => [a._id || '', { receipts: a.receipts, amount: rupees(a.amount) }]));
-    const rows = staffFilter(req, await rowsByStaff(by));
+    const qs = asString(req.query.q).toLowerCase();
+    const rows = staffFilter(req, await rowsByStaff(by)).filter((r) => matches(qs, r.staff, r.staffName));
     return { rows, noCall: true, summary: { staff: rows.length, receipts: sumOf(rows, 'receipts'), amount: sumOf(rows, 'amount') } };
   },
   async staffDisbursement(req) {
@@ -368,8 +370,23 @@ Object.assign(REPORTS, {
       { $group: { _id: '$employeeCode', loans: { $sum: 1 }, borrowers: { $sum: { $size: '$lines' } }, amount: { $sum: { $ifNull: ['$totalAmountPaise', 0] } }, cash: { $sum: { $ifNull: ['$totalCashPaise', 0] } } } },
     ]);
     const by = new Map(agg.map((a) => [a._id || '', { loans: a.loans, borrowers: a.borrowers, amount: rupees(a.amount), cash: rupees(a.cash) }]));
-    const rows = await rowsByStaff(by);
+    const qs = asString(req.query.q).toLowerCase();
+    const rows = (await rowsByStaff(by)).filter((r) => matches(qs, r.staff, r.staffName));
     return { rows, noCall: true, summary: { staff: rows.length, loans: sumOf(rows, 'loans'), borrowers: sumOf(rows, 'borrowers'), amount: sumOf(rows, 'amount'), cash: sumOf(rows, 'cash') } };
+  },
+  // Group wise Collection: for every group the EMI received in the dates: how many receipts, from how many members, how much, by whom and when last
+  async groupWiseCollection(req) {
+    const q = asString(req.query.q).toLowerCase();
+    const from = parseDateOnly(asString(req.query.from)) || startOfToday();
+    const to = parseDateOnly(asString(req.query.to)) || startOfToday();
+    const agg = await EmiPayment.aggregate([
+      { $match: { status: 'paid', legacy: { $ne: true }, group: { $nin: ['', null] }, ...branchScope(req), paidOn: { $gte: from, $lte: to } } },
+      { $group: { _id: '$group', branch: { $first: '$branch' }, receipts: { $sum: 1 }, amount: { $sum: '$amountPaise' }, members: { $addToSet: '$memberCode' }, staff: { $addToSet: '$employeeCode' }, last: { $max: '$paidOn' } } },
+    ]);
+    const branches = new Map((await Branch.find({}).select('code').lean()).map((b) => [String(b._id), b.code]));
+    const rows = agg.map((g) => ({ key: g._id, group: g._id, branch: branches.get(String(g.branch)) || '', receipts: g.receipts, members: g.members.length, collected: rupees(g.amount), collectedBy: g.staff.filter(Boolean).sort().join(', '), lastDate: iso(g.last) }))
+      .filter((g) => matches(q, g.group, g.branch, g.collectedBy)).sort((a, b) => a.group.localeCompare(b.group));
+    return { rows, noCall: true, summary: { groups: rows.length, receipts: sumOf(rows, 'receipts'), collected: sumOf(rows, 'collected') } };
   },
   // per group: the EMI that fell due in the period (demand), what was collected, and the share collected (CDS: collection and demand statement)
   async groupCollection(req) {
@@ -402,7 +419,7 @@ Object.assign(REPORTS, {
       { $group: { _id: '$group', amount: { $sum: '$amountPaise' } } },
     ]);
     coll.forEach((c) => { if (groups.has(c._id)) groups.get(c._id).collected = c.amount; else groups.set(c._id, { key: c._id, group: c._id, branch: '', members: new Set(), demand: 0, collected: c.amount }); });
-    const rows = [...groups.values()].filter((g) => (g.demand || g.collected) && matches(q, g.group)).map((g) => ({
+    const rows = [...groups.values()].filter((g) => (g.demand || g.collected) && matches(q, g.group, g.branch)).map((g) => ({
       key: g.key, group: g.group, branch: g.branch, members: g.members.size, demand: rupees(g.demand), collected: rupees(g.collected), balance: rupees(g.demand - g.collected),
       efficiency: g.demand ? Math.round((g.collected / g.demand) * 1000) / 10 : null,
     })).sort((a, b) => a.group.localeCompare(b.group));
@@ -411,7 +428,7 @@ Object.assign(REPORTS, {
     return { rows, summary: { groups: rows.length, demand, collected, balance: Math.round((demand - collected) * 100) / 100 } };
   },
 });
-const NAMES = { due: 'due', overdue: 'overdue', outstanding: 'outstanding', npa: 'npa', 'personal-collection-sheet': 'personalCollectionSheet', 'msme-collection-sheet': 'msmeCollectionSheet', 'group-collection-sheet': 'groupCollectionSheet', 'collection-sheet': 'allCollectionSheet', 'write-off': 'writeOff', 'staff-npa': 'staffNpa', 'staff-npa-payment': 'staffNpaPayment', 'staff-disbursement': 'staffDisbursement', 'group-collection': 'groupCollection', 'emi-collection': 'emiCollection', disbursement: 'disbursement', requisition: 'requisition', approval: 'approval', 'member-joining': 'memberJoining' };
+const NAMES = { due: 'due', overdue: 'overdue', outstanding: 'outstanding', npa: 'npa', 'personal-collection-sheet': 'personalCollectionSheet', 'msme-collection-sheet': 'msmeCollectionSheet', 'group-collection-sheet': 'groupCollectionSheet', 'collection-sheet': 'allCollectionSheet', 'write-off': 'writeOff', 'staff-npa': 'staffNpa', 'staff-npa-payment': 'staffNpaPayment', 'staff-disbursement': 'staffDisbursement', 'group-collection': 'groupCollection', 'group-wise-collection': 'groupWiseCollection', 'emi-collection': 'emiCollection', disbursement: 'disbursement', requisition: 'requisition', approval: 'approval', 'member-joining': 'memberJoining' };
 
 /** Loan account ledger: a loan ID gives the loan, every borrower's installments and every receipt. */
 async function loanLedger(req) {

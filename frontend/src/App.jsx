@@ -33,7 +33,7 @@ import ProductOrders from './pages/ProductOrders.jsx';
 import StockTransfer from './pages/StockTransfer.jsx';
 import Cashbook from './pages/Cashbook.jsx';
 import { PaymentVoucher, ReceiveVoucher, BankDeposit, BankWithdraw, BranchTransfer } from './pages/AccountEntries.jsx';
-import { LoanLedger, RequisitionReport, ApprovalReport, DisbursementReport, DueReport, OverdueReport, OutstandingReport, EmiCollectionReport, MemberJoiningReport, NpaReport, PersonalCollectionSheet, MsmeCollectionSheet, GroupCollectionSheet, AllCollectionSheet, WriteOffReport, StaffNpaReport, StaffNpaPaymentReport, StaffDisbursementReport, GroupCollectionReport } from './pages/Reports.jsx';
+import { LoanLedger, RequisitionReport, ApprovalReport, DisbursementReport, DueReport, OverdueReport, OutstandingReport, EmiCollectionReport, MemberJoiningReport, NpaReport, PersonalCollectionSheet, MsmeCollectionSheet, GroupCollectionSheet, AllCollectionSheet, WriteOffReport, StaffNpaReport, StaffNpaPaymentReport, StaffDisbursementReport, GroupCollectionReport, GroupWiseCollectionReport } from './pages/Reports.jsx';
 import CenterSurveys from './pages/CenterSurveys.jsx';
 import { AppUsers, MemberApproval, EmiApproval } from './pages/AppSection.jsx';
 import { StockEntry, QuantityReport } from './pages/StockEntryPages.jsx';
@@ -130,6 +130,7 @@ const PAGES = {
   '/reports/staff-npa-payment': StaffNpaPaymentReport,
   '/reports/staff-disbursement': StaffDisbursementReport,
   '/reports/group-collection': GroupCollectionReport,
+  '/reports/group-wise-collection': GroupWiseCollectionReport,
   '/reports/center-survey': CenterSurveys,
   '/accounts/denomination': DayClose,
   '/accounts/day-close-approval': DayCloseApproval,

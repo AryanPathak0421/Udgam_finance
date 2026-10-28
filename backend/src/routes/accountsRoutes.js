@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler as h } from '../utils/http.js';
-import { makeEntry, listEntries, accountOptions, bankBook, dayBook, trialBalance } from '../controllers/accountsController.js';
+import { makeEntry, listEntries, entryBill, accountOptions, bankBook, dayBook, trialBalance } from '../controllers/accountsController.js';
 import { purchaseBalance } from '../controllers/stockOrderController.js';
 import { deleteEntry } from '../controllers/cashbookController.js';
 
@@ -16,6 +16,7 @@ router.post('/accounts/receive-vouchers', requireAuth, requireRole(...VIEW), h(m
 router.post('/accounts/bank-deposits', requireAuth, requireRole(...VIEW), h(makeEntry('bank_deposit')));
 router.post('/accounts/bank-withdrawals', requireAuth, requireRole(...VIEW), h(makeEntry('bank_withdraw')));
 router.post('/accounts/branch-transfers', requireAuth, requireRole(...VIEW), h(makeEntry('branch_transfer')));
+router.get('/accounts/entries/:id/bill', requireAuth, requireRole(...VIEW), h(entryBill));
 router.delete('/accounts/entries/:id', requireAuth, requireRole(...ADMIN), h(deleteEntry));
 router.get('/accounts/trial-balance', requireAuth, requireRole(...VIEW), h(trialBalance));
 router.get('/accounts/bank-book', requireAuth, requireRole(...VIEW), h(bankBook));

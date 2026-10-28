@@ -67,6 +67,8 @@ const employeeSchema = new mongoose.Schema(
     esiNumber: { type: String, trim: true },
     // where the employee marks the attendance from: the attendance passes only within `radius` metres of this point
     attendanceLocation: { lat: Number, lng: Number, radius: { type: Number, default: 100 } },
+    // the time of the day (Indian time, HH:MM) the employee can mark the attendance in the app: from - to; empty = any time
+    attendanceTime: { from: String, to: String },
     esiDeduction: { type: Boolean, default: false },
     // verification: all optional, each with the copy as a small PNG / JPEG data URL (not loaded unless asked for)
     aadhaarNo: String,

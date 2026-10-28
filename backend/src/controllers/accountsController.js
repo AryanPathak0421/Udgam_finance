@@ -24,6 +24,17 @@ const MODES = ['cash', 'bank', 'upi', 'cheque'];
 const BANKISH = ['bank', 'upi', 'cheque'];
 
 
+const BILL_RE = /^data:(application\/pdf|image\/png|image\/jpeg);base64,[A-Za-z0-9+/=]+$/;
+const MAX_BILL_CHARS = 1_100_000; // about 800 KB
+/** The bill of an entry: optional; a PDF or an image of up to about 800 KB. */
+function readBill(b) {
+  const v = b.bill;
+  if (v === undefined || v === null || v === '') return null;
+  if (typeof v !== 'string' || !BILL_RE.test(v)) throw invalid({ bill: 'The bill must be a PDF or an image (PNG / JPEG)' });
+  if (v.length > MAX_BILL_CHARS) throw invalid({ bill: 'The bill must be 800 KB or smaller' });
+  return { bill: v, billName: asString(b.billName).slice(0, 80), hasBill: true };
+}
+
 const KINDS = {
   payment_voucher: { seq: 'paymentVoucher', side: 'payment', ledgerType: 'debit', label: 'Payment voucher' },
   receive_voucher: { seq: 'receiveVoucher', side: 'receive', ledgerType: 'credit', label: 'Receive voucher' },
@@ -68,6 +79,7 @@ export const makeEntry = (kind) => async (req, res) => {
   const def = KINDS[kind];
   const b = req.body || {};
   const { amountPaise, date, remark } = readCommon(req, b);
+  const billData = readBill(b);
   const period = await Voucher.findOne({ isDeleted: false, isActive: true, fromDate: { $lte: date }, toDate: { $gte: date } }).select('name').lean();
   const base = { kind, date, amountPaise, voucherPeriod: period?._id, enteredByCode: req.user.employeeCode || '', createdBy: req.user._id };
   let docs;
@@ -107,7 +119,8 @@ export const makeEntry = (kind) => async (req, res) => {
     // eslint-disable-next-line no-await-in-loop
     await assertDayOpen(d.branch, d.date, req.user);
   }
-  const made = await CashEntry.insertMany(docs.map((d) => ({ ...d, voucherNo })));
+  // the bill is kept with the first entry (a transfer has two legs)
+  const made = await CashEntry.insertMany(docs.map((d, i) => ({ ...d, voucherNo, ...(billData && i === 0 ? billData : {}) })));
   await audit(req, { action: `accounts.${kind}`, entity: 'CashEntry', entityId: made[0]._id, after: { voucherNo, amount: amountPaise / 100, date: iso(date) } });
   res.status(201).json({ voucherNo, id: made[0]._id });
 };
@@ -115,8 +128,21 @@ export const makeEntry = (kind) => async (req, res) => {
 const present = (e) => ({
   id: e._id, voucherNo: e.voucherNo || '', date: iso(e.date), kind: e.kind, side: e.side, amount: e.amountPaise / 100, mode: e.mode, remark: e.remark || '',
   branch: e.branch ? { id: e.branch._id, code: e.branch.code, name: e.branch.name } : null, counterBranch: e.counterBranch ? { id: e.counterBranch._id, code: e.counterBranch.code, name: e.counterBranch.name } : null,
-  ledger: e.ledger?.name || '', bankAccount: e.bankAccount ? accountLabel(e.bankAccount) : '', voucherMonth: e.voucherPeriod?.name || '', by: e.enteredByCode || '',
+  hasBill: Boolean(e.hasBill), billName: e.billName || '', ledger: e.ledger?.name || '', bankAccount: e.bankAccount ? accountLabel(e.bankAccount) : '', voucherMonth: e.voucherPeriod?.name || '', by: e.enteredByCode || '',
 });
+
+/** The bill of an entry (a PDF or an image), for the branches the user can see. */
+export async function entryBill(req, res) {
+  if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Entry not found');
+  const e = await CashEntry.findOne({ _id: req.params.id, isDeleted: false }).select('+bill branch counterBranch billName hasBill');
+  if (!e) throw new HttpError(404, 'Entry not found');
+  if (!isAdmin(req.user)) {
+    const mine = (req.user.branches || []).map(String);
+    if (![e.branch, e.counterBranch].filter(Boolean).some((x) => mine.includes(String(x)))) throw new HttpError(404, 'Entry not found');
+  }
+  if (!e.bill) throw new HttpError(404, 'No bill was uploaded for this entry');
+  res.json({ bill: e.bill, name: e.billName || '' });
+}
 
 /** The entries of one kind, newest first. */
 export async function listEntries(req, res) {

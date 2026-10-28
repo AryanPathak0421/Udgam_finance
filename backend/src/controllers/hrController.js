@@ -631,7 +631,8 @@ export async function attendanceDay(req, res) {
   const items = emps.map((e) => {
     const a = marks.get(String(e._id));
     return { id: e._id, employeeCode: e.employeeCode, name: e.name, branch: e.branch?.code || '', branchName: e.branch?.name || '', designation: e.designation?.name || '', status: a?.status || '', source: a?.source || '', firstActivity: a?.firstActivity || null, lastActivity: a?.lastActivity || null, remark: a?.remark || '', hasLogin: Boolean(e.user),
-      location: e.attendanceLocation?.lat !== undefined && e.attendanceLocation?.lat !== null ? { lat: e.attendanceLocation.lat, lng: e.attendanceLocation.lng, radius: e.attendanceLocation.radius || 100 } : null, distanceM: a?.distanceM ?? null };
+      location: e.attendanceLocation?.lat !== undefined && e.attendanceLocation?.lat !== null ? { lat: e.attendanceLocation.lat, lng: e.attendanceLocation.lng, radius: e.attendanceLocation.radius || 100 } : null, distanceM: a?.distanceM ?? null,
+      time: e.attendanceTime?.from ? { from: e.attendanceTime.from, to: e.attendanceTime.to } : null };
   });
   const count = (s) => items.filter((i) => i.status === s).length;
   const holidays = (await Holiday.find({ date, isDeleted: false, isActive: true }).select('name').lean()).map((h) => h.name);
@@ -657,6 +658,27 @@ export async function setAttendanceLocation(req, res) {
   res.json({ location: e.attendanceLocation?.lat !== undefined ? { lat: e.attendanceLocation.lat, lng: e.attendanceLocation.lng, radius: e.attendanceLocation.radius } : null });
 }
 
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+/** The time of the day an employee can mark the attendance in the app (Indian time): from and to as HH:MM; both empty (or clear) removes it. */
+export async function setAttendanceTime(req, res) {
+  const e = await loadEmployee(req);
+  const b = req.body || {};
+  if (b.clear === true || (!asString(b.from) && !asString(b.to))) e.attendanceTime = undefined;
+  else {
+    const from = asString(b.from);
+    const to = asString(b.to);
+    if (!HHMM.test(from)) throw invalid({ from: 'Enter the time the attendance opens (HH:MM)' });
+    if (!HHMM.test(to)) throw invalid({ to: 'Enter the time the attendance closes (HH:MM)' });
+    if (to <= from) throw invalid({ to: 'The closing time must be after the opening time' });
+    e.attendanceTime = { from, to };
+  }
+  await e.save();
+  await audit(req, { action: 'attendance.time', entity: 'Employee', entityId: e._id, after: { employee: e.employeeCode, time: e.attendanceTime?.from ? { from: e.attendanceTime.from, to: e.attendanceTime.to } : null } });
+  res.json({ time: e.attendanceTime?.from ? { from: e.attendanceTime.from, to: e.attendanceTime.to } : null });
+}
+
+const nowIst = () => new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date()).replace(/^24:/, '00:');
+
 const metresBetween = (a, b, c, d) => {
   const R = 6371000;
   const rad = (x) => (x * Math.PI) / 180;
@@ -669,6 +691,11 @@ export async function punchAttendance(req, res) {
   const e = await Employee.findOne({ user: req.user._id, isDeleted: false });
   if (!e) throw new HttpError(404, 'There is no employee record for your login');
   if (e.status !== 'active' || e.isBlocked) throw new HttpError(403, 'Your attendance cannot be marked');
+  // the attendance is marked within the time that was set for the employee
+  if (e.attendanceTime?.from) {
+    const now = nowIst();
+    if (now < e.attendanceTime.from || now > e.attendanceTime.to) throw new HttpError(422, `The attendance can be marked only between ${e.attendanceTime.from} and ${e.attendanceTime.to} (it is ${now} now).`, { time: `${e.attendanceTime.from} – ${e.attendanceTime.to}` });
+  }
   const loc = e.attendanceLocation;
   if (loc?.lat === undefined || loc?.lat === null) throw new HttpError(422, 'Your attendance location is not set. Ask HR to set it.');
   const lat = Number(req.body?.lat);

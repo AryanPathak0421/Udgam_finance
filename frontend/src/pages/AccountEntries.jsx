@@ -5,6 +5,7 @@ import FormField from '../components/ui/FormField.jsx';
 import Modal from '../components/ui/Modal.jsx';
 import ConfirmDialog from '../components/ui/ConfirmDialog.jsx';
 import BankAccountSelect from '../components/BankAccountSelect.jsx';
+import BillField from '../components/BillField.jsx';
 import { workDateOf } from '../utils/workDate.js';
 import { EmptyState, ErrorState, PageHeader, Spinner } from '../components/ui/Feedback.jsx';
 import { useToast } from '../components/ui/Toast.jsx';
@@ -60,6 +61,8 @@ function EntryForm({ kind, cfg, branches, ledgers, isAdmin, onClose, onSaved }) 
     bankAccount: '',
     date: today(),
     remark: '',
+    bill: '',
+    billName: '',
   });
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
@@ -274,6 +277,7 @@ function EntryForm({ kind, cfg, branches, ledgers, isAdmin, onClose, onSaved }) 
         )}
         {cfg.bank ? <BankAccountSelect id="abank" mode="bank" value={f.bankAccount} onChange={(v) => setF((x) => ({ ...x, bankAccount: v }))} error={errors.bankAccount} /> : cfg.mode && <BankAccountSelect id="abank" mode={f.mode} value={f.bankAccount} onChange={(v) => setF((x) => ({ ...x, bankAccount: v }))} error={errors.bankAccount} />}
         <FormField id="aremark" label="Narration" className="span-2" hint="Optional: the person, the slip or cheque number"><input id="aremark" value={f.remark} maxLength={200} onChange={set('remark')} /></FormField>
+        <BillField id="abill" value={f.bill} name={f.billName} error={errors.bill} onChange={(v, n) => { setF((x) => ({ ...x, bill: v, billName: n })); setErrors((x) => ({ ...x, bill: undefined })); }} />
       </div>
     </Modal>
   );
@@ -315,6 +319,15 @@ export default function AccountEntries({ kind }) {
   }, [kind, branch, from, to]);
   useEffect(() => { load(); }, [load]);
 
+  // the bill is opened in its own tab (a PDF or an image)
+  async function viewBill(e) {
+    try {
+      const r = await api.accounts.bill(e.id);
+      const blob = await (await fetch(r.bill)).blob();
+      const w = window.open(URL.createObjectURL(blob), '_blank');
+      if (!w) toast.error('Allow pop-ups to see the bill');
+    } catch (err) { toast.error(err.message); }
+  }
   async function remove() {
     setBusy(true);
     try {
@@ -353,7 +366,7 @@ export default function AccountEntries({ kind }) {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Voucher no.</th><th>Date</th><th>{cfg.transfer ? 'From → To' : 'Branch'}</th>{cfg.ledger && <th>Ledger</th>}{(cfg.bank || cfg.mode) && <th>Bank account</th>}{cfg.mode && <th>By</th>}<th className="num">Amount</th><th>Narration</th><th>By</th>{isAdmin && <th />}
+                  <th>Voucher no.</th><th>Date</th><th>{cfg.transfer ? 'From → To' : 'Branch'}</th>{cfg.ledger && <th>Ledger</th>}{(cfg.bank || cfg.mode) && <th>Bank account</th>}{cfg.mode && <th>By</th>}<th className="num">Amount</th><th>Narration</th><th>Bill</th><th>By</th>{isAdmin && <th />}
                 </tr>
               </thead>
               <tbody>
@@ -367,6 +380,7 @@ export default function AccountEntries({ kind }) {
                     {cfg.mode && <td data-label="By">{MODE_LABEL[e.mode] || e.mode}</td>}
                     <td data-label="Amount" className="num">{inr(e.amount)}</td>
                     <td data-label="Narration">{e.remark || '—'}</td>
+                    <td data-label="Bill">{e.hasBill ? <button className="btn sm" onClick={() => viewBill(e)}>View bill</button> : <span className="muted">—</span>}</td>
                     <td data-label="Entered by">{e.by || '—'}</td>
                     {isAdmin && <td><button className="btn sm danger-outline" onClick={() => setRemoving(e)}>Remove</button></td>}
                   </tr>

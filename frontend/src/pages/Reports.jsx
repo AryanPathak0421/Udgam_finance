@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { isValidElement, useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client.js';
 import FormField from '../components/ui/FormField.jsx';
 import Modal from '../components/ui/Modal.jsx';
@@ -88,6 +88,7 @@ const staffCell = (r) => <><strong>{r.staff}</strong>{r.staffName && <div classN
 COLS['staff-npa'] = [['Staff', staffCell], ['NPA borrowers', (r) => r.borrowers, true], ['Loan amount', (r) => inr(r.loanAmount), true], ['Outstanding', (r) => <strong>{inr(r.outstanding)}</strong>, true], ['Oldest (days after term)', (r) => r.oldest, true]];
 COLS['staff-npa-payment'] = [['Staff', staffCell], ['NPA receipts', (r) => r.receipts, true], ['Collected', (r) => <strong>{inr(r.amount)}</strong>, true]];
 COLS['staff-disbursement'] = [['Staff', staffCell], ['Loans', (r) => r.loans, true], ['Borrowers', (r) => r.borrowers, true], ['Loan amount', (r) => <strong>{inr(r.amount)}</strong>, true], ['Cash paid', (r) => inr(r.cash), true]];
+COLS['group-wise-collection'] = [['Group', (r) => <strong>{r.group}</strong>], ['Branch', (r) => r.branch || '—'], ['Members who paid', (r) => r.members, true], ['Receipts', (r) => r.receipts, true], ['Collected', (r) => <strong>{inr(r.collected)}</strong>, true], ['Collected by', (r) => r.collectedBy || '—'], ['Last collection', (r) => dmy(r.lastDate)]];
 COLS['group-collection'] = [['Group', (r) => <strong>{r.group}</strong>], ['Branch', (r) => r.branch || '—'], ['Members', (r) => r.members, true], ['Demand', (r) => inr(r.demand), true], ['Collected', (r) => inr(r.collected), true], ['Balance', (r) => inr(r.balance), true], ['Collection %', (r) => (r.efficiency === null ? '—' : <span className={`badge ${r.efficiency >= 95 ? 'green' : r.efficiency >= 70 ? 'grey' : 'danger'}`}>{r.efficiency}%</span>)]];
 
 const REPORTS = {
@@ -108,6 +109,7 @@ const REPORTS = {
   'staff-npa': { title: 'Staff wise NPA Report', description: 'NPA borrowers and what is outstanding on them, for every staff member (the staff of the loan). Search a staff member and choose a branch to narrow it.', asOf: true, noCall: true, staffFilter: true },
   'staff-npa-payment': { title: 'Staff wise NPA Payment Report', description: 'What every staff member collected on NPA loans (NPA payment), by the date it was received.', range: true, from: monthStart, noCall: true, staffFilter: true },
   'staff-disbursement': { title: 'Staff wise Disbursement Report', description: 'Loans paid out for every staff member, by the payment date.', range: true, from: monthStart, noCall: true },
+  'group-wise-collection': { title: 'Group wise Collection Report', description: 'What every group paid in the dates: the members who paid, the receipts, the amount, who collected it and when last. The CDS Report shows the demand against the collection.', range: true, from: today, noCall: true },
   'group-collection': { title: 'Group wise Collection & CDS Report', description: 'For every group: the EMI that fell due in the period (demand), what was collected and the share collected (Collection and Demand Statement).', range: true, from: monthStart, noCall: true },
 };
 
@@ -219,9 +221,16 @@ function RevertDialog({ row, onClose, onDone }) {
   );
 }
 
+/** The text of a cell that may hold markup (the printed sheet has no markup). */
+const plain = (v) => {
+  if (v === null || v === undefined || v === false || v === true) return '';
+  if (Array.isArray(v)) return v.map(plain).filter(Boolean).join(' ');
+  if (isValidElement(v)) return plain(v.props.children);
+  return String(v);
+};
 const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 /** The collection sheet on paper: landscape, a header with the company, the date and the filters, a small table that repeats its heading on every page, totals and a sign column. */
-function printSheet({ title, company, rows, asOf, filters, columns, grouped }) {
+function printSheet({ title, company, rows, asOf, filters, columns, grouped, noun = 'borrower', period }) {
   const w = window.open('', '_blank', 'width=1200,height=900');
   if (!w) return false;
   const head = columns.map(([l, , n]) => `<th class="${n ? 'n' : ''}${l === 'Sign customer' ? ' sign' : ''}">${esc(l)}</th>`).join('');
@@ -252,7 +261,7 @@ function printSheet({ title, company, rows, asOf, filters, columns, grouped }) {
     tfoot td,.sub td{font-weight:700;background:#f3f5f6}.grp td{background:#dbe7ea;font-weight:700;font-size:10px;border-top:2px solid #264653}
   </style></head><body>
   <h1>${esc(company?.name || '')} — ${esc(title)}</h1>
-  <div class="sub">As on ${esc(dmy(asOf))} · ${esc(filters)} · ${rows.length} borrower${rows.length === 1 ? '' : 's'}</div>
+  <div class="sub">${esc(period || `As on ${dmy(asOf)}`)} · ${esc(filters)} · ${rows.length} ${noun}${rows.length === 1 ? '' : 's'}</div>
   <table><thead><tr>${head}</tr></thead><tbody>${body}</tbody><tfoot><tr>${totalCells(rows, `Total (${rows.length})`)}</tr></tfoot></table>
   <script>window.onload=function(){window.print()}</script></body></html>`);
   w.document.close();
@@ -355,13 +364,14 @@ export function ReportPage({ name }) {
           )}
           <input type="search" placeholder="Search" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search" style={{ minWidth: 180 }} />
           <button className="btn" onClick={load} disabled={loading}>{loading ? 'Refreshing…' : 'Refresh'}</button>
-          {cfg.print && <button className="btn" onClick={async () => {
+          <button className="btn" onClick={async () => {
             let company = null;
             try { company = (await api.hr.letterhead()).company; } catch { /* printed without the letterhead */ }
             const filters = [...(cfg.sheet ? [mode ? cap(mode) : 'Daily and weekly', mode !== 'daily' && weekday !== '' ? dayName(Number(weekday)) : 'All days'] : []), staff ? `Employee ${staff.toUpperCase()}` : 'All employees', branch ? 'One branch' : 'All branches'].join(' · ');
-            const columns = name === 'npa' ? NPA_PRINT : name === 'msme-collection-sheet' ? SHEET_MSME : name === 'group-collection-sheet' ? SHEET_GROUP : name === 'collection-sheet' ? SHEET_ALL : SHEET;
-            if (!printSheet({ title: cfg.title, company, rows, asOf: data.asOf || date, filters, columns, grouped: Boolean(cfg.group) })) toast.error('Allow pop-ups to print the sheet');
-          }} disabled={!rows.length} title="Opens the sheet; choose Save as PDF in the print window for a PDF">Print / PDF</button>}
+            const columns = !cfg.print ? cols.map(([l, f, n]) => [l, (r) => plain(f(r)), n]) : name === 'npa' ? NPA_PRINT : name === 'msme-collection-sheet' ? SHEET_MSME : name === 'group-collection-sheet' ? SHEET_GROUP : name === 'collection-sheet' ? SHEET_ALL : SHEET;
+            const shown = cfg.print ? filters : [branch ? 'One branch' : 'All branches', status ? (cfg.statusLabel?.[status] || cap(status)) : '', search ? `Search “${search}”` : ''].filter(Boolean).join(' · ');
+            if (!printSheet({ title: cfg.title, company, rows, asOf: data.asOf || date, filters: shown, columns, grouped: Boolean(cfg.group), noun: cfg.print ? 'borrower' : 'row', period: !cfg.print && cfg.range ? `${dmy(from)} – ${dmy(to)}` : undefined })) toast.error('Allow pop-ups to print the report');
+          }} disabled={!rows.length} title="Opens the report for printing; choose Save as PDF in the print window for a PDF">Print / PDF</button>
         </div>
         {loading && !data ? <Spinner label="Loading…" /> : error ? <ErrorState message={error} onRetry={load} /> : !data || rows.length === 0 ? (
           <EmptyState title="Nothing to show" description="No record for these filters." />
@@ -430,6 +440,7 @@ export function LoanLedger() {
         <form className="toolbar" onSubmit={find} style={{ flexWrap: 'wrap' }}>
           <FormField id="lledger" label="Loan ID" error={error}><input id="lledger" value={loanId} onChange={(e) => setLoanId(e.target.value.toUpperCase())} placeholder="For example UDGRP647" style={{ minWidth: 220 }} /></FormField>
           <button className="btn primary" type="submit" disabled={busy || loanId.trim().length < 3}>{busy ? 'Searching…' : 'Show ledger'}</button>
+          {data && <button className="btn no-print" type="button" onClick={() => window.print()}>Print</button>}
         </form>
         {data && (
           <>
@@ -512,3 +523,4 @@ export const StaffNpaReport = () => <ReportPage name="staff-npa" />;
 export const StaffNpaPaymentReport = () => <ReportPage name="staff-npa-payment" />;
 export const StaffDisbursementReport = () => <ReportPage name="staff-disbursement" />;
 export const GroupCollectionReport = () => <ReportPage name="group-collection" />;
+export const GroupWiseCollectionReport = () => <ReportPage name="group-wise-collection" />;

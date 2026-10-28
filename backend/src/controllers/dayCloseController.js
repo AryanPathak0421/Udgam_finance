@@ -100,6 +100,11 @@ export async function submit(req, res) {
   const { counts, total } = readCounts(b.counts);
   if (total <= 0) throw invalid({ counts: 'Enter the notes and coins you hold' });
   const cash = await cashOf(req, branch._id, date);
+  // the day is closed only with a denomination that matches the cash closing of the Cashbook: a mismatched count would lock the day (no entry can be made) without the branch being able to correct it
+  if (total !== cash.closing) {
+    const diff = (total - cash.closing) / 100;
+    throw new HttpError(422, `The denomination ₹${total / 100} does not match the cash closing ₹${cash.closing / 100} of the Cashbook (${diff > 0 ? 'more' : 'less'} by ₹${Math.abs(diff)}). Count again, or correct the Cashbook; the day is not closed.`, { counts: `Difference ₹${diff}: the day is closed only when the count matches the Cashbook closing` });
+  }
   const doc = {
     branch: branch._id, date, counts, denominationPaise: total, openingPaise: cash.opening, receiptsPaise: cash.receipts, paymentsPaise: cash.payments, closingPaise: cash.closing,
     differencePaise: total - cash.closing, status: 'submitted', remark: asString(b.remark).slice(0, 200), submittedBy: req.user._id, submittedByCode: req.user.employeeCode || '', submittedAt: new Date(),

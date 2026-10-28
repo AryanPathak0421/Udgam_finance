@@ -203,6 +203,7 @@ export async function generateEmployeeCommission(month, by) {
 
   const cache = new Map();
   const entries = [];
+  const stats = new Map(); // per rule: how many employees had activity for it, the best measure reached, how many were paid
   for (const rule of usable) {
     for (const p of periodsFor(month, rule.frequency, fy)) {
       const key = `${rule.commissionFor}|${p.from.getTime()}`;
@@ -214,6 +215,9 @@ export async function generateEmployeeCommission(month, by) {
         const got = achieved(rows, rule, user);
         if (!got) continue;
         const r = payout(rule, got);
+        const st = stats.get(rule) || { people: 0, best: 0, paid: 0 };
+        st.people += 1; st.best = Math.max(st.best, r.measure); if (r.amountPaise >= 1) st.paid += 1;
+        stats.set(rule, st);
         if (r.amountPaise < 1) continue;
         entries.push({
           employee: user._id, employeeCode: String(user.employeeCode).toUpperCase(), employeeName: user.name, rank: user.rank, branches: user.branches,
@@ -223,6 +227,17 @@ export async function generateEmployeeCommission(month, by) {
         });
       }
     }
+  }
+  // a rule that paid nobody says why, so that a 0 is not a mystery
+  const fmt = (rule, v) => (isCountUnit(rule.unit) ? `${v} ${rule.unit}` : `₹${(v / 100).toLocaleString('en-IN')}`);
+  for (const rule of usable) {
+    const st = stats.get(rule);
+    if (st && st.paid > 0) continue;
+    const label = typeMeta(rule.commissionFor)?.label || rule.commissionFor;
+    const who = `${rule.rank ? 'for one rank' : 'for every rank'}, ${rule.scope === 'own' ? 'own work' : rule.scope === 'branch' ? 'work of the branch' : 'work of the supervised branches'}`;
+    if (!st) notes.push(`${label} (${who}): paid nobody. No employee with this rule had any activity in ${monthName(month)} (check the rank and branches of the staff, and that the work was done under their employee code).`);
+    else if (rule.minEligibility !== undefined && rule.minEligibility !== null && st.best < rule.minEligibility) notes.push(`${label} (${who}): paid nobody. The best result was ${fmt(rule, st.best)} but the minimum is ${fmt(rule, rule.minEligibility)}.`);
+    else notes.push(`${label} (${who}): paid nobody. The best result was ${fmt(rule, st.best)} and no slab of the rule covers it.`);
   }
   await EmployeeCommission.deleteMany({ month });
   if (entries.length) await EmployeeCommission.insertMany(entries, { ordered: false });

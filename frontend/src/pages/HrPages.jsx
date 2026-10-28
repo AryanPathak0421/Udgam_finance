@@ -723,6 +723,28 @@ function LocationDialog({ item, onClose, onSaved }) {
   );
 }
 
+/** The time of the day an employee can mark the attendance in the app (Indian time). */
+function TimeDialog({ item, onClose, onSaved }) {
+  const toast = useToast();
+  const [f, setF] = useState({ from: item.time?.from || '09:00', to: item.time?.to || '10:00' });
+  const [errors, setErrors] = useState({});
+  const [busy, setBusy] = useState(false);
+  async function save(clear) {
+    setBusy(true); setErrors({});
+    try { await api.hr.setAttendanceTime(item.id, clear ? { clear: true } : f); toast.success(clear ? 'Attendance time removed: any time' : 'Attendance time saved'); onSaved(); } catch (err) { setErrors(err.errors || {}); toast.error(err.message); } finally { setBusy(false); }
+  }
+  return (
+    <Modal open title={`Attendance time — ${item.employeeCode} ${item.name}`} onClose={onClose} busy={busy}
+      footer={<><button className="btn" onClick={onClose} disabled={busy}>Close</button>{item.time && <button className="btn danger-outline" onClick={() => save(true)} disabled={busy}>Remove (any time)</button>}<button className="btn primary" onClick={() => save(false)} disabled={busy}>{busy ? 'Saving…' : 'Save'}</button></>}>
+      <p className="muted small" style={{ marginTop: 0 }}>The employee can mark the attendance in the app only between these two times (Indian time). Without a time the attendance can be marked at any time of the day.</p>
+      <div className="form-grid">
+        <FormField id="atf" label="Attendance opens" required error={errors.from}><input id="atf" type="time" value={f.from} onChange={(e) => setF((x) => ({ ...x, from: e.target.value }))} /></FormField>
+        <FormField id="att" label="Attendance closes" required error={errors.to}><input id="att" type="time" value={f.to} onChange={(e) => setF((x) => ({ ...x, to: e.target.value }))} /></FormField>
+      </div>
+    </Modal>
+  );
+}
+
 export function Attendance() {
   const toast = useToast();
   const [branch, setBranch] = useState('');
@@ -735,6 +757,7 @@ export function Attendance() {
   const [picked, setPicked] = useState(new Set());
   const [bulk, setBulk] = useState('leave');
   const [locating, setLocating] = useState(null);
+  const [timing, setTiming] = useState(null);
   useEffect(() => { setEdits({}); setPicked(new Set()); }, [list.data]);
   const items = list.data?.items || [];
   const changed = Object.keys(edits).length;
@@ -794,7 +817,7 @@ export function Attendance() {
             {shown.length === 0 && <div className="muted" style={{ padding: 12 }}>No employee matches the filter.</div>}
             <div className="table-wrap">
               <table className="data-table">
-                <thead><tr><th><input type="checkbox" aria-label="Select all shown" checked={allPicked} onChange={() => setPicked(allPicked ? new Set() : new Set(shown.map((i) => i.id)))} /></th><th>Employee</th><th>Branch</th><th>Location</th><th>Attendance</th><th>Marked</th><th>Remark</th></tr></thead>
+                <thead><tr><th><input type="checkbox" aria-label="Select all shown" checked={allPicked} onChange={() => setPicked(allPicked ? new Set() : new Set(shown.map((i) => i.id)))} /></th><th>Employee</th><th>Branch</th><th>Location</th><th>Attendance time</th><th>Attendance</th><th>Marked</th><th>Remark</th></tr></thead>
                 <tbody>
                   {shown.map((i) => {
                     const cur = edits[i.id]?.status ?? i.status;
@@ -804,6 +827,7 @@ export function Attendance() {
                         <td data-label="Employee"><strong>{i.employeeCode}</strong> {i.name}<div className="muted small">{i.designation || '—'}</div></td>
                         <td data-label="Branch">{branchLabel({ code: i.branch, name: i.branchName })}</td>
                         <td data-label="Location">{i.location ? <><div className="small">{i.location.lat.toFixed(5)}, {i.location.lng.toFixed(5)}</div><div className="muted small">within {i.location.radius} m</div></> : <span className="muted small">Not set</span>}<button className="btn sm" onClick={() => setLocating(i)}>{i.location ? 'Change' : 'Set'}</button></td>
+                        <td data-label="Attendance time">{i.time ? <div className="small">{i.time.from} – {i.time.to}</div> : <span className="muted small">Any time</span>}<button className="btn sm" onClick={() => setTiming(i)}>{i.time ? 'Change' : 'Set'}</button></td>
                         <td data-label="Attendance"><select aria-label={`Attendance of ${i.employeeCode}`} value={cur} onChange={(e) => setRow(i.id, { status: e.target.value })}>{ATT.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></td>
                         <td data-label="Marked">{i.status ? <><span className={`badge ${ATT_BADGE[i.status] || 'grey'}`}>{i.source === 'auto' ? 'Auto' : 'Manual'}</span>{i.source === 'auto' && i.firstActivity && <div className="muted small">{time(i.firstActivity)} – {time(i.lastActivity)}</div>}</> : '—'}</td>
                         <td data-label="Remark"><input aria-label={`Remark of ${i.employeeCode}`} value={edits[i.id]?.remark ?? i.remark} maxLength={100} onChange={(e) => setRow(i.id, { remark: e.target.value })} style={{ minWidth: 140 }} /></td>
@@ -817,6 +841,7 @@ export function Attendance() {
         )}
       </div>
       {locating && <LocationDialog item={locating} onClose={() => setLocating(null)} onSaved={() => { setLocating(null); list.load(); }} />}
+      {timing && <TimeDialog item={timing} onClose={() => setTiming(null)} onSaved={() => { setTiming(null); list.load(); }} />}
     </>
   );
 }

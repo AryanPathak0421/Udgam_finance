@@ -57,7 +57,7 @@ export default function DayClose() {
     setErrors({});
     try {
       await api.dayClose.submit({ branch, date: data.date, counts, remark });
-      toast.success(diff === 0 ? 'Day closed. It waits for the admin\'s approval.' : 'Day closed, but the denomination does not match the cashbook closing: the admin cannot approve it until it does.');
+      toast.success('Day closed. It waits for the admin\'s approval.');
       setCounts({});
       setRemark('');
       load();
@@ -130,8 +130,8 @@ export default function DayClose() {
                 </div>
                 {errors.counts && <div className="field-error">{errors.counts}</div>}
                 <FormField id="dcremark" label="Remark" hint="Optional"><input id="dcremark" value={remark} maxLength={200} onChange={(e) => setRemark(e.target.value)} /></FormField>
-                <button className="btn primary" onClick={submit} disabled={busy || total <= 0}>{busy ? 'Saving…' : 'Make the denomination and close the day'}</button>
-                {diff !== 0 && total > 0 && <div className="muted small" style={{ marginTop: 6 }}>The denomination does not match the closing. It can be saved, but the admin cannot approve it and the branch stays on {dmy(data.date)} until it matches.</div>}
+                <button className="btn primary" onClick={submit} disabled={busy || total <= 0 || diff !== 0} title={diff !== 0 && total > 0 ? 'The count must match the Cashbook closing' : ''}>{busy ? 'Saving…' : 'Make the denomination and close the day'}</button>
+                {diff !== 0 && total > 0 && <div className="notice warn" style={{ marginTop: 8 }}>The denomination is {diff > 0 ? 'more' : 'less'} than the Cashbook closing by {inr(Math.abs(diff))}. The day can be closed only when they match: count again, or correct the Cashbook entries of {dmy(data.date)} first.</div>}
               </>
             ) : data.waiting && (
               <div className="notice" style={{ marginTop: 12 }}>
