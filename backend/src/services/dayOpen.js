@@ -66,7 +66,7 @@ export async function assertDayOpen(branchId, date, user) {
   if (waiting) throw new HttpError(409, `The denomination of ${iso(waiting.date)} is waiting for the admin. Work continues after it is approved.`, { date: 'Waiting for the admin' });
   const working = await branchWorkingDate(branchId);
   if (working && date.getTime() !== working.getTime()) {
-    throw new HttpError(409, `This branch works on ${iso(working)} (the day after its last approved day close). Work cannot be made for ${iso(date)}.`, { date: `The branch works on ${iso(working)}` });
+    throw new HttpError(409, `This branch works on ${iso(working)} (its next open day). Work cannot be made for ${iso(date)}.`, { date: `The branch works on ${iso(working)}` });
   }
 }
 
