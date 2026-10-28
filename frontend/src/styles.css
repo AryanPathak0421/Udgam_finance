@@ -118,8 +118,19 @@ input:focus {
 .chart-box svg { width: 100%; height: auto; display: block; }
 /* a heading that is only on paper (the company and the title of what is printed) */
 .print-only { display: none; }
+/* paper: landscape A4, so that a page of tables is not squeezed into the narrow (phone) layout */
+@page { size: A4 landscape; margin: 8mm; }
 @media print {
+  html, body, .app-shell, .main, .content { background: #fff !important; }
   .print-only { display: block !important; margin-bottom: 8px; }
+  /* tables stay tables on paper: no card per row */
+  .data-table { display: table !important; width: 100% !important; font-size: 11px; }
+  .data-table thead { display: table-header-group !important; }
+  .data-table tbody { display: table-row-group !important; }
+  .data-table tr { display: table-row !important; border: 0 !important; padding: 0 !important; margin: 0 !important; page-break-inside: avoid; }
+  .data-table th, .data-table td { display: table-cell !important; width: auto !important; text-align: left; padding: 3px 6px !important; border: 1px solid #bbb !important; }
+  .data-table td.num, .data-table th.num { text-align: right !important; }
+  .data-table td::before { content: none !important; }
   .sidebar, .header, .toolbar, .pagination, .no-print, .btn { display: none !important; }
   .main, .app-shell.is-collapsed .main { margin-left: 0 !important; }
   .panel { box-shadow: none !important; border: 0 !important; }

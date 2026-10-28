@@ -130,8 +130,8 @@ export default function DayClose() {
                 </div>
                 {errors.counts && <div className="field-error">{errors.counts}</div>}
                 <FormField id="dcremark" label="Remark" hint="Optional"><input id="dcremark" value={remark} maxLength={200} onChange={(e) => setRemark(e.target.value)} /></FormField>
-                <button className="btn primary" onClick={submit} disabled={busy || total <= 0 || diff !== 0} title={diff !== 0 && total > 0 ? 'The count must match the Cashbook closing' : ''}>{busy ? 'Saving…' : 'Make the denomination and close the day'}</button>
-                {diff !== 0 && total > 0 && <div className="notice warn" style={{ marginTop: 8 }}>The denomination is {diff > 0 ? 'more' : 'less'} than the Cashbook closing by {inr(Math.abs(diff))}. The day can be closed only when they match: count again, or correct the Cashbook entries of {dmy(data.date)} first.</div>}
+                <button className="btn primary" onClick={submit} disabled={busy || diff !== 0} title={diff !== 0 ? 'The count must match the Cashbook closing' : ''}>{busy ? 'Saving…' : 'Make the denomination and close the day'}</button>
+                {diff !== 0 && <div className="notice warn" style={{ marginTop: 8 }}>The denomination is {diff > 0 ? 'more' : 'less'} than the Cashbook closing by {inr(Math.abs(diff))}. The day can be closed only when they match: count again, or correct the Cashbook entries of {dmy(data.date)} first.{closing < 0 ? ' The Cashbook closing is below zero (more cash was paid than received): enter the missing cash received (for example Cash fund) first.' : ''}</div>}
               </>
             ) : data.waiting && (
               <div className="notice" style={{ marginTop: 12 }}>

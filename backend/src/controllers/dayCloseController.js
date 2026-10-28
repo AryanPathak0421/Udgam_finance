@@ -98,12 +98,13 @@ export async function submit(req, res) {
   if (lastApproved) date = new Date(lastApproved.date.getTime() + DAY); // the branch goes date by date
   if (date > today) throw invalid({ date: 'A day can be closed only on or after that day' });
   const { counts, total } = readCounts(b.counts);
-  if (total <= 0) throw invalid({ counts: 'Enter the notes and coins you hold' });
   const cash = await cashOf(req, branch._id, date);
   // the day is closed only with a denomination that matches the cash closing of the Cashbook: a mismatched count would lock the day (no entry can be made) without the branch being able to correct it
+  // (a branch with no cash at all closes its day with a zero count)
   if (total !== cash.closing) {
     const diff = (total - cash.closing) / 100;
-    throw new HttpError(422, `The denomination ₹${total / 100} does not match the cash closing ₹${cash.closing / 100} of the Cashbook (${diff > 0 ? 'more' : 'less'} by ₹${Math.abs(diff)}). Count again, or correct the Cashbook; the day is not closed.`, { counts: `Difference ₹${diff}: the day is closed only when the count matches the Cashbook closing` });
+    const hint = cash.closing < 0 ? ' The Cashbook closing is below zero (more cash was paid than received): enter the missing cash received (for example Cash fund) first.' : total === 0 ? ' Enter the notes and coins you hold.' : '';
+    throw new HttpError(422, `The denomination ₹${total / 100} does not match the cash closing ₹${cash.closing / 100} of the Cashbook (${diff > 0 ? 'more' : 'less'} by ₹${Math.abs(diff)}). Count again, or correct the Cashbook; the day is not closed.${hint}`, { counts: `Difference ₹${diff}: the day is closed only when the count matches the Cashbook closing` });
   }
   const doc = {
     branch: branch._id, date, counts, denominationPaise: total, openingPaise: cash.opening, receiptsPaise: cash.receipts, paymentsPaise: cash.payments, closingPaise: cash.closing,

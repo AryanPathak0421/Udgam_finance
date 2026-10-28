@@ -230,7 +230,7 @@ const plain = (v) => {
 };
 const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 /** The collection sheet on paper: landscape, a header with the company, the date and the filters, a small table that repeats its heading on every page, totals and a sign column. */
-function printSheet({ title, company, rows, asOf, filters, columns, grouped, noun = 'borrower', period }) {
+function printSheet({ title, company, rows, asOf, filters, columns, grouped, noun = 'borrower', period, summaryText }) {
   const w = window.open('', '_blank', 'width=1200,height=900');
   if (!w) return false;
   const head = columns.map(([l, , n]) => `<th class="${n ? 'n' : ''}${l === 'Sign customer' ? ' sign' : ''}">${esc(l)}</th>`).join('');
@@ -261,8 +261,8 @@ function printSheet({ title, company, rows, asOf, filters, columns, grouped, nou
     tfoot td,.sub td{font-weight:700;background:#f3f5f6}.grp td{background:#dbe7ea;font-weight:700;font-size:10px;border-top:2px solid #264653}
   </style></head><body>
   <h1>${esc(company?.name || '')} — ${esc(title)}</h1>
-  <div class="sub">${esc(period || `As on ${dmy(asOf)}`)} · ${esc(filters)} · ${rows.length} ${noun}${rows.length === 1 ? '' : 's'}</div>
-  <table><thead><tr>${head}</tr></thead><tbody>${body}</tbody><tfoot><tr>${totalCells(rows, `Total (${rows.length})`)}</tr></tfoot></table>
+  <div class="sub">${esc(period || `As on ${dmy(asOf)}`)} · ${esc(filters)} · ${rows.length} ${noun}${rows.length === 1 ? '' : 's'}${summaryText ? ` · ${esc(summaryText)}` : ''}</div>
+  <table><thead><tr>${head}</tr></thead><tbody>${body}</tbody>${summaryText ? '' : `<tfoot><tr>${totalCells(rows, `Total (${rows.length})`)}</tr></tfoot>`}</table>
   <script>window.onload=function(){window.print()}</script></body></html>`);
   w.document.close();
   return true;
@@ -370,7 +370,7 @@ export function ReportPage({ name }) {
             const filters = [...(cfg.sheet ? [mode ? cap(mode) : 'Daily and weekly', mode !== 'daily' && weekday !== '' ? dayName(Number(weekday)) : 'All days'] : []), staff ? `Employee ${staff.toUpperCase()}` : 'All employees', branch ? 'One branch' : 'All branches'].join(' · ');
             const columns = !cfg.print ? cols.map(([l, f, n]) => [l, (r) => plain(f(r)), n]) : name === 'npa' ? NPA_PRINT : name === 'msme-collection-sheet' ? SHEET_MSME : name === 'group-collection-sheet' ? SHEET_GROUP : name === 'collection-sheet' ? SHEET_ALL : SHEET;
             const shown = cfg.print ? filters : [branch ? 'One branch' : 'All branches', status ? (cfg.statusLabel?.[status] || cap(status)) : '', search ? `Search “${search}”` : ''].filter(Boolean).join(' · ');
-            if (!printSheet({ title: cfg.title, company, rows, asOf: data.asOf || date, filters: shown, columns, grouped: Boolean(cfg.group), noun: cfg.print ? 'borrower' : 'row', period: !cfg.print && cfg.range ? `${dmy(from)} – ${dmy(to)}` : undefined })) toast.error('Allow pop-ups to print the report');
+            if (!printSheet({ title: cfg.title, company, rows, asOf: data.asOf || date, filters: shown, columns, grouped: Boolean(cfg.group), noun: cfg.print ? 'borrower' : 'row', period: !cfg.print && cfg.range ? `${dmy(from)} – ${dmy(to)}` : undefined, summaryText: cfg.print ? undefined : Object.entries(data.summary || {}).map(([k, v]) => `${SUMMARY_LABEL[k] || k} ${COUNT_KEYS.includes(k) ? v : inr(v)}`).join(' · ') })) toast.error('Allow pop-ups to print the report');
           }} disabled={!rows.length} title="Opens the report for printing; choose Save as PDF in the print window for a PDF">Print / PDF</button>
         </div>
         {loading && !data ? <Spinner label="Loading…" /> : error ? <ErrorState message={error} onRetry={load} /> : !data || rows.length === 0 ? (
@@ -437,7 +437,7 @@ export function LoanLedger() {
   const STATUS = { paid: 'green', due: 'danger', upcoming: 'grey', settled: 'grey' };
   return (
     <>
-      <PageHeader title="Loan Account Ledger" description="Enter the Loan ID to see the loan, every installment with what was paid, and every receipt." />
+      <div className="no-print"><PageHeader title="Loan Account Ledger" description="Enter the Loan ID to see the loan, every installment with what was paid, and every receipt." /></div>
       <div className="panel">
         <form className="toolbar" onSubmit={find} style={{ flexWrap: 'wrap' }}>
           <FormField id="lledger" label="Loan ID" error={error}><input id="lledger" value={loanId} onChange={(e) => setLoanId(e.target.value.toUpperCase())} placeholder="For example UDGRP647" style={{ minWidth: 220 }} /></FormField>
