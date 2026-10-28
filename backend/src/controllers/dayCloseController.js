@@ -165,7 +165,7 @@ export async function approve(req, res) {
   c.decidedAt = new Date();
   await c.save();
   await audit(req, { action: 'dayClose.approve', entity: 'DayClose', entityId: c._id, after: { branch: c.branch.code, date: iso(c.date), closing: c.closingPaise / 100 } });
-  res.json({ close: present(c, null), nextDate: iso(new Date(c.date.getTime() + DAY)) });
+  res.json({ close: present(c, null), nextDate: iso(await branchWorkingDate(c.branch._id)) });
 }
 
 /**

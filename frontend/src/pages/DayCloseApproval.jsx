@@ -204,7 +204,7 @@ export default function DayCloseApproval() {
       </Modal>
       <Modal open={Boolean(rejecting)} title="Cancel the day close" onClose={() => setRejecting(null)} busy={Boolean(busy)}
         footer={<><button className="btn" onClick={() => setRejecting(null)}>Close</button><button className="btn danger" onClick={reject} disabled={Boolean(busy)}>Cancel the day close</button></>}>
-        <p className="muted">{rejecting ? `${rejecting.branch?.code} · ${dmy(rejecting.date)}: the denomination is cancelled and the branch makes it again.` : ''}</p>
+        <p className="muted">{rejecting ? `${rejecting.branch?.code} · ${dmy(rejecting.date)}: the denomination is cancelled and the branch makes it again. Until then, and until you approve it, the branch can collect EMIs only.` : ''}</p>
         <FormField id="dcreason" label="Reason" required error={reasonError}><input id="dcreason" value={reason} maxLength={200} onChange={(e) => setReason(e.target.value)} /></FormField>
       </Modal>
     </>
