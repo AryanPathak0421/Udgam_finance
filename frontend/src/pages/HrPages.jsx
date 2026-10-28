@@ -134,6 +134,45 @@ const YesNo = ({ id, label, value, onChange, error, hint, className }) => (
   </FormField>
 );
 
+/**
+ * OTP check of a mobile number or an email typed in the registration form, before the employee is saved: Send OTP, type the code, Verify.
+ * The challenge of the verified value goes with the form (it marks the value verified when the employee is saved). Changing the value takes the check back.
+ */
+function OtpVerify({ channel, value, valid, verifiedBefore, onChallenge }) {
+  const [sent, setSent] = useState(null); // { challengeId, devOtp }
+  const [otp, setOtp] = useState('');
+  const [verified, setVerified] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const norm = String(value || '').trim().toLowerCase();
+  const done = Boolean(norm) && (verified === norm || verifiedBefore === norm);
+  useEffect(() => { setSent(null); setOtp(''); setMsg(''); if (verified && verified !== norm) { setVerified(''); onChallenge(''); } }, [norm]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!norm) return null;
+  if (done) return <div className="small" style={{ marginTop: 4 }}><span className="badge green">✓ {channel === 'mobile' ? 'Phone' : 'Email'} verified</span></div>;
+  if (!valid) return null;
+  async function send() {
+    setBusy(true); setMsg('');
+    try { const r = await api.hr.sendNewEmployeeOtp({ channel, value: norm }); setSent({ challengeId: r.challengeId, devOtp: r.devOtp }); setOtp(''); setMsg(`OTP sent to ${r.sentTo}`); } catch (err) { setMsg(err.errors?.mobile || err.errors?.email || err.message); } finally { setBusy(false); }
+  }
+  async function verify() {
+    setBusy(true); setMsg('');
+    try { await api.hr.verifyNewEmployeeOtp({ channel, value: norm, challengeId: sent.challengeId, otp }); setVerified(norm); onChallenge(sent.challengeId); setMsg(''); } catch (err) { setMsg(err.errors?.otp || err.message); } finally { setBusy(false); }
+  }
+  return (
+    <div className="small" style={{ marginTop: 4, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+      {!sent ? <button type="button" className="btn sm" onClick={send} disabled={busy}>{busy ? 'Sending…' : 'Send OTP to verify'}</button> : (
+        <>
+          <input aria-label={`${channel} OTP`} inputMode="numeric" placeholder="6-digit OTP" value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} style={{ width: 110 }} />
+          <button type="button" className="btn sm primary" onClick={verify} disabled={busy || otp.length !== 6}>Verify</button>
+          <button type="button" className="btn sm" onClick={send} disabled={busy}>Resend</button>
+        </>
+      )}
+      {sent?.devOtp && <span className="muted">dev OTP: {sent.devOtp}</span>}
+      {msg && <span className="muted">{msg}</span>}
+    </div>
+  );
+}
+
 function EmployeeForm({ item, onClose, onSaved }) {
   const toast = useToast();
   const [opts, setOpts] = useState({ departments: [], designations: [] });
@@ -143,6 +182,7 @@ function EmployeeForm({ item, onClose, onSaved }) {
   const [f, setF] = useState({
     user: '', name: item?.name || '', mobile: item?.mobile?.startsWith('X') ? '' : item?.mobile || '', email: item?.email || '', address: item?.address || '', department: item?.department?.id || '', designation: item?.designation?.id || '',
     branch: item?.branch?.id || '', supervisedBranches: (item?.supervisedBranches || []).map((b) => b.id), joiningDate: item?.joiningDate || today(), monthlySalary: item ? String(item.monthlySalary || '') : '', bankName: item?.bankName || '', ifsc: item?.ifsc || '', accountNumber: item?.accountNumber?.startsWith('X') ? '' : item?.accountNumber || '',
+    mobileChallengeId: '', emailChallengeId: '', homeTownPincode: '', aadhaarBackCopy: '',
     photo: '', homeTown: '', originalMarksheet: false, supervisor: item?.supervisor?.id || '', pfDeduction: false, esiDeduction: false, pfNumber: item?.pfNumber || '', uanNumber: item?.uanNumber || '', esiNumber: item?.esiNumber || '',
     aadhaarNo: '', aadhaarCopy: '', panNo: '', panCopy: '', drivingLicenceNo: '', drivingLicenceCopy: '', voterIdNo: '', voterIdCopy: '',
     pincode: '', state: '', district: '', area: '', fatherName: '', fatherMobile: '', motherName: '', maritalStatus: '',
@@ -152,6 +192,7 @@ function EmployeeForm({ item, onClose, onSaved }) {
   const [busy, setBusy] = useState(false);
   const [areas, setAreas] = useState([]);
   const [pinNote, setPinNote] = useState('');
+  const [homeNote, setHomeNote] = useState('');
   const [supDept, setSupDept] = useState('');
   const [supDes, setSupDes] = useState('');
   const [supList, setSupList] = useState(item?.supervisor ? [{ id: item.supervisor.id, employeeCode: item.supervisor.code, name: item.supervisor.name }] : []);
@@ -164,7 +205,7 @@ function EmployeeForm({ item, onClose, onSaved }) {
       api.hr.employee(item.id).then((r) => {
         const e = r.item;
         setF((x) => ({
-          ...x, ...Object.fromEntries(['photo', 'homeTown', 'originalMarksheet', 'pfDeduction', 'esiDeduction', 'pfNumber', 'uanNumber', 'esiNumber', 'aadhaarNo', 'aadhaarCopy', 'panNo', 'panCopy', 'drivingLicenceNo', 'drivingLicenceCopy', 'voterIdNo', 'voterIdCopy', 'pincode', 'state', 'district', 'area', 'fatherName', 'fatherMobile', 'motherName', 'maritalStatus', 'hasExperience', 'previousCompany', 'previousPost', 'relievingLetter', 'salarySlipCopy'].map((k) => [k, e[k] ?? x[k]])),
+          ...x, ...Object.fromEntries(['photo', 'homeTown', 'homeTownPincode', 'aadhaarBackCopy', 'originalMarksheet', 'pfDeduction', 'esiDeduction', 'pfNumber', 'uanNumber', 'esiNumber', 'aadhaarNo', 'aadhaarCopy', 'panNo', 'panCopy', 'drivingLicenceNo', 'drivingLicenceCopy', 'voterIdNo', 'voterIdCopy', 'pincode', 'state', 'district', 'area', 'fatherName', 'fatherMobile', 'motherName', 'maritalStatus', 'hasExperience', 'previousCompany', 'previousPost', 'relievingLetter', 'salarySlipCopy'].map((k) => [k, e[k] ?? x[k]])),
           fatherMobile: e.fatherMobile?.startsWith('X') ? '' : e.fatherMobile || '',
         }));
         setLoadingDetail(false);
@@ -194,6 +235,18 @@ function EmployeeForm({ item, onClose, onSaved }) {
       if (r.status === 'ok') { setF((x) => ({ ...x, state: r.state || '', district: r.district || r.postalDistrict || '', area: x.area || (r.areas?.[0] || '').trim() })); setAreas((r.areas || []).map((a) => a.trim())); } else setPinNote(r.status === 'invalid' ? 'This pincode was not found' : 'The location could not be fetched now, enter it by hand');
     } catch (err) { setPinNote(err.message); }
   }
+  // the home town (area, district, state) is found from its pincode and can still be corrected by hand
+  async function fetchHome(pin) {
+    setHomeNote('');
+    if (pin.length !== 6) return;
+    try {
+      const r = await api.hr.employeePincode(pin);
+      if (r.status === 'ok') {
+        const town = [...new Set([(r.areas?.[0] || '').trim(), r.district || r.postalDistrict || '', r.state || ''].filter(Boolean))].join(', ');
+        setF((x) => ({ ...x, homeTown: town.slice(0, 80) }));
+      } else setHomeNote(r.status === 'invalid' ? 'This pincode was not found' : 'The place of this pincode could not be looked up now; type the home town');
+    } catch (err) { setHomeNote(err.message); }
+  }
   async function save() {
     setBusy(true);
     setErrors({});
@@ -215,14 +268,14 @@ function EmployeeForm({ item, onClose, onSaved }) {
         )}
         {item && <FormField id="encode" label="Employee code"><input id="encode" value={item.employeeCode} readOnly /></FormField>}
         <FormField id="enname" label="Name" required error={errors.name}><input id="enname" value={f.name} maxLength={80} onChange={set('name')} /></FormField>
-        <FormField id="enmail" label="Email" error={errors.email}><input id="enmail" value={f.email} onChange={set('email')} /></FormField>
+        <FormField id="enmail" label="Email" error={errors.email}><input id="enmail" value={f.email} onChange={set('email')} /><OtpVerify channel="email" value={f.email} valid={/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(f.email.trim())} verifiedBefore={item?.emailVerified ? String(item.email || '').toLowerCase() : ''} onChallenge={(v) => setF((x) => ({ ...x, emailChallengeId: v }))} /></FormField>
         <FormField id="enbranch" label="Branch" required error={errors.branch}><select id="enbranch" value={f.branch} onChange={set('branch')}><option value="">Select</option>{branches.map((b) => <option key={b.id} value={b.id}>{b.code} — {b.name}</option>)}</select></FormField>
-        <FormField id="enmob" label="Phone no." error={errors.mobile}><input id="enmob" inputMode="numeric" value={f.mobile} onChange={digits('mobile', 10)} /></FormField>
+        <FormField id="enmob" label="Phone no." error={errors.mobile}><input id="enmob" inputMode="numeric" value={f.mobile} onChange={digits('mobile', 10)} /><OtpVerify channel="mobile" value={f.mobile} valid={/^[6-9]\d{9}$/.test(f.mobile)} verifiedBefore={item?.mobileVerified && item?.mobile && !String(item.mobile).startsWith('X') ? item.mobile : ''} onChallenge={(v) => setF((x) => ({ ...x, mobileChallengeId: v }))} /></FormField>
         <FormField id="endep" label="Department" error={errors.department}><select id="endep" value={f.department} onChange={(e) => { setF((x) => ({ ...x, department: e.target.value, designation: '' })); }}><option value="">None</option>{opts.departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></FormField>
         <FormField id="endes" label="Designation" error={errors.designation}><select id="endes" value={f.designation} onChange={set('designation')}><option value="">None</option>{desigs.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></FormField>
         <FormField id="enjoin" label="Date of joining" error={errors.joiningDate}><input id="enjoin" type="date" value={f.joiningDate} onChange={set('joiningDate')} /></FormField>
-        <FormField id="ensal" label="Monthly salary (₹)" error={errors.monthlySalary}><input id="ensal" inputMode="decimal" value={f.monthlySalary} onChange={(e) => setV('monthlySalary')(e.target.value.replace(/[^\d.]/g, ''))} /></FormField>
         <PhotoField id="enphoto" label="Photo" value={f.photo} error={errors.photo} onChange={setV('photo')} />
+        <FormField id="enhpin" label="Home town pincode" error={errors.homeTownPincode} hint={homeNote || 'Type the 6-digit pincode: the home town is filled in'}><input id="enhpin" inputMode="numeric" value={f.homeTownPincode} onChange={(e) => { const v = e.target.value.replace(/\D/g, '').slice(0, 6); setV('homeTownPincode')(v); fetchHome(v); }} /></FormField>
         <FormField id="enhome" label="Home town" error={errors.homeTown}><input id="enhome" value={f.homeTown} maxLength={80} onChange={set('homeTown')} /></FormField>
         <YesNo id="enmark" label="Original marksheet" value={f.originalMarksheet} onChange={setV('originalMarksheet')} hint="Yes when the original marksheet is kept with the company" />
 
@@ -250,7 +303,8 @@ function EmployeeForm({ item, onClose, onSaved }) {
 
         <Sec>Verification (all optional)</Sec>
         <FormField id="enaad" label="Aadhaar number" error={errors.aadhaarNo}><input id="enaad" inputMode="numeric" value={f.aadhaarNo} onChange={digits('aadhaarNo', 12)} /></FormField>
-        <PhotoField id="enaadc" label="Aadhaar copy" value={f.aadhaarCopy} error={errors.aadhaarCopy} onChange={setV('aadhaarCopy')} />
+        <PhotoField id="enaadc" label="Aadhaar front" value={f.aadhaarCopy} error={errors.aadhaarCopy} onChange={setV('aadhaarCopy')} />
+        <PhotoField id="enaadb" label="Aadhaar back" value={f.aadhaarBackCopy} error={errors.aadhaarBackCopy} onChange={setV('aadhaarBackCopy')} />
         <FormField id="enpan" label="PAN" error={errors.panNo}><input id="enpan" value={f.panNo} maxLength={10} onChange={(e) => setV('panNo')(e.target.value.toUpperCase())} /></FormField>
         <PhotoField id="enpanc" label="PAN copy" value={f.panCopy} error={errors.panCopy} onChange={setV('panCopy')} />
         <FormField id="endl" label="Driving licence no." error={errors.drivingLicenceNo}><input id="endl" value={f.drivingLicenceNo} maxLength={20} onChange={(e) => setV('drivingLicenceNo')(e.target.value.toUpperCase())} /></FormField>
@@ -365,7 +419,7 @@ function PendingVerification({ onClose }) {
   }
   return (
     <Modal open title="Pending verification" onClose={onClose} size="xl" footer={<button className="btn" onClick={onClose}>Close</button>}>
-      <p className="muted small" style={{ marginTop: 0 }}>The mobile number and the email are verified by an OTP, the documents (photo and Aadhaar copy) by hand. Once all are done the security amount is cut from the salary, in 1 to 5 months as set in Set Salary.</p>
+      <p className="muted small" style={{ marginTop: 0 }}>The mobile number and the email are verified by an OTP, the documents (photo and the front and back of the Aadhaar) by hand. Once all are done the security amount is cut from the salary, in 1 to 5 months as set in Set Salary.</p>
       <div className="toolbar" style={{ flexWrap: 'wrap' }}>
         <input type="search" placeholder="Search name, code, mobile, email" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search" style={{ minWidth: 220 }} />
         <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}><input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} /> Show verified too</label>
@@ -387,7 +441,7 @@ function PendingVerification({ onClose }) {
                     {e.documentsVerified ? <><span className="badge green">Verified</span> <button className="btn sm" onClick={() => docs(e, false)}>Undo</button></> : (
                       <>
                         <div className="muted small">{['photo', 'aadhaar', 'pan'].map((k) => `${k === 'aadhaar' ? 'Aadhaar' : k === 'pan' ? 'PAN' : 'Photo'} ${e.has[k] ? '✓' : '✗'}`).join(' · ')}</div>
-                        <button className="btn sm" onClick={() => docs(e, true)} disabled={!e.has.photo || !e.has.aadhaar} title={!e.has.photo || !e.has.aadhaar ? 'Upload the photo and the Aadhaar copy first (Edit)' : ''}>Mark verified</button>
+                        <button className="btn sm" onClick={() => docs(e, true)} disabled={!e.has.photo || !e.has.aadhaar || !e.has.aadhaarBack} title={!e.has.photo || !e.has.aadhaar || !e.has.aadhaarBack ? 'Upload the photo and the front and back of the Aadhaar first (Edit)' : ''}>Mark verified</button>
                       </>
                     )}
                   </td>

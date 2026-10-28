@@ -88,7 +88,9 @@ const complaintSchema = new mongoose.Schema(
     callerMobile: String,
     branch: ref('Branch'),
     memberCode: String,
-    category: { type: String, enum: ['loan', 'emi', 'staff', 'insurance', 'other'], default: 'other' },
+    category: { type: String, enum: ['loan', 'emi', 'staff', 'insurance', 'product', 'other'], default: 'other' },
+    loanId: { type: String, trim: true, uppercase: true }, // optional: the loan the complaint is about
+    productName: { type: String, trim: true }, // when the complaint is about a product
     // what the caller can tell about the member (all optional)
     husbandName: { type: String, trim: true },
     groupCode: { type: String, trim: true, uppercase: true },
@@ -97,6 +99,7 @@ const complaintSchema = new mongoose.Schema(
     description: { type: String, required: true },
     assignedTo: ref('Employee'),
     assignedToCode: String,
+    assignedToName: String,
     status: { type: String, enum: COMPLAINT_STATUS, default: 'open' },
     resolution: String,
     resolvedAt: Date,
@@ -209,8 +212,8 @@ changeSchema.index({ letterNo: 1 }, { unique: true });
 changeSchema.index({ employee: 1, effectiveDate: -1 });
 export const EmployeeChange = mongoose.model('EmployeeChange', changeSchema);
 
-// A target task: for a period (from date to date) the employees of a rank (or chosen employees) get targets: new members, D6, new groups and NPA recovery.
-// What is achieved is counted from the work in the system (D6 is entered by hand); what is still to do shows as pending (−).
+// A target task: for a period (from date to date) the employees of a rank (or chosen employees) get targets: new members, D6 (disbursements), new groups, product sell and NPA recovery.
+// What is achieved is counted from the work in the system (D6 from the loans paid out, product sell from the products sold under the employee code); what is still to do shows as pending (−).
 const targetTaskSchema = new mongoose.Schema(
   {
     fromDate: { type: Date, required: true },
@@ -219,7 +222,7 @@ const targetTaskSchema = new mongoose.Schema(
     rankName: String,
     branch: ref('Branch'),
     employees: [{ _id: false, employee: ref('Employee'), code: String, name: String, branch: ref('Branch'), d6Achieved: { type: Number, default: 0 } }],
-    targets: { newMember: { type: Number, default: 0 }, d6: { type: Number, default: 0 }, newGroup: { type: Number, default: 0 }, npaRecoveryPaise: { type: Number, default: 0 } },
+    targets: { newMember: { type: Number, default: 0 }, d6: { type: Number, default: 0 }, newGroup: { type: Number, default: 0 }, productSell: { type: Number, default: 0 }, npaRecoveryPaise: { type: Number, default: 0 } },
     remark: String,
     status: { type: String, enum: ['active', 'cancelled'], default: 'active' },
     createdByCode: String,

@@ -3,7 +3,7 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler as h } from '../utils/http.js';
 import {
   departments, designations, listEmployees, getEmployee, employeePincode, pendingVerification, supervisorTransfer, sendEmployeeOtp, verifyEmployeeOtp, verifyEmployeeDocuments, saveSalarySetup, employeeStaffOptions, createEmployee, updateEmployee, setEmployeeStatus, syncFromUsers, hrOptions,
-  hrBranchOptions, attendanceDay, markAttendance, setAttendanceLocation, punchAttendance, autoAttendance, generateSalary, listSalary, adjustSalary, sendSalary, paySalary, branchWiseSalary, monthWiseSalary, mySalarySlips,
+  hrBranchOptions, sendNewEmployeeOtp, verifyNewEmployeeOtp, attendanceDay, markAttendance, setAttendanceLocation, punchAttendance, autoAttendance, generateSalary, listSalary, adjustSalary, sendSalary, paySalary, branchWiseSalary, monthWiseSalary, mySalarySlips,
 } from '../controllers/hrController.js';
 
 const router = Router();
@@ -31,6 +31,8 @@ router.post('/hr/attendance/punch', requireAuth, h(punchAttendance));
 router.post('/app/attendance/punch', requireAuth, h(punchAttendance));
 router.post('/hr/supervisor-transfer', requireAuth, requireRole(...ADMIN), h(supervisorTransfer));
 router.get('/hr/employees/pending-verification', requireAuth, requireRole(...ADMIN), h(pendingVerification));
+router.post('/hr/employees/otp/send', requireAuth, requireRole(...ADMIN), h(sendNewEmployeeOtp));
+router.post('/hr/employees/otp/verify', requireAuth, requireRole(...ADMIN), h(verifyNewEmployeeOtp));
 router.post('/hr/employees/:id/otp', requireAuth, requireRole(...ADMIN), h(sendEmployeeOtp));
 router.post('/hr/employees/:id/otp/verify', requireAuth, requireRole(...ADMIN), h(verifyEmployeeOtp));
 router.post('/hr/employees/:id/verify-documents', requireAuth, requireRole(...ADMIN), h(verifyEmployeeDocuments));

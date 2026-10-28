@@ -30,6 +30,7 @@ function EmployeePick({ value, onChange, error, label = 'Employee', id = 'empick
   const [branches, setBranches] = useState([]);
   const [branch, setBranch] = useState(forced || '');
   const [emps, setEmps] = useState([]);
+  const [search, setSearch] = useState('');
   useEffect(() => { api.groups.branchOptions().then((r) => { setBranches(r.items); if (!forced && r.items.length === 1) setBranch(r.items[0].id); }).catch(() => {}); }, [forced]);
   useEffect(() => {
     // no branch chosen yet: the employees of all the branches are listed, so an employee can be found without choosing the branch first
@@ -44,11 +45,27 @@ function EmployeePick({ value, onChange, error, label = 'Employee', id = 'empick
         </FormField>
       )}
       <FormField id={id} label={label} required error={error}>
-        <select id={id} value={value} onChange={(e) => onChange(e.target.value)}><option value="">Select</option>{emps.map((e) => <option key={e.id} value={e.id}>{staffLabel(e)}</option>)}</select>
+        <input type="search" aria-label={`Search ${label}`} placeholder="Search: name, code or mobile" value={search} onChange={(e) => setSearch(e.target.value)} style={{ marginBottom: 6 }} />
+        <select id={id} value={value} onChange={(e) => onChange(e.target.value)}><option value="">Select</option>{emps.filter((e) => e.id === value || !search.trim() || [e.employeeCode, e.name, e.mobile].some((v) => String(v || '').toLowerCase().includes(search.trim().toLowerCase()))).map((e) => <option key={e.id} value={e.id}>{staffLabel(e)}</option>)}</select>
       </FormField>
     </>
   );
 }
+/** Finds an employee by typing (name, code or mobile); the employees of one branch when a branch is given, else of all the branches. The employee is optional. */
+function StaffPick({ id, label, branch, value, onChange, error, hint }) {
+  const [emps, setEmps] = useState([]);
+  const [search, setSearch] = useState('');
+  useEffect(() => { api.hr.employees({ branch: branch || '', status: 'active', pick: '1' }).then((r) => setEmps(r.items)).catch(() => {}); }, [branch]);
+  const q = search.trim().toLowerCase();
+  const shown = emps.filter((e) => e.id === value || !q || [e.employeeCode, e.name, e.mobile].some((v) => String(v || '').toLowerCase().includes(q)));
+  return (
+    <FormField id={id} label={label} error={error} hint={hint}>
+      <input type="search" aria-label={`Search ${label}`} placeholder="Search: name, code or mobile" value={search} onChange={(e) => setSearch(e.target.value)} style={{ marginBottom: 6 }} />
+      <select id={id} value={value || ''} onChange={(e) => onChange(e.target.value)}><option value="">Not chosen</option>{shown.map((e) => <option key={e.id} value={e.id}>{staffLabel(e)}</option>)}</select>
+    </FormField>
+  );
+}
+
 
 function FormModal({ title, onClose, onSave, busy, children, saveLabel = 'Save' }) {
   return (
@@ -185,7 +202,7 @@ export function RoomRent() {
   const metered = party?.kind === 'room' && party.meterIncluded;
   const units = metered && f.currentReading !== '' ? Math.round((num(f.currentReading) - party.lastReading) * 100) / 100 : 0;
   const electricity = metered ? Math.round(Math.max(units, 0) * party.perUnit * 100) / 100 : 0;
-  const rent = f.rent !== '' ? num(f.rent) : party ? party.amount : 0;
+  const rent = party ? party.amount : num(f.rent); // the rent set for a room owner / messenger from the list is not changed in the entry
   const total = Math.round((rent + electricity) * 100) / 100;
   async function viewPhoto(r) {
     try { const x = await api.hr.roomRentPhoto(r.id); const w = window.open('', '_blank'); if (w && x.photo) w.document.write(`<img src="${x.photo}" style="max-width:100%">`); } catch (err) { toast.error(err.message); }
@@ -236,7 +253,7 @@ export function RoomRent() {
             </FormField>
             <FormField id="rrm" label="Rent of the month" required error={sv.errors.month}><input id="rrm" type="month" value={f.month} onChange={set('month')} /></FormField>
             {!party && <FormField id="rrl" label="Name" required error={sv.errors.landlord}><input id="rrl" value={f.landlord} maxLength={80} onChange={set('landlord')} /></FormField>}
-            <FormField id="rra" label={party?.kind === 'messenger' ? 'Amount (₹)' : 'Rent (₹)'} required error={sv.errors.rent} hint={party ? `Set for ${party.name}: ${inr(party.amount)}` : ''}><input id="rra" inputMode="decimal" value={f.rent} placeholder={party ? String(party.amount) : ''} onChange={(e) => { setF((x) => ({ ...x, rent: decimal(e.target.value) })); sv.setErrors((x) => ({ ...x, rent: undefined })); }} /></FormField>
+            <FormField id="rra" label={party?.kind === 'messenger' ? 'Amount (₹)' : 'Rent (₹)'} required error={sv.errors.rent} hint={party ? `Fixed for ${party.name}: ${inr(party.amount)} (the admin changes it in Room owners / Messengers)` : ''}><input id="rra" inputMode="decimal" value={party ? String(party.amount) : f.rent} readOnly={Boolean(party)} onChange={(e) => { setF((x) => ({ ...x, rent: decimal(e.target.value) })); sv.setErrors((x) => ({ ...x, rent: undefined })); }} /></FormField>
             {metered && (
               <>
                 <FormField id="rrold" label="Old meter reading"><input id="rrold" value={party.lastReading} readOnly /></FormField>
@@ -266,7 +283,7 @@ const pendingBadge = (p, unit) => (p.pending > 0 ? <span className="badge danger
 function TargetForm({ onClose, onSaved }) {
   const toast = useToast();
   const [ranks, setRanks] = useState([]);
-  const [f, setF] = useState({ fromDate: today(), toDate: today(), rank: '', newMember: '', d6: '', newGroup: '', npaRecovery: '', remark: '' });
+  const [f, setF] = useState({ fromDate: today(), toDate: today(), rank: '', newMember: '', d6: '', newGroup: '', productSell: '', npaRecovery: '', remark: '' });
   const sv = useSaver(toast, onSaved);
   useEffect(() => { api.hr.targetOptions().then((r) => setRanks(r.ranks)).catch(() => {}); }, []);
   const set = (k) => (e) => { setF((x) => ({ ...x, [k]: e.target.value })); sv.setErrors((x) => ({ ...x, [k]: undefined })); };
@@ -278,8 +295,9 @@ function TargetForm({ onClose, onSaved }) {
         <FormField id="ttt" label="To date" required error={sv.errors.toDate}><input id="ttt" type="date" min={f.fromDate} value={f.toDate} onChange={set('toDate')} /></FormField>
         <FormField id="ttr" label="Rank" required className="span-2" error={sv.errors.rank} hint="Every working employee of this rank (in your branches) gets the task"><select id="ttr" value={f.rank} onChange={set('rank')}><option value="">Select rank</option>{ranks.map((r) => <option key={r.id} value={r.id}>{r.code} — {r.name}</option>)}</select></FormField>
         <FormField id="ttm" label="New member — target" error={sv.errors.newMember}><input id="ttm" inputMode="numeric" value={f.newMember} onChange={whole('newMember')} /></FormField>
-        <FormField id="ttd" label="D6 — target" error={sv.errors.d6} hint="Counted by hand"><input id="ttd" inputMode="numeric" value={f.d6} onChange={whole('d6')} /></FormField>
+        <FormField id="ttd" label="D6 (disbursement) — target" error={sv.errors.d6} hint="Counted from the loans paid out under the employee code"><input id="ttd" inputMode="numeric" value={f.d6} onChange={whole('d6')} /></FormField>
         <FormField id="ttg" label="New group — target" error={sv.errors.newGroup}><input id="ttg" inputMode="numeric" value={f.newGroup} onChange={whole('newGroup')} /></FormField>
+        <FormField id="ttps" label="Product sell — target" error={sv.errors.productSell} hint="Products sold (pieces given with the loans paid out) under the employee code"><input id="ttps" inputMode="numeric" value={f.productSell} onChange={whole('productSell')} /></FormField>
         <FormField id="ttn" label="NPA recovery — target (₹)" error={sv.errors.npaRecovery}><input id="ttn" inputMode="decimal" value={f.npaRecovery} onChange={(e) => setF((x) => ({ ...x, npaRecovery: e.target.value.replace(/[^\d.]/g, '') }))} /></FormField>
         <FormField id="ttk" label="Remark" className="span-2"><input id="ttk" value={f.remark} maxLength={300} onChange={set('remark')} /></FormField>
       </div>
@@ -295,16 +313,13 @@ function TargetTasks() {
   const [adding, setAdding] = useState(false);
   const [showOld, setShowOld] = useState(false);
   const items = list.data?.items || [];
-  async function d6(task, e, value) {
-    try { await api.hr.setTargetD6(task.id, { employee: e.id, achieved: value }); list.load(); old.load(); } catch (err) { toast.error(err.errors?.achieved || err.message); }
-  }
   async function cancel(task) {
     try { await api.hr.cancelTargetTask(task.id); toast.success('Task cancelled'); list.load(); old.load(); } catch (err) { toast.error(err.message); }
   }
   const oldItems = old.data?.items || [];
   return (
     <>
-      <PageHeader title="Target Task" description="Give a task for a period (from date to date) rank wise: new member, D6, new group and NPA recovery targets. What an employee has achieved is counted from the work done under the employee code; what is still to be done shows as pending (−) and goes down as the work is done." />
+      <PageHeader title="Target Task" description="Give a task for a period (from date to date) rank wise: new member, D6 (disbursement), new group, product sell and NPA recovery targets. What an employee has achieved is counted from the work done under the employee code; what is still to be done shows as pending (−) and goes down as the work is done." />
       <div className="panel">
         <div className="toolbar" style={{ flexWrap: 'wrap' }}>
           <label className="small muted" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>Month <input type="month" value={month} onChange={(e) => setMonth(e.target.value || monthNow())} aria-label="Month" /></label>
@@ -316,9 +331,9 @@ function TargetTasks() {
           <div className="notice" style={{ marginBottom: 12 }}>
             <strong>Employees with an old task still pending</strong>
             {oldItems.length === 0 ? <div className="muted small">None: every ended task is done.</div> : (
-              <div className="table-wrap"><table className="data-table"><thead><tr><th>Employee</th><th>Period</th><th className="num">New member</th><th className="num">D6</th><th className="num">New group</th><th className="num">NPA recovery</th></tr></thead><tbody>
+              <div className="table-wrap"><table className="data-table"><thead><tr><th>Employee</th><th>Period</th><th className="num">New member</th><th className="num">D6</th><th className="num">New group</th><th className="num">Product sell</th><th className="num">NPA recovery</th></tr></thead><tbody>
                 {oldItems.flatMap((e) => e.tasks.map((t, i) => (
-                  <tr key={`${e.code}${t.id}`}><td data-label="Employee">{i === 0 ? <><strong>{e.code}</strong> {e.name}</> : ''}</td><td data-label="Period">{dmy(t.from)} – {dmy(t.to)}</td><td data-label="New member" className="num">{t.newMember ? `−${t.newMember}` : '—'}</td><td data-label="D6" className="num">{t.d6 ? `−${t.d6}` : '—'}</td><td data-label="New group" className="num">{t.newGroup ? `−${t.newGroup}` : '—'}</td><td data-label="NPA recovery" className="num">{t.npaRecovery ? `−${inr(t.npaRecovery)}` : '—'}</td></tr>
+                  <tr key={`${e.code}${t.id}`}><td data-label="Employee">{i === 0 ? <><strong>{e.code}</strong> {e.name}</> : ''}</td><td data-label="Period">{dmy(t.from)} – {dmy(t.to)}</td><td data-label="New member" className="num">{t.newMember ? `−${t.newMember}` : '—'}</td><td data-label="D6" className="num">{t.d6 ? `−${t.d6}` : '—'}</td><td data-label="New group" className="num">{t.newGroup ? `−${t.newGroup}` : '—'}</td><td data-label="Product sell" className="num">{t.productSell ? `−${t.productSell}` : '—'}</td><td data-label="NPA recovery" className="num">{t.npaRecovery ? `−${inr(t.npaRecovery)}` : '—'}</td></tr>
                 )))}
               </tbody></table></div>
             )}
@@ -332,16 +347,17 @@ function TargetTasks() {
                 <span className="badge green">{t.summary.done} done</span><span className="badge danger">{t.summary.pending} pending</span>{t.status === 'cancelled' ? <Badge s="cancelled" /> : <button className="btn sm danger-outline" onClick={() => cancel(t)}>Cancel</button>}
               </div>
             </div>
-            <div className="muted small" style={{ margin: '6px 0' }}>Target: New member {t.targets.newMember} · D6 {t.targets.d6} · New group {t.targets.newGroup} · NPA recovery {inr(t.targets.npaRecovery)}</div>
+            <div className="muted small" style={{ margin: '6px 0' }}>Target: New member {t.targets.newMember} · D6 {t.targets.d6} · New group {t.targets.newGroup} · Product sell {t.targets.productSell || 0} · NPA recovery {inr(t.targets.npaRecovery)}</div>
             <div className="table-wrap"><table className="data-table">
-              <thead><tr><th>Employee</th><th className="num">New member</th><th className="num">D6</th><th className="num">New group</th><th className="num">NPA recovery</th><th>Status</th></tr></thead>
+              <thead><tr><th>Employee</th><th className="num">New member</th><th className="num">D6</th><th className="num">New group</th><th className="num">Product sell</th><th className="num">NPA recovery</th><th>Status</th></tr></thead>
               <tbody>
                 {t.employees.map((e) => (
                   <tr key={e.id}>
                     <td data-label="Employee"><strong>{e.code}</strong> {e.name}</td>
                     <td data-label="New member" className="num">{e.newMember.achieved}/{e.newMember.target} {pendingBadge(e.newMember)}</td>
-                    <td data-label="D6" className="num"><input aria-label={`D6 of ${e.code}`} inputMode="numeric" defaultValue={e.d6.achieved} disabled={t.status === 'cancelled'} onBlur={(ev) => { const v = ev.target.value.replace(/\D/g, ''); if (v !== '' && Number(v) !== e.d6.achieved) d6(t, e, Number(v)); }} style={{ width: 56, textAlign: 'right' }} />/{e.d6.target} {pendingBadge(e.d6)}</td>
+                    <td data-label="D6" className="num">{e.d6.achieved}/{e.d6.target} {pendingBadge(e.d6)}</td>
                     <td data-label="New group" className="num">{e.newGroup.achieved}/{e.newGroup.target} {pendingBadge(e.newGroup)}</td>
+                    <td data-label="Product sell" className="num">{e.productSell.achieved}/{e.productSell.target} {pendingBadge(e.productSell)}</td>
                     <td data-label="NPA recovery" className="num">{inr(e.npaRecovery.achieved)}/{inr(e.npaRecovery.target)} {pendingBadge(e.npaRecovery, 'inr')}</td>
                     <td data-label="Status"><span className={`badge ${e.status === 'done' ? 'green' : 'amber'}`}>{e.status === 'done' ? 'Done' : 'Pending'}</span></td>
                   </tr>
@@ -441,7 +457,7 @@ function PlainTasks() {
 
 // ---------------------------------------------------------------------------------------------------------------------------
 // Toll free complaint entry
-const CATS = [['loan', 'Loan'], ['emi', 'EMI'], ['staff', 'Staff behaviour'], ['insurance', 'Insurance'], ['other', 'Other']];
+const CATS = [['loan', 'Loan'], ['emi', 'EMI'], ['staff', 'Staff behaviour'], ['insurance', 'Insurance'], ['product', 'Product'], ['other', 'Other']];
 export function Complaints() {
   const toast = useToast();
   const [branch, setBranch] = useState('');
@@ -471,7 +487,7 @@ export function Complaints() {
           <Dates from={from} setFrom={setFrom} to={to} setTo={setTo} />
           <input type="search" placeholder="Search" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search" />
           <Refresh onClick={list.load} loading={list.loading} />
-          <button className="btn primary" onClick={() => { setF({ date: today(), callerName: '', callerMobile: '', branch: '', memberCode: '', husbandName: '', groupCode: '', groupName: '', groupLeaderName: '', category: 'other', description: '', assignedTo: '' }); sv.setErrors({}); setAdding(true); }}>New complaint</button>
+          <button className="btn primary" onClick={() => { setF({ date: today(), callerName: '', callerMobile: '', branch: '', memberCode: '', husbandName: '', groupCode: '', groupName: '', groupLeaderName: '', category: 'other', loanId: '', productName: '', description: '', assignedTo: '' }); sv.setErrors({}); setAdding(true); }}>New complaint</button>
         </div>
         <Body list={list} empty="No complaint for these dates.">{() => (<>
           <Summary items={[['Complaints', s.complaints], ['Open', s.open], ['In progress', s.inProgress], ['Resolved', s.resolved]]} />
@@ -483,8 +499,8 @@ export function Complaints() {
                   <tr key={c.id}>
                     <td data-label="Complaint"><strong>{c.complaintNo}</strong><div className="muted small">{dmy(c.date)}</div></td>
                     <td data-label="Caller">{c.callerName}<div className="muted small">{c.callerMobile}</div>{c.husbandName && <div className="muted small">Husband: {c.husbandName}</div>}{(c.groupCode || c.groupName) && <div className="muted small">Group: {[c.groupCode, c.groupName].filter(Boolean).join(' · ')}{c.groupLeaderName ? ` · Leader ${c.groupLeaderName}` : ''}</div>}</td>
-                    <td data-label="About">{cap(c.category)}{c.memberCode ? ` · ${c.memberCode}` : ''}<div className="muted small">{c.description}</div></td>
-                    <td data-label="Branch">{branchLabel(c.branch)}</td><td data-label="Looked into by">{c.assignedTo || '—'}</td>
+                    <td data-label="About">{cap(c.category)}{c.memberCode ? ` · ${c.memberCode}` : ''}{c.productName && <div className="muted small">Product: {c.productName}</div>}{c.loanId && <div className="muted small">Loan ID: {c.loanId}</div>}<div className="muted small">{c.description}</div></td>
+                    <td data-label="Branch">{branchLabel(c.branch)}</td><td data-label="Looked into by">{c.assignedToName ? <>{c.assignedToName}<div className="muted small">{c.assignedTo}</div></> : c.assignedTo || '—'}</td>
                     <td data-label="Status"><Badge s={c.status} />{c.resolution && <div className="muted small">{c.resolution}</div>}</td>
                     <td><button className="btn sm" onClick={() => { setEditing(c); setNext({ status: '', resolution: '', assignedTo: '' }); sv.setErrors({}); }}>Update</button></td>
                   </tr>
@@ -507,8 +523,10 @@ export function Complaints() {
             <FormField id="cpgn" label="Group name" hint="Optional"><input id="cpgn" value={f.groupName} maxLength={80} onChange={set('groupName')} /></FormField>
             <FormField id="cpgl" label="Group leader name" hint="Optional"><input id="cpgl" value={f.groupLeaderName} maxLength={80} onChange={set('groupLeaderName')} /></FormField>
             <FormField id="cpc" label="About" error={sv.errors.category}><select id="cpc" value={f.category} onChange={set('category')}>{CATS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></FormField>
+            <FormField id="cpln" label="Loan ID" hint="Optional" error={sv.errors.loanId}><input id="cpln" value={f.loanId} maxLength={40} onChange={(e) => setF((x) => ({ ...x, loanId: e.target.value.toUpperCase() }))} /></FormField>
+            {f.category === 'product' && <FormField id="cppn" label="Product name" required error={sv.errors.productName}><input id="cppn" value={f.productName} maxLength={100} onChange={set('productName')} /></FormField>}
             <FormField id="cpx" label="Complaint" required className="span-2" error={sv.errors.description}><input id="cpx" value={f.description} maxLength={1000} onChange={set('description')} /></FormField>
-            {f.branch && <EmployeePick id="cpa" branch={f.branch} value={f.assignedTo} onChange={(v) => setF((x) => ({ ...x, assignedTo: v }))} label="Looked into by" error={sv.errors.assignedTo} />}
+            <StaffPick id="cpa" branch={f.branch} value={f.assignedTo} onChange={(v) => setF((x) => ({ ...x, assignedTo: v }))} label="Looked into by" error={sv.errors.assignedTo} hint="Optional" />
           </div>
         </FormModal>
       )}
@@ -516,7 +534,7 @@ export function Complaints() {
         <FormModal title={`${editing.complaintNo} — update`} onClose={() => setEditing(null)} busy={sv.busy} saveLabel="Update" onSave={() => sv.run(() => api.hr.setComplaintStatus(editing.id, next), 'Complaint updated')}>
           <p className="muted">{editing.callerName} · {editing.description}</p>
           <FormField id="cust" label="Status" required error={sv.errors.status}><select id="cust" value={next.status} onChange={(e) => setNext((x) => ({ ...x, status: e.target.value }))}><option value="">Select</option>{['open', 'in_progress', 'resolved'].map((k) => <option key={k} value={k}>{cap(k)}</option>)}</select></FormField>
-          {editing.branch && <EmployeePick id="cuas" branch={editing.branch.id} value={next.assignedTo} onChange={(v) => setNext((x) => ({ ...x, assignedTo: v }))} label="Looked into by" onlyActive />}
+          <StaffPick id="cuas" branch={editing.branch?.id} value={next.assignedTo} onChange={(v) => setNext((x) => ({ ...x, assignedTo: v }))} label="Looked into by" hint={editing.assignedToName ? `Now: ${editing.assignedToName}` : 'Optional'} />
           <FormField id="cures" label="What was done" error={sv.errors.resolution} hint="Required when resolving"><input id="cures" value={next.resolution} maxLength={500} onChange={(e) => setNext((x) => ({ ...x, resolution: e.target.value }))} /></FormField>
           {editing.history.length > 0 && <div className="muted small" style={{ marginTop: 8 }}>{editing.history.map((h, i) => <div key={i}>{dmy(h.at)} · {cap(h.status)}{h.remark ? ` — ${h.remark}` : ''} ({h.by})</div>)}</div>}
         </FormModal>
@@ -582,7 +600,7 @@ export function Requirements() {
             <FormField id="rqd" label="Department" error={sv.errors.department}><select id="rqd" value={f.department} onChange={set('department')}><option value="">Any</option>{opts.departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></FormField>
             <FormField id="rqs" label="Designation" error={sv.errors.designation}><select id="rqs" value={f.designation} onChange={set('designation')}><option value="">Any</option>{opts.designations.filter((d) => !f.department || !d.department || d.department === f.department).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></FormField>
             <FormField id="rqc" label="How many" required error={sv.errors.count}><input id="rqc" inputMode="numeric" value={f.count} onChange={(e) => setF((x) => ({ ...x, count: e.target.value.replace(/\D/g, '').slice(0, 3) }))} /></FormField>
-            <FormField id="rqby" label="Needed by" error={sv.errors.requiredBy}><input id="rqby" type="date" value={f.requiredBy} onChange={set('requiredBy')} /></FormField>
+            <FormField id="rqby" label="Needed by" error={sv.errors.requiredBy}><input id="rqby" type="date" min={today()} value={f.requiredBy} onChange={set('requiredBy')} /></FormField>
             <FormField id="rqet" label="Expected time" error={sv.errors.expectedTime} hint="In what time the employees should join, e.g. 15 days"><input id="rqet" value={f.expectedTime} maxLength={60} onChange={set('expectedTime')} /></FormField>
             <FormField id="rqr" label="Why" required className="span-2" error={sv.errors.reason}><input id="rqr" value={f.reason} maxLength={300} onChange={set('reason')} /></FormField>
           </div>
@@ -656,6 +674,40 @@ export function LeaveApply() {
   );
 }
 
+/** Approving a leave: the first and last day can be changed here (the days are counted again by the server), with an optional remark. */
+function ApproveLeave({ leave, onClose, onDone }) {
+  const toast = useToast();
+  const [from, setFrom] = useState(leave.from);
+  const [to, setTo] = useState(leave.to);
+  const [remark, setRemark] = useState('');
+  const [errors, setErrors] = useState({});
+  const [busy, setBusy] = useState(false);
+  const days = (() => {
+    if (!from || !to || to < from) return 0;
+    let n = 0;
+    for (let t = new Date(`${from}T00:00:00Z`).getTime(); t <= new Date(`${to}T00:00:00Z`).getTime(); t += 86400000) if (new Date(t).getUTCDay() !== 0) n += 1;
+    return n;
+  })();
+  const changed = from !== leave.from || to !== leave.to;
+  async function approve() {
+    setBusy(true);
+    setErrors({});
+    try { await api.hr.decideLeave(leave.id, { status: 'approved', reason: remark, from, to }); toast.success(`${leave.employeeCode}: leave approved${changed ? ' with the changed dates' : ''}. It is marked in the attendance.`); onDone(); } catch (err) { setErrors(err.errors || { to: err.message }); toast.error(err.message); } finally { setBusy(false); }
+  }
+  return (
+    <Modal open title="Approve the leave" onClose={onClose} busy={busy}
+      footer={<><button className="btn" onClick={onClose} disabled={busy}>Cancel</button><button className="btn primary" onClick={approve} disabled={busy || !days}>{busy ? 'Approving…' : 'Approve'}</button></>}>
+      <p className="muted">{leave.employeeCode} {leave.employeeName} applied for {dmy(leave.from)} – {dmy(leave.to)} ({leave.days} day{leave.days === 1 ? '' : 's'}). Change the dates here if the leave is given for other days.</p>
+      <div className="form-grid">
+        <FormField id="alf" label="From" error={errors.from}><input id="alf" type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></FormField>
+        <FormField id="alt" label="To" error={errors.to}><input id="alt" type="date" min={from} value={to} onChange={(e) => setTo(e.target.value)} /></FormField>
+        <FormField id="alr" label="Remark (optional)" className="span-2"><input id="alr" value={remark} maxLength={200} onChange={(e) => setRemark(e.target.value)} /></FormField>
+      </div>
+      <p className="small" style={{ margin: '8px 0 0' }}>{days ? <>{days} working day{days === 1 ? '' : 's'} (Sundays are not counted){changed ? <> — <strong>dates changed</strong></> : null}</> : 'Choose a valid first and last day'}</p>
+    </Modal>
+  );
+}
+
 export function LeaveApproval() {
   const toast = useToast();
   const [branch, setBranch] = useState('');
@@ -697,7 +749,7 @@ export function LeaveApproval() {
           </div>
         </>)}</Body>
       </div>
-      {approving && <ReasonModal title="Approve the leave" subject={`${approving.employeeCode} ${approving.employeeName}: ${dmy(approving.from)} – ${dmy(approving.to)} (${approving.days} day${approving.days === 1 ? '' : 's'})`} label="Remark (optional)" confirm="Approve" tone="primary" required={false} onClose={() => setApproving(null)} onSend={async (reason) => { await api.hr.decideLeave(approving.id, { status: 'approved', reason }); toast.success(`${approving.employeeCode}: leave approved. It is marked in the attendance.`); setApproving(null); list.load(); }} />}
+      {approving && <ApproveLeave leave={approving} onClose={() => setApproving(null)} onDone={() => { setApproving(null); list.load(); }} />}
       {rejecting && <ReasonModal title="Reject the leave" subject={`${rejecting.employeeCode} ${rejecting.employeeName}: ${dmy(rejecting.from)} – ${dmy(rejecting.to)}`} onClose={() => setRejecting(null)} onSend={async (reason) => { await api.hr.decideLeave(rejecting.id, { status: 'rejected', reason }); toast.success('Leave rejected'); setRejecting(null); list.load(); }} />}
     </>
   );
@@ -805,7 +857,8 @@ export function Letters() {
   const [company, setCompany] = useState(null);
   const [branch, setBranch] = useState('');
   useEffect(() => { api.hr.letterhead().then((r) => setCompany(r.company)).catch(() => {}); }, []);
-  useEffect(() => { if (branch) api.hr.employees({ branch, status: '' }).then((r) => setEmployees(r.items)).catch(() => {}); }, [branch]);
+  const [search, setSearch] = useState('');
+  useEffect(() => { api.hr.employees({ branch, status: '' }).then((r) => setEmployees(r.items)).catch(() => {}); }, [branch]);
   const e = employees.find((x) => x.id === emp);
   function compose() {
     const post = `${e.designation?.name || 'Employee'}${e.department ? ` in the ${e.department.name} department` : ''}`;
@@ -827,7 +880,10 @@ export function Letters() {
         {!company && <div className="notice" style={{ marginBottom: 8 }}>The Company Profile is not filled in yet (Admin Master → Company Profile). The letter will have no letterhead.</div>}
         <div className="form-grid">
           <BranchSelectField value={branch} onChange={(v) => { setBranch(v); setEmp(''); }} />
-          <FormField id="ltemp" label="Employee" required><select id="ltemp" value={emp} onChange={(ev) => setEmp(ev.target.value)}><option value="">{branch ? 'Select' : 'Select the branch first'}</option>{employees.map((x) => <option key={x.id} value={x.id}>{staffLabel(x)}</option>)}</select></FormField>
+          <FormField id="ltemp" label="Employee" required hint="Type a name, code or mobile to find the employee; the branch is optional">
+            <input type="search" aria-label="Search employee" placeholder="Search: name, code or mobile" value={search} onChange={(ev) => setSearch(ev.target.value)} style={{ marginBottom: 6 }} />
+            <select id="ltemp" value={emp} onChange={(ev) => setEmp(ev.target.value)}><option value="">Select</option>{employees.filter((x) => x.id === emp || !search.trim() || [x.employeeCode, x.name, x.mobile].some((v) => String(v || '').toLowerCase().includes(search.trim().toLowerCase()))).map((x) => <option key={x.id} value={x.id}>{staffLabel(x)}</option>)}</select>
+          </FormField>
         </div>
         {e && (
           <div style={{ border: '1px solid var(--border, #d8dee2)', borderRadius: 8, padding: 16, margin: '12px 0', maxWidth: 720 }}>
@@ -843,7 +899,7 @@ export function Letters() {
 function BranchSelectField({ value, onChange }) {
   const [branches, setBranches] = useState([]);
   useEffect(() => { api.groups.branchOptions().then((r) => { setBranches(r.items); if (r.items.length === 1) onChange(r.items[0].id); }).catch(() => {}); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  return <FormField id="ltbr" label="Branch" required><select id="ltbr" value={value} onChange={(e) => onChange(e.target.value)}><option value="">Select</option>{branches.map((b) => <option key={b.id} value={b.id}>{b.code} — {b.name}</option>)}</select></FormField>;
+  return <FormField id="ltbr" label="Branch" hint="Optional"><select id="ltbr" value={value} onChange={(e) => onChange(e.target.value)}><option value="">All branches</option>{branches.map((b) => <option key={b.id} value={b.id}>{b.code} — {b.name}</option>)}</select></FormField>;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------

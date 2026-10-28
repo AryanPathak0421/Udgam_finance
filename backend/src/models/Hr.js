@@ -48,6 +48,7 @@ const employeeSchema = new mongoose.Schema(
     accountNumber: String,
     // personal details
     homeTown: { type: String, trim: true },
+    homeTownPincode: String, // the home town is found from this pincode
     originalMarksheet: { type: Boolean, default: false }, // the original marksheet is kept with the company
     fatherName: { type: String, trim: true },
     fatherMobile: { type: String, trim: true },
@@ -73,7 +74,8 @@ const employeeSchema = new mongoose.Schema(
     drivingLicenceNo: { type: String, uppercase: true, trim: true },
     voterIdNo: { type: String, uppercase: true, trim: true },
     photo: { type: String, select: false },
-    aadhaarCopy: { type: String, select: false },
+    aadhaarCopy: { type: String, select: false }, // the front of the Aadhaar card
+    aadhaarBackCopy: { type: String, select: false },
     panCopy: { type: String, select: false },
     drivingLicenceCopy: { type: String, select: false },
     voterIdCopy: { type: String, select: false },

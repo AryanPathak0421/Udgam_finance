@@ -6,6 +6,7 @@ import { Rank } from '../models/Rank.js';
 import { Member } from '../models/Member.js';
 import { Group } from '../models/Group.js';
 import { EmiPayment } from '../models/EmiPayment.js';
+import { LoanPayment } from '../models/LoanPayment.js';
 import { elBalance, elBalances } from '../services/earnedLeave.js';
 import { notifyEmployee } from '../services/hrNotify.js';
 import { EARN_FIXED, fixedOf } from '../services/salaryLines.js';
@@ -122,9 +123,9 @@ export async function createRoomRent(req, res) {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw invalid({ month: 'Choose the month the rent is for' });
   const landlord = party ? party.name : asString(b.landlord).replace(/\s+/g, ' ');
   if (landlord.length < 2 || landlord.length > 80) throw invalid({ landlord: 'Enter the name of the landlord (2–80 characters)' });
-  // rent: what is typed; when nothing is typed, the amount set for the room owner / messenger
+  // rent: for a room owner / messenger from the list it is the amount set for them (it cannot be changed in the entry); for "other" it is what is typed
   const typed = b.rent !== undefined && b.rent !== '' ? b.rent : b.amount;
-  const rentPaise = readMoney(typed === undefined || typed === '' ? party ? party.amountPaise / 100 : '' : typed, 'rent', 'the rent');
+  const rentPaise = party ? party.amountPaise : readMoney(typed, 'rent', 'the rent');
   // the meter of a room with an electricity meter: units used since the last reading, at the rate per unit
   let meter = {};
   let electricityPaise = 0;
@@ -298,7 +299,7 @@ export async function setTaskStatus(req, res) {
 
 // ---- Toll free complaint entry ----------------------------------------------------------------------------------------------
 
-const presentComplaint = (c) => ({ id: c._id, complaintNo: c.complaintNo, date: iso(c.date), callerName: c.callerName, callerMobile: c.callerMobile || '', branch: brRef(c.branch), memberCode: c.memberCode || '', husbandName: c.husbandName || '', groupCode: c.groupCode || '', groupName: c.groupName || '', groupLeaderName: c.groupLeaderName || '', category: c.category, description: c.description, assignedTo: c.assignedToCode || '', status: c.status, resolution: c.resolution || '', resolvedAt: c.resolvedAt, history: (c.history || []).map((h) => ({ status: h.status, remark: h.remark || '', by: h.byCode || '', at: h.at })), enteredBy: c.enteredByCode || '' });
+const presentComplaint = (c) => ({ id: c._id, complaintNo: c.complaintNo, date: iso(c.date), callerName: c.callerName, callerMobile: c.callerMobile || '', branch: brRef(c.branch), memberCode: c.memberCode || '', husbandName: c.husbandName || '', groupCode: c.groupCode || '', groupName: c.groupName || '', groupLeaderName: c.groupLeaderName || '', category: c.category, description: c.description, assignedTo: c.assignedToCode || '', assignedToName: c.assignedToName || '', loanId: c.loanId || '', productName: c.productName || '', status: c.status, resolution: c.resolution || '', resolvedAt: c.resolvedAt, history: (c.history || []).map((h) => ({ status: h.status, remark: h.remark || '', by: h.byCode || '', at: h.at })), enteredBy: c.enteredByCode || '' });
 
 export async function listComplaints(req, res) {
   const filter = { ...dateRange(req, 'date') };
@@ -321,7 +322,11 @@ export async function createComplaint(req, res) {
   const description = asString(b.description);
   if (description.length < 5 || description.length > 1000) throw invalid({ description: 'Write the complaint (5–1000 characters)' });
   const category = asString(b.category) || 'other';
-  if (!['loan', 'emi', 'staff', 'insurance', 'other'].includes(category)) throw invalid({ category: 'Choose the kind of complaint' });
+  if (!['loan', 'emi', 'staff', 'insurance', 'product', 'other'].includes(category)) throw invalid({ category: 'Choose the kind of complaint' });
+  const loanId = asString(b.loanId).toUpperCase().replace(/\s+/g, '');
+  if (loanId && !/^[A-Z0-9/-]{3,40}$/.test(loanId)) throw invalid({ loanId: 'Enter a valid Loan ID (letters, digits, - or /), or leave it empty' });
+  const productName = category === 'product' ? asString(b.productName).replace(/\s+/g, ' ').slice(0, 100) : '';
+  if (category === 'product' && productName.length < 2) throw invalid({ productName: 'Enter the name of the product' });
   let branch;
   if (asString(b.branch)) branch = await branchOf(req, asString(b.branch));
   else if (!isAdmin(req.user)) branch = await branchOf(req, '');
@@ -329,7 +334,7 @@ export async function createComplaint(req, res) {
   if (asString(b.assignedTo)) assigned = await employeeOf(req, b.assignedTo, 'assignedTo');
   const c = await Complaint.create({
     complaintNo: await generateCode('complaint'), date: b.date ? readDate(b.date, 'date', { future: false }) : startOfToday(), callerName, callerMobile, branch, memberCode: asString(b.memberCode).toUpperCase().slice(0, 30), husbandName: asString(b.husbandName).replace(/\s+/g, ' ').slice(0, 80), groupCode: asString(b.groupCode).toUpperCase().slice(0, 30), groupName: asString(b.groupName).replace(/\s+/g, ' ').slice(0, 80), groupLeaderName: asString(b.groupLeaderName).replace(/\s+/g, ' ').slice(0, 80), category, description,
-    assignedTo: assigned?._id, assignedToCode: assigned?.employeeCode, status: 'open', history: [{ status: 'open', remark: 'Complaint entered', byCode: req.user.employeeCode || '', at: new Date() }], enteredByCode: req.user.employeeCode || '',
+    assignedTo: assigned?._id, assignedToCode: assigned?.employeeCode, assignedToName: assigned?.name, loanId, productName, status: 'open', history: [{ status: 'open', remark: 'Complaint entered', byCode: req.user.employeeCode || '', at: new Date() }], enteredByCode: req.user.employeeCode || '',
   });
   await c.populate(POP_BRANCH);
   await audit(req, { action: 'complaint.create', entity: 'Complaint', entityId: c._id, after: { complaintNo: c.complaintNo, category } });
@@ -347,6 +352,7 @@ export async function setComplaintStatus(req, res) {
     const e = await employeeOf(req, req.body.assignedTo, 'assignedTo');
     c.assignedTo = e._id;
     c.assignedToCode = e.employeeCode;
+    c.assignedToName = e.name;
   }
   c.status = status;
   if (status === 'resolved') { c.resolution = resolution; c.resolvedAt = new Date(); }
@@ -381,7 +387,9 @@ export async function createRequirement(req, res) {
   }
   const reason = asString(b.reason).slice(0, 300);
   if (reason.length < 3) throw invalid({ reason: 'Write why the employees are needed' });
-  const r = await Requirement.create({ reqNo: await generateCode('empRequirement'), branch, ...ids, count, reason, requiredBy: b.requiredBy ? readDate(b.requiredBy, 'requiredBy') : undefined, expectedTime: asString(b.expectedTime).replace(/\s+/g, ' ').slice(0, 60), requestedByCode: req.user.employeeCode || '' });
+  const requiredBy = b.requiredBy ? readDate(b.requiredBy, 'requiredBy') : undefined;
+  if (requiredBy && requiredBy < startOfToday()) throw invalid({ requiredBy: 'A back date is not allowed: choose today or a later date' });
+  const r = await Requirement.create({ reqNo: await generateCode('empRequirement'), branch, ...ids, count, reason, requiredBy: requiredBy || undefined, expectedTime: asString(b.expectedTime).replace(/\s+/g, ' ').slice(0, 60), requestedByCode: req.user.employeeCode || '' });
   await r.populate(REQ_POP);
   await audit(req, { action: 'requirement.create', entity: 'Requirement', entityId: r._id, after: { reqNo: r.reqNo, count } });
   res.status(201).json({ item: presentReq(r) });
@@ -468,7 +476,26 @@ export async function decideLeave(req, res) {
   if (!['approved', 'rejected'].includes(status)) throw invalid({ status: 'Choose approve or reject' });
   const reason = asString(req.body?.reason).slice(0, 200);
   if (status === 'rejected' && reason.length < 3) throw invalid({ reason: 'Enter the reason' });
-  l.status = status; l.decidedByCode = req.user.employeeCode || ''; l.decidedAt = new Date(); l.rejectReason = status === 'rejected' ? reason : undefined; l.decisionRemark = status === 'approved' ? reason : undefined;
+  let changed = '';
+  if (status === 'approved' && (req.body?.from || req.body?.to)) {
+    // the dates can be changed when the leave is approved: they must still be a valid leave of the employee (EL available, no clash with another leave)
+    const from = readDate(req.body.from || iso(l.from), 'from');
+    const to = readDate(req.body.to || iso(l.to), 'to');
+    if (from.getTime() !== l.from.getTime() || to.getTime() !== l.to.getTime()) {
+      if (to < from) throw invalid({ to: 'The last day cannot be before the first day' });
+      if ((to.getTime() - from.getTime()) / DAY > 90) throw invalid({ to: 'A leave can be up to 90 days' });
+      const days = leaveDates(from, to).length;
+      if (!days) throw invalid({ to: 'These dates are only Sundays (the weekly off)' });
+      const e = await Employee.findById(l.employee);
+      const bal = e ? await elBalance(e) : null;
+      if (bal && days > bal.available) throw invalid({ to: `Only ${bal.available} EL available` });
+      const clash = await Leave.findOne({ _id: { $ne: l._id }, employee: l.employee, status: { $in: ['pending', 'approved'] }, from: { $lte: to }, to: { $gte: from } }).select('from to status').lean();
+      if (clash) throw new HttpError(409, `The employee already has a ${clash.status} leave from ${iso(clash.from)} to ${iso(clash.to)}`, { from: 'Overlaps another leave' });
+      changed = `dates changed from ${iso(l.from)} – ${iso(l.to)} (${l.days} days)`;
+      l.from = from; l.to = to; l.days = days;
+    }
+  }
+  l.status = status; l.decidedByCode = req.user.employeeCode || ''; l.decidedAt = new Date(); l.rejectReason = status === 'rejected' ? reason : undefined; l.decisionRemark = status === 'approved' ? [reason, changed].filter(Boolean).join(' · ') || undefined : undefined;
   await l.save();
   notifyEmployee(l.employee, `Leave ${status}`, `Your earned leave from ${iso(l.from)} to ${iso(l.to)} (${l.days} day${l.days === 1 ? '' : 's'}) is ${status}${reason ? `: ${reason}` : ''}.`);
   if (status === 'approved') {
@@ -670,18 +697,27 @@ export async function leaveBalances(req, res) {
 
 // ---- Target tasks ---------------------------------------------------------------------------------------------------------------------
 
-const TARGET_KEYS = ['newMember', 'd6', 'newGroup', 'npaRecovery'];
+const TARGET_KEYS = ['newMember', 'd6', 'newGroup', 'productSell', 'npaRecovery'];
 
-/** What the employees of a target task achieved in its period: members registered, groups opened and NPA recovered under their employee code. */
+/**
+ * What the employees of a target task achieved in its period, under their employee code: members registered, groups opened, loans paid out (D6: one for every borrower's loan),
+ * products sold (the pieces given with the loans paid out, product loans included) and NPA recovered.
+ */
 async function achievements(task) {
   const codes = task.employees.map((e) => e.code);
   const range = { $gte: task.fromDate, $lte: task.toDate };
-  const [mem, grp, npa] = await Promise.all([
+  const [mem, grp, npa, disb] = await Promise.all([
     Member.aggregate([{ $match: { isDeleted: false, employeeCode: { $in: codes }, joiningDate: range } }, { $group: { _id: '$employeeCode', n: { $sum: 1 } } }]),
     Group.aggregate([{ $match: { isDeleted: false, employeeCode: { $in: codes }, openingDate: range } }, { $group: { _id: '$employeeCode', n: { $sum: 1 } } }]),
     EmiPayment.aggregate([{ $match: { status: 'paid', npa: true, employeeCode: { $in: codes }, paidOn: range } }, { $group: { _id: '$employeeCode', t: { $sum: '$amountPaise' } } }]),
+    LoanPayment.aggregate([
+      { $match: { status: 'paid', employeeCode: { $in: codes }, paidOn: range } },
+      { $project: { employeeCode: 1, lines: { $map: { input: '$lines', as: 'l', in: { qty: { $reduce: { input: { $ifNull: ['$$l.products', []] }, initialValue: 0, in: { $add: ['$$value', { $ifNull: ['$$this.quantity', 0] }] } } } } } } } },
+      { $unwind: '$lines' },
+      { $group: { _id: '$employeeCode', loans: { $sum: 1 }, pieces: { $sum: '$lines.qty' } } },
+    ]),
   ]);
-  return { mem: new Map(mem.map((r) => [r._id, r.n])), grp: new Map(grp.map((r) => [r._id, r.n])), npa: new Map(npa.map((r) => [r._id, r.t])) };
+  return { mem: new Map(mem.map((r) => [r._id, r.n])), grp: new Map(grp.map((r) => [r._id, r.n])), npa: new Map(npa.map((r) => [r._id, r.t])), d6: new Map(disb.map((r) => [r._id, r.loans])), product: new Map(disb.map((r) => [r._id, r.pieces])) };
 }
 
 /** One task with the result of every employee: target, achieved and what is pending (shown as −). */
@@ -691,14 +727,14 @@ async function presentTarget(t, allowed) {
   const employees = t.employees.filter((e) => !allowed || allowed.has(String(e.branch))).map((e) => {
     const line = (target, achieved) => ({ target, achieved, pending: Math.max(target - achieved, 0) });
     const r = {
-      newMember: line(tg.newMember || 0, a.mem.get(e.code) || 0), d6: line(tg.d6 || 0, e.d6Achieved || 0), newGroup: line(tg.newGroup || 0, a.grp.get(e.code) || 0), npaRecovery: line(rupees(tg.npaRecoveryPaise), rupees(a.npa.get(e.code) || 0)),
+      newMember: line(tg.newMember || 0, a.mem.get(e.code) || 0), d6: line(tg.d6 || 0, Math.max(a.d6.get(e.code) || 0, e.d6Achieved || 0)), newGroup: line(tg.newGroup || 0, a.grp.get(e.code) || 0), productSell: line(tg.productSell || 0, a.product.get(e.code) || 0), npaRecovery: line(rupees(tg.npaRecoveryPaise), rupees(a.npa.get(e.code) || 0)),
     };
     const done = TARGET_KEYS.every((k) => r[k].pending === 0);
     return { id: e.employee, code: e.code, name: e.name, branch: String(e.branch || ''), ...r, status: done ? 'done' : 'pending' };
   });
   return {
     id: t._id, fromDate: iso(t.fromDate), toDate: iso(t.toDate), rank: t.rankName || '', status: t.status, remark: t.remark || '', by: t.createdByCode || '', ended: t.toDate < startOfToday(),
-    targets: { newMember: tg.newMember || 0, d6: tg.d6 || 0, newGroup: tg.newGroup || 0, npaRecovery: rupees(tg.npaRecoveryPaise) }, employees,
+    targets: { newMember: tg.newMember || 0, d6: tg.d6 || 0, newGroup: tg.newGroup || 0, productSell: tg.productSell || 0, npaRecovery: rupees(tg.npaRecoveryPaise) }, employees,
     summary: { employees: employees.length, done: employees.filter((x) => x.status === 'done').length, pending: employees.filter((x) => x.status === 'pending').length },
   };
 }
@@ -722,8 +758,8 @@ export async function createTargetTask(req, res) {
   };
   const npaRecoveryPaise = b.npaRecovery === '' || b.npaRecovery === undefined ? 0 : toMinor(typeof b.npaRecovery === 'number' ? String(b.npaRecovery) : asString(b.npaRecovery));
   if (npaRecoveryPaise === null || npaRecoveryPaise < 0) throw invalid({ npaRecovery: 'Enter the target amount (₹)' });
-  const targets = { newMember: count(b.newMember, 'newMember'), d6: count(b.d6, 'd6'), newGroup: count(b.newGroup, 'newGroup'), npaRecoveryPaise };
-  if (!targets.newMember && !targets.d6 && !targets.newGroup && !targets.npaRecoveryPaise) throw invalid({ newMember: 'Give at least one target' });
+  const targets = { newMember: count(b.newMember, 'newMember'), d6: count(b.d6, 'd6'), newGroup: count(b.newGroup, 'newGroup'), productSell: count(b.productSell, 'productSell'), npaRecoveryPaise };
+  if (!targets.newMember && !targets.d6 && !targets.newGroup && !targets.productSell && !targets.npaRecoveryPaise) throw invalid({ newMember: 'Give at least one target' });
   // the employees: every working employee of the rank (their staff login has the rank), and/or the ones chosen
   const filter = { isDeleted: false, status: 'active', ...branchFilter(req.user) };
   if (oid(asString(b.branch))) filter.branch = new mongoose.Types.ObjectId(asString(b.branch));
@@ -777,14 +813,14 @@ export async function pendingOldTargets(req, res) {
     const p = await presentTarget(t, allowed);
     p.employees.filter((e) => e.status === 'pending').forEach((e) => {
       const v = by.get(e.code) || { code: e.code, name: e.name, tasks: [] };
-      v.tasks.push({ id: p.id, from: p.fromDate, to: p.toDate, newMember: e.newMember.pending, d6: e.d6.pending, newGroup: e.newGroup.pending, npaRecovery: e.npaRecovery.pending });
+      v.tasks.push({ id: p.id, from: p.fromDate, to: p.toDate, newMember: e.newMember.pending, d6: e.d6.pending, newGroup: e.newGroup.pending, productSell: e.productSell.pending, npaRecovery: e.npaRecovery.pending });
       by.set(e.code, v);
     });
   }
   res.json({ items: [...by.values()].sort((a, b) => b.tasks.length - a.tasks.length) });
 }
 
-/** D6 has no figure in the system: what an employee did is entered by hand. */
+/** D6 is counted from the loans paid out; a figure entered by hand earlier still counts when it is higher. */
 export async function setTargetD6(req, res) {
   if (!oid(req.params.id)) throw new HttpError(404, 'Task not found');
   const n = Number(req.body?.achieved);

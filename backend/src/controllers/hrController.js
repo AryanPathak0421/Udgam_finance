@@ -17,7 +17,7 @@ import { Leave } from '../models/HrExtra.js';
 import { notifyEmployee } from '../services/hrNotify.js';
 import { ensureEmployees } from '../services/employeeSync.js';
 import { OtpChallenge } from '../models/OtpChallenge.js';
-import { issueOtp, hashOtp } from '../services/otpChallenges.js';
+import { issueOtp, hashOtp, takeVerified, consumeChallenge } from '../services/otpChallenges.js';
 import { sendMail, mailConfigured } from '../services/mailer.js';
 import { EARN_FIXED, ALL_LINES, SETUP_KEYS, setupAt, loadVariable, buildLines, totalsOf, legacyLines, fixedOf, isVerified } from '../services/salaryLines.js';
 import { audit } from '../utils/audit.js';
@@ -35,8 +35,8 @@ const MOBILE_RE = /^[6-9]\d{9}$/;
 const IFSC_RE = /^[A-Z]{4}0[A-Z0-9]{6}$/;
 const IMAGE_RE = /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/;
 const MAX_IMAGE_CHARS = 1_500_000;
-const EMP_IMAGES = ['photo', 'aadhaarCopy', 'panCopy', 'drivingLicenceCopy', 'voterIdCopy', 'relievingLetter', 'salarySlipCopy'];
-const EMP_IMAGE_LABEL = { photo: 'Photo', aadhaarCopy: 'Aadhaar copy', panCopy: 'PAN copy', drivingLicenceCopy: 'Driving licence copy', voterIdCopy: 'Voter ID copy', relievingLetter: 'Relieving letter', salarySlipCopy: 'Salary slip' };
+const EMP_IMAGES = ['photo', 'aadhaarCopy', 'aadhaarBackCopy', 'panCopy', 'drivingLicenceCopy', 'voterIdCopy', 'relievingLetter', 'salarySlipCopy'];
+const EMP_IMAGE_LABEL = { photo: 'Photo', aadhaarCopy: 'Aadhaar front copy', aadhaarBackCopy: 'Aadhaar back copy', panCopy: 'PAN copy', drivingLicenceCopy: 'Driving licence copy', voterIdCopy: 'Voter ID copy', relievingLetter: 'Relieving letter', salarySlipCopy: 'Salary slip' };
 const MARITAL = ['single', 'married', 'divorced', 'widowed'];
 const yes = (v) => v === true || v === 'yes' || v === 'true';
 
@@ -151,7 +151,7 @@ const presentEmployee = (e, user) => ({
   branch: e.branch?._id ? { id: e.branch._id, code: e.branch.code, name: e.branch.name } : null, joiningDate: iso(e.joiningDate), monthlySalary: rupees(e.monthlySalaryPaise),
   bankName: e.bankName || '', ifsc: e.ifsc || '', accountNumber: isAdmin(user) ? e.accountNumber || '' : e.accountNumber ? `XXXXX${String(e.accountNumber).slice(-4)}` : '',
   status: e.status, leftOn: iso(e.leftOn), hasLogin: Boolean(e.user), isBlocked: Boolean(e.isBlocked), blockReason: e.blockReason || '',
-  homeTown: e.homeTown || '', originalMarksheet: Boolean(e.originalMarksheet), fatherName: e.fatherName || '', fatherMobile: showMobile(user, e.fatherMobile) || '', motherName: e.motherName || '', maritalStatus: e.maritalStatus || '',
+  homeTown: e.homeTown || '', homeTownPincode: e.homeTownPincode || '', originalMarksheet: Boolean(e.originalMarksheet), fatherName: e.fatherName || '', fatherMobile: showMobile(user, e.fatherMobile) || '', motherName: e.motherName || '', maritalStatus: e.maritalStatus || '',
   pincode: e.pincode || '', state: e.state || '', district: e.district || '', area: e.area || '', pfDeduction: Boolean(e.pfDeduction), esiDeduction: Boolean(e.esiDeduction),
   aadhaarNo: e.aadhaarNo || '', panNo: e.panNo || '', drivingLicenceNo: e.drivingLicenceNo || '', voterIdNo: e.voterIdNo || '',
   hasExperience: Boolean(e.hasExperience), previousCompany: e.previousCompany || '', previousPost: e.previousPost || '',
@@ -216,7 +216,7 @@ export async function pendingVerification(req, res) {
   const rows = await Employee.find(filter).sort({ employeeCode: 1 }).limit(3000).populate(EMP_POPULATE).lean();
   const flags = new Map((await Employee.aggregate([
     { $match: { _id: { $in: rows.map((r) => r._id) } } },
-    { $project: { photo: { $gt: [{ $strLenCP: { $ifNull: ['$photo', ''] } }, 0] }, aadhaar: { $gt: [{ $strLenCP: { $ifNull: ['$aadhaarCopy', ''] } }, 0] }, pan: { $gt: [{ $strLenCP: { $ifNull: ['$panCopy', ''] } }, 0] } } },
+    { $project: { photo: { $gt: [{ $strLenCP: { $ifNull: ['$photo', ''] } }, 0] }, aadhaar: { $gt: [{ $strLenCP: { $ifNull: ['$aadhaarCopy', ''] } }, 0] }, aadhaarBack: { $gt: [{ $strLenCP: { $ifNull: ['$aadhaarBackCopy', ''] } }, 0] }, pan: { $gt: [{ $strLenCP: { $ifNull: ['$panCopy', ''] } }, 0] } } },
   ])).map((r) => [String(r._id), r]));
   const q = asString(req.query.q).toLowerCase();
   const all = asString(req.query.all) === '1';
@@ -229,7 +229,7 @@ export async function pendingVerification(req, res) {
     return {
       id: e._id, employeeCode: e.employeeCode, name: e.name, branch: e.branch?.code || '', branchName: e.branch?.name || '', mobile: e.mobile || '', email: e.email || '', pending,
       mobileVerified: Boolean(e.mobileVerifiedAt), emailVerified: Boolean(e.emailVerifiedAt), documentsVerified: Boolean(e.documentsVerifiedAt),
-      has: { photo: Boolean(fl.photo), aadhaar: Boolean(fl.aadhaar), pan: Boolean(fl.pan) }, securityAmount: rupees(e.securityAmountPaise), securityMonths: e.securityMonths || 1,
+      has: { photo: Boolean(fl.photo), aadhaar: Boolean(fl.aadhaar), aadhaarBack: Boolean(fl.aadhaarBack), pan: Boolean(fl.pan) }, securityAmount: rupees(e.securityAmountPaise), securityMonths: e.securityMonths || 1,
     };
   }).filter((x) => (all || x.pending.length) && (!q || [x.employeeCode, x.name, x.mobile, x.email].some((v) => String(v).toLowerCase().includes(q))));
   res.json({ items, summary: { pending: items.filter((x) => x.pending.length).length, mobile: items.filter((x) => x.pending.includes('mobile')).length, email: items.filter((x) => x.pending.includes('email')).length, documents: items.filter((x) => x.pending.includes('documents')).length } });
@@ -257,6 +257,62 @@ export async function sendEmployeeOtp(req, res) {
     dev = !sent;
   }
   res.json({ challengeId: challenge._id, sentTo: to, expiresAt: challenge.expiresAt, ...(dev && process.env.NODE_ENV !== 'production' ? { devOtp: otp } : {}) });
+}
+
+/**
+ * Registration: an OTP to the mobile number or the email typed in the form, before the employee is saved (the same OTP is used when a number is changed in Edit).
+ * The verified challenge is sent back with the form and marks the number verified when the employee is saved.
+ */
+export async function sendNewEmployeeOtp(req, res) {
+  const channel = channelOf(req);
+  const to = asString(req.body?.value).trim().toLowerCase();
+  if (channel === 'mobile' && !MOBILE_RE.test(to)) throw invalid({ mobile: 'Enter a valid 10-digit mobile number first' });
+  if (channel === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(to)) throw invalid({ email: 'Enter a valid email address first' });
+  const { challenge, otp } = await issueOtp({ user: req.user, purpose: channel === 'mobile' ? 'employee_mobile' : 'employee_email', subject: `new:${to}`, sentTo: to });
+  let dev = false;
+  if (channel === 'mobile') {
+    const sms = await sendSms({ to, text: `Udgam Microfinance: OTP ${otp} to verify your mobile number. Valid for 5 minutes. Do not share this OTP.` });
+    dev = Boolean(sms.dev);
+  } else {
+    const sent = await sendMail({ to, subject: 'Udgam Microfinance: email verification OTP', text: `Your OTP to verify your email is ${otp}. It is valid for 5 minutes. Do not share this OTP.` });
+    dev = !sent;
+  }
+  res.json({ challengeId: challenge._id, sentTo: to, expiresAt: challenge.expiresAt, ...(dev && process.env.NODE_ENV !== 'production' ? { devOtp: otp } : {}) });
+}
+
+export async function verifyNewEmployeeOtp(req, res) {
+  const channel = channelOf(req);
+  const to = asString(req.body?.value).trim().toLowerCase();
+  const otp = asString(req.body?.otp);
+  if (!mongoose.isValidObjectId(asString(req.body?.challengeId))) throw new HttpError(422, 'Send an OTP first');
+  if (!/^\d{6}$/.test(otp)) throw invalid({ otp: 'Enter the 6-digit OTP' });
+  const purpose = channel === 'mobile' ? 'employee_mobile' : 'employee_email';
+  const ch = await OtpChallenge.findOne({ _id: req.body.challengeId, createdBy: req.user._id, purpose, subject: `new:${to}` }).select('+hash');
+  if (!ch) throw new HttpError(404, 'OTP request not found. Please send a new OTP.');
+  if (ch.consumedAt) throw new HttpError(409, 'This OTP has already been used. Please send a new OTP.');
+  if (ch.expiresAt.getTime() < Date.now()) throw new HttpError(410, 'The OTP has expired. Please send a new OTP.');
+  if (ch.attempts >= 5) throw new HttpError(429, 'Too many wrong attempts. Please send a new OTP.');
+  const given = Buffer.from(hashOtp(ch._id, otp), 'hex');
+  const stored = Buffer.from(ch.hash, 'hex');
+  if (!(given.length === stored.length && crypto.timingSafeEqual(given, stored))) {
+    ch.attempts += 1;
+    await ch.save();
+    throw invalid({ otp: 'Incorrect OTP' });
+  }
+  ch.verifiedAt = new Date();
+  await ch.save();
+  res.json({ verified: true, channel });
+}
+
+/** A mobile number or email that was verified in the form (by its challenge) is marked verified on the employee. */
+async function applyFormVerification(req, e) {
+  for (const [channel, field, idKey] of [['mobile', 'mobileVerifiedAt', 'mobileChallengeId'], ['email', 'emailVerifiedAt', 'emailChallengeId']]) {
+    const value = String(channel === 'mobile' ? e.mobile || '' : e.email || '').toLowerCase();
+    if (!value || e[field]) continue;
+    // eslint-disable-next-line no-await-in-loop
+    const ch = await takeVerified(asString(req.body?.[idKey]), req.user, channel === 'mobile' ? 'employee_mobile' : 'employee_email', `new:${value}`);
+    if (ch) { e[field] = new Date(); await consumeChallenge(ch); } // eslint-disable-line no-await-in-loop
+  }
 }
 
 /** Checks the OTP and marks the mobile number or the email verified. */
@@ -291,9 +347,9 @@ export async function verifyEmployeeOtp(req, res) {
 
 /** The documents (photo and Aadhaar copy at least) are checked by hand and marked verified, or the mark is taken back. */
 export async function verifyEmployeeDocuments(req, res) {
-  const e = await loadEmployee(req, '+photo +aadhaarCopy');
+  const e = await loadEmployee(req, '+photo +aadhaarCopy +aadhaarBackCopy');
   const on = yes(req.body?.verified);
-  if (on && (!e.photo || !e.aadhaarCopy)) throw invalid({ documents: 'Upload the photo and the Aadhaar copy of the employee first (Edit)' });
+  if (on && (!e.photo || !e.aadhaarCopy || !e.aadhaarBackCopy)) throw invalid({ documents: 'Upload the photo and the front and back of the Aadhaar of the employee first (Edit)' });
   e.documentsVerifiedAt = on ? new Date() : undefined;
   await e.save();
   await audit(req, { action: 'employee.documents', entity: 'Employee', entityId: e._id, after: { verified: on } });
@@ -423,9 +479,7 @@ async function readEmployee(b) {
     d.joiningDate = parseDateOnly(asString(b.joiningDate));
     if (!d.joiningDate) throw invalid({ joiningDate: 'Enter a valid date' });
   }
-  const sal = b.monthlySalary === '' || b.monthlySalary === undefined ? 0 : toMinor(typeof b.monthlySalary === 'number' ? String(b.monthlySalary) : asString(b.monthlySalary));
-  if (sal === null || sal < 0) throw invalid({ monthlySalary: 'Enter the monthly salary (₹, up to 2 decimals)' });
-  d.monthlySalaryPaise = sal;
+  // the monthly salary is not asked at registration: it is set in Set Salary
   d.bankName = asString(b.bankName).slice(0, 80);
   d.ifsc = asString(b.ifsc).toUpperCase();
   if (d.ifsc && !IFSC_RE.test(d.ifsc)) throw invalid({ ifsc: 'Enter a valid IFSC code' });
@@ -434,6 +488,8 @@ async function readEmployee(b) {
 
   // personal details, deductions, verification and experience (everything here is optional)
   d.homeTown = asString(b.homeTown).slice(0, 80);
+  d.homeTownPincode = asString(b.homeTownPincode);
+  if (d.homeTownPincode && !/^[1-9]\d{5}$/.test(d.homeTownPincode)) throw invalid({ homeTownPincode: 'Enter a valid 6-digit pincode' });
   d.originalMarksheet = yes(b.originalMarksheet);
   d.fatherName = asString(b.fatherName).replace(/\s+/g, ' ').slice(0, 80);
   d.fatherMobile = asString(b.fatherMobile);
@@ -496,6 +552,8 @@ export async function createEmployee(req, res) {
   }
   try {
     const e = await Employee.create({ ...d, user: user?._id, status: 'active', createdByCode: req.user.employeeCode || '' });
+    await applyFormVerification(req, e);
+    if (e.mobileVerifiedAt || e.emailVerifiedAt) await e.save();
     await e.populate(EMP_POPULATE);
     await audit(req, { action: 'employee.register', entity: 'Employee', entityId: e._id, after: { employeeCode: e.employeeCode, name: e.name } });
     res.status(201).json({ item: presentEmployee(e, req.user) });
@@ -514,6 +572,7 @@ export async function updateEmployee(req, res) {
   if ((data.email || '') !== (e.email || '')) e.emailVerifiedAt = undefined;
   if (data.supervisor && String(data.supervisor) === String(e._id)) throw invalid({ supervisor: 'An employee cannot be their own supervisor' });
   Object.assign(e, data);
+  await applyFormVerification(req, e);
   await e.save();
   await e.populate(EMP_POPULATE);
   await audit(req, { action: 'employee.update', entity: 'Employee', entityId: e._id, after: { employeeCode: e.employeeCode, name: e.name } });
