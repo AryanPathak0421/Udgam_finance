@@ -366,13 +366,25 @@ function CommissionForm({ item, helpers, years, ranks, onClose, onSaved }) {
         }
       : ruleDefaults(helpers, startType)
   );
-  const [slab, setSlab] = useState({
-    targetFrom: blankToStr(item?.targetFrom),
-    targetTo: blankToStr(item?.targetTo),
-    commissionValue: item ? String(item.commissionValue) : '',
-    durationMonths: item?.durationMonths ? String(item.durationMonths) : '4',
-    startDelayMonths: item?.startDelayMonths === 0 ? 0 : 1,
+  const emptySlab = (commType) => ({
+    targetFrom: '',
+    targetTo: '',
+    commissionType: commType || (fixedOnly ? 'fixed' : 'percentage'),
+    commissionValue: '',
+    durationMonths: '4',
+    startDelayMonths: 1,
   });
+
+  const [slabs, setSlabs] = useState(() => [
+    {
+      targetFrom: blankToStr(item?.targetFrom),
+      targetTo: blankToStr(item?.targetTo),
+      commissionType: item?.commissionType || 'percentage',
+      commissionValue: item ? String(item.commissionValue) : '',
+      durationMonths: item?.durationMonths ? String(item.durationMonths) : '4',
+      startDelayMonths: item?.startDelayMonths === 0 ? 0 : 1,
+    },
+  ]);
   const [yearIds, setYearIds] = useState(item ? [item.financialYearId] : activeYear ? [activeYear.id] : []);
   const [rankIds, setRankIds] = useState(item?.rankId ? [item.rankId] : []);
   const [isActive, setIsActive] = useState(item ? item.isActive : true);
@@ -382,15 +394,83 @@ function CommissionForm({ item, helpers, years, ranks, onClose, onSaved }) {
   const isGL = rule.commissionFor === 'group_leader';
   const fixedOnly = helpers.bases[rule.basis]?.fixedOnly;
   const unit = rule.targetUnit;
-  const setSlabField = (key) => (e) => {
-    setSlab((s) => ({ ...s, [key]: e.target.value }));
-    setErrors((er) => ({ ...er, [key]: undefined }));
+
+  const setSlabRow = (idx, key, value) => {
+    setSlabs((prev) => prev.map((s, i) => (i === idx ? { ...s, [key]: value } : s)));
+    setErrors((er) => ({ ...er, [`slabs.${idx}.${key}`]: undefined }));
   };
+  const addSlabRow = () => {
+    const last = slabs[slabs.length - 1];
+    const nextFrom = last && last.targetTo !== '' && Number.isFinite(Number(last.targetTo)) ? String(Number(last.targetTo) + 1) : '';
+    setSlabs((prev) => [...prev, { ...emptySlab(rule.commissionType), targetFrom: nextFrom }]);
+  };
+  const removeSlabRow = (idx) => {
+    if (slabs.length <= 1) return;
+    setSlabs((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  async function loadExistingSlabsFor(nextType) {
+    if (!nextType) return;
+    try {
+      const d = await api.commissions.list({ commissionFor: nextType, limit: 100 });
+      if (d.items && d.items.length > 0) {
+        const activeFY = d.items.filter((c) => activeYear && c.financialYearId === activeYear.id);
+        const sourceItems = activeFY.length ? activeFY : d.items;
+        const first = sourceItems[0];
+        setRule((r) => ({
+          ...r,
+          commissionFor: nextType,
+          basis: first.basis || helpers.firstBasis(nextType),
+          targetUnit: first.targetUnit || helpers.firstUnit(nextType, first.basis),
+          scope: first.scope || 'own',
+          frequency: first.frequency || 'monthly',
+          rateAppliesTo: first.rateAppliesTo || 'all',
+          minEligibility: blankToStr(first.minEligibility),
+          maxCommission: blankToStr(first.maxCommission),
+          commissionType: first.commissionType || (helpers.bases[first.basis]?.fixedOnly ? 'fixed' : 'percentage'),
+        }));
+        if (nextType === 'group_leader') {
+          setSlabs([{
+            targetFrom: '',
+            targetTo: '',
+            commissionType: 'fixed',
+            commissionValue: String(first.commissionValue || ''),
+            durationMonths: first.durationMonths ? String(first.durationMonths) : '4',
+            startDelayMonths: first.startDelayMonths === 0 ? 0 : 1,
+          }]);
+        } else {
+          const ruleSlabs = sourceItems
+            .filter((c) => (c.rankId || '') === (first.rankId || '') && c.basis === first.basis && c.scope === first.scope)
+            .sort((a, b) => (a.targetFrom ?? 0) - (b.targetFrom ?? 0));
+          const autoSlabs = ruleSlabs.map((c) => ({
+            targetFrom: blankToStr(c.targetFrom),
+            targetTo: blankToStr(c.targetTo),
+            commissionType: c.commissionType || 'percentage',
+            commissionValue: String(c.commissionValue || ''),
+            durationMonths: '4',
+            startDelayMonths: 1,
+          }));
+          setSlabs(autoSlabs.length ? autoSlabs : [emptySlab(first.commissionType)]);
+        }
+        return;
+      }
+    } catch {
+      // fallback
+    }
+    setRule((r) => ({ ...ruleDefaults(helpers, nextType), scope: r.scope, frequency: r.frequency }));
+    setSlabs([emptySlab()]);
+  }
+
+  useEffect(() => {
+    if (!isEdit) {
+      loadExistingSlabsFor(startType);
+    }
+  }, []);
 
   function onTypeChange(e) {
     const next = e.target.value;
-    setRule((r) => ({ ...ruleDefaults(helpers, next), scope: r.scope, frequency: r.frequency }));
     setErrors((er) => ({ ...er, commissionFor: undefined }));
+    loadExistingSlabsFor(next);
   }
 
   async function submit(e) {
@@ -400,22 +480,25 @@ function CommissionForm({ item, helpers, years, ranks, onClose, onSaved }) {
     if (!yearIds.length) found.financialYear = 'Select at least one financial year';
     if (isEdit && yearIds.length !== 1) found.financialYear = 'Select one financial year';
 
-    const value = slab.commissionValue.trim();
     if (isGL) {
-      const m = Number(slab.durationMonths);
-      if (!Number.isInteger(m) || m < 1 || m > 36) found.durationMonths = 'Whole months, 1 to 36';
-      if (!MONEY_RE.test(value) || Number(value) <= 0) found.commissionValue = 'Enter the amount per loan per month';
+      const s0 = slabs[0] || {};
+      const m = Number(s0.durationMonths);
+      if (!Number.isInteger(m) || m < 1 || m > 36) found['slabs.0.durationMonths'] = 'Whole months, 1 to 36';
+      if (!MONEY_RE.test(String(s0.commissionValue).trim()) || Number(s0.commissionValue) <= 0) found['slabs.0.commissionValue'] = 'Enter the amount per loan per month';
     } else {
       const re = unitRe(unit);
-      const from = slab.targetFrom.trim();
-      const to = slab.targetTo.trim();
-      if (from && !re.test(from)) found.targetFrom = isCountUnit(unit) ? 'Whole number' : 'Invalid amount (up to 2 decimals)';
-      if (to && !re.test(to)) found.targetTo = isCountUnit(unit) ? 'Whole number' : 'Invalid amount (up to 2 decimals)';
-      if (!found.targetFrom && !found.targetTo && from && to && Number(to) < Number(from)) found.targetTo = 'Must not be less than the start';
+      slabs.forEach((s, idx) => {
+        const from = String(s.targetFrom || '').trim();
+        const to = String(s.targetTo || '').trim();
+        const val = String(s.commissionValue || '').trim();
+        if (from && !re.test(from)) found[`slabs.${idx}.targetFrom`] = isCountUnit(unit) ? 'Whole number' : 'Invalid amount (up to 2 decimals)';
+        if (to && !re.test(to)) found[`slabs.${idx}.targetTo`] = isCountUnit(unit) ? 'Whole number' : 'Invalid amount (up to 2 decimals)';
+        if (!found[`slabs.${idx}.targetFrom`] && !found[`slabs.${idx}.targetTo`] && from && to && Number(to) < Number(from)) found[`slabs.${idx}.targetTo`] = 'Must not be less than the start';
+        if (!MONEY_RE.test(val) || Number(val) <= 0) found[`slabs.${idx}.commissionValue`] = 'Enter a value greater than 0 (up to 2 decimals)';
+        else if ((s.commissionType || rule.commissionType) === 'percentage' && Number(val) > 100) found[`slabs.${idx}.commissionValue`] = 'Percentage cannot exceed 100';
+      });
       if (rule.minEligibility.trim() && !re.test(rule.minEligibility.trim())) found.minEligibility = isCountUnit(unit) ? 'Whole number' : 'Invalid amount';
       if (rule.maxCommission.trim() && (!MONEY_RE.test(rule.maxCommission.trim()) || Number(rule.maxCommission) <= 0)) found.maxCommission = 'Invalid amount';
-      if (!MONEY_RE.test(value) || Number(value) <= 0) found.commissionValue = 'Enter a value greater than 0 (up to 2 decimals)';
-      else if (rule.commissionType === 'percentage' && Number(value) > 100) found.commissionValue = 'Percentage cannot exceed 100';
     }
     setErrors(found);
     if (Object.keys(found).length) return;
@@ -423,37 +506,59 @@ function CommissionForm({ item, helpers, years, ranks, onClose, onSaved }) {
     setSaving(true);
     try {
       const common = { commissionFor: rule.commissionFor, isActive };
-      let payload;
-      if (isGL) {
-        payload = {
-          ...common,
-          commissionType: 'fixed',
-          commissionValue: value,
-          durationMonths: Number(slab.durationMonths),
-          startDelayMonths: slab.startDelayMonths,
-        };
-      } else {
-        payload = {
-          ...common,
-          basis: rule.basis,
-          targetUnit: rule.targetUnit,
-          scope: rule.scope,
-          frequency: rule.frequency,
-          rateAppliesTo: rule.rateAppliesTo,
-          minEligibility: rule.minEligibility.trim(),
-          maxCommission: rule.maxCommission.trim(),
-          commissionType: rule.commissionType,
-          commissionValue: value,
-          targetFrom: slab.targetFrom.trim(),
-          targetTo: slab.targetTo.trim(),
-        };
-      }
       if (isEdit) {
+        const s0 = slabs[0] || {};
+        const payload = isGL
+          ? {
+              ...common,
+              commissionType: 'fixed',
+              commissionValue: String(s0.commissionValue).trim(),
+              durationMonths: Number(s0.durationMonths),
+              startDelayMonths: s0.startDelayMonths,
+            }
+          : {
+              ...common,
+              basis: rule.basis,
+              targetUnit: rule.targetUnit,
+              scope: rule.scope,
+              frequency: rule.frequency,
+              rateAppliesTo: rule.rateAppliesTo,
+              minEligibility: rule.minEligibility.trim(),
+              maxCommission: rule.maxCommission.trim(),
+              commissionType: fixedOnly ? 'fixed' : s0.commissionType || rule.commissionType,
+              commissionValue: String(s0.commissionValue).trim(),
+              targetFrom: String(s0.targetFrom).trim(),
+              targetTo: String(s0.targetTo).trim(),
+            };
         await api.commissions.update(item.id, { ...payload, financialYear: yearIds[0], rank: isGL ? '' : rankIds[0] || '' });
         toast.success('Commission updated');
       } else {
-        const res = await api.commissions.create({ ...payload, financialYears: yearIds, ranks: isGL ? [] : rankIds });
-        toast.success(res.commissions.length > 1 ? `${res.commissions.length} commissions added` : 'Commission added');
+        for (const s of slabs) {
+          const payload = isGL
+            ? {
+                ...common,
+                commissionType: 'fixed',
+                commissionValue: String(s.commissionValue).trim(),
+                durationMonths: Number(s.durationMonths),
+                startDelayMonths: s.startDelayMonths,
+              }
+            : {
+                ...common,
+                basis: rule.basis,
+                targetUnit: rule.targetUnit,
+                scope: rule.scope,
+                frequency: rule.frequency,
+                rateAppliesTo: rule.rateAppliesTo,
+                minEligibility: rule.minEligibility.trim(),
+                maxCommission: rule.maxCommission.trim(),
+                commissionType: fixedOnly ? 'fixed' : s.commissionType || rule.commissionType,
+                commissionValue: String(s.commissionValue).trim(),
+                targetFrom: String(s.targetFrom).trim(),
+                targetTo: String(s.targetTo).trim(),
+              };
+          await api.commissions.create({ ...payload, financialYears: yearIds, ranks: isGL ? [] : rankIds });
+        }
+        toast.success(slabs.length > 1 ? `${slabs.length} commission slabs added` : 'Commission added');
       }
       onSaved();
     } catch (err) {
@@ -544,15 +649,15 @@ function CommissionForm({ item, helpers, years, ranks, onClose, onSaved }) {
           <>
             <h4 className="form-section">Group leader rule</h4>
             <div className="form-grid">
-              <FormField id="commissionValue" label="Commission per loan, per month (₹)" required error={errors.commissionValue} hint="Paid to the group leader for every loan disbursed in the group">
-                <input id="commissionValue" inputMode="decimal" value={slab.commissionValue} onChange={setSlabField('commissionValue')} placeholder="e.g. 25" />
+              <FormField id="commissionValue" label="Commission per loan, per month (₹)" required error={errors['slabs.0.commissionValue']} hint="Paid to the group leader for every loan disbursed in the group">
+                <input id="commissionValue" inputMode="decimal" value={slabs[0]?.commissionValue || ''} onChange={(e) => setSlabRow(0, 'commissionValue', e.target.value)} placeholder="e.g. 25" />
               </FormField>
-              <FormField id="durationMonths" label="Commission duration (months)" required error={errors.durationMonths} hint="How many months each loan earns commission">
-                <input id="durationMonths" inputMode="numeric" value={slab.durationMonths} onChange={setSlabField('durationMonths')} />
+              <FormField id="durationMonths" label="Commission duration (months)" required error={errors['slabs.0.durationMonths']} hint="How many months each loan earns commission">
+                <input id="durationMonths" inputMode="numeric" value={slabs[0]?.durationMonths || '4'} onChange={(e) => setSlabRow(0, 'durationMonths', e.target.value)} />
               </FormField>
               <div className="span-2">
                 <label className="check-row">
-                  <input type="checkbox" checked={slab.startDelayMonths === 1} onChange={(e) => setSlab((s) => ({ ...s, startDelayMonths: e.target.checked ? 1 : 0 }))} />
+                  <input type="checkbox" checked={slabs[0]?.startDelayMonths === 1} onChange={(e) => setSlabRow(0, 'startDelayMonths', e.target.checked ? 1 : 0)} />
                   <span>
                     <strong>No commission in the disbursement month</strong>
                     <small className="muted">Commission starts from the month after the loan is disbursed</small>
@@ -560,7 +665,7 @@ function CommissionForm({ item, helpers, years, ranks, onClose, onSaved }) {
                 </label>
               </div>
               <div className="span-2">
-                <GroupLeaderPreview amount={slab.commissionValue} durationMonths={slab.durationMonths} startDelayMonths={slab.startDelayMonths} />
+                <GroupLeaderPreview amount={slabs[0]?.commissionValue} durationMonths={slabs[0]?.durationMonths} startDelayMonths={slabs[0]?.startDelayMonths} />
               </div>
             </div>
           </>
@@ -569,39 +674,77 @@ function CommissionForm({ item, helpers, years, ranks, onClose, onSaved }) {
             <h4 className="form-section">How it is calculated</h4>
             <RuleFields rule={rule} setRule={setRule} helpers={helpers} errors={errors} />
 
-            <h4 className="form-section">Target and value</h4>
-            <div className="form-grid cols-4">
-              <FormField
-                id="targetFrom"
-                label={`Target from (${unit === 'amount' ? '₹' : UNIT_WORD[unit]})`}
-                error={errors.targetFrom}
-                hint="Empty = from the start"
-              >
-                <input id="targetFrom" inputMode={isCountUnit(unit) ? 'numeric' : 'decimal'} value={slab.targetFrom} onChange={setSlabField('targetFrom')} placeholder="e.g. 30" />
-              </FormField>
-              <FormField
-                id="targetTo"
-                label={`Target to (${unit === 'amount' ? '₹' : UNIT_WORD[unit]})`}
-                error={errors.targetTo}
-                hint="Empty = no upper limit"
-              >
-                <input id="targetTo" inputMode={isCountUnit(unit) ? 'numeric' : 'decimal'} value={slab.targetTo} onChange={setSlabField('targetTo')} placeholder="e.g. 49" />
-              </FormField>
-              <FormField id="commissionType" label="Commission type" required error={errors.commissionType} hint={fixedOnly ? `A fixed amount for each ${helpers.singular(unit)}` : undefined}>
-                <select id="commissionType" value={rule.commissionType} onChange={(e) => setRule((r) => ({ ...r, commissionType: e.target.value }))} disabled={fixedOnly}>
-                  <option value="percentage">Percentage (%)</option>
-                  <option value="fixed">{fixedOnly ? 'Fixed amount (₹) per unit' : 'Fixed amount (₹)'}</option>
-                </select>
-              </FormField>
-              <FormField
-                id="commissionValue"
-                label={rule.commissionType === 'percentage' ? 'Commission value (%)' : 'Commission value (₹)'}
-                required
-                error={errors.commissionValue}
-              >
-                <input id="commissionValue" inputMode="decimal" value={slab.commissionValue} onChange={setSlabField('commissionValue')} placeholder={rule.commissionType === 'percentage' ? 'e.g. 1.5' : 'e.g. 50'} />
-              </FormField>
+            <h4 className="form-section">Target and value ({slabs.length} slab{slabs.length === 1 ? '' : 's'})</h4>
+            <div className="table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Target from ({unit === 'amount' ? '₹' : UNIT_WORD[unit]})</th>
+                    <th>Target to ({unit === 'amount' ? '₹' : UNIT_WORD[unit]})</th>
+                    <th>Commission type</th>
+                    <th>Commission value</th>
+                    {!isEdit && slabs.length > 1 && <th />}
+                  </tr>
+                </thead>
+                <tbody>
+                  {slabs.map((s, idx) => (
+                    <tr key={idx}>
+                      <td data-label="Target from">
+                        <input
+                          aria-label={`Target from row ${idx + 1}`}
+                          inputMode={isCountUnit(unit) ? 'numeric' : 'decimal'}
+                          value={s.targetFrom}
+                          onChange={(e) => setSlabRow(idx, 'targetFrom', e.target.value)}
+                          placeholder="0"
+                        />
+                        {errors[`slabs.${idx}.targetFrom`] && <div className="field-error small">{errors[`slabs.${idx}.targetFrom`]}</div>}
+                      </td>
+                      <td data-label="Target to">
+                        <input
+                          aria-label={`Target to row ${idx + 1}`}
+                          inputMode={isCountUnit(unit) ? 'numeric' : 'decimal'}
+                          value={s.targetTo}
+                          onChange={(e) => setSlabRow(idx, 'targetTo', e.target.value)}
+                          placeholder="No limit"
+                        />
+                        {errors[`slabs.${idx}.targetTo`] && <div className="field-error small">{errors[`slabs.${idx}.targetTo`]}</div>}
+                      </td>
+                      <td data-label="Type">
+                        <select
+                          aria-label={`Commission type row ${idx + 1}`}
+                          value={fixedOnly ? 'fixed' : s.commissionType || rule.commissionType}
+                          onChange={(e) => setSlabRow(idx, 'commissionType', e.target.value)}
+                          disabled={fixedOnly}
+                        >
+                          <option value="percentage">Percentage (%)</option>
+                          <option value="fixed">{fixedOnly ? 'Fixed amount (₹) per unit' : 'Fixed amount (₹)'}</option>
+                        </select>
+                      </td>
+                      <td data-label="Value">
+                        <input
+                          aria-label={`Commission value row ${idx + 1}`}
+                          inputMode="decimal"
+                          value={s.commissionValue}
+                          onChange={(e) => setSlabRow(idx, 'commissionValue', e.target.value)}
+                          placeholder={(s.commissionType || rule.commissionType) === 'percentage' ? 'e.g. 1.5' : 'e.g. 50'}
+                        />
+                        {errors[`slabs.${idx}.commissionValue`] && <div className="field-error small">{errors[`slabs.${idx}.commissionValue`]}</div>}
+                      </td>
+                      {!isEdit && slabs.length > 1 && (
+                        <td>
+                          <button type="button" className="btn sm danger-outline" onClick={() => removeSlabRow(idx)} title="Remove slab">✕</button>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
+            {!isEdit && (
+              <button type="button" className="btn sm" style={{ marginTop: 8 }} onClick={addSlabRow}>
+                + Add another slab
+              </button>
+            )}
 
             <TierPreview
               rule={{
@@ -611,7 +754,7 @@ function CommissionForm({ item, helpers, years, ranks, onClose, onSaved }) {
                 minEligibility: rule.minEligibility.trim(),
                 maxCommission: rule.maxCommission.trim(),
               }}
-              slabs={[{ targetFrom: slab.targetFrom, targetTo: slab.targetTo, commissionType: rule.commissionType, commissionValue: slab.commissionValue }]}
+              slabs={slabs.map((s) => ({ targetFrom: s.targetFrom, targetTo: s.targetTo, commissionType: fixedOnly ? 'fixed' : s.commissionType || rule.commissionType, commissionValue: s.commissionValue }))}
             />
           </>
         )}

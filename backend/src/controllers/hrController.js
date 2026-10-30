@@ -896,15 +896,38 @@ export async function generateSalary(req, res) {
   const emps = (await Employee.find({ isDeleted: false, ...scope({ query: { branch: req.body?.branch }, user: req.user }) }).populate(EMP_POPULATE).lean())
     .filter((e) => (!e.joiningDate || e.joiningDate <= range.to) && (e.status === 'active' || (e.leftOn && e.leftOn >= range.from)))
     .map((e) => setupAt(e, month)); // each employee with the salary set for that month
+
+  // auto attendance sync for all working days of the month from audit logs
+  const withLogin = emps.filter((e) => e.user);
+  if (withLogin.length) {
+    const until = new Date(Math.min(range.to.getTime() + DAY, startOfToday().getTime() + DAY));
+    const userToEmp = new Map(withLogin.map((e) => [String(e.user), e._id]));
+    const acts = await AuditLog.aggregate([
+      { $match: { actor: { $in: withLogin.map((e) => e.user) }, createdAt: { $gte: range.from, $lt: until } } },
+      { $group: { _id: { actor: '$actor', date: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } } }, first: { $min: '$createdAt' }, last: { $max: '$createdAt' } } },
+    ]);
+    const existingMarks = new Set((await Attendance.find({ date: { $gte: range.from, $lt: until }, employee: { $in: withLogin.map((e) => e._id) } }).select('employee date').lean()).map((a) => `${a.employee}|${iso(a.date)}`));
+    const autoOps = [];
+    for (const a of acts) {
+      const empId = userToEmp.get(String(a._id.actor));
+      const key = `${empId}|${a._id.date}`;
+      if (!empId || existingMarks.has(key)) continue;
+      const d = parseDateOnly(a._id.date);
+      if (d) autoOps.push({ updateOne: { filter: { employee: empId, date: d }, update: { $set: { status: 'present', source: 'auto', firstActivity: a.first, lastActivity: a.last } }, upsert: true } });
+    }
+    if (autoOps.length) await Attendance.bulkWrite(autoOps);
+  }
+
   // two days before the month as well: a Saturday at the end of the last month takes the Sunday and the Monday of this one
   const back = new Date(range.from.getTime() - 2 * DAY);
-  const marksAll = await Attendance.find({ date: { $gte: back, $lte: range.to }, employee: { $in: emps.map((e) => e._id) } }).select('employee date status source').lean();
+  const toEnd = new Date(range.to.getTime() + DAY);
+  const marksAll = await Attendance.find({ date: { $gte: back, $lt: toEnd }, employee: { $in: emps.map((e) => e._id) } }).select('employee date status source').lean();
   const marks = new Map();
   marksAll.forEach((a) => { const k = String(a.employee); if (!marks.has(k)) marks.set(k, new Map()); marks.get(k).set(iso(a.date), { status: a.status, source: a.source }); });
   const existing = new Map((await Salary.find({ month, employee: { $in: emps.map((e) => e._id) } }).lean()).map((s) => [String(s.employee), s]));
   const supIds = new Set((await Employee.distinct('supervisor', { isDeleted: false, supervisor: { $ne: null } })).map(String));
   const { by: variable, securityCut } = await loadVariable(month, range, emps.map((e) => e.employeeCode), new Set(emps.filter((e) => supIds.has(String(e._id))).map((e) => e.employeeCode)));
-  const holidayRows = await Holiday.find({ isDeleted: false, isActive: true, date: { $gte: back, $lte: range.to } }).select('date branch').lean();
+  const holidayRows = await Holiday.find({ isDeleted: false, isActive: true, date: { $gte: back, $lt: toEnd } }).select('date branch').lean();
   const holidaysOf = (e) => new Set(holidayRows.filter((h) => !h.branch || String(h.branch) === String(e.branch?._id)).map((h) => iso(h.date)));
   let made = 0; let updated = 0; let keptPaid = 0; let noSalary = 0;
   const ops = [];
@@ -916,7 +939,7 @@ export async function generateSalary(req, res) {
     // what was changed by hand on the slip stays; a slip from before the lines existed keeps its bonus and other deduction
     const kept = new Map((ex?.lines || []).filter((l) => l.manual).map((l) => [l.key, l.amountPaise]));
     if (ex && !ex.lines?.length) { if (ex.bonusPaise) kept.set('bonus', ex.bonusPaise); if (ex.otherDeductionPaise) kept.set('other', ex.otherDeductionPaise); }
-    const lines = buildLines(e, c.payableDays / range.days, variable.get(e.employeeCode), securityCut.get(String(e._id)) || 0, kept, month);
+    const lines = buildLines(e, c.payableDays / range.days, variable.get(String(e.employeeCode || '').toUpperCase()), securityCut.get(String(e._id)) || 0, kept, month);
     const doc = {
       employee: e._id, employeeCode: e.employeeCode, name: e.name, mobile: e.mobile, branch: e.branch?._id, department: e.department?.name || '', designation: e.designation?.name || '', month, daysInMonth: range.days, ...c, lines, ...totalsOf(lines), generatedByCode: req.user.employeeCode || '',
     };

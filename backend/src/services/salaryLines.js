@@ -12,7 +12,7 @@ export const EARN_FIXED = [
   ['basic', 'Basic'], ['hra', 'HRA'], ['ta', 'TA'], ['allowance', 'Allowance'], ['da', 'DA'], ['fuel', 'Fuel'], ['transport', 'Transport allowance'], ['bike', 'Bike repair'], ['otherAllowance', 'Other allowance'],
 ];
 export const EARN_AUTO = [
-  ['loanIncentive', 'Loan incentive (auto)'], ['productIncentive', 'Product sell incentive'], ['grt', 'GRT commission (new group)'], ['senior', 'Senior commission (supervisor)'], ['npaRecovery', 'NPA recovery 10% (auto)'], ['bonus', 'Bonus / addition'],
+  ['commission', 'Commission (auto)'], ['loanIncentive', 'Loan incentive (auto)'], ['productIncentive', 'Product sell incentive'], ['grt', 'GRT commission (new group)'], ['senior', 'Senior commission (supervisor)'], ['npaRecovery', 'NPA recovery 10% (auto)'], ['bonus', 'Bonus / addition'],
 ];
 export const DEDUCTIONS = [
   ['pf', 'PF'], ['esi', 'ESI'], ['profTax', 'Professional tax'], ['advance', 'Advance deduction'], ['leave', 'Absent / unpaid days (auto)'], ['recovery', 'Recovery amount'], ['security', 'Security amount'], ['other', 'Other deduction'],
@@ -97,16 +97,25 @@ export const isVerified = (e) => (!e.mobile || Boolean(e.mobileVerifiedAt)) && (
  * 10% of what was recovered on NPA loans (NPA payment) in the month.
  */
 export async function loadVariable(month, range, codes, supervisorCodes) {
+  const cleanCodes = (codes || []).filter(Boolean).map((c) => String(c).trim());
+  const upperCodes = cleanCodes.map((c) => c.toUpperCase());
+  const allCodes = [...new Set([...cleanCodes, ...upperCodes])];
   const [coms, npa, prior] = await Promise.all([
-    EmployeeCommission.find({ month, employeeCode: { $in: codes } }).select('employeeCode commissionFor scope amountPaise').lean(),
-    EmiPayment.aggregate([{ $match: { status: 'paid', npa: true, paidOn: { $gte: range.from, $lte: range.to }, employeeCode: { $in: codes } } }, { $group: { _id: '$employeeCode', t: { $sum: '$amountPaise' } } }]),
+    EmployeeCommission.find({ month, employeeCode: { $in: allCodes } }).select('employeeCode commissionFor scope amountPaise').lean(),
+    EmiPayment.aggregate([{ $match: { status: 'paid', npa: true, paidOn: { $gte: range.from, $lte: range.to }, employeeCode: { $in: allCodes } } }, { $group: { _id: '$employeeCode', t: { $sum: '$amountPaise' } } }]),
     Salary.aggregate([{ $match: { month: { $ne: month } } }, { $group: { _id: '$employee', t: { $sum: { $ifNull: ['$securityCutPaise', 0] } } } }]),
   ]);
   const by = new Map();
-  const get = (code) => { if (!by.has(code)) by.set(code, { loanIncentive: 0, productIncentive: 0, grt: 0, senior: 0, npaRecovery: 0 }); return by.get(code); };
+  const get = (code) => {
+    const k = String(code || '').toUpperCase();
+    if (!by.has(k)) by.set(k, { commission: 0, loanIncentive: 0, productIncentive: 0, grt: 0, senior: 0, npaRecovery: 0 });
+    return by.get(k);
+  };
+  const supSet = new Set([...(supervisorCodes || [])].map((c) => String(c).toUpperCase()));
   coms.forEach((c) => {
     const v = get(c.employeeCode);
-    if (c.scope === 'supervised') { if (supervisorCodes.has(c.employeeCode)) v.senior += c.amountPaise; return; }
+    v.commission += c.amountPaise;
+    if (c.scope === 'supervised') { if (supSet.has(String(c.employeeCode).toUpperCase())) v.senior += c.amountPaise; return; }
     if (c.commissionFor === 'product_sell') v.productIncentive += c.amountPaise;
     else if (c.commissionFor === 'new_group_opening' || c.commissionFor === 'new_member_joining') v.grt += c.amountPaise;
     else if (LOAN_TYPES.has(c.commissionFor)) v.loanIncentive += c.amountPaise;
@@ -132,7 +141,7 @@ export function buildLines(emp, ratio, variable, priorSecurity, kept = new Map()
   const secCut = !secAmount || !isVerified(emp) ? 0 : emp.securityNeverEnds ? secAmount : Math.max(Math.min(Math.ceil(secAmount / months), secAmount - priorSecurity), 0);
   const auto = {
     ...fixed,
-    loanIncentive: variable?.loanIncentive || 0, productIncentive: variable?.productIncentive || 0, grt: variable?.grt || 0, senior: variable?.senior || 0, npaRecovery: variable?.npaRecovery || 0, bonus: 0,
+    commission: variable?.commission || 0, loanIncentive: variable?.loanIncentive || 0, productIncentive: variable?.productIncentive || 0, grt: variable?.grt || 0, senior: variable?.senior || 0, npaRecovery: variable?.npaRecovery || 0, bonus: 0,
     pf: emp.pfDeduction ? Math.round((basicEarned * (emp.pfPercent ?? 12)) / 100) : 0,
     esi: emp.esiDeduction ? Math.round((basicEarned * (emp.esiPercent ?? 0.75)) / 100) : 0,
     profTax: emp.professionalTaxPaise || 0, advance: emp.advanceDeductionPaise || 0, leave: Math.round(gross * (1 - r)), recovery: 0, security: secCut, other: 0,

@@ -5,6 +5,7 @@ import { EmiPayment } from '../models/EmiPayment.js';
 import { LoanPayment } from '../models/LoanPayment.js';
 import { Group } from '../models/Group.js';
 import { Member } from '../models/Member.js';
+import { Employee } from '../models/Hr.js';
 import { EmployeeCommission } from '../models/EmployeeCommission.js';
 import { legacyUnit, legacyBasis, typeMeta, isCountUnit } from '../config/commissionTypes.js';
 import { computeTierCommission } from './tierCommission.js';
@@ -198,8 +199,31 @@ export async function generateEmployeeCommission(month, by) {
     if (!notes.some((n) => n.startsWith(label))) notes.push(`${label}: not generated, this software does not track it yet.`);
     return false;
   });
-  const users = await User.find({ employeeCode: { $exists: true, $ne: '' } }).select('name employeeCode role rank branches');
-  summary.employees = users.length;
+  const [users, emps] = await Promise.all([
+    User.find({ employeeCode: { $exists: true, $ne: '' } }).select('name employeeCode role rank branches').lean(),
+    Employee.find({ isDeleted: false }).select('name employeeCode branch user designation').lean(),
+  ]);
+  const nameMap = new Map();
+  users.forEach((u) => { if (u.employeeCode && u.name) nameMap.set(String(u.employeeCode).toUpperCase(), u.name); });
+  emps.forEach((e) => { if (e.employeeCode && e.name) nameMap.set(String(e.employeeCode).toUpperCase(), e.name); });
+
+  const userCodes = new Set(users.map((u) => String(u.employeeCode).toUpperCase()));
+  const allStaff = [...users];
+  for (const emp of emps) {
+    const code = String(emp.employeeCode).toUpperCase();
+    if (!userCodes.has(code)) {
+      allStaff.push({
+        _id: emp._id,
+        name: emp.name,
+        employeeCode: emp.employeeCode,
+        role: 'field_officer',
+        rank: null,
+        branches: emp.branch ? [emp.branch] : [],
+      });
+      userCodes.add(code);
+    }
+  }
+  summary.employees = allStaff.length;
 
   const cache = new Map();
   const entries = [];
@@ -210,7 +234,7 @@ export async function generateEmployeeCommission(month, by) {
       // eslint-disable-next-line no-await-in-loop
       if (!cache.has(key)) cache.set(key, await activity(rule.commissionFor, p));
       const rows = cache.get(key);
-      for (const user of users) {
+      for (const user of allStaff) {
         if (!rulesFor(rules, user).includes(rule)) continue;
         const got = achieved(rows, rule, user);
         if (!got) continue;
@@ -219,8 +243,9 @@ export async function generateEmployeeCommission(month, by) {
         st.people += 1; st.best = Math.max(st.best, r.measure); if (r.amountPaise >= 1) st.paid += 1;
         stats.set(rule, st);
         if (r.amountPaise < 1) continue;
+        const empCodeUpper = String(user.employeeCode).toUpperCase();
         entries.push({
-          employee: user._id, employeeCode: String(user.employeeCode).toUpperCase(), employeeName: user.name, rank: user.rank, branches: user.branches,
+          employee: user._id, employeeCode: empCodeUpper, employeeName: nameMap.get(empCodeUpper) || user.name || empCodeUpper, rank: user.rank, branches: user.branches,
           commissionFor: rule.commissionFor, basis: rule.basis, unit: rule.unit, scope: rule.scope, frequency: rule.frequency,
           month, periodFrom: p.from, periodTo: p.to, periodLabel: p.label,
           measure: r.measure, count: got.count, amountBasePaise: got.amount, amountPaise: r.amountPaise, capped: r.capped, breakdown: r.breakdown, generatedBy: by,

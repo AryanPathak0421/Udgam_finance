@@ -2,6 +2,8 @@ import mongoose from 'mongoose';
 import { Commission } from '../models/Commission.js';
 import { EmployeeCommission } from '../models/EmployeeCommission.js';
 import { GroupLeaderCommission } from '../models/GroupLeaderCommission.js';
+import { Employee } from '../models/Hr.js';
+import { User } from '../models/User.js';
 import { generateEmployeeCommission, financialYearOf } from '../services/employeeCommission.js';
 import { syncAllGroups } from '../services/groupLeaderPayout.js';
 import { parseMonth } from '../services/groupLeaderCommission.js';
@@ -91,11 +93,24 @@ export async function employeeList(req, res) {
   const q = asString(req.query.q);
   if (q) filter.$or = [{ employeeCode: new RegExp(escapeRegex(q), 'i') }, { employeeName: new RegExp(escapeRegex(q), 'i') }];
   const entries = await EmployeeCommission.find(filter).sort({ employeeCode: 1, commissionFor: 1, periodFrom: 1 });
+  const codes = [...new Set(entries.map((e) => String(e.employeeCode || '').toUpperCase()))];
+  const [emps, users] = await Promise.all([
+    Employee.find({ employeeCode: { $in: codes } }).select('employeeCode name').lean(),
+    User.find({ employeeCode: { $in: codes } }).select('employeeCode name').lean(),
+  ]);
+  const nameMap = new Map();
+  users.forEach((u) => { if (u.employeeCode && u.name) nameMap.set(String(u.employeeCode).toUpperCase(), u.name); });
+  emps.forEach((e) => { if (e.employeeCode && e.name) nameMap.set(String(e.employeeCode).toUpperCase(), e.name); });
+
   const byEmployee = new Map();
   for (const e of entries) {
-    if (!byEmployee.has(e.employeeCode)) byEmployee.set(e.employeeCode, { employeeCode: e.employeeCode, employeeName: e.employeeName, total: 0, items: [] });
+    const codeUpper = String(e.employeeCode || '').toUpperCase();
+    const resolvedName = nameMap.get(codeUpper) || e.employeeName || codeUpper;
+    if (!byEmployee.has(e.employeeCode)) byEmployee.set(e.employeeCode, { employeeCode: e.employeeCode, employeeName: resolvedName, total: 0, items: [] });
     const g = byEmployee.get(e.employeeCode);
-    g.items.push(present(e));
+    const p = present(e);
+    p.employeeName = resolvedName;
+    g.items.push(p);
     g.total += e.amountPaise / 100;
   }
   res.json({ month, employees: [...byEmployee.values()], total: sum(entries, (e) => e.amountPaise) / 100 });
