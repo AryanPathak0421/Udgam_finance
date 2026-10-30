@@ -152,10 +152,10 @@ export default function DayCloseApproval() {
                       <td data-label="Difference" className="num"><span className={`badge ${c.match ? 'green' : 'danger'}`}>{c.match ? 'Matches' : inr(c.difference)}</span></td>
                       <td data-label="Status"><StatusBadge s={c.status} />{['rejected', 'revoked'].includes(c.status) && c.rejectReason && <div className="muted small">{c.rejectReason}</div>}</td>
                       <td>
-                        {c.status === 'submitted' && (
+                        {['submitted', 'revoked'].includes(c.status) && (
                           <div style={{ display: 'flex', gap: 6 }}>
                             <button className="btn sm primary" disabled={!c.match || busy === c.id} title={c.match ? '' : 'The denomination does not match the cashbook closing'} onClick={() => approve(c)}>Approve</button>
-                            <button className="btn sm danger-outline" disabled={busy === c.id} onClick={() => { setRejecting(c); setReason(''); setReasonError(''); }}>Cancel</button>
+                            {c.status === 'submitted' && <button className="btn sm danger-outline" disabled={busy === c.id} onClick={() => { setRejecting(c); setReason(''); setReasonError(''); }}>Cancel</button>}
                           </div>
                         )}
                         {c.status === 'approved' && (

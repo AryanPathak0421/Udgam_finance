@@ -8,7 +8,7 @@ import { todayIso } from '../utils/format.js';
 
 const inr = (n) => (n === null || n === undefined || Number.isNaN(n) ? '—' : `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const dmy = (s) => (s ? new Date(`${s}T00:00:00`).toLocaleDateString('en-IN') : '—');
-const STATUS = { submitted: ['Waiting for admin', 'amber'], approved: ['Approved', 'green'], rejected: ['Cancelled', 'danger'], revoked: ['Pending (revoked)', 'danger'] };
+const STATUS = { submitted: ['Waiting for admin', 'amber'], approved: ['Approved', 'green'], rejected: ['Cancelled', 'danger'], revoked: ['Revoked', 'danger'] };
 export const StatusBadge = ({ s }) => <span className={`badge ${STATUS[s]?.[1] || 'grey'}`}>{STATUS[s]?.[0] || s}</span>;
 
 /** Denomination: the branch counts its notes and coins against the cash closing of its Cashbook. Making it closes the day. */
@@ -96,6 +96,8 @@ export default function DayClose() {
             )}
             {data.reason && <div className="notice" style={{ margin: '8px 0' }}>{data.reason}</div>}
             {data.rejected && <div className="notice" style={{ margin: '8px 0', borderColor: 'var(--danger, #c0392b)' }}><strong>The denomination of {dmy(data.rejected.date)} was rejected{data.rejected.rejectReason ? `: ${data.rejected.rejectReason}` : ''}.</strong> Only EMI collection is allowed until you make it again and the admin approves it. Requisition, approval, payment, product entry, settlement, new member, group, security, commission payment, vouchers and bank deposit / withdrawal are stopped.</div>}
+            {data.revoked && <div className="notice" style={{ margin: '8px 0', borderColor: 'var(--danger, #c0392b)' }}><strong>The day {dmy(data.revoked.date)} was revoked by admin{data.revoked.rejectReason ? `: ${data.revoked.rejectReason}` : ''}.</strong> Work on this back date and make its denomination again. Once the admin approves it, the branch moves back to its date.</div>}
+            {closing < 0 && <div className="notice" style={{ margin: '8px 0', borderColor: 'var(--danger, #c0392b)' }}><strong>Cashbook closing balance is negative ({inr(closing)}).</strong> Physical cash cannot be negative. Please enter missing cash received (e.g. Cash fund) before closing the day.</div>}
             <div className="table-wrap" style={{ marginTop: 8 }}>
               <table className="data-table">
                 <thead><tr><th>Cashbook (cash) of {dmy(data.date)}</th><th className="num">Amount</th></tr></thead>
@@ -131,7 +133,7 @@ export default function DayClose() {
                 </div>
                 {errors.counts && <div className="field-error">{errors.counts}</div>}
                 <FormField id="dcremark" label="Remark" hint="Optional"><input id="dcremark" value={remark} maxLength={200} onChange={(e) => setRemark(e.target.value)} /></FormField>
-                <button className="btn primary" onClick={submit} disabled={busy || diff !== 0} title={diff !== 0 ? 'The count must match the Cashbook closing' : ''}>{busy ? 'Saving…' : 'Make the denomination and close the day'}</button>
+                <button className="btn primary" onClick={submit} disabled={busy || diff !== 0 || closing < 0} title={closing < 0 ? 'Cashbook closing cannot be negative' : diff !== 0 ? 'The count must match the Cashbook closing' : ''}>{busy ? 'Saving…' : 'Make the denomination and close the day'}</button>
                 {diff !== 0 && <div className="notice warn" style={{ marginTop: 8 }}>The denomination is {diff > 0 ? 'more' : 'less'} than the Cashbook closing by {inr(Math.abs(diff))}. The day can be closed only when they match: count again, or correct the Cashbook entries of {dmy(data.date)} first.{closing < 0 ? ' The Cashbook closing is below zero (more cash was paid than received): enter the missing cash received (for example Cash fund) first.' : ''}</div>}
               </>
             ) : data.waiting && (

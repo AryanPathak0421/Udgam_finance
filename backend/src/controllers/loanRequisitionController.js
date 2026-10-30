@@ -22,6 +22,7 @@ import { sendSms } from '../services/sms.js';
 import { verhoeff } from './memberController.js';
 import { notifyApprovers } from '../services/notify.js';
 import { blockedCodes } from '../services/blockedStaff.js';
+import { defaultWorkDate, assertDayOpen } from '../services/dayOpen.js';
 
 const FULL_MOBILE_ROLES = ['super_admin', 'admin', 'accountant'];
 const POPULATE = [{ path: 'branch', select: 'code name' }];
@@ -743,13 +744,22 @@ export function createRequisition(kind) {
       throw new HttpError(403, 'You can only use branches assigned to you');
     }
 
-    // Loan date: every loan requisition (personal, product, business / MSME, group) is made for today only (no back date).
+    // Loan date: made for the branch working date (or today if no day close)
     const today = startOfToday();
-    const loanDate = today;
+    const workDate = await defaultWorkDate(branchId, req.user);
+    let loanDate = workDate || today;
     if (b.loanDate !== undefined && b.loanDate !== null && String(b.loanDate).trim() !== '') {
       const d = parseDateOnly(asString(b.loanDate));
-      if (!d || d.getTime() !== today.getTime()) throw invalid({ loanDate: 'A loan requisition is made for today only (no back date)' });
+      if (!d) throw invalid({ loanDate: 'Enter a valid loan date' });
+      if (!isAdmin(req.user) && workDate && d.getTime() !== workDate.getTime()) {
+        throw invalid({ loanDate: `A loan requisition is made for your branch working date (${dateOnly(workDate)}) only` });
+      }
+      if (isAdmin(req.user) && d > today) {
+        throw invalid({ loanDate: 'A loan requisition cannot be dated in the future' });
+      }
+      loanDate = d;
     }
+    await assertDayOpen(branchId, loanDate, req.user);
 
     // Who the loan is for
     let m = null;
@@ -1368,11 +1378,20 @@ export async function createGroupRequisition(req, res) {
   if (!isAdmin(req.user) && !(req.user.branches || []).some((x) => String(x) === branchId)) throw new HttpError(403, 'You can only use branches assigned to you');
 
   const today = startOfToday();
+  const workDate = await defaultWorkDate(branchId, req.user);
+  let loanDate = workDate || today;
   if (b.loanDate !== undefined && b.loanDate !== null && String(b.loanDate).trim() !== '') {
     const d = parseDateOnly(asString(b.loanDate));
-    if (!d || d.getTime() !== today.getTime()) throw invalid({ loanDate: 'A group loan requisition is made for today only (no back date)' });
+    if (!d) throw invalid({ loanDate: 'Enter a valid loan date' });
+    if (!isAdmin(req.user) && workDate && d.getTime() !== workDate.getTime()) {
+      throw invalid({ loanDate: `A group loan requisition is made for your branch working date (${dateOnly(workDate)}) only` });
+    }
+    if (isAdmin(req.user) && d > today) {
+      throw invalid({ loanDate: 'A group loan requisition cannot be dated in the future' });
+    }
+    loanDate = d;
   }
-  const loanDate = today;
+  await assertDayOpen(branchId, loanDate, req.user);
 
   if (!mongoose.isValidObjectId(String(b.group || ''))) throw invalid({ group: 'Select the group' });
   const g = await Group.findOne({ _id: b.group, isDeleted: false, branch: branchId }).populate('members.member', MEMBER_PICK);

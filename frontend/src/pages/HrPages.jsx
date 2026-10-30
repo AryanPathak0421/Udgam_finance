@@ -522,7 +522,7 @@ function EmployeeProfile({ item, onClose }) {
             {row('Joined', e.joiningDate ? dmy(e.joiningDate) : '—')}
             {row('Status', e.status === 'active' ? 'Working' : 'Left')}
             {row('Monthly salary (set)', e.monthlySalary ? inr(e.monthlySalary) : 'Not set')}
-            {row('Yearly increase of the Basic', `${e.salarySetup?.yearlyIncrementPercent ?? 10}% every April`)}
+            {row('Yearly increase of the Basic', `${e.salarySetup?.yearlyIncrementPercent ?? 10}% every year from joining date`)}
           </tbody></table></div>
           <h3 className="section-title" style={{ marginTop: 14 }}>Security cut from the salary</h3>
           {sec.amount > 0 ? (
@@ -707,7 +707,7 @@ export function SetSalary() {
                 {SETUP_EARN.map(([k, label], i) => <FormField key={k} id={`ss${k}`} label={`${i + 1}. ${label} (₹)`} error={errors[k]}><input id={`ss${k}`} inputMode="decimal" value={f[k]} onChange={setMoney(k)} /></FormField>)}
               </div>
               <p className="muted small">Automatic when the salary is generated: loan incentive, product sell incentive, GRT commission (a new group opened with 5 new members, in the employee's name), senior commission (only for a supervisor) and 10% of the NPA recovery.</p>
-              <FormField id="ssyi" label="Yearly increase of the Basic (%)" error={errors.yearlyIncrementPercent} hint="The Basic grows by this much every April (the new financial year), by itself, on the salary slip. 0 = no increase"><input id="ssyi" inputMode="decimal" value={f.yearlyIncrementPercent} onChange={setMoney('yearlyIncrementPercent')} /></FormField>
+              <FormField id="ssyi" label="Yearly increase of the Basic (%)" error={errors.yearlyIncrementPercent} hint="The Basic grows by this much every year from the joining date, by itself, on the salary slip. 0 = no increase"><input id="ssyi" inputMode="decimal" value={f.yearlyIncrementPercent} onChange={setMoney('yearlyIncrementPercent')} /></FormField>
               <p style={{ margin: '8px 0 0' }}><strong>Total fixed salary: {inr(gross)}</strong></p>
             </div>
             <div>

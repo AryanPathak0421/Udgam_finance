@@ -34,7 +34,7 @@ const COLS = {
   ],
   disbursement: [
     ['Loan ID', (r) => <strong>{r.loanId}</strong>], ['Paid on', (r) => dmy(r.date)], ['Branch', (r) => r.branch], ['Type', (r) => cap(r.loanType)], ['Borrower(s)', (r) => r.borrowers], ['Scheme', (r) => r.scheme],
-    ['Mode · term', (r) => `${r.mode} · ${r.installments}`], ['Loan amount', (r) => inr(r.amount), true], ['Cash paid', (r) => inr(r.cash), true], ['Paid by', (r) => MODE_LABEL[r.payMode] || r.payMode],
+    ['Mode · term', (r) => `${r.mode} · ${r.installments}`], ['Loan amount', (r) => inr(r.amount), true], ['Cash paid', (r) => inr(r.cash), true], ['Staff', staffCell], ['Payment mode', (r) => MODE_LABEL[r.payMode] || r.payMode],
   ],
   'emi-collection': [
     ['Receipt', (r) => <strong>{r.receiptNo}</strong>], ['Date', (r) => dmy(r.date)], ['Loan ID', (r) => r.loanId], ['Borrower', (r) => <>{r.memberCode} {r.memberName}{r.group && <div className="muted small">{r.group}</div>}</>], ['Branch', (r) => r.branch],
@@ -94,7 +94,7 @@ COLS['group-collection'] = [['Group', (r) => <strong>{r.group}</strong>], ['Bran
 const REPORTS = {
   requisition: { title: 'Loan Requisition Report', description: 'Every loan requisition with its status, by the loan date.', range: true, status: ['pending', 'approved', 'rejected', 'cancelled'], from: monthStart },
   approval: { title: 'Loan Approval Report', description: 'Loans that were approved or rejected, by the date of the decision.', range: true, status: ['approved', 'rejected'], from: monthStart },
-  disbursement: { title: 'Loan Disbursement Report', description: 'Loans paid out, by the payment date.', range: true, from: monthStart },
+  disbursement: { title: 'Loan Disbursement Report', description: 'Loans paid out, by the payment date.', range: true, from: monthStart, staffFilter: true },
   due: { title: 'Loan Due Report', description: 'Borrowers whose EMI falls due on the chosen date and is not paid yet.', asOf: true },
   overdue: { title: 'Loan Over Due Report', description: 'Borrowers with an EMI that was due before the chosen date and is still not paid, the oldest first.', asOf: true },
   outstanding: { title: 'Loan Outstanding Report', description: 'What every running borrower still has to pay as on the chosen date.', asOf: true },

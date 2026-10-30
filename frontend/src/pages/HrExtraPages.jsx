@@ -251,7 +251,7 @@ export function RoomRent() {
             <FormField id="rrq" label="Room owner / Messenger" error={sv.errors.party} hint={choices.length ? '' : 'None registered for this branch: the admin registers them in Room owners / Messengers. Or type a name below.'}>
               <select id="rrq" value={f.party} onChange={(e) => setF((x) => ({ ...x, party: e.target.value, rent: '', currentReading: '', meterPhoto: '' }))}><option value="">Other (type the name)</option>{choices.map((p) => <option key={p.id} value={p.id}>{KIND[p.kind]}: {p.name}</option>)}</select>
             </FormField>
-            <FormField id="rrm" label="Rent of the month" required error={sv.errors.month}><input id="rrm" type="month" value={f.month} onChange={set('month')} /></FormField>
+            <FormField id="rrm" label="Rent of the month" required error={sv.errors.month}><input id="rrm" type="month" max={monthNow()} value={f.month} onChange={set('month')} /></FormField>
             {!party && <FormField id="rrl" label="Name" required error={sv.errors.landlord}><input id="rrl" value={f.landlord} maxLength={80} onChange={set('landlord')} /></FormField>}
             <FormField id="rra" label={party?.kind === 'messenger' ? 'Amount (₹)' : 'Rent (₹)'} required error={sv.errors.rent} hint={party ? `Fixed for ${party.name}: ${inr(party.amount)} (the admin changes it in Room owners / Messengers)` : ''}><input id="rra" inputMode="decimal" value={party ? String(party.amount) : f.rent} readOnly={Boolean(party)} onChange={(e) => { setF((x) => ({ ...x, rent: decimal(e.target.value) })); sv.setErrors((x) => ({ ...x, rent: undefined })); }} /></FormField>
             {metered && (

@@ -12,6 +12,7 @@ import useDebounce from '../hooks/useDebounce.js';
 import useOffDays from '../utils/offDays.js';
 import { ReceiptDialog } from './EmiPayment.jsx';
 import { todayIso } from '../utils/format.js';
+import { workDateOf } from '../utils/workDate.js';
 
 const LIMIT = 25;
 const COLLECTORS = ['super_admin', 'admin', 'branch_manager', 'accountant', 'collection_officer', 'field_officer'];
@@ -92,6 +93,9 @@ function useCollection(kind) {
   useEffect(() => {
     api.groups.branchOptions().then((r) => setBranches(r.items)).catch(() => {});
   }, []);
+  useEffect(() => {
+    workDateOf(f.branch).then((d) => { if (d) setF((x) => ({ ...x, date: d })); }).catch(() => {});
+  }, [f.branch]);
   const load = useCallback(async () => {
     setLoading(true);
     setError('');

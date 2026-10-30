@@ -56,17 +56,18 @@ export async function assertNotRejected(req) {
  */
 export async function assertDayOpen(branchId, date, user) {
   if (!branchId || isAdminUser(user)) return;
-  // a closed day (denomination made) takes no more entries; a day the admin revoked is open again, whatever the days after it
-  const closed = await DayClose.findOne({ branch: branchId, date: { $gte: date }, status: { $in: ['submitted', 'approved'] } }).sort({ date: 1 }).select('date status').lean();
-  if (closed && (closed.status === 'submitted' || closed.date.getTime() === date.getTime() || !(await DayClose.exists({ branch: branchId, date, status: 'revoked' })))) {
-    throw new HttpError(409, `The day ${iso(closed.date)} of this branch is closed${closed.status === 'submitted' ? ' (waiting for the admin)' : ''}. Work is made on ${iso(new Date(closed.date.getTime() + DAY))} only.`, { date: 'This day is closed' });
-  }
-  if (!user) return;
-  const waiting = await DayClose.findOne({ branch: branchId, status: 'submitted' }).select('date').lean();
-  if (waiting) throw new HttpError(409, `The denomination of ${iso(waiting.date)} is waiting for the admin. Work continues after it is approved.`, { date: 'Waiting for the admin' });
   const working = await branchWorkingDate(branchId);
   if (working && date.getTime() !== working.getTime()) {
     throw new HttpError(409, `This branch works on ${iso(working)} (its next open day). Work cannot be made for ${iso(date)}.`, { date: `The branch works on ${iso(working)}` });
+  }
+  const waiting = await DayClose.findOne({ branch: branchId, status: 'submitted' }).select('date').lean();
+  if (waiting) throw new HttpError(409, `The denomination of ${iso(waiting.date)} is waiting for the admin. Work continues after it is approved.`, { date: 'Waiting for the admin' });
+  const isRevoked = await DayClose.exists({ branch: branchId, date, status: 'revoked' });
+  if (!isRevoked) {
+    const closed = await DayClose.findOne({ branch: branchId, date, status: { $in: ['submitted', 'approved'] } }).select('date status').lean();
+    if (closed) {
+      throw new HttpError(409, `The day ${iso(closed.date)} of this branch is closed${closed.status === 'submitted' ? ' (waiting for the admin)' : ''}. Work is made on ${iso(new Date(closed.date.getTime() + DAY))} only.`, { date: 'This day is closed' });
+    }
   }
 }
 

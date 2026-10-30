@@ -50,15 +50,41 @@ export function setupAt(emp, month) {
 }
 
 /**
- * The Basic grows by itself every April (the start of the financial year) by the yearly increase of the employee (10% unless set otherwise): how many Aprils there
- * are after the month the salary was set from, up to and including the month of the slip.
+ * The Basic grows by itself automatically every year from the employee's joining date
+ * by the yearly increase percentage (10% unless set otherwise).
+ * Calculates how many completed 1-year anniversaries have occurred up to and including the salary slip month.
  */
 export function yearlyIncrements(emp, month) {
-  const from = emp.setupMonth && emp.setupMonth !== '0000-00' ? emp.setupMonth : new Date(emp.joiningDate || emp.createdAt || Date.now()).toISOString().slice(0, 7);
+  if (!month) return 0;
+  const rawJoin = emp.joiningDate || emp.createdAt;
+  if (!rawJoin) return 0;
+  const joinDate = new Date(rawJoin);
+  if (isNaN(joinDate.getTime())) return 0;
+
+  const joinY = joinDate.getUTCFullYear();
+  const joinM = joinDate.getUTCMonth() + 1; // 1 to 12
+
+  const [targetY, targetM] = month.split('-').map(Number);
+  if (!targetY || !targetM) return 0;
+
+  let startY = joinY;
+  let startM = joinM;
+
+  if (emp.setupMonth && emp.setupMonth !== '0000-00') {
+    const [sY, sM] = emp.setupMonth.split('-').map(Number);
+    if (sY && sM && (sY > joinY || (sY === joinY && sM > joinM))) {
+      startY = sY;
+      startM = sM;
+    }
+  }
+
   let n = 0;
-  for (let y = Number(from.slice(0, 4)); y <= Number(month.slice(0, 4)); y += 1) {
-    const april = `${y}-04`;
-    if (april > from && april <= month) n += 1;
+  for (let y = startY; y <= targetY; y += 1) {
+    const anniversary = `${y}-${String(joinM).padStart(2, '0')}`;
+    const startIso = `${startY}-${String(startM).padStart(2, '0')}`;
+    if (anniversary > startIso && anniversary <= month) {
+      n += 1;
+    }
   }
   return n;
 }

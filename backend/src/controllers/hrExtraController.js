@@ -17,7 +17,7 @@ import { CashEntry } from '../models/CashEntry.js';
 import { generateCode } from '../services/codeSequence.js';
 import { assertDayOpen, defaultWorkDate } from '../services/dayOpen.js';
 import { readBankAccount } from '../services/bankAccountPick.js';
-import { asString, parseDateOnly, HttpError, startOfToday, escapeRegex } from '../utils/http.js';
+import { asString, parseDateOnly, HttpError, startOfToday, todayDateString, escapeRegex } from '../utils/http.js';
 import { toMinor } from '../utils/money.js';
 import { audit } from '../utils/audit.js';
 import { branchFilter, isAdmin } from './groupController.js';
@@ -121,6 +121,8 @@ export async function createRoomRent(req, res) {
   const branch = await branchOf(req, party ? String(party.branch) : asString(b.branch));
   const month = asString(b.month);
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw invalid({ month: 'Choose the month the rent is for' });
+  const currentMonth = todayDateString().slice(0, 7);
+  if (month > currentMonth) throw invalid({ month: 'Rent / messenger payment cannot be paid for a future month' });
   const landlord = party ? party.name : asString(b.landlord).replace(/\s+/g, ' ');
   if (landlord.length < 2 || landlord.length > 80) throw invalid({ landlord: 'Enter the name of the landlord (2–80 characters)' });
   // the rent of a month is paid once to a room owner / messenger (cancel the entry first to pay it again)

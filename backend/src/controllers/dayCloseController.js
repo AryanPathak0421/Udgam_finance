@@ -6,6 +6,8 @@ import { audit } from '../utils/audit.js';
 import { isAdmin } from './groupController.js';
 import { cashbookData } from './cashbookController.js';
 import { branchWorkingDate } from '../services/dayOpen.js';
+import { notifyApprovers } from '../services/notify.js';
+import { UserNotification } from '../models/SuperAdmin.js';
 
 /**
  * Day close. The denomination of a branch (the count of every note and coin) is made against the cash closing of its Cashbook; once it is made
@@ -46,11 +48,12 @@ const present = (c, branch) => ({
 /** Where a branch stands: its working date (the day after the last approved close), a close waiting for approval, and the cash closing of the date to close. */
 export async function status(req, res) {
   const branch = await branchOf(req, asString(req.query.branch));
-  const [lastApproved, pending, recent, rejectedClose] = await Promise.all([
+  const [lastApproved, pending, recent, rejectedClose, revokedClose] = await Promise.all([
     DayClose.findOne({ branch: branch._id, status: 'approved' }).sort({ date: -1 }).lean(),
     DayClose.findOne({ branch: branch._id, status: 'submitted' }).sort({ date: -1 }).lean(),
     DayClose.find({ branch: branch._id }).sort({ date: -1 }).limit(10).lean(),
     DayClose.findOne({ branch: branch._id, status: 'rejected' }).sort({ date: -1 }).lean(),
+    DayClose.findOne({ branch: branch._id, status: 'revoked' }).sort({ date: 1 }).lean(),
   ]);
   const workingDate = await branchWorkingDate(branch._id);
   const today = startOfToday();
@@ -60,7 +63,7 @@ export async function status(req, res) {
   const cash = await cashOf(req, branch._id, date);
   res.json({
     branch: { id: branch._id, code: branch.code, name: branch.name }, workingDate: iso(workingDate), lastClosed: iso(lastApproved?.date), date: iso(date), dateFixed: Boolean(workingDate || pending),
-    canClose, waiting: pending ? present(pending, null) : null, rejected: rejectedClose ? present(rejectedClose, null) : null,
+    canClose, waiting: pending ? present(pending, null) : null, rejected: rejectedClose ? present(rejectedClose, null) : null, revoked: revokedClose ? present(revokedClose, null) : null,
     reason: pending ? `The close of ${iso(pending.date)} is waiting for the admin's approval` : workingDate && workingDate > today ? `The day ${iso(lastApproved?.date)} is closed. The next day opens on ${iso(workingDate)}` : '',
     cashbook: { opening: cash.opening / 100, receipts: cash.receipts / 100, payments: cash.payments / 100, closing: cash.closing / 100 },
     denominations: DENOMINATIONS, recent: recent.map((c) => present(c, null)),
@@ -102,6 +105,10 @@ export async function submit(req, res) {
   if (date > today) throw invalid({ date: 'A day can be closed only on or after that day' });
   const { counts, total } = readCounts(b.counts);
   const cash = await cashOf(req, branch._id, date);
+  // a negative Cashbook closing means more cash was paid than received — physical cash cannot be negative, so the day cannot be closed
+  if (cash.closing < 0) {
+    throw new HttpError(422, `The Cashbook closing is ₹${cash.closing / 100} (negative: more cash was paid than received). Add the missing cash received (for example Cash fund) before closing the day.`, { counts: 'Cashbook closing is negative — add cash fund first' });
+  }
   // the day is closed only with a denomination that matches the cash closing of the Cashbook: a mismatched count would lock the day (no entry can be made) without the branch being able to correct it
   // (a branch with no cash at all closes its day with a zero count)
   if (total !== cash.closing) {
@@ -119,6 +126,8 @@ export async function submit(req, res) {
     throw err;
   });
   await audit(req, { action: 'dayClose.submit', entity: 'DayClose', entityId: saved._id, after: { branch: branch.code, date: iso(date), denomination: total / 100, closing: cash.closing / 100, difference: (total - cash.closing) / 100 } });
+  // notify admins that a denomination is waiting for approval
+  notifyApprovers({ branch: branch._id, exceptUser: req.user._id, includeManagers: true, title: 'Day close submitted', message: `${branch.code} denomination for ${iso(date)} submitted (₹${total / 100}). Waiting for approval.` });
   res.status(201).json({ close: present(saved, { id: branch._id, code: branch.code, name: branch.name }) });
 }
 
@@ -132,7 +141,8 @@ export async function list(req, res) {
     filter.branch = new mongoose.Types.ObjectId(wanted);
   }
   const st = asString(req.query.status);
-  if (['submitted', 'approved', 'rejected', 'revoked'].includes(st)) filter.status = st;
+  if (st === 'submitted') filter.status = { $in: ['submitted', 'revoked'] };
+  else if (['approved', 'rejected', 'revoked'].includes(st)) filter.status = st;
   const from = parseDateOnly(asString(req.query.from));
   const to = parseDateOnly(asString(req.query.to));
   if (from || to) filter.date = { ...(from ? { $gte: from } : {}), ...(to ? { $lte: to } : {}) };
@@ -155,7 +165,7 @@ async function load(req) {
 /** The admin approves: the Cashbook closing is worked out again and must still match the denomination. Then the branch moves on to the next date. */
 export async function approve(req, res) {
   const c = await load(req);
-  if (c.status !== 'submitted') throw new HttpError(409, `This close is already ${c.status}`);
+  if (!['submitted', 'revoked'].includes(c.status)) throw new HttpError(409, `This close is already ${c.status}`);
   const cash = await cashOf(req, c.branch._id, c.date);
   if (cash.closing !== c.denominationPaise) {
     throw new HttpError(409, `The cash closing of the Cashbook is ₹${cash.closing / 100} but the denomination is ₹${c.denominationPaise / 100}. They must match; reject this close so the branch makes it again.`);
@@ -165,6 +175,8 @@ export async function approve(req, res) {
   c.decidedAt = new Date();
   await c.save();
   await audit(req, { action: 'dayClose.approve', entity: 'DayClose', entityId: c._id, after: { branch: c.branch.code, date: iso(c.date), closing: c.closingPaise / 100 } });
+  // notify the branch user who submitted
+  if (c.submittedBy) UserNotification.create({ user: c.submittedBy, title: 'Day close approved', message: `${c.branch.code} denomination for ${iso(c.date)} has been approved.` }).catch(() => {});
   res.json({ close: present(c, null), nextDate: iso(await branchWorkingDate(c.branch._id)) });
 }
 
@@ -185,6 +197,9 @@ export async function revoke(req, res) {
   c.decidedAt = new Date();
   await c.save();
   await audit(req, { action: 'dayClose.revoke', entity: 'DayClose', entityId: c._id, after: { branch: c.branch.code, date: iso(c.date), reason, laterRevoked: later.modifiedCount } });
+  // notify the branch user who submitted and branch managers
+  if (c.submittedBy) UserNotification.create({ user: c.submittedBy, title: 'Day close revoked', message: `${c.branch.code} day ${iso(c.date)} has been revoked: ${reason}. Make the denomination again.` }).catch(() => {});
+  notifyApprovers({ branch: c.branch._id, exceptUser: req.user._id, includeManagers: true, title: 'Day close revoked', message: `${c.branch.code} day ${iso(c.date)} has been revoked: ${reason}` });
   res.json({ close: present(c, null), laterRevoked: later.modifiedCount, workingDate: iso(await branchWorkingDate(c.branch._id)) });
 }
 
@@ -213,6 +228,8 @@ export async function reject(req, res) {
   c.rejectReason = reason;
   await c.save();
   await audit(req, { action: 'dayClose.reject', entity: 'DayClose', entityId: c._id, after: { branch: c.branch.code, date: iso(c.date), reason } });
+  // notify the branch user who submitted
+  if (c.submittedBy) UserNotification.create({ user: c.submittedBy, title: 'Day close rejected', message: `${c.branch.code} denomination for ${iso(c.date)} was rejected: ${reason}` }).catch(() => {});
   res.json({ close: present(c, null) });
 }
 
