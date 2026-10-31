@@ -23,7 +23,6 @@ export default function useOffDays(branch) {
   }, [branch]);
   const reason = useCallback((s) => {
     if (!s) return '';
-    if (new Date(at(s)).getUTCDay() === 0) return 'Sunday';
     return holidays.get(s) || '';
   }, [holidays]);
   const skip = useCallback((s) => {

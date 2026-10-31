@@ -1,4 +1,5 @@
 import BankAccountSelect from '../components/BankAccountSelect.jsx';
+import { PhotoField } from './NewBorrower.jsx';
 import { workDateOf } from '../utils/workDate.js';
 import { Fragment, useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client.js';
@@ -245,10 +246,81 @@ export default function Cashbook() {
               extra={<div className="muted small" style={{ marginTop: 6 }}>"Today due" is the EMI still to be collected up to {dmy(data.asOf)}; it is part of the payment total.</div>} />
           </div>
         )}
+        <CashbookPhotos branch={branch} date={to || from || today()} />
       </div>
       {adding && data && (
         <EntryDialog cats={data.entryCategories} ledgers={data.ledgers} branches={branches} isAdmin={isAdmin} defaultBranch={branch && branch !== '' ? branch : branches.length === 1 ? branches[0].id : ''} onClose={() => setAdding(false)} onSaved={() => { setAdding(false); load(); }} />
       )}
     </>
+  );
+}
+
+function CashbookPhotos({ branch, date }) {
+  const toast = useToast();
+  const [photos, setPhotos] = useState({ receivePhoto: '', paymentPhoto: '', uploadedBy: '' });
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    if (!date) return undefined;
+    setLoading(true);
+    api.cashbookPhotos({ branch: branch && branch !== 'ho' ? branch : undefined, date })
+      .then((r) => {
+        if (active) setPhotos({ receivePhoto: r.receivePhoto || '', paymentPhoto: r.paymentPhoto || '', uploadedBy: r.uploadedBy || '' });
+      })
+      .catch(() => {})
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [branch, date]);
+
+  async function save() {
+    setSaving(true);
+    try {
+      await api.saveCashbookPhotos({ branch: branch && branch !== 'ho' ? branch : undefined, date, receivePhoto: photos.receivePhoto, paymentPhoto: photos.paymentPhoto });
+      toast.success('Cashbook photos saved');
+    } catch (err) {
+      toast.error(err.message || 'Failed to save photos');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="panel" style={{ marginTop: 20 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+        <div>
+          <h3 className="section-title" style={{ margin: 0 }}>Cashbook Photos (Optional)</h3>
+          <p className="muted small" style={{ margin: '4px 0 0' }}>Upload physical cashbook page photos for {dmy(date)}. Side 1: Receive side · Side 2: Payment side.</p>
+        </div>
+        <button className="btn primary" onClick={save} disabled={saving || loading}>
+          {saving ? 'Saving…' : 'Save photos'}
+        </button>
+      </div>
+      {loading ? (
+        <Spinner label="Loading photos…" />
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
+          <div style={{ border: '1px solid var(--border-color, #e2e8f0)', borderRadius: 8, padding: 12 }}>
+            <h4 style={{ margin: '0 0 8px' }}>Cashbook 1st side (Receive side)</h4>
+            <PhotoField
+              id="cb_receive_photo"
+              label="Side 1 Photo"
+              value={photos.receivePhoto}
+              onChange={(v) => setPhotos((p) => ({ ...p, receivePhoto: v }))}
+            />
+          </div>
+          <div style={{ border: '1px solid var(--border-color, #e2e8f0)', borderRadius: 8, padding: 12 }}>
+            <h4 style={{ margin: '0 0 8px' }}>Cashbook 2nd side (Payment side)</h4>
+            <PhotoField
+              id="cb_payment_photo"
+              label="Side 2 Photo"
+              value={photos.paymentPhoto}
+              onChange={(v) => setPhotos((p) => ({ ...p, paymentPhoto: v }))}
+            />
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

@@ -152,7 +152,8 @@ export async function createRoomRent(req, res) {
   const bankAccount = await readBankAccount(b, payMode);
   await assertDayOpen(branch, paidOn, req.user);
   const label = KIND_LABEL[party?.kind || 'room'];
-  const entry = await CashEntry.create({ branch, date: paidOn, side: 'payment', category: party?.kind === 'messenger' ? 'messenger_payment' : 'room_rent', amountPaise, mode: payMode, bankAccount, remark: `${label} ${month} — ${landlord}${electricityPaise ? ` (rent ${rentPaise / 100} + electricity ${electricityPaise / 100})` : ''}`.slice(0, 200), enteredByCode: req.user.employeeCode || '', createdBy: req.user._id });
+  const isMessenger = party?.kind === 'messenger' || String(b.kind).toLowerCase() === 'messenger' || String(party?.name || landlord).toLowerCase().includes('messenger');
+  const entry = await CashEntry.create({ branch, date: paidOn, side: 'payment', category: isMessenger ? 'messenger_payment' : 'room_rent', amountPaise, mode: payMode, bankAccount, remark: `${label} ${month} — ${landlord}${electricityPaise ? ` (rent ${rentPaise / 100} + electricity ${electricityPaise / 100})` : ''}`.slice(0, 200), enteredByCode: req.user.employeeCode || '', createdBy: req.user._id });
   const r = await RoomRent.create({ branch, month, landlord, kind: party?.kind || 'other', party: party?._id, rentPaise, amountPaise, ...meter, paidOn, payMode, bankAccount, reference: asString(b.reference).slice(0, 60), remark: asString(b.remark).slice(0, 200), cashEntry: entry._id, enteredByCode: req.user.employeeCode || '' });
   if (meter.currentReading !== undefined) await RentParty.updateOne({ _id: party._id }, { $set: { lastReading: meter.currentReading } });
   await r.populate(POP_BRANCH);

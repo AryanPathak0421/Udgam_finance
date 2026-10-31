@@ -250,21 +250,25 @@ const REPORTS = {
       .populate('createdBy', 'employeeCode name')
       .lean();
     const mobiles = await mobileMap(req, loans.map((l) => l.lines[0]?.code));
-    const staffCodes = [...new Set(loans.map((l) => l.employeeCode || l.requisition?.employeeCode || l.createdByCode || l.createdBy?.employeeCode).filter(Boolean))];
+    const groupCodes = [...new Set(loans.map((l) => l.group?.code).filter(Boolean))];
+    const groupDocs = groupCodes.length ? await Group.find({ code: { $in: groupCodes } }).select('code employeeCode').lean() : [];
+    const groupStaffMap = new Map(groupDocs.map((g) => [g.code, g.employeeCode]));
+
+    const staffCodes = [...new Set(loans.map((l) => l.employeeCode || l.requisition?.employeeCode || groupStaffMap.get(l.group?.code) || l.createdByCode || l.createdBy?.employeeCode).filter(Boolean))];
     const names = await staffNames(staffCodes);
     const rows = loans.filter((l) => {
-      const code = String(l.employeeCode || l.requisition?.employeeCode || l.createdByCode || l.createdBy?.employeeCode || '').trim();
+      const code = String(l.employeeCode || l.requisition?.employeeCode || groupStaffMap.get(l.group?.code) || l.createdByCode || l.createdBy?.employeeCode || '').trim();
       if (staffFilter && code.toUpperCase() !== staffFilter) return false;
-      const sName = names.get(code.toUpperCase()) || l.createdBy?.name || '';
+      const sName = names.get(code.toUpperCase()) || names.get(String(l.createdBy?._id || '')) || l.createdBy?.name || '';
       return matches(q, l.loanId, l.formId, l.receiptNo, l.group?.name, code, sName, ...l.lines.map((x) => `${x.code} ${x.name}`));
     }).map((l) => {
-      const code = String(l.employeeCode || l.requisition?.employeeCode || l.createdByCode || l.createdBy?.employeeCode || '').trim();
-      const sName = names.get(code.toUpperCase()) || l.createdBy?.name || '';
+      const code = String(l.employeeCode || l.requisition?.employeeCode || groupStaffMap.get(l.group?.code) || l.createdByCode || l.createdBy?.employeeCode || '').trim();
+      const sName = names.get(code.toUpperCase()) || names.get(String(l.createdBy?._id || '')) || l.createdBy?.name || (code && isNaN(code) && code.length > 3 ? code : '');
       return {
         mobile: mobiles.get(l.lines[0]?.code) || '', key: String(l._id), loanId: l.loanId || l.formId, receiptNo: l.receiptNo, date: iso(l.paidOn), branch: l.branch?.code || '', loanType: l.kind === 'group' ? 'group' : l.loanType || l.kind,
         borrowers: l.group?.code ? `${l.group.code} — ${l.group.name} (${l.lines.length} members)` : l.lines.map((x) => `${x.code} ${x.name}`).join(', '), scheme: l.schemeName || '', mode: l.modeLabel || l.mode,
         installments: l.installments, amount: rupees(l.totalAmountPaise ?? l.lines.reduce((s, x) => s + (x.amountPaise || 0), 0)), cash: rupees(l.totalCashPaise), payMode: l.payMode,
-        staff: code, staffName: sName, paidBy: code,
+        staff: code || sName || '—', staffName: sName || code || '—', paidBy: code,
       };
     });
     return { rows, summary: { loans: rows.length, amount: sumOf(rows, 'amount'), cash: sumOf(rows, 'cash') } };
@@ -320,14 +324,19 @@ const REPORTS = {
 const isNpa = (r) => r.outstanding > 0 && r.daysPastEnd >= 1;
 const staffNames = async (codes) => {
   const normCodes = [...new Set((codes || []).map((c) => String(c || '').trim().toUpperCase()).filter(Boolean))];
-  if (!normCodes.length) return new Map();
   const [users, emps] = await Promise.all([
-    User.find({ employeeCode: { $exists: true, $ne: '' } }).select('employeeCode name').lean(),
-    Employee.find({ isDeleted: false, employeeCode: { $exists: true, $ne: '' } }).select('employeeCode name').lean(),
+    User.find({}).select('employeeCode name username').lean(),
+    Employee.find({}).select('employeeCode name').lean(),
   ]);
   const map = new Map();
-  users.forEach((u) => { if (u.employeeCode && u.name) map.set(String(u.employeeCode).trim().toUpperCase(), u.name); });
-  emps.forEach((e) => { if (e.employeeCode && e.name) map.set(String(e.employeeCode).trim().toUpperCase(), e.name); });
+  users.forEach((u) => {
+    if (u.employeeCode && (u.name || u.username)) map.set(String(u.employeeCode).trim().toUpperCase(), u.name || u.username);
+    if (u._id && (u.name || u.username)) map.set(String(u._id), u.name || u.username);
+  });
+  emps.forEach((e) => {
+    if (e.employeeCode && e.name) map.set(String(e.employeeCode).trim().toUpperCase(), e.name);
+    if (e._id && e.name) map.set(String(e._id), e.name);
+  });
   return map;
 };
 /** The staff wise reports narrowed to the staff searched (code or name). */

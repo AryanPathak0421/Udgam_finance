@@ -287,7 +287,7 @@ function RequisitionForm({ kind }) {
 
   const [branches, setBranches] = useState([]);
   const [schemes, setSchemes] = useState([]);
-  const [form, setForm] = useState({ branch: '', loanDate: todayISO(), employeeCode: '', filterEmployee: '', schemeId: '', amount: '', mode: '', term: '', rate: '', formFrontPhoto: '', formBackPhoto: '' });
+  const [form, setForm] = useState({ branch: '', loanDate: todayISO(), employeeCode: '', employeeName: '', filterEmployee: '', schemeId: '', amount: '', mode: '', term: '', rate: '', formFrontPhoto: '', formBackPhoto: '' });
   useEffect(() => {
     if (form.branch) {
       workDateOf(form.branch).then((d) => {
@@ -669,7 +669,7 @@ function RequisitionForm({ kind }) {
               branch={form.branch}
               value={form.employeeCode}
               error={errors.employeeCode}
-              onChange={(code) => { setForm((f) => ({ ...f, employeeCode: code })); setErrors((er) => ({ ...er, employeeCode: undefined })); }}
+              onChange={(code, it) => { setForm((f) => ({ ...f, employeeCode: code, employeeName: it?.name || '' })); setErrors((er) => ({ ...er, employeeCode: undefined })); }}
             />
           </div>
         </div>
@@ -1071,7 +1071,7 @@ function RequisitionForm({ kind }) {
           <DetailList
             items={[
               [isGroup ? 'Group' : 'Borrower', `${picked.code} — ${picked.name}`], ['Branch', branches.find((x) => x.id === form.branch)?.name],
-              ['Loan date', form.loanDate], ['Employee ID', form.employeeCode],
+              ['Loan date', form.loanDate], ['Staff Name', form.employeeName ? `${form.employeeName} (${form.employeeCode})` : (form.employeeCode || '—')],
               ...(isBusiness ? [['Loan type', biz.loanType === 'msme' ? 'MSME loan' : 'Business loan'], ['Business', biz.businessName], ['Civil score', biz.civilScore]] : []),
               [schemeLabel, `${scheme.code} — ${scheme.name}`],
               [isGroup ? 'Amount per member' : 'Request amount', inr(amountNum)],

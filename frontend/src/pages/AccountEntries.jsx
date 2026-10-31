@@ -293,8 +293,8 @@ export default function AccountEntries({ kind }) {
   const [ledgers, setLedgers] = useState({ credit: [], debit: [] });
   const [allBranches, setAllBranches] = useState([]);
   const [branch, setBranch] = useState('');
-  const [from, setFrom] = useState(today());
-  const [to, setTo] = useState(today());
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
   useEffect(() => {
     workDateOf(branch && branch !== 'ho' ? branch : undefined).then((d) => {
       if (d) { setFrom(d); setTo(d); }
@@ -311,7 +311,7 @@ export default function AccountEntries({ kind }) {
     api.groups.branchOptions().then((r) => {
       const items = r.items || [];
       setBranches(items);
-      if (!isAdmin && items.length === 1) {
+      if (items.length === 1 && !branch) {
         setBranch(items[0].id);
       }
     }).catch(() => {});

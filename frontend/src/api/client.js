@@ -1,4 +1,4 @@
-﻿// Default: empty, so calls go to /api on the same origin (Vite proxy in dev, the
+// Default: empty, so calls go to /api on the same origin (Vite proxy in dev, the
 // vercel.json rewrite in production) and the auth cookie stays first-party.
 // Only set VITE_API_BASE_URL to call an API on another domain directly.
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
@@ -321,6 +321,8 @@ export const api = {
     cancel: (id, reason) => request(`/loan-payments/${id}/cancel`, { method: 'POST', body: { reason } }),
   },
   cashbook: (params) => request(`/cashbook${qs(params)}`),
+  cashbookPhotos: (params) => request(`/cashbook/photos${qs(params)}`),
+  saveCashbookPhotos: (data) => request('/cashbook/photos', { method: 'POST', body: data }),
   cashbookEntry: (data) => request('/cashbook/entries', { method: 'POST', body: data }),
   cashbookEntryDelete: (id) => request(`/cashbook/entries/${id}`, { method: 'DELETE' }),
   stockTransfers: {

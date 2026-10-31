@@ -343,6 +343,58 @@ const ruleDefaults = (helpers, type = 'collection') => {
   };
 };
 
+const defaultSlabsFor = (type) => {
+  if (type === 'group_leader') {
+    return [{ targetFrom: '', targetTo: '', commissionType: 'fixed', commissionValue: '25', durationMonths: '4', startDelayMonths: 1 }];
+  }
+  if (type === 'collection') {
+    return [
+      { targetFrom: '0', targetTo: '50000', commissionType: 'percentage', commissionValue: '1.0' },
+      { targetFrom: '50001', targetTo: '100000', commissionType: 'percentage', commissionValue: '1.5' },
+      { targetFrom: '100001', targetTo: '', commissionType: 'percentage', commissionValue: '2.0' },
+    ];
+  }
+  if (type === 'npa_recovery') {
+    return [
+      { targetFrom: '0', targetTo: '25000', commissionType: 'percentage', commissionValue: '5.0' },
+      { targetFrom: '25001', targetTo: '50000', commissionType: 'percentage', commissionValue: '7.5' },
+      { targetFrom: '50001', targetTo: '', commissionType: 'percentage', commissionValue: '10.0' },
+    ];
+  }
+  if (['loan_disbursement', 'group_loan_disbursement', 'personal_loan_disbursement', 'business_loan_disbursement', 'msme_loan_disbursement'].includes(type)) {
+    return [
+      { targetFrom: '0', targetTo: '100000', commissionType: 'percentage', commissionValue: '1.0' },
+      { targetFrom: '100001', targetTo: '250000', commissionType: 'percentage', commissionValue: '1.5' },
+      { targetFrom: '250001', targetTo: '', commissionType: 'percentage', commissionValue: '2.0' },
+    ];
+  }
+  if (type === 'new_group_opening') {
+    return [
+      { targetFrom: '1', targetTo: '5', commissionType: 'fixed', commissionValue: '100' },
+      { targetFrom: '6', targetTo: '10', commissionType: 'fixed', commissionValue: '150' },
+      { targetFrom: '11', targetTo: '', commissionType: 'fixed', commissionValue: '200' },
+    ];
+  }
+  if (type === 'new_member_joining') {
+    return [
+      { targetFrom: '1', targetTo: '20', commissionType: 'fixed', commissionValue: '20' },
+      { targetFrom: '21', targetTo: '50', commissionType: 'fixed', commissionValue: '30' },
+      { targetFrom: '51', targetTo: '', commissionType: 'fixed', commissionValue: '50' },
+    ];
+  }
+  if (type === 'product_sell') {
+    return [
+      { targetFrom: '1', targetTo: '10', commissionType: 'fixed', commissionValue: '50' },
+      { targetFrom: '11', targetTo: '25', commissionType: 'fixed', commissionValue: '75' },
+      { targetFrom: '26', targetTo: '', commissionType: 'fixed', commissionValue: '100' },
+    ];
+  }
+  return [
+    { targetFrom: '0', targetTo: '50000', commissionType: 'percentage', commissionValue: '1.0' },
+    { targetFrom: '50001', targetTo: '', commissionType: 'percentage', commissionValue: '2.0' },
+  ];
+};
+
 // ---------------------------------------------------------------------------------------
 function CommissionForm({ item, helpers, years, ranks, onClose, onSaved }) {
   const toast = useToast();
@@ -450,7 +502,7 @@ function CommissionForm({ item, helpers, years, ranks, onClose, onSaved }) {
             durationMonths: '4',
             startDelayMonths: 1,
           }));
-          setSlabs(autoSlabs.length ? autoSlabs : [emptySlab(first.commissionType)]);
+          setSlabs(autoSlabs.length ? autoSlabs : defaultSlabsFor(nextType));
         }
         return;
       }
@@ -458,7 +510,7 @@ function CommissionForm({ item, helpers, years, ranks, onClose, onSaved }) {
       // fallback
     }
     setRule((r) => ({ ...ruleDefaults(helpers, nextType), scope: r.scope, frequency: r.frequency }));
-    setSlabs([emptySlab()]);
+    setSlabs(defaultSlabsFor(nextType));
   }
 
   useEffect(() => {
@@ -741,9 +793,14 @@ function CommissionForm({ item, helpers, years, ranks, onClose, onSaved }) {
               </table>
             </div>
             {!isEdit && (
-              <button type="button" className="btn sm" style={{ marginTop: 8 }} onClick={addSlabRow}>
-                + Add another slab
-              </button>
+              <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+                <button type="button" className="btn sm" onClick={addSlabRow}>
+                  + Add another slab
+                </button>
+                <button type="button" className="btn sm secondary" onClick={() => setSlabs(defaultSlabsFor(rule.commissionFor))}>
+                  Auto-fill standard slabs
+                </button>
+              </div>
             )}
 
             <TierPreview

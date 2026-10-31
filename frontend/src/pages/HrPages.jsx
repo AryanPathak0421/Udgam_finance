@@ -645,7 +645,28 @@ export function SetSalary() {
     setErrors({});
     setState('');
     const st = setupOf(e, m);
-    setF({ ...Object.fromEntries(SETUP_EARN.map(([k]) => [k, st[k] ? String(st[k]) : ''])), yearlyIncrementPercent: String(st.yearlyIncrementPercent ?? 10), pfPercent: String(st.pfPercent), esiPercent: String(st.esiPercent), professionalTax: st.professionalTax ? String(st.professionalTax) : '', advanceDeduction: st.advanceDeduction ? String(st.advanceDeduction) : '', securityAmount: st.securityAmount ? String(st.securityAmount) : '', securityMonths: st.securityNeverEnds ? 'never' : String(st.securityMonths || 1), pfDeduction: st.pfDeduction ?? e.pfDeduction, esiDeduction: st.esiDeduction ?? e.esiDeduction, pfNumber: e.pfNumber || '', uanNumber: e.uanNumber || '', esiNumber: e.esiNumber || '' });
+    let basicVal = st.basic;
+    if (e.joiningDate && st.basic) {
+      const jDate = new Date(e.joiningDate);
+      if (!isNaN(jDate.getTime())) {
+        const jY = jDate.getUTCFullYear();
+        const jM = jDate.getUTCMonth() + 1;
+        const [tY, tM] = (m || '').split('-').map(Number);
+        if (tY && tM) {
+          let n = 0;
+          for (let y = jY + 1; y <= tY; y += 1) {
+            const ann = `${y}-${String(jM).padStart(2, '0')}`;
+            if (ann <= m) n += 1;
+          }
+          const pct = Number(st.yearlyIncrementPercent ?? 10);
+          if (n > 0 && pct > 0) {
+            basicVal = Math.round(Number(st.basic) * Math.pow(1 + pct / 100, n));
+          }
+        }
+      }
+    }
+    const earnFields = Object.fromEntries(SETUP_EARN.map(([k]) => [k, k === 'basic' ? (basicVal ? String(basicVal) : '') : (st[k] ? String(st[k]) : '')]));
+    setF({ ...earnFields, yearlyIncrementPercent: String(st.yearlyIncrementPercent ?? 10), pfPercent: String(st.pfPercent), esiPercent: String(st.esiPercent), professionalTax: st.professionalTax ? String(st.professionalTax) : '', advanceDeduction: st.advanceDeduction ? String(st.advanceDeduction) : '', securityAmount: st.securityAmount ? String(st.securityAmount) : '', securityMonths: st.securityNeverEnds ? 'never' : String(st.securityMonths || 1), pfDeduction: st.pfDeduction ?? e.pfDeduction, esiDeduction: st.esiDeduction ?? e.esiDeduction, pfNumber: e.pfNumber || '', uanNumber: e.uanNumber || '', esiNumber: e.esiNumber || '' });
   }
   // every change is saved by itself a moment after it was made; what is typed can be corrected by hand any time
   useEffect(() => {

@@ -95,12 +95,12 @@ export async function employeeList(req, res) {
   const entries = await EmployeeCommission.find(filter).sort({ employeeCode: 1, commissionFor: 1, periodFrom: 1 });
   const codes = [...new Set(entries.map((e) => String(e.employeeCode || '').toUpperCase()))];
   const [emps, users] = await Promise.all([
-    Employee.find({ employeeCode: { $in: codes } }).select('employeeCode name').lean(),
-    User.find({ employeeCode: { $in: codes } }).select('employeeCode name').lean(),
+    Employee.find({}).select('employeeCode name').lean(),
+    User.find({}).select('employeeCode name username').lean(),
   ]);
   const nameMap = new Map();
-  users.forEach((u) => { if (u.employeeCode && u.name) nameMap.set(String(u.employeeCode).toUpperCase(), u.name); });
-  emps.forEach((e) => { if (e.employeeCode && e.name) nameMap.set(String(e.employeeCode).toUpperCase(), e.name); });
+  users.forEach((u) => { if (u.employeeCode && (u.name || u.username)) nameMap.set(String(u.employeeCode).trim().toUpperCase(), u.name || u.username); });
+  emps.forEach((e) => { if (e.employeeCode && e.name) nameMap.set(String(e.employeeCode).trim().toUpperCase(), e.name); });
 
   const byEmployee = new Map();
   for (const e of entries) {

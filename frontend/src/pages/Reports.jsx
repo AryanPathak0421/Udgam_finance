@@ -22,10 +22,11 @@ const cap = (s) => (s ? String(s).charAt(0).toUpperCase() + String(s).slice(1) :
 const STATUS_BADGE = { approved: 'green', rejected: 'danger', pending: 'grey', cancelled: 'grey' };
 
 const staffCell = (r) => {
-  if (r.staffName) {
-    return <><strong>{r.staffName}</strong>{r.staff && <div className="muted small">{r.staff}</div>}</>;
+  const name = r.staffName || r.staff;
+  if (name && name !== '—') {
+    return <><strong>{name}</strong>{r.staff && r.staff !== name && r.staff !== '—' && <div className="muted small">{r.staff}</div>}</>;
   }
-  return r.staff ? <strong>{r.staff}</strong> : '—';
+  return '—';
 };
 // the columns of every report: [label, row => cell, numeric?]
 const COLS = {

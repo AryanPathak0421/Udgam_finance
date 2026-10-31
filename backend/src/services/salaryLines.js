@@ -90,9 +90,10 @@ export async function loadVariable(month, range, codes, supervisorCodes) {
   const cleanCodes = (codes || []).filter(Boolean).map((c) => String(c).trim());
   const upperCodes = cleanCodes.map((c) => c.toUpperCase());
   const allCodes = [...new Set([...cleanCodes, ...upperCodes])];
+  const regexCodes = cleanCodes.map((c) => new RegExp(`^${c}$`, 'i'));
   const [coms, npa, prior] = await Promise.all([
-    EmployeeCommission.find({ month, employeeCode: { $in: allCodes } }).select('employeeCode commissionFor scope amountPaise').lean(),
-    EmiPayment.aggregate([{ $match: { status: 'paid', npa: true, paidOn: { $gte: range.from, $lte: range.to }, employeeCode: { $in: allCodes } } }, { $group: { _id: '$employeeCode', t: { $sum: '$amountPaise' } } }]),
+    EmployeeCommission.find({ month, $or: [{ employeeCode: { $in: allCodes } }, { employeeCode: { $in: regexCodes } }] }).select('employeeCode commissionFor scope amountPaise').lean(),
+    EmiPayment.aggregate([{ $match: { status: 'paid', npa: true, paidOn: { $gte: range.from, $lte: range.to }, $or: [{ employeeCode: { $in: allCodes } }, { employeeCode: { $in: regexCodes } }] } }, { $group: { _id: '$employeeCode', t: { $sum: '$amountPaise' } } }]),
     Salary.aggregate([{ $match: { month: { $ne: month } } }, { $group: { _id: '$employee', t: { $sum: { $ifNull: ['$securityCutPaise', 0] } } } }]),
   ]);
   const by = new Map();
@@ -129,9 +130,13 @@ export function buildLines(emp, ratio, variable, priorSecurity, kept = new Map()
   const months = Math.min(Math.max(emp.securityMonths || 1, 1), 5);
   // the security is cut in 1 to 5 equal months, or (never ends) the security amount is cut every month
   const secCut = !secAmount || !isVerified(emp) ? 0 : emp.securityNeverEnds ? secAmount : Math.max(Math.min(Math.ceil(secAmount / months), secAmount - priorSecurity), 0);
+  const specificIncentives = (variable?.loanIncentive || 0) + (variable?.productIncentive || 0) + (variable?.grt || 0) + (variable?.senior || 0);
+  const generalCommission = (variable?.commission || 0) > specificIncentives
+    ? (variable?.commission || 0) - specificIncentives
+    : (specificIncentives === 0 ? (variable?.commission || 0) : 0);
   const auto = {
     ...fixed,
-    commission: variable?.commission || 0, loanIncentive: variable?.loanIncentive || 0, productIncentive: variable?.productIncentive || 0, grt: variable?.grt || 0, senior: variable?.senior || 0, npaRecovery: variable?.npaRecovery || 0, bonus: 0,
+    commission: generalCommission, loanIncentive: variable?.loanIncentive || 0, productIncentive: variable?.productIncentive || 0, grt: variable?.grt || 0, senior: variable?.senior || 0, npaRecovery: variable?.npaRecovery || 0, bonus: 0,
     pf: emp.pfDeduction ? Math.round((basicEarned * (emp.pfPercent ?? 12)) / 100) : 0,
     esi: emp.esiDeduction ? Math.round((basicEarned * (emp.esiPercent ?? 0.75)) / 100) : 0,
     profTax: emp.professionalTaxPaise || 0, advance: emp.advanceDeductionPaise || 0, leave: Math.round(gross * (1 - r)), recovery: 0, security: secCut, other: 0,

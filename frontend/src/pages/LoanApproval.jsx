@@ -117,7 +117,7 @@ function ReviewDialog({ id, onClose, onDone }) {
                 [r.group ? 'Group' : 'Borrower', r.group ? `${r.group.code} — ${r.group.name} (${r.memberCount} members)` : `${r.borrower.code} — ${r.borrower.name}`],
                 ['Requested scheme', `${r.requestedSchemeName || r.schemeName}`], ['Mode & term', `${r.modeLabel}, ${r.term} installments`], ['Interest rate', `${r.rate}% p.a. (${r.calculationType})`],
                 ...(r.product ? [['Product', `${r.product.name} × ${r.product.quantity}`]] : []),
-                ['Requested amount', `${inr(r.requestedAmount ?? r.amount)}${r.group ? ' per member' : ''}`], ['EMI', inr(r.emi)], ['Cash in hand', inr(r.cash)], ['Employee ID', r.employeeCode],
+                ['Requested amount', `${inr(r.requestedAmount ?? r.amount)}${r.group ? ' per member' : ''}`], ['EMI', inr(r.emi)], ['Cash in hand', inr(r.cash)], ['Staff Name', r.employeeName ? `${r.employeeName} (${r.employeeCode})` : (r.employeeCode || '—')],
               ]}
             />
 
@@ -314,7 +314,7 @@ function LoanApproval({ status, fixedKind = '' }) {
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th>Form ID</th><th>Loan date</th><th>Type</th><th>Borrower / Group</th><th>Branch</th><th>Scheme</th>
+                    <th>Form ID</th><th>Loan date</th><th>Type</th><th>Borrower / Group</th><th>Staff name</th><th>Branch</th><th>Scheme</th>
                     <th className="num">Amount</th><th className="num">EMI</th>
                     {status !== 'pending' && <th>{status === 'approved' ? 'Approved' : 'Rejected'}</th>}
                     {status === 'rejected' && <th>Reason</th>}
@@ -328,6 +328,7 @@ function LoanApproval({ status, fixedKind = '' }) {
                       <td data-label="Loan date">{r.loanDate}</td>
                       <td data-label="Type">{r.kindLabel}</td>
                       <td data-label="Borrower">{r.subjectCode} — {r.subjectName}</td>
+                      <td data-label="Staff name"><strong>{r.employeeName || '—'}</strong>{r.employeeCode && r.employeeName !== r.employeeCode ? <div className="muted small">{r.employeeCode}</div> : null}</td>
                       <td data-label="Branch">{r.branch?.name || '—'}</td>
                       <td data-label="Scheme">{r.schemeName}</td>
                       <td data-label="Amount" className="num">

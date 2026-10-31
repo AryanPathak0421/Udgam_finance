@@ -168,7 +168,7 @@ const presentEmployee = (e, user) => ({
     pfDeduction: Boolean(e.pfDeduction), esiDeduction: Boolean(e.esiDeduction),
   },
   salaryHistory: (e.salaryHistory || []).map((h) => ({
-    month: h.month, ...Object.fromEntries(EARN_FIXED.map(([k]) => [k, rupees(fixedOf(h)[k])])), pfPercent: h.pfPercent ?? 12, esiPercent: h.esiPercent ?? 0.75, professionalTax: rupees(h.professionalTaxPaise),
+    month: h.month, ...Object.fromEntries(EARN_FIXED.map(([k]) => [k, rupees(fixedOf({ ...h, joiningDate: e.joiningDate, yearlyIncrementPercent: h.yearlyIncrementPercent ?? e.yearlyIncrementPercent }, h.month)[k])])), pfPercent: h.pfPercent ?? 12, esiPercent: h.esiPercent ?? 0.75, professionalTax: rupees(h.professionalTaxPaise),
     advanceDeduction: rupees(h.advanceDeductionPaise), securityAmount: rupees(h.securityAmountPaise), securityMonths: h.securityMonths || 1, securityNeverEnds: Boolean(h.securityNeverEnds), yearlyIncrementPercent: h.yearlyIncrementPercent ?? 10, pfDeduction: Boolean(h.pfDeduction), esiDeduction: Boolean(h.esiDeduction),
   })).sort((a, b) => a.month.localeCompare(b.month)),
 });

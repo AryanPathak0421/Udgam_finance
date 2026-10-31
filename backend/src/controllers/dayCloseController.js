@@ -105,7 +105,6 @@ export async function submit(req, res) {
   if (waiting && !isRevokedDay && iso(waiting.date) !== iso(date)) {
     throw new HttpError(409, `The close of ${iso(waiting.date)} is already waiting for the admin's approval`);
   }
-  if (date.getUTCDay() === 0) throw invalid({ date: 'Sunday is a weekly off day for branches. Day close is not required for Sundays.' });
   if (date > today) throw invalid({ date: 'A day can be closed only on or after that day' });
   const { counts, total } = readCounts(b.counts);
   const cash = await cashOf(req, branch._id, date);
@@ -209,13 +208,15 @@ export async function revoke(req, res) {
 
 /** The working date of each branch of the user (the other users work on that date only; the admin is not held to it). */
 export async function workingDates(req, res) {
-  if (isAdmin(req.user)) return res.json({ restricted: false, items: [] });
-  const ids = (req.user.branches || []).map((b) => new mongoose.Types.ObjectId(String(b)));
+  const admin = isAdmin(req.user);
+  const ids = admin
+    ? (await Branch.find({ isDeleted: false }).select('_id').lean()).map((b) => b._id)
+    : (req.user.branches || []).map((b) => new mongoose.Types.ObjectId(String(b)));
   const branches = await Branch.find({ _id: { $in: ids } }).select('code name').lean();
   const dates = new Map(await Promise.all(ids.map(async (id) => [String(id), await branchWorkingDate(id)])));
   const waiting = new Map((await DayClose.find({ branch: { $in: ids }, status: 'submitted' }).select('branch date').lean()).map((x) => [String(x.branch), x.date]));
   res.json({
-    restricted: true,
+    restricted: !admin,
     items: branches.map((b) => ({ branch: { id: b._id, code: b.code, name: b.name }, workingDate: dates.get(String(b._id)) ? iso(dates.get(String(b._id))) : null, waitingForApproval: waiting.get(String(b._id)) ? iso(waiting.get(String(b._id))) : null })),
   });
 }

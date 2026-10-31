@@ -8,6 +8,7 @@ import { LoanPayment } from '../models/LoanPayment.js';
 import { SecurityWithdrawal } from '../models/SecurityWithdrawal.js';
 import { ProductPayment } from '../models/ProductPayment.js';
 import { CashEntry, ENTRY_CATEGORIES, ENTRY_MODES } from '../models/CashEntry.js';
+import { CashbookPhoto } from '../models/CashbookPhoto.js';
 import { Branch } from '../models/Branch.js';
 import { Ledger } from '../models/Ledger.js';
 import { CivilCheck } from '../models/CivilCheck.js';
@@ -56,18 +57,19 @@ const RECEIVE = [
   { key: 'product_received', label: 'Product payment received from branches (head office)', optional: true },
 ];
 const PAYMENT = [
-  { key: 'daily_disbursement', label: 'Daily disbursement' },
-  { key: 'weekly_disbursement', label: 'Weekly disbursement' },
+  { key: 'daily_disbursement', label: 'Group daily disbursement' },
+  { key: 'weekly_disbursement', label: 'Group weekly disbursement' },
   { key: 'group_other_disbursement', label: 'Monthly / other group disbursement', optional: true },
   { key: 'product_disbursement', label: 'Product loan disbursement' },
   { key: 'personal_disbursement', label: 'Personal loan disbursement' },
   { key: 'msme_disbursement', label: 'MSME loan disbursement' },
   { key: 'business_disbursement', label: 'Business loan disbursement' },
-  { key: 'daily_due', label: 'Daily today due', memo: true, optional: true },
-  { key: 'weekly_due', label: 'Weekly today due', memo: true, optional: true },
+  { key: 'daily_due', label: 'Daily today due (Group)', memo: true, optional: true },
+  { key: 'weekly_due', label: 'Weekly today due (Group)', memo: true, optional: true },
   { key: 'product_due', label: 'Product today due', memo: true, optional: true },
   { key: 'personal_due', label: 'Personal today due', memo: true, optional: true },
-  { key: 'bm_due', label: 'MSME / Business today due', memo: true, optional: true },
+  { key: 'business_due', label: 'Business today due', memo: true, optional: true },
+  { key: 'msme_due', label: 'MSME today due', memo: true, optional: true },
   { key: 'leader_commission', label: 'Group leader commission' },
   { key: 'security_return', label: 'Security return' },
   { key: 'bank_deposit', label: 'Bank deposit' },
@@ -95,7 +97,7 @@ const settlementKey = (l) => {
   return 'personal_settlement';
 };
 const disbursementKey = (l) => (l.kind === 'group' ? `${groupMode(l)}_disbursement` : `${typeOf(l)}_disbursement`);
-const dueKey = (l) => (l.kind === 'group' ? (l.mode === 'weekly' ? 'weekly_due' : 'daily_due') : ['business', 'msme'].includes(typeOf(l)) ? 'bm_due' : `${typeOf(l)}_due`);
+const dueKey = (l) => (l.kind === 'group' ? (l.mode === 'weekly' ? 'weekly_due' : 'daily_due') : typeOf(l) === 'business' ? 'business_due' : typeOf(l) === 'msme' ? 'msme_due' : `${typeOf(l)}_due`);
 
 async function fastOpening(scope, head, from, mode = '') {
   // If viewing a single branch with DayClose records: opening balance is back date's closing
@@ -216,23 +218,39 @@ async function fastOpening(scope, head, from, mode = '') {
  * Added up per kind of loan (daily, weekly, product, personal, MSME / business).
  */
 async function fastDue(scope, asOf) {
+  const asOfStart = new Date(asOf);
+  asOfStart.setUTCHours(0, 0, 0, 0);
+  const asOfEnd = new Date(asOfStart.getTime() + DAY);
+
   const keyOf = {
     $cond: [
       { $eq: ['$kind', 'group'] },
       { $cond: [{ $eq: ['$mode', 'weekly'] }, 'weekly_due', 'daily_due'] },
-      { $cond: [{ $in: ['$loanType', ['business', 'msme']] }, 'bm_due', { $concat: [{ $ifNull: ['$loanType', 'personal'] }, '_due'] }] },
+      {
+        $cond: [
+          { $eq: ['$loanType', 'business'] },
+          'business_due',
+          {
+            $cond: [
+              { $eq: ['$loanType', 'msme'] },
+              'msme_due',
+              { $concat: [{ $ifNull: ['$loanType', 'personal'] }, '_due'] },
+            ],
+          },
+        ],
+      },
     ],
   };
   const [scheduled, received] = await Promise.all([
     LoanPayment.aggregate([
-      { $match: { ...scope, status: 'paid', 'schedule.dueDate': asOf } },
+      { $match: { ...scope, status: 'paid', 'schedule.dueDate': { $gte: asOfStart, $lt: asOfEnd } } },
       { $unwind: '$schedule' },
-      { $match: { 'schedule.dueDate': asOf } },
+      { $match: { 'schedule.dueDate': { $gte: asOfStart, $lt: asOfEnd } } },
       { $unwind: '$lines' },
       { $project: { _id: 0, lp: '$_id', code: '$lines.code', key: keyOf, actual: { $add: ['$schedule.installmentPaise', { $ifNull: ['$lines.extraEmiPaise', 0] }] } } },
     ]),
     EmiPayment.aggregate([
-      { $match: { ...scope, status: 'paid', paidOn: asOf } },
+      { $match: { ...scope, status: 'paid', paidOn: { $gte: asOfStart, $lt: asOfEnd } } },
       { $group: { _id: { lp: '$loanPayment', code: '$memberCode' }, got: { $sum: '$amountPaise' } } },
     ]),
   ]);
@@ -373,7 +391,10 @@ export async function cashbookData(req, query) {
     // entries typed in by hand
     const entries = await CashEntry.find({ isDeleted: false, ...entryScope, ...modeFilter('mode'), ...range('date', before) }).limit(20000);
     entries.forEach((e) => {
-      const catKey = e.ledger ? `ledger:${e.ledger}` : (e.kind === 'bank_withdraw' || e.category === 'bank_withdrawal') ? 'bank_withdrawal' : e.category;
+      let catKey = e.ledger ? `ledger:${e.ledger}` : (e.kind === 'bank_withdraw' || e.category === 'bank_withdrawal') ? 'bank_withdrawal' : e.category;
+      if (catKey === 'room_rent' && (e.remark || '').toLowerCase().includes('messenger')) {
+        catKey = 'messenger_payment';
+      }
       add(e.side, catKey, { date: iso(e.date), particulars: e.remark || (catKey === 'bank_withdrawal' ? 'Bank withdrawal fund' : catKey === 'cash_fund' ? 'Cash fund receive' : ''), ref: `${e.voucherNo ? `${e.voucherNo} · ` : ''}${e.enteredByCode ? `by ${e.enteredByCode}` : ''}`, mode: e.mode, bank: e.bankAccount, kind: e.kind, voucherNo: e.voucherNo, amount: e.amountPaise, branchId: e.branch, entryId: e._id, manual: true });
     });
     return rows;
@@ -506,3 +527,57 @@ export async function deleteEntry(req, res) {
   await audit(req, { action: 'cashbook.entryDeleted', entity: 'CashEntry', entityId: e._id, after: { side: e.side, category: e.category, amount: e.amountPaise / 100 } });
   res.json({ message: 'Entry removed' });
 }
+
+export async function getPhotos(req, res) {
+  const branch = asString(req.query.branch);
+  const date = asString(req.query.date) || todayDateString();
+  const query = { date };
+  if (branch === 'ho') query.branch = null;
+  else if (mongoose.isValidObjectId(branch)) query.branch = branch;
+  else if (!isAdmin(req.user) && (req.user.branches || []).length) query.branch = req.user.branches[0];
+  const photo = await CashbookPhoto.findOne(query).lean();
+  res.json({
+    receivePhoto: photo?.receivePhoto || '',
+    paymentPhoto: photo?.paymentPhoto || '',
+    uploadedBy: photo?.uploadedByCode || '',
+    updatedAt: photo?.updatedAt || null,
+  });
+}
+
+export async function savePhotos(req, res) {
+  const b = req.body || {};
+  const branch = asString(b.branch);
+  const date = asString(b.date);
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw invalid({ date: 'Valid date is required' });
+  const filter = { date };
+  let branchId = null;
+  if (branch === 'ho') {
+    if (!isAdmin(req.user)) throw new HttpError(403, 'Admin only');
+    filter.branch = null;
+  } else if (mongoose.isValidObjectId(branch)) {
+    filter.branch = branch;
+    branchId = branch;
+  } else {
+    filter.branch = null;
+  }
+  const photo = await CashbookPhoto.findOneAndUpdate(
+    filter,
+    {
+      $set: {
+        branch: branchId,
+        date,
+        receivePhoto: asString(b.receivePhoto),
+        paymentPhoto: asString(b.paymentPhoto),
+        uploadedBy: req.user._id,
+        uploadedByCode: req.user.employeeCode || '',
+      },
+    },
+    { upsert: true, new: true }
+  );
+  res.json({
+    message: 'Cashbook photos saved successfully',
+    receivePhoto: photo.receivePhoto,
+    paymentPhoto: photo.paymentPhoto,
+  });
+}
+

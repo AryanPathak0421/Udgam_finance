@@ -564,6 +564,7 @@ const present = (r, user, { detail = false } = {}) => {
     emi: rupees(r.installmentPaise),
     status: r.status,
     employeeCode: r.employeeCode,
+    employeeName: r.employeeName || '',
     createdAt: r.createdAt,
     schemeId: r.scheme?._id || r.scheme,
     rate: r.annualRateBp / 100,
@@ -1038,7 +1039,26 @@ export async function listRequisitions(req, res) {
     LoanRequisition.find(filter).populate(POPULATE).sort({ createdAt: -1 }).skip(skip).limit(limit),
     LoanRequisition.countDocuments(filter),
   ]);
-  res.json({ items: items.map((r) => present(r, req.user)), page, limit, total, totalPages: Math.max(Math.ceil(total / limit), 1) });
+  const codes = [...new Set(items.map((r) => r.employeeCode).filter(Boolean))];
+  const [users, emps] = await Promise.all([
+    User.find({ employeeCode: { $in: codes } }).select('employeeCode name username').lean(),
+    Employee.find({ employeeCode: { $in: codes } }).select('employeeCode name').lean(),
+  ]);
+  const nameMap = new Map();
+  users.forEach((u) => { if (u.employeeCode && (u.name || u.username)) nameMap.set(String(u.employeeCode).toUpperCase(), u.name || u.username); });
+  emps.forEach((e) => { if (e.employeeCode && e.name) nameMap.set(String(e.employeeCode).toUpperCase(), e.name); });
+
+  res.json({
+    items: items.map((r) => {
+      const p = present(r, req.user);
+      p.employeeName = nameMap.get(String(r.employeeCode || '').toUpperCase()) || '';
+      return p;
+    }),
+    page,
+    limit,
+    total,
+    totalPages: Math.max(Math.ceil(total / limit), 1),
+  });
 }
 
 /** Removes a requisition that has not been approved. */

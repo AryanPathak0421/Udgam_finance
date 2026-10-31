@@ -4,7 +4,7 @@ export const ENTRY_SIDES = ['receive', 'payment'];
 // Cashbook lines that are typed in by hand (everything else is worked out from loans, EMI, settlements and security).
 export const ENTRY_CATEGORIES = {
   receive: ['cash_fund', 'bank_withdrawal', 'npa_receive', 'voucher_receive'],
-  payment: ['leader_commission', 'bank_deposit', 'cash_deposit', 'fund_transfer', 'staff_salary', 'other_payment'],
+  payment: ['leader_commission', 'bank_deposit', 'cash_deposit', 'fund_transfer', 'staff_salary', 'messenger_payment', 'room_rent', 'other_payment'],
 };
 // Entries made under Accounts (voucher entries, bank deposit / withdraw, branch to branch transfer); the cashbook entries made by hand have no kind.
 export const ENTRY_KINDS = ['payment_voucher', 'receive_voucher', 'bank_deposit', 'bank_withdraw', 'branch_transfer'];

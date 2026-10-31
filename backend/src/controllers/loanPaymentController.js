@@ -131,7 +131,7 @@ async function readPaidOn(req, r, input) {
     if (reqLoanDate && paidOn < reqLoanDate) throw invalid({ paidOn: 'The payment cannot be before the requisition (loan) date' });
     const isRevoked = await DayClose.exists({ branch: r.branch?._id || r.branch, date: paidOn, status: 'revoked' });
     if (!isRevoked && paidOn < earliestPayment(r)) throw invalid({ paidOn: 'The payment cannot be before the approval date' });
-    if (!isAdmin(req.user) && today.getTime() - paidOn.getTime() > 30 * DAY) throw invalid({ paidOn: 'The payment date cannot be older than 30 days' });
+    if (!isAdmin(req.user) && !isRevoked && today.getTime() - paidOn.getTime() > 30 * DAY) throw invalid({ paidOn: 'The payment date cannot be older than 30 days' });
   }
   return paidOn;
 }
@@ -188,6 +188,8 @@ const present = (p) => ({
   cancelReason: p.cancelReason || '',
   totalAmount: money(p.totalAmountPaise),
   totalCash: money(p.totalCashPaise),
+  employeeCode: p.employeeCode || '',
+  employeeName: p.employeeName || '',
   createdByCode: p.createdByCode || '',
   createdAt: p.createdAt,
   lines: p.lines.map((l) => ({
@@ -331,7 +333,27 @@ export async function listPayments(req, res) {
     LoanPayment.find(filter).populate(POPULATE).sort({ createdAt: -1 }).skip(skip).limit(limit),
     LoanPayment.countDocuments(filter),
   ]);
-  res.json({ items: items.map(present), page, limit, total, totalPages: Math.max(Math.ceil(total / limit), 1) });
+  const codes = [...new Set(items.map((p) => p.employeeCode || p.createdByCode).filter(Boolean))];
+  const [users, emps] = await Promise.all([
+    User.find({ employeeCode: { $in: codes } }).select('employeeCode name username').lean(),
+    Employee.find({ employeeCode: { $in: codes } }).select('employeeCode name').lean(),
+  ]);
+  const nameMap = new Map();
+  users.forEach((u) => { if (u.employeeCode && (u.name || u.username)) nameMap.set(String(u.employeeCode).toUpperCase(), u.name || u.username); });
+  emps.forEach((e) => { if (e.employeeCode && e.name) nameMap.set(String(e.employeeCode).toUpperCase(), e.name); });
+
+  res.json({
+    items: items.map((p) => {
+      const row = present(p);
+      const code = String(p.employeeCode || p.createdByCode || '').toUpperCase();
+      row.employeeName = nameMap.get(code) || '';
+      return row;
+    }),
+    page,
+    limit,
+    total,
+    totalPages: Math.max(Math.ceil(total / limit), 1),
+  });
 }
 
 export async function getPayment(req, res) {

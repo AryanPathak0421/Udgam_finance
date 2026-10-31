@@ -201,7 +201,7 @@ export async function generateEmployeeCommission(month, by) {
   });
   const [users, emps] = await Promise.all([
     User.find({ employeeCode: { $exists: true, $ne: '' } }).select('name employeeCode role rank branches').lean(),
-    Employee.find({ isDeleted: false }).select('name employeeCode branch user designation').lean(),
+    Employee.find({}).select('name employeeCode branch user designation').lean(),
   ]);
   const nameMap = new Map();
   users.forEach((u) => { if (u.employeeCode && u.name) nameMap.set(String(u.employeeCode).toUpperCase(), u.name); });
