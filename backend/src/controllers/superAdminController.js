@@ -279,7 +279,7 @@ async function branchBorrowers(req, asOf, split = false) {
     }
     if (r.due > 0) v.due += r.due;
     if (r.overdueDays > 0) { v.overdue += r.due; v.overdueBorrowers += 1; }
-    if (r.npaTerm && r.outstanding > 0 && r.daysPastEnd >= 1) { v.npa += 1; v.npaOutstanding += r.outstanding; }
+    if (r.outstanding > 0 && r.daysPastEnd >= 1) { v.npa += 1; v.npaOutstanding += r.outstanding; }
     by.set(r.branch, v);
     return null;
   }, { light: true, split });

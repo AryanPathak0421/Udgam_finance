@@ -253,10 +253,11 @@ export async function receive(req, p, line, { amountPaise, count, type, paidOn, 
     rest -= take;
   }
   if (!kind) kind = items.some((i) => i.notDue) ? 'advance' : 'regular';
+  const isNpa = Boolean(npa || (p.emiEndDate && new Date(p.emiEndDate) < paidOn));
   const doc = await EmiPayment.create({
     receiptNo: await generateCode('emiReceipt'), loanPayment: p._id, loanId: p.loanId, formId: p.formId, branch: p.branch._id, type: kind, member: line.member, memberCode: line.code, memberName: line.name,
     group: p.group?.code ? `${p.group.code} — ${p.group.name}` : '', installments: items.map((i) => i.no), items: items.map(({ no, dueDate, amountPaise: a }) => ({ no, dueDate, amountPaise: a })), amountPaise: pay,
-    paidOn, payMode, reference: asString(reference).slice(0, 60), bankAccount, npa, employeeCode: employeeCode || req.user.employeeCode || '', createdBy: req.user._id, createdByCode: req.user.employeeCode || '',
+    paidOn, payMode, reference: asString(reference).slice(0, 60), bankAccount, npa: isNpa, employeeCode: employeeCode || req.user.employeeCode || '', createdBy: req.user._id, createdByCode: req.user.employeeCode || '',
   });
   // Two collectors paying the same borrower at the same moment: the later one is undone, never over-collected.
   const total = (await EmiPayment.aggregate([{ $match: { loanPayment: p._id, memberCode: line.code, status: 'paid' } }, { $group: { _id: null, t: { $sum: '$amountPaise' } } }]))[0]?.t || 0;

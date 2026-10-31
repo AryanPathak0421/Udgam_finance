@@ -169,7 +169,7 @@ export async function scanBorrowers(req, asOf, pick, opts = {}) {
           mode: l.mode, term: l.installments, loanAmount: rupees(line.amountPaise), emi: rupees((l.schedule[0]?.installmentPaise || 0) + extra), scheduled: rupees(scheduled),
           paid: rupees(scheduled - sum.outstandingPaise), outstanding: rupees(sum.outstandingPaise), due: rupees(sum.duePaise), dueCount: sum.dueCount, overdueDays: sum.overdueDays,
           firstDue: sum.firstDue || '', lastInstallment: iso(l.emiEndDate), daysPastEnd: end && end < asOf.getTime() ? Math.floor((asOf.getTime() - end) / DAY) : 0,
-          npaTerm: l.mode === 'daily' && l.installments === NPA_TERM, staff: l.employeeCode || '',
+          npaTerm: Boolean(end && end < asOf.getTime()), staff: l.employeeCode || '',
           ...(opts.split ? { duePrincipal: Math.round(outPrincipal) / 100, dueInterest: Math.round(outInterest) / 100 } : {}),
         };
         const keep = pick(row);
@@ -212,12 +212,12 @@ const REPORTS = {
     const rows = (await scanBorrowers(req, asOf, (r) => (r.outstanding > 0 && borrowerMatch(q)(r) ? r : null))).sort((a, b) => b.outstanding - a.outstanding);
     return { asOf: iso(asOf), rows, summary: { borrowers: rows.length, loanAmount: sumOf(rows, 'loanAmount'), paid: sumOf(rows, 'paid'), outstanding: sumOf(rows, 'outstanding') } };
   },
-  // a loan of 120 days whose 121st day has come and which is still due
+  // any loan whose repayment term has ended and is still due
   async npa(req) {
     const asOf = parseDateOnly(asString(req.query.date)) || startOfToday();
     const q = asString(req.query.q).toLowerCase();
     const staff = asString(req.query.staff).trim().toUpperCase();
-    const rows = (await scanBorrowers(req, asOf, (r) => (r.npaTerm && r.outstanding > 0 && r.daysPastEnd >= 1 && borrowerMatch(q)(r) && (!staff || String(r.staff || '').toUpperCase().includes(staff)) ? r : null))).sort((a, b) => a.branch.localeCompare(b.branch) || b.daysPastEnd - a.daysPastEnd);
+    const rows = (await scanBorrowers(req, asOf, (r) => (r.outstanding > 0 && r.daysPastEnd >= 1 && borrowerMatch(q)(r) && (!staff || String(r.staff || '').toUpperCase().includes(staff)) ? r : null))).sort((a, b) => a.branch.localeCompare(b.branch) || b.daysPastEnd - a.daysPastEnd);
     // the last NPA payment of each borrower, so that the admin can revert it
     const last = await EmiPayment.find({ npa: true, status: 'paid', loanPayment: { $in: rows.map((r) => r.loanPaymentId) } }).sort({ createdAt: -1 }).select('loanPayment memberCode receiptNo amountPaise paidOn employeeCode').lean();
     const lastBy = new Map();
@@ -317,7 +317,7 @@ const REPORTS = {
     return { rows, summary: { members: rows.length } };
   },
 };
-const isNpa = (r) => r.npaTerm && r.outstanding > 0 && r.daysPastEnd >= 1;
+const isNpa = (r) => r.outstanding > 0 && r.daysPastEnd >= 1;
 const staffNames = async (codes) => {
   const normCodes = [...new Set((codes || []).map((c) => String(c || '').trim().toUpperCase()).filter(Boolean))];
   if (!normCodes.length) return new Map();
@@ -554,8 +554,8 @@ export async function npaPayment(req, res) {
   if (!line) throw new HttpError(422, 'Select the borrower', { member: 'Select the borrower' });
   const today = startOfToday();
   const st = await borrowerState(p, line, today);
-  const npa = p.mode === 'daily' && p.installments === NPA_TERM && p.emiEndDate < today && st.totals.outstanding > 0 && !st.settled;
-  if (!npa) throw new HttpError(409, 'This loan is not NPA (a 120-day loan that is still due after its last installment)');
+  const npa = p.emiEndDate < today && st.totals.outstanding > 0 && !st.settled;
+  if (!npa) throw new HttpError(409, 'This loan is not NPA (the loan repayment period has not ended or it is already settled)');
   const amountPaise = toMinor(typeof b.amount === 'number' ? String(b.amount) : asString(b.amount));
   if (amountPaise === null || amountPaise < 100) throw new HttpError(422, 'Enter the amount (₹1 or more, up to 2 decimals)', { amount: 'Enter the amount (₹1 or more, up to 2 decimals)' });
   if (amountPaise > st.totals.outstanding) throw new HttpError(422, 'The amount is more than what is outstanding', { amount: `The borrower owes only ₹${st.totals.outstanding / 100}` });

@@ -40,7 +40,7 @@ const KINDS = {
   payment_voucher: { seq: 'paymentVoucher', side: 'payment', ledgerType: 'debit', label: 'Payment voucher' },
   receive_voucher: { seq: 'receiveVoucher', side: 'receive', ledgerType: 'credit', label: 'Receive voucher' },
   bank_deposit: { seq: 'bankDeposit', side: 'payment', category: 'bank_deposit', bank: true, label: 'Bank deposit' },
-  bank_withdraw: { seq: 'bankWithdraw', side: 'receive', category: 'cash_fund', bank: true, label: 'Bank withdraw' },
+  bank_withdraw: { seq: 'bankWithdraw', side: 'receive', category: 'bank_withdrawal', bank: true, label: 'Bank withdraw' },
   branch_transfer: { seq: 'branchTransfer', side: 'payment', category: 'fund_transfer', label: 'Branch transfer' },
 };
 

@@ -44,8 +44,10 @@ const RECEIVE = [
   { key: 'group_other_settlement', label: 'Monthly / other group settlement', optional: true },
   { key: 'personal_settlement', label: 'Personal loan settlement' },
   { key: 'product_settlement', label: 'Product loan settlement' },
-  { key: 'bm_settlement', label: 'Business / MSME settlement' },
-  { key: 'cash_fund', label: 'Cash fund receive and Bank withdrawal fund' },
+  { key: 'business_settlement', label: 'Business loan settlement' },
+  { key: 'msme_settlement', label: 'MSME loan settlement' },
+  { key: 'cash_fund', label: 'Cash fund receive' },
+  { key: 'bank_withdrawal', label: 'Bank withdrawal fund' },
   { key: 'npa_receive', label: 'NPA receive' },
   { key: 'fund_transfer_in', label: 'Fund transfer from branch' },
   { key: 'security_adjust', label: 'Security adjust (against EMI, not cash)', memo: true },
@@ -84,11 +86,34 @@ const KNOWN = new Set([...RECEIVE, ...PAYMENT].map((x) => x.key));
 const groupMode = (l) => (l.mode === 'daily' ? 'daily' : l.mode === 'weekly' ? 'weekly' : 'group_other');
 const typeOf = (l) => l.loanType || l.kind || 'personal';
 const collectionKey = (l) => (l.kind === 'group' ? `${groupMode(l)}_collection` : typeOf(l) === 'business' ? 'business_collection' : typeOf(l) === 'msme' ? 'msme_collection' : `${typeOf(l)}_collection`);
-const settlementKey = (l) => (l.kind === 'group' ? `${groupMode(l)}_settlement` : ['business', 'msme'].includes(typeOf(l)) ? 'bm_settlement' : `${typeOf(l)}_settlement`);
+const settlementKey = (l) => {
+  if (l.kind === 'group') return `${groupMode(l)}_settlement`;
+  const t = typeOf(l);
+  if (t === 'business') return 'business_settlement';
+  if (t === 'msme') return 'msme_settlement';
+  if (t === 'product') return 'product_settlement';
+  return 'personal_settlement';
+};
 const disbursementKey = (l) => (l.kind === 'group' ? `${groupMode(l)}_disbursement` : `${typeOf(l)}_disbursement`);
 const dueKey = (l) => (l.kind === 'group' ? (l.mode === 'weekly' ? 'weekly_due' : 'daily_due') : ['business', 'msme'].includes(typeOf(l)) ? 'bm_due' : `${typeOf(l)}_due`);
 
 async function fastOpening(scope, head, from, mode = '') {
+  // If viewing a single branch with DayClose records: opening balance is back date's closing
+  if (scope.branch && mongoose.isValidObjectId(String(scope.branch))) {
+    const prevClose = await DayClose.findOne({
+      branch: scope.branch,
+      date: { $lt: from },
+      status: { $in: ['approved', 'submitted', 'revoked'] },
+    }).sort({ date: -1 }).lean();
+
+    if (prevClose && (!mode || mode === 'cash')) {
+      const nextDay = new Date(prevClose.date.getTime() + DAY);
+      if (nextDay >= from) {
+        return prevClose.closingPaise;
+      }
+    }
+  }
+
   const modeFilter = (field) => (mode ? { [field]: mode } : {});
   const entryScope = head ? { $or: [scope, { branch: null }] } : scope;
 
@@ -346,7 +371,10 @@ export async function cashbookData(req, query) {
 
     // entries typed in by hand
     const entries = await CashEntry.find({ isDeleted: false, ...entryScope, ...modeFilter('mode'), ...range('date', before) }).limit(20000);
-    entries.forEach((e) => add(e.side, e.ledger ? `ledger:${e.ledger}` : e.category, { date: iso(e.date), particulars: e.remark || '', ref: `${e.voucherNo ? `${e.voucherNo} · ` : ''}${e.enteredByCode ? `by ${e.enteredByCode}` : ''}`, mode: e.mode, bank: e.bankAccount, kind: e.kind, voucherNo: e.voucherNo, amount: e.amountPaise, branchId: e.branch, entryId: e._id, manual: true }));
+    entries.forEach((e) => {
+      const catKey = e.ledger ? `ledger:${e.ledger}` : (e.kind === 'bank_withdraw' || e.category === 'bank_withdrawal') ? 'bank_withdrawal' : e.category;
+      add(e.side, catKey, { date: iso(e.date), particulars: e.remark || (catKey === 'bank_withdrawal' ? 'Bank withdrawal fund' : catKey === 'cash_fund' ? 'Cash fund receive' : ''), ref: `${e.voucherNo ? `${e.voucherNo} · ` : ''}${e.enteredByCode ? `by ${e.enteredByCode}` : ''}`, mode: e.mode, bank: e.bankAccount, kind: e.kind, voucherNo: e.voucherNo, amount: e.amountPaise, branchId: e.branch, entryId: e._id, manual: true });
+    });
     return rows;
   }
 
