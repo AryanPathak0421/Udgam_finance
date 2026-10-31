@@ -19,7 +19,13 @@ export async function branchWorkingDate(branchId) {
   ]);
   // a day the admin has revoked (a back date) is worked on first; once its denomination is approved the branch is back on the day after its last approved close
   if (revoked) return revoked.date;
-  return last ? new Date(last.date.getTime() + DAY) : null;
+  if (!last) return null;
+  let next = new Date(last.date.getTime() + DAY);
+  // Sunday is weekly off for branches — skip to Monday (or next working day)
+  while (next.getUTCDay() === 0) {
+    next = new Date(next.getTime() + DAY);
+  }
+  return next;
 }
 
 /** What a branch may still do while the admin has REJECTED its denomination: collect EMIs (and make the denomination again). */

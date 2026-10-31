@@ -100,7 +100,7 @@ export function Detail({ id, onClose, onChanged }) {
               ['Processing fee', inr(r.processingFee)], ['Insurance fee', inr(r.insuranceFee)], ['Security amount', inr(r.securityAmount)],
               [r.group ? 'Cash per member' : 'Cash in hand', inr(r.cash)],
               ...(r.group ? [['Total cash', inr(r.totalCash)]] : []),
-              ['Employee ID', r.employeeCode],
+              ['Staff name', r.employeeName ? `${r.employeeName} (${r.employeeCode})` : r.employeeCode || '—'],
             ]}
           />
           {r.additionalProducts?.length > 0 && (

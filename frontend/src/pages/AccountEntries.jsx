@@ -49,10 +49,10 @@ const CONFIG = {
   },
 };
 
-function EntryForm({ kind, cfg, branches, ledgers, isAdmin, onClose, onSaved }) {
+function EntryForm({ kind, cfg, defaultBranch, branches, ledgers, isAdmin, onClose, onSaved }) {
   const toast = useToast();
   const [f, setF] = useState({
-    branch: branches.length === 1 ? branches[0].id : '',
+    branch: defaultBranch || (branches.length === 1 ? branches[0].id : ''),
     fromBranch: branches.length === 1 ? branches[0].id : (branches[0]?.id || ''),
     toBranch: '',
     ledger: '',
@@ -295,6 +295,13 @@ export default function AccountEntries({ kind }) {
   const [branch, setBranch] = useState('');
   const [from, setFrom] = useState(today());
   const [to, setTo] = useState(today());
+  useEffect(() => {
+    if (branch && branch !== 'ho') {
+      workDateOf(branch).then((d) => {
+        if (d) { setFrom(d); setTo(d); }
+      }).catch(() => {});
+    }
+  }, [branch]);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');

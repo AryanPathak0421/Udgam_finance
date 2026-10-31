@@ -162,6 +162,13 @@ export default function Cashbook() {
   const [branch, setBranch] = useState('');
   const [from, setFrom] = useState(today());
   const [to, setTo] = useState(today());
+  useEffect(() => {
+    if (branch && branch !== 'ho') {
+      workDateOf(branch).then((d) => {
+        if (d) { setFrom(d); setTo(d); }
+      }).catch(() => {});
+    }
+  }, [branch]);
   const [mode, setMode] = useState('');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);

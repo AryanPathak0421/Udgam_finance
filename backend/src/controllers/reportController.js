@@ -274,10 +274,18 @@ const REPORTS = {
     const status = ['pending', 'approved', 'rejected', 'cancelled'].includes(asString(req.query.status)) ? asString(req.query.status) : '';
     const reqs = await LoanRequisition.find({ isDeleted: false, ...branchScope(req), ...dateRange(req, 'loanDate'), ...(status ? { status } : {}) }).sort({ loanDate: -1, createdAt: -1 }).limit(20000)
       .select('kind formId batchFormId branch loanDate borrower groupInfo memberCount amountPaise totalAmountPaise schemeName mode term status employeeCode requestedAmountPaise').populate('branch', 'code').lean();
-    const rows = reqs.filter((r) => matches(q, r.formId, r.batchFormId, r.borrower?.code, r.borrower?.name, r.groupInfo?.name, r.groupInfo?.code)).map((r) => ({
-      key: String(r._id), formId: r.formId, date: iso(r.loanDate), branch: r.branch?.code || '', loanType: r.kind, applicant: r.kind === 'group' ? `${r.groupInfo?.code || ''} — ${r.groupInfo?.name || ''} (${r.memberCount || 0} members)` : `${r.borrower?.code || ''} ${r.borrower?.name || ''}`,
-      mobile: showMobile(req.user, r.borrower?.mobile), scheme: r.schemeName || '', mode: r.mode, term: r.term, amount: rupees(r.totalAmountPaise ?? r.amountPaise), status: r.status, requestedBy: r.employeeCode || '',
-    }));
+    const codes = [...new Set(reqs.map((r) => r.employeeCode).filter(Boolean))];
+    const names = await staffNames(codes);
+    const rows = reqs.filter((r) => {
+      const sName = names.get(String(r.employeeCode || '').toUpperCase()) || '';
+      return matches(q, r.formId, r.batchFormId, r.borrower?.code, r.borrower?.name, r.groupInfo?.name, r.groupInfo?.code, r.employeeCode, sName);
+    }).map((r) => {
+      const sName = names.get(String(r.employeeCode || '').toUpperCase()) || '';
+      return {
+        key: String(r._id), formId: r.formId, date: iso(r.loanDate), branch: r.branch?.code || '', loanType: r.kind, applicant: r.kind === 'group' ? `${r.groupInfo?.code || ''} — ${r.groupInfo?.name || ''} (${r.memberCount || 0} members)` : `${r.borrower?.code || ''} ${r.borrower?.name || ''}`,
+        mobile: showMobile(req.user, r.borrower?.mobile), scheme: r.schemeName || '', mode: r.mode, term: r.term, amount: rupees(r.totalAmountPaise ?? r.amountPaise), status: r.status, requestedBy: r.employeeCode || '', requestedByName: sName || r.employeeCode || '',
+      };
+    });
     return { rows, summary: { requisitions: rows.length, amount: sumOf(rows, 'amount') } };
   },
   async approval(req) {
@@ -285,11 +293,19 @@ const REPORTS = {
     const status = ['approved', 'rejected'].includes(asString(req.query.status)) ? asString(req.query.status) : '';
     const reqs = await LoanRequisition.find({ isDeleted: false, status: status || { $in: ['approved', 'rejected'] }, ...branchScope(req), ...dateRange(req, 'decidedAt') }).sort({ decidedAt: -1 }).limit(20000)
       .select('kind formId branch borrower groupInfo memberCount amountPaise totalAmountPaise requestedAmountPaise schemeName requestedSchemeName status decidedAt decidedByCode rejectReason disbursedAt').populate('branch', 'code').lean();
-    const rows = reqs.filter((r) => matches(q, r.formId, r.borrower?.code, r.borrower?.name, r.groupInfo?.name, r.groupInfo?.code)).map((r) => ({
-      key: String(r._id), formId: r.formId, date: iso(r.decidedAt), branch: r.branch?.code || '', loanType: r.kind, applicant: r.kind === 'group' ? `${r.groupInfo?.code || ''} — ${r.groupInfo?.name || ''} (${r.memberCount || 0} members)` : `${r.borrower?.code || ''} ${r.borrower?.name || ''}`,
-      mobile: showMobile(req.user, r.borrower?.mobile), scheme: r.schemeName || '', requested: rupees(r.requestedAmountPaise ?? r.amountPaise), amount: rupees(r.totalAmountPaise ?? r.amountPaise), status: r.status, decidedBy: r.decidedByCode || '',
-      reason: r.rejectReason || '', paidOut: r.disbursedAt ? iso(r.disbursedAt) : '',
-    }));
+    const codes = [...new Set(reqs.map((r) => r.decidedByCode).filter(Boolean))];
+    const names = await staffNames(codes);
+    const rows = reqs.filter((r) => {
+      const sName = names.get(String(r.decidedByCode || '').toUpperCase()) || '';
+      return matches(q, r.formId, r.borrower?.code, r.borrower?.name, r.groupInfo?.name, r.groupInfo?.code, r.decidedByCode, sName);
+    }).map((r) => {
+      const sName = names.get(String(r.decidedByCode || '').toUpperCase()) || '';
+      return {
+        key: String(r._id), formId: r.formId, date: iso(r.decidedAt), branch: r.branch?.code || '', loanType: r.kind, applicant: r.kind === 'group' ? `${r.groupInfo?.code || ''} — ${r.groupInfo?.name || ''} (${r.memberCount || 0} members)` : `${r.borrower?.code || ''} ${r.borrower?.name || ''}`,
+        mobile: showMobile(req.user, r.borrower?.mobile), scheme: r.schemeName || '', requested: rupees(r.requestedAmountPaise ?? r.amountPaise), amount: rupees(r.totalAmountPaise ?? r.amountPaise), status: r.status, decidedBy: r.decidedByCode || '', decidedByName: sName || r.decidedByCode || '',
+        reason: r.rejectReason || '', paidOut: r.disbursedAt ? iso(r.disbursedAt) : '',
+      };
+    });
     return { rows, summary: { decided: rows.length, approved: rows.filter((r) => r.status === 'approved').length, rejected: rows.filter((r) => r.status === 'rejected').length, amount: sumOf(rows.filter((r) => r.status === 'approved'), 'amount') } };
   },
   async memberJoining(req) {

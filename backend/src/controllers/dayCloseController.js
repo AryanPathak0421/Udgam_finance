@@ -102,6 +102,7 @@ export async function submit(req, res) {
   let date = parseDateOnly(asString(b.date)) || today;
   const working = await branchWorkingDate(branch._id);
   if (working) date = working; // the branch goes date by date (a day the admin revoked first)
+  if (date.getUTCDay() === 0) throw invalid({ date: 'Sunday is a weekly off day for branches. Day close is not required for Sundays.' });
   if (date > today) throw invalid({ date: 'A day can be closed only on or after that day' });
   const { counts, total } = readCounts(b.counts);
   const cash = await cashOf(req, branch._id, date);

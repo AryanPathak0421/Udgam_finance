@@ -149,7 +149,14 @@ export async function listEntries(req, res) {
   const kind = asString(req.query.kind);
   if (!KINDS[kind]) throw invalid({ kind: 'Unknown kind' });
   const admin = isAdmin(req.user);
-  const filter = { isDeleted: false, kind };
+  const filter = { isDeleted: false };
+  if (kind === 'payment_voucher') {
+    filter.$or = [{ kind: 'payment_voucher' }, { side: 'payment', category: { $in: ['ledger', 'other_payment'] } }];
+  } else if (kind === 'receive_voucher') {
+    filter.$or = [{ kind: 'receive_voucher' }, { side: 'receive', category: { $in: ['ledger', 'voucher_receive'] } }];
+  } else {
+    filter.kind = kind;
+  }
   if (kind === 'branch_transfer') filter.side = 'payment'; // one row per transfer
   const wanted = asString(req.query.branch);
   const mine = (req.user.branches || []).map((x) => new mongoose.Types.ObjectId(String(x)));

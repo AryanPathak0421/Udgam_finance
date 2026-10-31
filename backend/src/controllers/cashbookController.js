@@ -1,3 +1,5 @@
+import { generateCode } from '../services/codeSequence.js';
+import { Voucher } from '../models/Voucher.js';
 import { readBankAccount } from '../services/bankAccountPick.js';
 import mongoose from 'mongoose';
 import { EmiPayment } from '../models/EmiPayment.js';
@@ -445,7 +447,16 @@ export async function addEntry(req, res) {
   // no date given: the working date of the branch (the day it is on after its last approved day close)
   if (!b.date) date = await defaultWorkDate(branch, req.user);
   await assertDayOpen(branch, date, req.user);
-  const e = await CashEntry.create({ branch, date, side, category, amountPaise, mode, bankAccount, ledger, remark: asString(b.remark).slice(0, 200), enteredByCode: req.user.employeeCode || '', createdBy: req.user._id });
+  let kind = undefined;
+  let voucherNo = undefined;
+  let voucherPeriod = undefined;
+  if (category === 'ledger' || category === 'voucher_receive' || category === 'other_payment') {
+    kind = side === 'payment' ? 'payment_voucher' : 'receive_voucher';
+    voucherNo = await generateCode(kind === 'payment_voucher' ? 'paymentVoucher' : 'receiveVoucher');
+    const period = await Voucher.findOne({ isDeleted: false, isActive: true, fromDate: { $lte: date }, toDate: { $gte: date } }).select('_id').lean();
+    voucherPeriod = period?._id;
+  }
+  const e = await CashEntry.create({ branch, date, side, category, kind, voucherNo, voucherPeriod, amountPaise, mode, bankAccount, ledger, remark: asString(b.remark).slice(0, 200), enteredByCode: req.user.employeeCode || '', createdBy: req.user._id });
   await audit(req, { action: 'cashbook.entry', entity: 'CashEntry', entityId: e._id, after: { side, category, amount: amountPaise / 100, date: iso(date), branch: branch ? String(branch) : 'head office' } });
   res.status(201).json({ entry: { id: e._id, side, category, amount: amountPaise / 100, date: iso(date), mode, remark: e.remark || '' } });
 }

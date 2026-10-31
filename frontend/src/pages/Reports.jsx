@@ -31,16 +31,16 @@ const staffCell = (r) => {
 const COLS = {
   requisition: [
     ['Form ID', (r) => <strong>{r.formId}</strong>], ['Date', (r) => dmy(r.date)], ['Branch', (r) => r.branch], ['Type', (r) => cap(r.loanType)], ['Applicant', (r) => <>{r.applicant}{r.mobile && <div className="muted small">{r.mobile}</div>}</>],
-    ['Scheme', (r) => r.scheme], ['Mode · term', (r) => `${cap(r.mode)} · ${r.term}`], ['Amount', (r) => inr(r.amount), true], ['Status', (r) => <span className={`badge ${STATUS_BADGE[r.status] || 'grey'}`}>{cap(r.status)}</span>], ['By', (r) => r.requestedBy],
+    ['Scheme', (r) => r.scheme], ['Mode · term', (r) => `${cap(r.mode)} · ${r.term}`], ['Amount', (r) => inr(r.amount), true], ['Status', (r) => <span className={`badge ${STATUS_BADGE[r.status] || 'grey'}`}>{cap(r.status)}</span>], ['Staff name', (r) => (r.requestedByName && r.requestedByName !== r.requestedBy ? <><strong>{r.requestedByName}</strong>{r.requestedBy && <div className="muted small">{r.requestedBy}</div>}</> : <strong>{r.requestedByName || r.requestedBy || '—'}</strong>)],
   ],
   approval: [
     ['Form ID', (r) => <strong>{r.formId}</strong>], ['Decided on', (r) => dmy(r.date)], ['Branch', (r) => r.branch], ['Type', (r) => cap(r.loanType)], ['Applicant', (r) => <>{r.applicant}{r.mobile && <div className="muted small">{r.mobile}</div>}</>],
     ['Asked', (r) => inr(r.requested), true], ['Approved', (r) => inr(r.amount), true], ['Status', (r) => <><span className={`badge ${STATUS_BADGE[r.status] || 'grey'}`}>{cap(r.status)}</span>{r.reason && <div className="muted small">{r.reason}</div>}</>],
-    ['By', (r) => r.decidedBy], ['Paid out', (r) => (r.paidOut ? dmy(r.paidOut) : '—')],
+    ['Approved by', (r) => (r.decidedByName && r.decidedByName !== r.decidedBy ? <><strong>{r.decidedByName}</strong>{r.decidedBy && <div className="muted small">{r.decidedBy}</div>}</> : <strong>{r.decidedByName || r.decidedBy || '—'}</strong>)], ['Paid out', (r) => (r.paidOut ? dmy(r.paidOut) : '—')],
   ],
   disbursement: [
     ['Loan ID', (r) => <strong>{r.loanId}</strong>], ['Paid on', (r) => dmy(r.date)], ['Branch', (r) => r.branch], ['Type', (r) => cap(r.loanType)], ['Borrower(s)', (r) => r.borrowers], ['Scheme', (r) => r.scheme],
-    ['Mode · term', (r) => `${r.mode} · ${r.installments}`], ['Loan amount', (r) => inr(r.amount), true], ['Cash paid', (r) => inr(r.cash), true], ['Staff', staffCell], ['Payment mode', (r) => MODE_LABEL[r.payMode] || r.payMode],
+    ['Mode · term', (r) => `${r.mode} · ${r.installments}`], ['Loan amount', (r) => inr(r.amount), true], ['Cash paid', (r) => inr(r.cash), true], ['Staff name', staffCell], ['Payment mode', (r) => MODE_LABEL[r.payMode] || r.payMode],
   ],
   'emi-collection': [
     ['Receipt', (r) => <strong>{r.receiptNo}</strong>], ['Date', (r) => dmy(r.date)], ['Loan ID', (r) => r.loanId], ['Borrower', (r) => <>{r.memberCode} {r.memberName}{r.group && <div className="muted small">{r.group}</div>}</>], ['Branch', (r) => r.branch],
