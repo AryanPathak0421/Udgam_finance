@@ -27,8 +27,8 @@ const DAY = 24 * 3600 * 1000;
 // The lines of the cashbook, in the order of the paper cashbook. `optional` lines are shown only when they have an amount;
 // `memo` lines are figures for information and are not part of the totals.
 const RECEIVE = [
-  { key: 'daily_collection', label: 'Daily collection amount' },
-  { key: 'weekly_collection', label: 'Weekly collection amount' },
+  { key: 'daily_collection', label: 'Daily collection amount (Group)' },
+  { key: 'weekly_collection', label: 'Weekly collection amount (Group)' },
   { key: 'group_other_collection', label: 'Monthly / other group collection', optional: true },
   { key: 'product_collection', label: 'Product loan collection' },
   { key: 'personal_collection', label: 'Personal loan collection' },
@@ -39,8 +39,8 @@ const RECEIVE = [
   { key: 'insurance_fee', label: 'Insurance fee' },
   { key: 'security_amount', label: 'Security amount' },
   { key: 'goods_in_kind', label: 'Goods given with loans (in kind, not cash)', optional: true },
-  { key: 'daily_settlement', label: 'Daily settlement amount' },
-  { key: 'weekly_settlement', label: 'Weekly settlement amount' },
+  { key: 'daily_settlement', label: 'Daily settlement amount (Group)' },
+  { key: 'weekly_settlement', label: 'Weekly settlement amount (Group)' },
   { key: 'group_other_settlement', label: 'Monthly / other group settlement', optional: true },
   { key: 'personal_settlement', label: 'Personal loan settlement' },
   { key: 'product_settlement', label: 'Product loan settlement' },
@@ -329,7 +329,8 @@ export async function cashbookData(req, query) {
     sets.forEach((x) => {
       const l = loanInfo.get(String(x.loanPayment));
       if (!l) return;
-      add('receive', settlementKey(l), { date: iso(x.settledOn), particulars: `Loan settlement — ${nameOfMember(x)}`, ref: `${x.receiptNo} · ${x.loanId || x.formId}`, mode: x.payMode, bank: x.bankAccount, amount: x.amountPaise, branchId: x.branch });
+      const kindLabel = l.kind === 'group' ? 'Group' : (typeOf(l) === 'msme' ? 'MSME' : typeOf(l) === 'business' ? 'Business' : typeOf(l) === 'product' ? 'Product' : 'Personal');
+      add('receive', settlementKey(l), { date: iso(x.settledOn), particulars: `Loan settlement (${kindLabel}) — ${nameOfMember(x)}`, ref: `${x.receiptNo} · ${x.loanId || x.formId}`, mode: x.payMode, bank: x.bankAccount, amount: x.amountPaise, branchId: x.branch });
     });
 
     // loans paid out: the loan amount is paid; the fees and the security kept from it come back on the receive side, goods are given in kind

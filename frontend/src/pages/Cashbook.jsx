@@ -120,10 +120,14 @@ function EntryDialog({ cats, ledgers, branches, isAdmin, defaultBranch, onClose,
         <FormField id="ccat" label="For (Ledger / Voucher Name)" required error={errors.category}>
           <select id="ccat" value={form.category} onChange={set('category')}>
             <option value="">Select</option>
-            {(cats[form.side] || []).filter((c) => c.key !== 'voucher_receive' && c.key !== 'other_payment').map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
             {(ledgers?.[form.side] || []).length > 0 && (
               <optgroup label="Ledger master (Voucher name)">
                 {ledgers[form.side].map((l) => <option key={l.id} value={`ledger:${l.id}`}>{l.name}</option>)}
+              </optgroup>
+            )}
+            {(cats[form.side] || []).filter((c) => c.key !== 'voucher_receive' && c.key !== 'other_payment' && c.key !== 'npa_receive').length > 0 && (
+              <optgroup label="Other cash entries">
+                {(cats[form.side] || []).filter((c) => c.key !== 'voucher_receive' && c.key !== 'other_payment' && c.key !== 'npa_receive').map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
               </optgroup>
             )}
           </select>
