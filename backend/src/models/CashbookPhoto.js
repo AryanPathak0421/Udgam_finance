@@ -15,3 +15,4 @@ const cashbookPhotoSchema = new mongoose.Schema(
 cashbookPhotoSchema.index({ branch: 1, date: 1 }, { unique: true });
 
 export const CashbookPhoto = mongoose.model('CashbookPhoto', cashbookPhotoSchema);
+
