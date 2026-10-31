@@ -296,11 +296,9 @@ export default function AccountEntries({ kind }) {
   const [from, setFrom] = useState(today());
   const [to, setTo] = useState(today());
   useEffect(() => {
-    if (branch && branch !== 'ho') {
-      workDateOf(branch).then((d) => {
-        if (d) { setFrom(d); setTo(d); }
-      }).catch(() => {});
-    }
+    workDateOf(branch && branch !== 'ho' ? branch : undefined).then((d) => {
+      if (d) { setFrom(d); setTo(d); }
+    }).catch(() => {});
   }, [branch]);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -310,9 +308,15 @@ export default function AccountEntries({ kind }) {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    api.groups.branchOptions().then((r) => setBranches(r.items)).catch(() => {});
+    api.groups.branchOptions().then((r) => {
+      const items = r.items || [];
+      setBranches(items);
+      if (!isAdmin && items.length === 1) {
+        setBranch(items[0].id);
+      }
+    }).catch(() => {});
     api.accounts.options().then((r) => { setLedgers(r.ledgers); setAllBranches(r.branches || []); }).catch(() => {});
-  }, []);
+  }, [isAdmin]);
   const load = useCallback(async () => {
     setLoading(true);
     setError('');

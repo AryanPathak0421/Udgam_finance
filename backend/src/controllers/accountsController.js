@@ -4,6 +4,7 @@ import { Branch } from '../models/Branch.js';
 import { Ledger } from '../models/Ledger.js';
 import { BankAccount } from '../models/BankAccount.js';
 import { Voucher } from '../models/Voucher.js';
+import { DayClose } from '../models/DayClose.js';
 import { assertDayOpen, defaultWorkDate } from '../services/dayOpen.js';
 import { generateCode } from '../services/codeSequence.js';
 import { accountLabel, readBankAccount } from '../services/bankAccountPick.js';
@@ -60,7 +61,7 @@ async function branchOf(req, wanted, field, { own = true } = {}) {
 const branchName = async (id) => (id ? (await Branch.findById(id).select('code name').lean()) : null);
 const branchText = (b) => (b ? `${b.code} — ${b.name}` : 'Head office');
 
-function readCommon(req, b) {
+async function readCommon(req, b) {
   const amountPaise = toMinor(typeof b.amount === 'number' ? String(b.amount) : asString(b.amount));
   if (amountPaise === null || amountPaise < 100) throw invalid({ amount: 'Enter the amount (₹1 or more, up to 2 decimals)' });
   const today = startOfToday();
@@ -69,7 +70,11 @@ function readCommon(req, b) {
     date = parseDateOnly(asString(b.date));
     if (!date) throw invalid({ date: 'Enter a valid date' });
     if (date > today) throw invalid({ date: 'The date cannot be in the future' });
-    if (!isAdmin(req.user) && today.getTime() - date.getTime() > 30 * DAY) throw invalid({ date: 'The date cannot be older than 30 days' });
+    if (!isAdmin(req.user) && today.getTime() - date.getTime() > 30 * DAY) {
+      const branchId = b.branch || b.fromBranch;
+      const isRevoked = branchId ? await DayClose.exists({ branch: branchId, date, status: 'revoked' }) : false;
+      if (!isRevoked) throw invalid({ date: 'The date cannot be older than 30 days' });
+    }
   }
   return { amountPaise, date, remark: asString(b.remark).slice(0, 200) };
 }
@@ -78,7 +83,7 @@ function readCommon(req, b) {
 export const makeEntry = (kind) => async (req, res) => {
   const def = KINDS[kind];
   const b = req.body || {};
-  const { amountPaise, date, remark } = readCommon(req, b);
+  const { amountPaise, date, remark } = await readCommon(req, b);
   const billData = readBill(b);
   const period = await Voucher.findOne({ isDeleted: false, isActive: true, fromDate: { $lte: date }, toDate: { $gte: date } }).select('name').lean();
   const base = { kind, date, amountPaise, voucherPeriod: period?._id, enteredByCode: req.user.employeeCode || '', createdBy: req.user._id };

@@ -4,6 +4,7 @@ import { EmiPayment } from '../models/EmiPayment.js';
 import { User } from '../models/User.js';
 import { Member } from '../models/Member.js';
 import { LoanSettlement } from '../models/LoanSettlement.js';
+import { DayClose } from '../models/DayClose.js';
 import { readBankAccount } from '../services/bankAccountPick.js';
 import { assertDayOpen, defaultWorkDate } from '../services/dayOpen.js';
 import { isAppRequest } from '../services/appRequest.js';
@@ -203,7 +204,10 @@ async function readPaidOn(req, p, input) {
   if (!paidOn) throw invalid({ paidOn: 'Enter a valid date' });
   if (paidOn > today) throw invalid({ paidOn: 'The payment date cannot be in the future' });
   if (paidOn < p.paidOn) throw invalid({ paidOn: 'The EMI cannot be paid before the loan was paid out' });
-  if (!isAdmin(req.user) && today.getTime() - paidOn.getTime() > 30 * DAY) throw invalid({ paidOn: 'The payment date cannot be older than 30 days' });
+  if (!isAdmin(req.user) && today.getTime() - paidOn.getTime() > 30 * DAY) {
+    const isRevoked = await DayClose.exists({ branch: p.branch?._id || p.branch, date: paidOn, status: 'revoked' });
+    if (!isRevoked) throw invalid({ paidOn: 'The payment date cannot be older than 30 days' });
+  }
   return paidOn;
 }
 

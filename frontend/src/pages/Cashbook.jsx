@@ -163,11 +163,9 @@ export default function Cashbook() {
   const [from, setFrom] = useState(today());
   const [to, setTo] = useState(today());
   useEffect(() => {
-    if (branch && branch !== 'ho') {
-      workDateOf(branch).then((d) => {
-        if (d) { setFrom(d); setTo(d); }
-      }).catch(() => {});
-    }
+    workDateOf(branch && branch !== 'ho' ? branch : undefined).then((d) => {
+      if (d) { setFrom(d); setTo(d); }
+    }).catch(() => {});
   }, [branch]);
   const [mode, setMode] = useState('');
   const [data, setData] = useState(null);
@@ -176,8 +174,14 @@ export default function Cashbook() {
   const [adding, setAdding] = useState(false);
 
   useEffect(() => {
-    api.groups.branchOptions().then((r) => setBranches(r.items)).catch(() => {});
-  }, []);
+    api.groups.branchOptions().then((r) => {
+      const items = r.items || [];
+      setBranches(items);
+      if (!isAdmin && items.length === 1) {
+        setBranch(items[0].id);
+      }
+    }).catch(() => {});
+  }, [isAdmin]);
   const load = useCallback(async () => {
     setLoading(true);
     setError('');

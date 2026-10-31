@@ -11,6 +11,7 @@ import { CashEntry, ENTRY_CATEGORIES, ENTRY_MODES } from '../models/CashEntry.js
 import { Branch } from '../models/Branch.js';
 import { Ledger } from '../models/Ledger.js';
 import { CivilCheck } from '../models/CivilCheck.js';
+import { DayClose } from '../models/DayClose.js';
 import { assertDayOpen, defaultWorkDate } from '../services/dayOpen.js';
 import { asString, parseDateOnly, startOfToday, HttpError } from '../utils/http.js';
 import { toMinor } from '../utils/money.js';
@@ -424,14 +425,6 @@ export async function addEntry(req, res) {
   const mode = asString(b.mode) || 'cash';
   if (!ENTRY_MODES.includes(mode)) throw invalid({ mode: 'Select cash, bank, UPI or cheque' });
   const bankAccount = await readBankAccount(b, mode);
-  const today = startOfToday();
-  let date = today;
-  if (b.date) {
-    date = parseDateOnly(asString(b.date));
-    if (!date) throw invalid({ date: 'Enter a valid date' });
-    if (date > today) throw invalid({ date: 'The date cannot be in the future' });
-    if (!isAdmin(req.user) && today.getTime() - date.getTime() > 30 * DAY) throw invalid({ date: 'The date cannot be older than 30 days' });
-  }
   // which cashbook: a branch, or head office (admin only)
   let branch = null;
   const wanted = asString(b.branch);
@@ -443,6 +436,17 @@ export async function addEntry(req, res) {
     if (!isAdmin(req.user) && !(req.user.branches || []).some((x) => String(x) === id)) throw new HttpError(403, 'You can only use your own branches');
     if (!(await Branch.exists({ _id: id }))) throw invalid({ branch: 'Branch not found' });
     branch = id;
+  }
+  const today = startOfToday();
+  let date = today;
+  if (b.date) {
+    date = parseDateOnly(asString(b.date));
+    if (!date) throw invalid({ date: 'Enter a valid date' });
+    if (date > today) throw invalid({ date: 'The date cannot be in the future' });
+    if (!isAdmin(req.user) && today.getTime() - date.getTime() > 30 * DAY) {
+      const isRevoked = branch ? await DayClose.exists({ branch, date, status: 'revoked' }) : false;
+      if (!isRevoked) throw invalid({ date: 'The date cannot be older than 30 days' });
+    }
   }
   // no date given: the working date of the branch (the day it is on after its last approved day close)
   if (!b.date) date = await defaultWorkDate(branch, req.user);

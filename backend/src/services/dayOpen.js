@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 import { DayClose } from '../models/DayClose.js';
-import { HttpError, startOfToday } from '../utils/http.js';
+import { HttpError, parseDateOnly, startOfToday } from '../utils/http.js';
 
 const DAY = 24 * 3600 * 1000;
 const ADMIN = ['super_admin', 'admin'];
@@ -63,16 +63,17 @@ export async function assertNotRejected(req) {
 export async function assertDayOpen(branchId, date, user) {
   if (!branchId || isAdminUser(user)) return;
   const dIso = iso(date);
+  const dStart = new Date(`${dIso}T00:00:00.000Z`);
+  const dEnd = new Date(dStart.getTime() + DAY);
+  const isRevoked = await DayClose.exists({ branch: branchId, date: { $gte: dStart, $lt: dEnd }, status: 'revoked' });
   const working = await branchWorkingDate(branchId);
-  if (working && dIso !== iso(working)) {
+  if (!isRevoked && working && dIso !== iso(working)) {
     throw new HttpError(409, `This branch works on ${iso(working)} (its next open day). Work cannot be made for ${dIso}.`, { date: `The branch works on ${iso(working)}` });
   }
-  const dateMidnight = parseDateOnly(dIso);
-  const isRevoked = await DayClose.exists({ branch: branchId, date: dateMidnight, status: 'revoked' });
   const waiting = await DayClose.findOne({ branch: branchId, status: 'submitted' }).select('date').lean();
   if (waiting && !isRevoked) throw new HttpError(409, `The denomination of ${iso(waiting.date)} is waiting for the admin. Work continues after it is approved.`, { date: 'Waiting for the admin' });
   if (!isRevoked) {
-    const closed = await DayClose.findOne({ branch: branchId, date: dateMidnight, status: { $in: ['submitted', 'approved'] } }).select('date status').lean();
+    const closed = await DayClose.findOne({ branch: branchId, date: { $gte: dStart, $lt: dEnd }, status: { $in: ['submitted', 'approved'] } }).select('date status').lean();
     if (closed) {
       throw new HttpError(409, `The day ${iso(closed.date)} of this branch is closed${closed.status === 'submitted' ? ' (waiting for the admin)' : ''}. Work is made on ${iso(new Date(closed.date.getTime() + DAY))} only.`, { date: 'This day is closed' });
     }

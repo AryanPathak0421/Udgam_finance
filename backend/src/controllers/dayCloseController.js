@@ -57,14 +57,14 @@ export async function status(req, res) {
   ]);
   const workingDate = await branchWorkingDate(branch._id);
   const today = startOfToday();
-  let date = pending ? pending.date : workingDate || parseDateOnly(asString(req.query.date)) || today;
+  let date = revokedClose ? revokedClose.date : pending ? pending.date : workingDate || parseDateOnly(asString(req.query.date)) || today;
   if (date > today) date = today;
-  const canClose = !pending && (!workingDate || workingDate <= today);
+  const canClose = revokedClose ? true : (!pending && (!workingDate || workingDate <= today));
   const cash = await cashOf(req, branch._id, date);
   res.json({
-    branch: { id: branch._id, code: branch.code, name: branch.name }, workingDate: iso(workingDate), lastClosed: iso(lastApproved?.date), date: iso(date), dateFixed: Boolean(workingDate || pending),
-    canClose, waiting: pending ? present(pending, null) : null, rejected: rejectedClose ? present(rejectedClose, null) : null, revoked: revokedClose ? present(revokedClose, null) : null,
-    reason: pending ? `The close of ${iso(pending.date)} is waiting for the admin's approval` : workingDate && workingDate > today ? `The day ${iso(lastApproved?.date)} is closed. The next day opens on ${iso(workingDate)}` : '',
+    branch: { id: branch._id, code: branch.code, name: branch.name }, workingDate: iso(workingDate), lastClosed: iso(lastApproved?.date), date: iso(date), dateFixed: Boolean(workingDate || pending || revokedClose),
+    canClose, waiting: revokedClose ? null : (pending ? present(pending, null) : null), rejected: rejectedClose ? present(rejectedClose, null) : null, revoked: revokedClose ? present(revokedClose, null) : null,
+    reason: revokedClose ? `The day ${iso(revokedClose.date)} was revoked by admin${revokedClose.rejectReason ? `: ${revokedClose.rejectReason}` : ''}. Work on this back date and submit its denomination.` : pending ? `The close of ${iso(pending.date)} is waiting for the admin's approval` : workingDate && workingDate > today ? `The day ${iso(lastApproved?.date)} is closed. The next day opens on ${iso(workingDate)}` : '',
     cashbook: { opening: cash.opening / 100, receipts: cash.receipts / 100, payments: cash.payments / 100, closing: cash.closing / 100 },
     denominations: DENOMINATIONS, recent: recent.map((c) => present(c, null)),
   });
@@ -97,11 +97,14 @@ export async function submit(req, res) {
   const branch = await branchOf(req, asString(b.branch));
   const today = startOfToday();
   const lastApproved = await DayClose.findOne({ branch: branch._id, status: 'approved' }).sort({ date: -1 }).lean();
-  const waiting = await DayClose.findOne({ branch: branch._id, status: 'submitted' }).lean();
-  if (waiting) throw new HttpError(409, `The close of ${iso(waiting.date)} is already waiting for the admin's approval`);
   let date = parseDateOnly(asString(b.date)) || today;
   const working = await branchWorkingDate(branch._id);
   if (working) date = working; // the branch goes date by date (a day the admin revoked first)
+  const isRevokedDay = await DayClose.exists({ branch: branch._id, date, status: 'revoked' });
+  const waiting = await DayClose.findOne({ branch: branch._id, status: 'submitted' }).lean();
+  if (waiting && !isRevokedDay && iso(waiting.date) !== iso(date)) {
+    throw new HttpError(409, `The close of ${iso(waiting.date)} is already waiting for the admin's approval`);
+  }
   if (date.getUTCDay() === 0) throw invalid({ date: 'Sunday is a weekly off day for branches. Day close is not required for Sundays.' });
   if (date > today) throw invalid({ date: 'A day can be closed only on or after that day' });
   const { counts, total } = readCounts(b.counts);
@@ -142,7 +145,7 @@ export async function list(req, res) {
     filter.branch = new mongoose.Types.ObjectId(wanted);
   }
   const st = asString(req.query.status);
-  if (st === 'submitted') filter.status = { $in: ['submitted', 'revoked'] };
+  if (st === 'submitted') filter.status = 'submitted';
   else if (['approved', 'rejected', 'revoked'].includes(st)) filter.status = st;
   const from = parseDateOnly(asString(req.query.from));
   const to = parseDateOnly(asString(req.query.to));
@@ -166,7 +169,7 @@ async function load(req) {
 /** The admin approves: the Cashbook closing is worked out again and must still match the denomination. Then the branch moves on to the next date. */
 export async function approve(req, res) {
   const c = await load(req);
-  if (!['submitted', 'revoked'].includes(c.status)) throw new HttpError(409, `This close is already ${c.status}`);
+  if (c.status !== 'submitted') throw new HttpError(409, `This close is ${c.status}. Only submitted closes waiting for approval can be approved.`);
   const cash = await cashOf(req, c.branch._id, c.date);
   if (cash.closing !== c.denominationPaise) {
     throw new HttpError(409, `The cash closing of the Cashbook is ₹${cash.closing / 100} but the denomination is ₹${c.denominationPaise / 100}. They must match; reject this close so the branch makes it again.`);

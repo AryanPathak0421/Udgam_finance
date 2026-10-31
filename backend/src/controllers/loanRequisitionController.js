@@ -751,7 +751,7 @@ export function createRequisition(kind) {
     if (b.loanDate !== undefined && b.loanDate !== null && String(b.loanDate).trim() !== '') {
       const d = parseDateOnly(asString(b.loanDate));
       if (!d) throw invalid({ loanDate: 'Enter a valid loan date' });
-      if (!isAdmin(req.user) && workDate && d.getTime() !== workDate.getTime()) {
+      if (!isAdmin(req.user) && workDate && dateOnly(d) !== dateOnly(workDate)) {
         throw invalid({ loanDate: `A loan requisition is made for your branch working date (${dateOnly(workDate)}) only` });
       }
       if (isAdmin(req.user) && d > today) {
@@ -1383,7 +1383,7 @@ export async function createGroupRequisition(req, res) {
   if (b.loanDate !== undefined && b.loanDate !== null && String(b.loanDate).trim() !== '') {
     const d = parseDateOnly(asString(b.loanDate));
     if (!d) throw invalid({ loanDate: 'Enter a valid loan date' });
-    if (!isAdmin(req.user) && workDate && d.getTime() !== workDate.getTime()) {
+    if (!isAdmin(req.user) && workDate && dateOnly(d) !== dateOnly(workDate)) {
       throw invalid({ loanDate: `A group loan requisition is made for your branch working date (${dateOnly(workDate)}) only` });
     }
     if (isAdmin(req.user) && d > today) {
