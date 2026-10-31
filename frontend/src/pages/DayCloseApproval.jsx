@@ -154,7 +154,7 @@ export default function DayCloseApproval() {
                       <td>
                         {c.status === 'submitted' && (
                           <div style={{ display: 'flex', gap: 6 }}>
-                            <button className="btn sm primary" disabled={!c.match || busy === c.id} title={c.match ? '' : 'The denomination does not match the cashbook closing'} onClick={() => approve(c)}>Approve</button>
+                            <button className="btn sm primary" disabled={!c.match || busy === c.id || c.cashbook.closing < 0} title={c.cashbook.closing < 0 ? 'Cashbook closing is negative: cannot approve' : c.match ? '' : 'The denomination does not match the cashbook closing'} onClick={() => approve(c)}>Approve</button>
                             <button className="btn sm danger-outline" disabled={busy === c.id} onClick={() => { setRejecting(c); setReason(''); setReasonError(''); }}>Cancel</button>
                           </div>
                         )}

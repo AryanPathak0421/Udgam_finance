@@ -109,7 +109,19 @@ export default function DayClose() {
                 </tbody>
               </table>
             </div>
-            {data.canClose ? (
+            {closing < 0 ? (
+              <div style={{ marginTop: 16, padding: '16px 20px', borderRadius: 8, border: '1.5px solid var(--danger, #c0392b)', background: 'var(--bg-subtle, #fff5f5)' }}>
+                <h4 style={{ margin: '0 0 8px', color: 'var(--danger, #c0392b)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  ⚠️ Denomination nahi ban sakta (Cashbook closing negative hai)
+                </h4>
+                <p style={{ margin: 0, fontSize: '0.92rem', color: 'var(--text, #333)' }}>
+                  Cashbook closing balance <strong>{inr(closing)}</strong> hai (negative). Physical cash kabhi negative nahi ho sakta.
+                </p>
+                <p style={{ margin: '8px 0 0', fontSize: '0.88rem', color: 'var(--text-muted, #666)' }}>
+                  Jab tak cashbook closing negative hai tab tak denomination create nahi ho sakta. Kripya pehle missing cash received entry (jaise Cash fund / Receive voucher) add karein taaki closing balance zero ya positive ho sake.
+                </p>
+              </div>
+            ) : data.canClose ? (
               <>
                 <div className="table-wrap" style={{ marginTop: 12 }}>
                   <table className="data-table">
@@ -134,7 +146,7 @@ export default function DayClose() {
                 {errors.counts && <div className="field-error">{errors.counts}</div>}
                 <FormField id="dcremark" label="Remark" hint="Optional"><input id="dcremark" value={remark} maxLength={200} onChange={(e) => setRemark(e.target.value)} /></FormField>
                 <button className="btn primary" onClick={submit} disabled={busy || diff !== 0 || closing < 0} title={closing < 0 ? 'Cashbook closing cannot be negative' : diff !== 0 ? 'The count must match the Cashbook closing' : ''}>{busy ? 'Saving…' : 'Make the denomination and close the day'}</button>
-                {diff !== 0 && <div className="notice warn" style={{ marginTop: 8 }}>The denomination is {diff > 0 ? 'more' : 'less'} than the Cashbook closing by {inr(Math.abs(diff))}. The day can be closed only when they match: count again, or correct the Cashbook entries of {dmy(data.date)} first.{closing < 0 ? ' The Cashbook closing is below zero (more cash was paid than received): enter the missing cash received (for example Cash fund) first.' : ''}</div>}
+                {diff !== 0 && <div className="notice warn" style={{ marginTop: 8 }}>The denomination is {diff > 0 ? 'more' : 'less'} than the Cashbook closing by {inr(Math.abs(diff))}. The day can be closed only when they match: count again, or correct the Cashbook entries of {dmy(data.date)} first.</div>}
               </>
             ) : data.waiting && (
               <div className="notice" style={{ marginTop: 12 }}>

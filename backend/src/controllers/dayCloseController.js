@@ -59,12 +59,15 @@ export async function status(req, res) {
   const today = startOfToday();
   let date = revokedClose ? revokedClose.date : pending ? pending.date : workingDate || parseDateOnly(asString(req.query.date)) || today;
   if (date > today) date = today;
-  const canClose = revokedClose ? true : (!pending && (!workingDate || workingDate <= today));
   const cash = await cashOf(req, branch._id, date);
+  const isClosingNegative = cash.closing < 0;
+  const canClose = (revokedClose ? true : (!pending && (!workingDate || workingDate <= today))) && !isClosingNegative;
+  const negativeReason = isClosingNegative ? `Cashbook closing (-) me hai (₹${cash.closing / 100}). Cashbook closing negative hone par denomination nahi ban sakta. Missing cash received (e.g. Cash fund / receive voucher) add karein.` : '';
+  const reason = negativeReason || (revokedClose ? `The day ${iso(revokedClose.date)} was revoked by admin${revokedClose.rejectReason ? `: ${revokedClose.rejectReason}` : ''}. Work on this back date and submit its denomination.` : pending ? `The close of ${iso(pending.date)} is waiting for the admin's approval` : workingDate && workingDate > today ? `The day ${iso(lastApproved?.date)} is closed. The next day opens on ${iso(workingDate)}` : '');
   res.json({
     branch: { id: branch._id, code: branch.code, name: branch.name }, workingDate: iso(workingDate), lastClosed: iso(lastApproved?.date), date: iso(date), dateFixed: Boolean(workingDate || pending || revokedClose),
-    canClose, waiting: revokedClose ? null : (pending ? present(pending, null) : null), rejected: rejectedClose ? present(rejectedClose, null) : null, revoked: revokedClose ? present(revokedClose, null) : null,
-    reason: revokedClose ? `The day ${iso(revokedClose.date)} was revoked by admin${revokedClose.rejectReason ? `: ${revokedClose.rejectReason}` : ''}. Work on this back date and submit its denomination.` : pending ? `The close of ${iso(pending.date)} is waiting for the admin's approval` : workingDate && workingDate > today ? `The day ${iso(lastApproved?.date)} is closed. The next day opens on ${iso(workingDate)}` : '',
+    canClose, isClosingNegative, waiting: revokedClose ? null : (pending ? present(pending, null) : null), rejected: rejectedClose ? present(rejectedClose, null) : null, revoked: revokedClose ? present(revokedClose, null) : null,
+    reason,
     cashbook: { opening: cash.opening / 100, receipts: cash.receipts / 100, payments: cash.payments / 100, closing: cash.closing / 100 },
     denominations: DENOMINATIONS, recent: recent.map((c) => present(c, null)),
   });
@@ -108,9 +111,9 @@ export async function submit(req, res) {
   if (date > today) throw invalid({ date: 'A day can be closed only on or after that day' });
   const { counts, total } = readCounts(b.counts);
   const cash = await cashOf(req, branch._id, date);
-  // a negative Cashbook closing means more cash was paid than received — physical cash cannot be negative, so the day cannot be closed
+  // a negative Cashbook closing means more cash was paid than received — physical cash cannot be negative, so denomination cannot be made
   if (cash.closing < 0) {
-    throw new HttpError(422, `The Cashbook closing is ₹${cash.closing / 100} (negative: more cash was paid than received). Add the missing cash received (for example Cash fund) before closing the day.`, { counts: 'Cashbook closing is negative — add cash fund first' });
+    throw new HttpError(422, `Cashbook closing (-) me hai (₹${cash.closing / 100}). Cashbook closing negative hone par denomination nahi ban sakta. Missing cash received (e.g. Cash fund / receive voucher) add karein.`, { counts: 'Cashbook closing negative hai — denomination nahi ban sakta' });
   }
   // the day is closed only with a denomination that matches the cash closing of the Cashbook: a mismatched count would lock the day (no entry can be made) without the branch being able to correct it
   // (a branch with no cash at all closes its day with a zero count)
@@ -170,6 +173,9 @@ export async function approve(req, res) {
   const c = await load(req);
   if (c.status !== 'submitted') throw new HttpError(409, `This close is ${c.status}. Only submitted closes waiting for approval can be approved.`);
   const cash = await cashOf(req, c.branch._id, c.date);
+  if (cash.closing < 0) {
+    throw new HttpError(409, `Cashbook closing (-) me hai (₹${cash.closing / 100}). Negative closing par day close approve nahi ho sakta.`);
+  }
   if (cash.closing !== c.denominationPaise) {
     throw new HttpError(409, `The cash closing of the Cashbook is ₹${cash.closing / 100} but the denomination is ₹${c.denominationPaise / 100}. They must match; reject this close so the branch makes it again.`);
   }
