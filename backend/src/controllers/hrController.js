@@ -153,7 +153,7 @@ const presentEmployee = (e, user) => ({
   branch: e.branch?._id ? { id: e.branch._id, code: e.branch.code, name: e.branch.name } : null, joiningDate: iso(e.joiningDate), // monthlySalary computed with increment below
   bankName: e.bankName || '', ifsc: e.ifsc || '', accountNumber: isAdmin(user) ? e.accountNumber || '' : e.accountNumber ? `XXXXX${String(e.accountNumber).slice(-4)}` : '',
   status: e.status, leftOn: iso(e.leftOn), hasLogin: Boolean(e.user), isBlocked: Boolean(e.isBlocked), blockReason: e.blockReason || '',
-  homeTown: e.homeTown || '', homeTownPincode: e.homeTownPincode || '', originalMarksheet: Boolean(e.originalMarksheet), fatherName: e.fatherName || '', fatherMobile: showMobile(user, e.fatherMobile) || '', motherName: e.motherName || '', maritalStatus: e.maritalStatus || '',
+  homeTown: e.homeTown || '', homeTownPincode: e.homeTownPincode || '', originalMarksheet: Boolean(e.originalMarksheet), originalMarksheetTypes: e.originalMarksheetTypes || [], originalMarksheetOther: e.originalMarksheetOther || '', fatherName: e.fatherName || '', fatherMobile: showMobile(user, e.fatherMobile) || '', motherName: e.motherName || '', maritalStatus: e.maritalStatus || '',
   pincode: e.pincode || '', state: e.state || '', district: e.district || '', area: e.area || '', pfDeduction: Boolean(e.pfDeduction), esiDeduction: Boolean(e.esiDeduction),
   aadhaarNo: e.aadhaarNo || '', panNo: e.panNo || '', drivingLicenceNo: e.drivingLicenceNo || '', voterIdNo: e.voterIdNo || '',
   hasExperience: Boolean(e.hasExperience), previousCompany: e.previousCompany || '', previousPost: e.previousPost || '',
@@ -175,6 +175,7 @@ const presentEmployee = (e, user) => ({
 const EMP_POPULATE = [{ path: 'department', select: 'name' }, { path: 'designation', select: 'name' }, { path: 'branch', select: 'code name' }, { path: 'supervisor', select: 'employeeCode name' }, { path: 'supervisedBranches', select: 'code name' }];
 
 export async function listEmployees(req, res) {
+  await autoBlockNoticeExpired();
   await ensureEmployees(); // a staff login that has no HR record yet gets one
   const filter = { isDeleted: false, ...scope(req) };
   const st = asString(req.query.status);
@@ -503,6 +504,13 @@ async function readEmployee(b) {
   d.homeTownPincode = asString(b.homeTownPincode);
   if (d.homeTownPincode && !/^[1-9]\d{5}$/.test(d.homeTownPincode)) throw invalid({ homeTownPincode: 'Enter a valid 6-digit pincode' });
   d.originalMarksheet = yes(b.originalMarksheet);
+  if (d.originalMarksheet) {
+    d.originalMarksheetTypes = Array.isArray(b.originalMarksheetTypes) ? b.originalMarksheetTypes.map(String) : [];
+    d.originalMarksheetOther = asString(b.originalMarksheetOther).slice(0, 100);
+  } else {
+    d.originalMarksheetTypes = [];
+    d.originalMarksheetOther = '';
+  }
   d.fatherName = asString(b.fatherName).replace(/\s+/g, ' ').slice(0, 80);
   d.fatherMobile = asString(b.fatherMobile);
   if (d.fatherMobile && !MOBILE_RE.test(d.fatherMobile)) throw invalid({ fatherMobile: 'Enter a valid 10-digit mobile number' });
@@ -527,7 +535,19 @@ async function readEmployee(b) {
   d.previousCompany = d.hasExperience ? asString(b.previousCompany).slice(0, 100) : '';
   d.previousPost = d.hasExperience ? asString(b.previousPost).slice(0, 80) : '';
   const sb = [...new Set((Array.isArray(b.supervisedBranches) ? b.supervisedBranches : []).map(String).filter((x) => mongoose.isValidObjectId(x)))];
-  if (sb.length && (await Branch.countDocuments({ _id: { $in: sb } })) !== sb.length) throw invalid({ supervisedBranches: 'Select the branches from the list' });
+  if (sb.length) {
+    const sBranches = await Branch.find({ _id: { $in: sb } }).select('code name city').lean();
+    if (sBranches.length !== sb.length) throw invalid({ supervisedBranches: 'Select the branches from the list' });
+    if (d.branch) {
+      const homeBranch = await Branch.findById(d.branch).select('city').lean();
+      if (homeBranch?.city) {
+        const diffCity = sBranches.filter((br) => br.city && br.city.toLowerCase().trim() !== homeBranch.city.toLowerCase().trim());
+        if (diffCity.length) {
+          throw invalid({ supervisedBranches: `Supervisor can only supervise branches in the same city (${homeBranch.city}). Different city: ${diffCity.map((x) => x.name).join(', ')}` });
+        }
+      }
+    }
+  }
   d.supervisedBranches = sb;
   const sup = asString(b.supervisor);
   if (!sup) d.supervisor = undefined;
@@ -631,14 +651,50 @@ export async function hrOptions(_req, res) {
 
 // ---- Attendance -----------------------------------------------------------------------------------------------------------------
 
-const activeOn = (e, date) => e.status === 'active' || (e.leftOn && e.leftOn >= date);
+export async function autoBlockNoticeExpired() {
+  const today = startOfToday();
+  const pastEmps = await Employee.find({
+    isDeleted: false,
+    isBlocked: { $ne: true },
+    leftOn: { $lt: today },
+  }).select('_id user');
+
+  if (pastEmps.length) {
+    const ids = pastEmps.map((e) => e._id);
+    await Employee.updateMany(
+      { _id: { $in: ids } },
+      { $set: { isBlocked: true, blockReason: 'Notice period completed' } }
+    );
+    const uids = pastEmps.map((e) => e.user).filter(Boolean);
+    if (uids.length) {
+      await User.updateMany({ _id: { $in: uids } }, { $set: { isActive: false } });
+    }
+  }
+}
+
+const activeOn = (e, date) => (!e.leftOn || e.leftOn >= date);
 
 /** The employees of the branch(es) for a date with what is marked for them. */
 export async function attendanceDay(req, res) {
+  await autoBlockNoticeExpired();
   await ensureEmployees();
   const date = parseDateOnly(asString(req.query.date)) || startOfToday();
+  const wanted = asString(req.query.branch);
+  let branchFilterQuery = scope(req);
+  if (mongoose.isValidObjectId(wanted)) {
+    const wantedBranch = await Branch.findById(wanted).select('city').lean();
+    if (wantedBranch?.city) {
+      const sameCityBranchIds = (await Branch.find({ city: new RegExp(`^${wantedBranch.city.trim()}$`, 'i') }).select('_id').lean()).map((b) => b._id);
+      branchFilterQuery = {
+        $or: [
+          { branch: wantedBranch._id },
+          { supervisedBranches: wantedBranch._id, branch: { $in: sameCityBranchIds } },
+        ],
+      };
+    }
+  }
   // a blocked employee is not on the attendance
-  const emps = (await Employee.find({ isDeleted: false, isBlocked: { $ne: true }, ...scope(req) }).sort({ employeeCode: 1 }).populate(EMP_POPULATE)).filter((e) => activeOn(e, date) && (!e.joiningDate || e.joiningDate <= date));
+  const emps = (await Employee.find({ isDeleted: false, isBlocked: { $ne: true }, ...branchFilterQuery }).sort({ employeeCode: 1 }).populate(EMP_POPULATE)).filter((e) => activeOn(e, date) && (!e.joiningDate || e.joiningDate <= date));
   // the days before it as well: the Sunday and the Monday after an absence on a Saturday are absent too
   const back = new Date(date.getTime() - 2 * DAY);
   const markRows = await Attendance.find({ date: { $gte: back, $lte: date }, employee: { $in: emps.map((e) => e._id) } }).lean();

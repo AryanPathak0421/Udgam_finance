@@ -189,7 +189,7 @@ export const Resignation = mongoose.model('Resignation', resignationSchema);
 const changeSchema = new mongoose.Schema(
   {
     letterNo: { type: String, required: true, uppercase: true },
-    kind: { type: String, enum: ['promotion', 'transfer'], required: true },
+    kind: { type: String, enum: ['promotion', 'transfer', 'relieving'], required: true },
     employee: { ...ref('Employee'), required: true },
     employeeCode: String,
     employeeName: String,

@@ -11,6 +11,7 @@ import { accountLabel, readBankAccount } from '../services/bankAccountPick.js';
 import { asString, parseDateOnly, startOfToday, HttpError } from '../utils/http.js';
 import { toMinor } from '../utils/money.js';
 import { audit } from '../utils/audit.js';
+import { notifyApprovers } from '../services/notify.js';
 import { isAdmin } from './groupController.js';
 import { cashbookData, ledgerOptions, CATEGORY_LABEL } from './cashbookController.js';
 
@@ -127,6 +128,12 @@ export const makeEntry = (kind) => async (req, res) => {
   // the bill is kept with the first entry (a transfer has two legs)
   const made = await CashEntry.insertMany(docs.map((d, i) => ({ ...d, voucherNo, ...(billData && i === 0 ? billData : {}) })));
   await audit(req, { action: `accounts.${kind}`, entity: 'CashEntry', entityId: made[0]._id, after: { voucherNo, amount: amountPaise / 100, date: iso(date) } });
+  notifyApprovers({
+    branch: docs[0].branch?._id || docs[0].branch,
+    title: 'Voucher entry',
+    message: `${def.label || kind} voucher ${voucherNo} of ₹${amountPaise / 100} created.`,
+    extraUsers: [req.user._id],
+  });
   res.status(201).json({ voucherNo, id: made[0]._id });
 };
 

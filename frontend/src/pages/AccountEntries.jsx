@@ -277,7 +277,7 @@ function EntryForm({ kind, cfg, defaultBranch, branches, ledgers, isAdmin, onClo
         )}
         {cfg.bank ? <BankAccountSelect id="abank" mode="bank" value={f.bankAccount} onChange={(v) => setF((x) => ({ ...x, bankAccount: v }))} error={errors.bankAccount} /> : cfg.mode && <BankAccountSelect id="abank" mode={f.mode} value={f.bankAccount} onChange={(v) => setF((x) => ({ ...x, bankAccount: v }))} error={errors.bankAccount} />}
         <FormField id="aremark" label="Narration" className="span-2" hint="Optional: the person, the slip or cheque number"><input id="aremark" value={f.remark} maxLength={200} onChange={set('remark')} /></FormField>
-        <BillField id="abill" value={f.bill} name={f.billName} error={errors.bill} onChange={(v, n) => { setF((x) => ({ ...x, bill: v, billName: n })); setErrors((x) => ({ ...x, bill: undefined })); }} />
+        <BillField id="abill" label="Bill upload (optional)" hint="Optional: Upload photo or PDF of the bill / deposit slip / voucher (up to 800 KB)" value={f.bill} name={f.billName} error={errors.bill} onChange={(v, n) => { setF((x) => ({ ...x, bill: v, billName: n })); setErrors((x) => ({ ...x, bill: undefined })); }} />
       </div>
     </Modal>
   );

@@ -1291,6 +1291,12 @@ async function applyApproval(req, r, b) {
     entityId: r._id,
     after: { formId: r.formId, amount: r.amountPaise / 100, scheme: r.schemeCode, ...(r.requestedAmountPaise ? { requestedAmount: r.requestedAmountPaise / 100 } : {}), ...(r.requestedSchemeName ? { requestedScheme: r.requestedSchemeName } : {}) },
   });
+  notifyApprovers({
+    branch: r.branch?._id || r.branch,
+    title: 'Loan approved',
+    message: `Loan requisition ${r.formId} for ${r.member?.name || r.group?.name || 'Borrower'} (₹${r.amountPaise / 100}) has been approved. Waiting for disbursement.`,
+    extraUsers: [r.createdBy].filter(Boolean),
+  });
   return r;
 }
 
@@ -1315,6 +1321,12 @@ async function applyRejection(req, r, reason) {
   await Promise.all(back.map((x) => StockProduct.updateOne({ code: x.code }, { $inc: { stockQty: x.qty } })));
   await r.populate(POPULATE);
   await audit(req, { action: 'loanRequisition.reject', entity: 'LoanRequisition', entityId: r._id, after: { formId: r.formId, reason } });
+  notifyApprovers({
+    branch: r.branch?._id || r.branch,
+    title: 'Loan rejected',
+    message: `Loan requisition ${r.formId} for ${r.member?.name || r.group?.name || 'Borrower'} was rejected: ${reason}`,
+    extraUsers: [r.createdBy].filter(Boolean),
+  });
   return r;
 }
 const readReason = (req) => {

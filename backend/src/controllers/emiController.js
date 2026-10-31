@@ -14,6 +14,7 @@ import { generateCode } from '../services/codeSequence.js';
 import { asString, escapeRegex, parseDateOnly, parsePaging, HttpError, startOfToday } from '../utils/http.js';
 import { toMinor } from '../utils/money.js';
 import { audit } from '../utils/audit.js';
+import { notifyApprovers } from '../services/notify.js';
 import { branchFilter, isAdmin, showMobile } from './groupController.js';
 import { loadHolidays, offDaysOf, nextWorking } from '../services/holidays.js';
 
@@ -270,6 +271,12 @@ export async function receive(req, p, line, { amountPaise, count, type, paidOn, 
   // the last installment is paid: the loan closes by itself (auto settle)
   if (st.totals.outstanding === pay) await autoSettleLine(p, line, paidOn).catch((err) => console.error('auto settle failed', err.message));
   await audit(req, { action: 'emi.pay', entity: 'EmiPayment', entityId: doc._id, after: { receiptNo: doc.receiptNo, loanId: p.loanId, member: line.code, type: kind, installments: doc.installments, amount: pay / 100 } });
+  notifyApprovers({
+    branch: doc.branch?._id || doc.branch,
+    title: 'EMI received',
+    message: `EMI payment of ₹${doc.amountPaise / 100} received (Receipt ${doc.receiptNo}) for ${line.name || line.code} (Loan ${p.loanId}).`,
+    extraUsers: [req.user._id],
+  });
   return doc;
 }
 

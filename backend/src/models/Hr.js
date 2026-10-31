@@ -50,6 +50,8 @@ const employeeSchema = new mongoose.Schema(
     homeTown: { type: String, trim: true },
     homeTownPincode: String, // the home town is found from this pincode
     originalMarksheet: { type: Boolean, default: false }, // the original marksheet is kept with the company
+    originalMarksheetTypes: [{ type: String }], // 'matric', 'inter', 'graduate', 'other'
+    originalMarksheetOther: { type: String, trim: true }, // specified when 'other' is checked
     fatherName: { type: String, trim: true },
     fatherMobile: { type: String, trim: true },
     motherName: { type: String, trim: true },

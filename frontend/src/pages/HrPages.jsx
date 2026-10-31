@@ -183,7 +183,7 @@ function EmployeeForm({ item, onClose, onSaved }) {
     user: '', name: item?.name || '', mobile: item?.mobile?.startsWith('X') ? '' : item?.mobile || '', email: item?.email || '', address: item?.address || '', department: item?.department?.id || '', designation: item?.designation?.id || '',
     branch: item?.branch?.id || '', supervisedBranches: (item?.supervisedBranches || []).map((b) => b.id), joiningDate: item?.joiningDate || today(), monthlySalary: item ? String(item.monthlySalary || '') : '', bankName: item?.bankName || '', ifsc: item?.ifsc || '', accountNumber: item?.accountNumber?.startsWith('X') ? '' : item?.accountNumber || '',
     mobileChallengeId: '', emailChallengeId: '', homeTownPincode: '', aadhaarBackCopy: '',
-    photo: '', homeTown: '', originalMarksheet: false, supervisor: item?.supervisor?.id || '', pfDeduction: false, esiDeduction: false, pfNumber: item?.pfNumber || '', uanNumber: item?.uanNumber || '', esiNumber: item?.esiNumber || '',
+    photo: '', homeTown: '', originalMarksheet: false, originalMarksheetTypes: [], originalMarksheetOther: '', supervisor: item?.supervisor?.id || '', pfDeduction: false, esiDeduction: false, pfNumber: item?.pfNumber || '', uanNumber: item?.uanNumber || '', esiNumber: item?.esiNumber || '',
     aadhaarNo: '', aadhaarCopy: '', panNo: '', panCopy: '', drivingLicenceNo: '', drivingLicenceCopy: '', voterIdNo: '', voterIdCopy: '',
     pincode: '', state: '', district: '', area: '', fatherName: '', fatherMobile: '', motherName: '', maritalStatus: '',
     hasExperience: false, previousCompany: '', previousPost: '', relievingLetter: '', salarySlipCopy: '',
@@ -205,7 +205,7 @@ function EmployeeForm({ item, onClose, onSaved }) {
       api.hr.employee(item.id).then((r) => {
         const e = r.item;
         setF((x) => ({
-          ...x, ...Object.fromEntries(['photo', 'homeTown', 'homeTownPincode', 'aadhaarBackCopy', 'originalMarksheet', 'pfDeduction', 'esiDeduction', 'pfNumber', 'uanNumber', 'esiNumber', 'aadhaarNo', 'aadhaarCopy', 'panNo', 'panCopy', 'drivingLicenceNo', 'drivingLicenceCopy', 'voterIdNo', 'voterIdCopy', 'pincode', 'state', 'district', 'area', 'fatherName', 'fatherMobile', 'motherName', 'maritalStatus', 'hasExperience', 'previousCompany', 'previousPost', 'relievingLetter', 'salarySlipCopy'].map((k) => [k, e[k] ?? x[k]])),
+          ...x, ...Object.fromEntries(['photo', 'homeTown', 'homeTownPincode', 'aadhaarBackCopy', 'originalMarksheet', 'originalMarksheetTypes', 'originalMarksheetOther', 'pfDeduction', 'esiDeduction', 'pfNumber', 'uanNumber', 'esiNumber', 'aadhaarNo', 'aadhaarCopy', 'panNo', 'panCopy', 'drivingLicenceNo', 'drivingLicenceCopy', 'voterIdNo', 'voterIdCopy', 'pincode', 'state', 'district', 'area', 'fatherName', 'fatherMobile', 'motherName', 'maritalStatus', 'hasExperience', 'previousCompany', 'previousPost', 'relievingLetter', 'salarySlipCopy'].map((k) => [k, e[k] ?? x[k]])),
           fatherMobile: e.fatherMobile?.startsWith('X') ? '' : e.fatherMobile || '',
         }));
         setLoadingDetail(false);
@@ -278,6 +278,47 @@ function EmployeeForm({ item, onClose, onSaved }) {
         <FormField id="enhpin" label="Home town pincode" error={errors.homeTownPincode} hint={homeNote || 'Type the 6-digit pincode: the home town is filled in'}><input id="enhpin" inputMode="numeric" value={f.homeTownPincode} onChange={(e) => { const v = e.target.value.replace(/\D/g, '').slice(0, 6); setV('homeTownPincode')(v); fetchHome(v); }} /></FormField>
         <FormField id="enhome" label="Home town" error={errors.homeTown}><input id="enhome" value={f.homeTown} maxLength={80} onChange={set('homeTown')} /></FormField>
         <YesNo id="enmark" label="Original marksheet" value={f.originalMarksheet} onChange={setV('originalMarksheet')} hint="Yes when the original marksheet is kept with the company" />
+        {f.originalMarksheet && (
+          <div className="span-2" style={{ background: 'var(--bg-subtle, #f8f9fa)', padding: '10px 14px', borderRadius: 6, border: '1px solid var(--border-subtle, #e2e8f0)', marginTop: 4 }}>
+            <strong style={{ fontSize: '0.9rem' }}>Select submitted original marksheets:</strong>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, marginTop: 8, alignItems: 'center' }}>
+              <label style={{ display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}>
+                <input type="checkbox" checked={(f.originalMarksheetTypes || []).includes('matric')} onChange={(e) => {
+                  const list = f.originalMarksheetTypes || [];
+                  setF((x) => ({ ...x, originalMarksheetTypes: e.target.checked ? [...list, 'matric'] : list.filter((i) => i !== 'matric') }));
+                }} /> Matric
+              </label>
+              <label style={{ display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}>
+                <input type="checkbox" checked={(f.originalMarksheetTypes || []).includes('inter')} onChange={(e) => {
+                  const list = f.originalMarksheetTypes || [];
+                  setF((x) => ({ ...x, originalMarksheetTypes: e.target.checked ? [...list, 'inter'] : list.filter((i) => i !== 'inter') }));
+                }} /> Inter
+              </label>
+              <label style={{ display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}>
+                <input type="checkbox" checked={(f.originalMarksheetTypes || []).includes('graduate')} onChange={(e) => {
+                  const list = f.originalMarksheetTypes || [];
+                  setF((x) => ({ ...x, originalMarksheetTypes: e.target.checked ? [...list, 'graduate'] : list.filter((i) => i !== 'graduate') }));
+                }} /> Graduate
+              </label>
+              <label style={{ display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}>
+                <input type="checkbox" checked={(f.originalMarksheetTypes || []).includes('other')} onChange={(e) => {
+                  const list = f.originalMarksheetTypes || [];
+                  setF((x) => ({ ...x, originalMarksheetTypes: e.target.checked ? [...list, 'other'] : list.filter((i) => i !== 'other') }));
+                }} /> Other
+              </label>
+              {(f.originalMarksheetTypes || []).includes('other') && (
+                <input
+                  type="text"
+                  placeholder="Other certificate details..."
+                  value={f.originalMarksheetOther || ''}
+                  maxLength={80}
+                  onChange={(e) => setF((x) => ({ ...x, originalMarksheetOther: e.target.value }))}
+                  style={{ width: 220, padding: '4px 8px', fontSize: '0.88rem' }}
+                />
+              )}
+            </div>
+          </div>
+        )}
 
         <Sec>Supervisor</Sec>
         <FormField id="ensdep" label="Supervisor's department"><select id="ensdep" value={supDept} onChange={(e) => { setSupDept(e.target.value); setSupDes(''); }}><option value="">Select department</option>{opts.departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></FormField>
@@ -286,9 +327,22 @@ function EmployeeForm({ item, onClose, onSaved }) {
           <select id="ensup" value={f.supervisor} onChange={set('supervisor')}><option value="">No supervisor</option>{supList.map((x) => <option key={x.id} value={x.id}>{staffLabel(x)}{x.designation?.name ? ` · ${x.designation.name}` : ''}</option>)}</select>
         </FormField>
         <div className="span-2">
-          <strong>Branches under this employee</strong> <span className="muted small">— tick the branches when the employee is a supervisor</span>
+          <strong>Branches under this employee</strong> <span className="muted small">— tick the branches when the employee is a supervisor (only branches in the same city as home branch)</span>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 16px', marginTop: 6 }}>
-            {branches.map((b) => <label key={b.id} style={{ display: 'flex', gap: 6, alignItems: 'center' }}><input type="checkbox" checked={f.supervisedBranches.includes(b.id)} onChange={(e) => setF((x) => ({ ...x, supervisedBranches: e.target.checked ? [...x.supervisedBranches, b.id] : x.supervisedBranches.filter((i) => i !== b.id) }))} /> {b.code} — {b.name}</label>)}
+            {branches.map((b) => {
+              const homeBranch = branches.find((x) => x.id === f.branch);
+              const sameCity = !homeBranch?.city || !b.city || homeBranch.city.toLowerCase().trim() === b.city.toLowerCase().trim();
+              return (
+                <label key={b.id} style={{ display: 'flex', gap: 6, alignItems: 'center', opacity: sameCity ? 1 : 0.45 }} title={!sameCity ? `Cannot supervise: branch is in ${b.city || 'another city'}, supervisor is in ${homeBranch?.city}` : ''}>
+                  <input
+                    type="checkbox"
+                    disabled={!sameCity}
+                    checked={f.supervisedBranches.includes(b.id)}
+                    onChange={(e) => setF((x) => ({ ...x, supervisedBranches: e.target.checked ? [...x.supervisedBranches, b.id] : x.supervisedBranches.filter((i) => i !== b.id) }))}
+                  /> {b.code} — {b.name} {b.city ? `(${b.city})` : ''}
+                </label>
+              );
+            })}
           </div>
           {errors.supervisedBranches && <div className="field-error small">{errors.supervisedBranches}</div>}
         </div>

@@ -13,6 +13,7 @@ import { Group } from '../models/Group.js';
 import { EmiPayment } from '../models/EmiPayment.js';
 import { asString, escapeRegex, parseDateOnly, parsePaging, HttpError, startOfToday } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
+import { notifyApprovers } from '../services/notify.js';
 import { branchFilter, isAdmin } from './groupController.js';
 import { reserveStock, releaseStock } from './loanRequisitionController.js';
 
@@ -275,6 +276,12 @@ async function pay(req, r, b) {
   }
   await doc.populate(POPULATE);
   await audit(req, { action: 'loanPayment.create', entity: 'LoanPayment', entityId: doc._id, after: { receiptNo: doc.receiptNo, formId: r.formId, totalCash: doc.totalCashPaise / 100 } });
+  notifyApprovers({
+    branch: doc.branch?._id || doc.branch,
+    title: 'Loan disbursed',
+    message: `Loan payment ${doc.receiptNo} (₹${doc.totalCashPaise / 100}) disbursed to ${doc.borrower?.name || 'Borrower'} (${doc.borrower?.code || ''}). Form ${r.formId}.`,
+    extraUsers: [r.createdBy, req.user._id].filter(Boolean),
+  });
   return doc;
 }
 

@@ -761,6 +761,8 @@ export function Resignations() {
   const toast = useToast();
   const [branch, setBranch] = useState('');
   const [status, setStatus] = useState('pending');
+  const [company, setCompany] = useState(null);
+  useEffect(() => { api.hr.letterhead().then((r) => setCompany(r.company)).catch(() => {}); }, []);
   const list = useLoad(() => api.hr.resignations({ branch, status }), [branch, status]);
   const [adding, setAdding] = useState(false);
   const [f, setF] = useState({});
@@ -775,6 +777,19 @@ export function Resignations() {
     setBusy(approving.id);
     setNoticeError('');
     try { await api.hr.decideResignation(approving.id, { status: 'approved', noticePeriodDate: notice }); toast.success(`${approving.employeeCode} is marked as left on ${dmy(notice)}`); setApproving(null); list.load(); } catch (err) { setNoticeError(err.errors?.noticePeriodDate || err.message); } finally { setBusy(''); }
+  }
+  function printRelieving(r) {
+    const paragraphs = [
+      `Dear ${r.employeeName},`,
+      `This is to certify that you have been relieved from your duties and services with Udgam Microfinance with effect from the close of business hours on ${fmtDate(r.noticePeriodDate || r.lastWorkingDate)}.`,
+      'This relieving certificate is issued following the completion and acceptance of your resignation and notice period.',
+      'We hereby confirm that you have handed over all company properties, records, and assignments. There are no pending dues or encumbrances against you.',
+      'During your tenure with us, your performance, conduct, and dedication were found to be satisfactory.',
+      'We thank you for your contributions and wish you every success in your future endeavors.',
+    ];
+    if (!printLetter({ company, title: 'Relieving & Experience Certificate', paragraphs, to: { name: r.employeeName, code: r.employeeCode }, ref: `REL/${r.employeeCode}`, date: fmtDate(today()) })) {
+      toast.error('Allow pop-ups to print the letter');
+    }
   }
   const items = list.data?.items || [];
   return (
@@ -796,7 +811,10 @@ export function Resignations() {
                   <tr key={r.id}>
                     <td data-label="Employee"><strong>{r.employeeCode}</strong> {r.employeeName}</td><td data-label="Branch">{branchLabel(r.branch)}</td><td data-label="Resigned on">{dmy(r.appliedOn)}</td><td data-label="Last working day">{dmy(r.lastWorkingDate)}</td><td data-label="Notice period till">{r.noticePeriodDate ? dmy(r.noticePeriodDate) : <span className="muted">set when approving</span>}</td><td data-label="Reason">{r.reason}</td>
                     <td data-label="Status"><Badge s={r.status} />{r.rejectReason && <div className="muted small">{r.rejectReason}</div>}{r.decidedBy && <div className="muted small">{r.decidedBy}</div>}</td>
-                    <td>{r.status === 'pending' && <div style={{ display: 'flex', gap: 6 }}><button className="btn sm primary" disabled={busy === r.id} onClick={() => { setApproving(r); setNotice(r.lastWorkingDate || today()); setNoticeError(''); }}>Approve</button><button className="btn sm danger-outline" onClick={() => setRejecting(r)}>Reject</button></div>}</td>
+                    <td>
+                      {r.status === 'pending' && <div style={{ display: 'flex', gap: 6 }}><button className="btn sm primary" disabled={busy === r.id} onClick={() => { setApproving(r); setNotice(r.lastWorkingDate || today()); setNoticeError(''); }}>Approve</button><button className="btn sm danger-outline" onClick={() => setRejecting(r)}>Reject</button></div>}
+                      {r.status === 'approved' && <button className="btn sm" title="Print Relieving Letter" onClick={() => printRelieving(r)}>Relieving Letter</button>}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -919,11 +937,38 @@ export function PromotionTransfer() {
   const set = (k) => (e) => { setF((x) => ({ ...x, [k]: e.target.value })); sv.setErrors((x) => ({ ...x, [k]: undefined })); };
   function letter(c) {
     const promo = c.kind === 'promotion';
-    const paragraphs = [`Dear ${c.employeeName},`, promo
-      ? `We are pleased to inform you that you are promoted from ${c.fromDesignation || 'your present post'} to ${c.toDesignation} with effect from ${fmtDate(c.effectiveDate)}.${c.toSalary && c.toSalary !== c.fromSalary ? ` Your monthly salary is revised from ${inr(c.fromSalary)} to ${inr(c.toSalary)}.` : ''}`
-      : `You are transferred from ${c.fromBranch} to ${c.toBranch} with effect from ${fmtDate(c.effectiveDate)}. Please hand over your charge and report to the new branch on that date.`,
-    ...(c.salaryLines?.length ? [`Your salary: ${c.salaryLines.map((l) => `${l.label} ${inr(l.amount)}`).join(', ')}; monthly total ${inr(c.toSalary)}.`] : []), ...(c.remark ? [c.remark] : []), 'We wish you every success.'];
-    if (!printLetter({ company, title: promo ? 'Promotion Letter' : 'Transfer Letter', paragraphs, to: { name: c.employeeName, code: c.employeeCode }, ref: c.letterNo, date: fmtDate(today()) })) toast.error('Allow pop-ups to print the letter');
+    const relieving = c.kind === 'relieving';
+    let title = 'Transfer Letter';
+    let paragraphs = [];
+    if (promo) {
+      title = 'Promotion Letter';
+      paragraphs = [
+        `Dear ${c.employeeName},`,
+        `We are pleased to inform you that you are promoted from ${c.fromDesignation || 'your present post'} to ${c.toDesignation} with effect from ${fmtDate(c.effectiveDate)}.${c.toSalary && c.toSalary !== c.fromSalary ? ` Your monthly salary is revised from ${inr(c.fromSalary)} to ${inr(c.toSalary)}.` : ''}`,
+        ...(c.salaryLines?.length ? [`Your salary: ${c.salaryLines.map((l) => `${l.label} ${inr(l.amount)}`).join(', ')}; monthly total ${inr(c.toSalary)}.`] : []),
+        ...(c.remark ? [c.remark] : []),
+        'We wish you every success.',
+      ];
+    } else if (relieving) {
+      title = 'Relieving & Experience Certificate';
+      paragraphs = [
+        `Dear ${c.employeeName},`,
+        `This is to certify that you have been relieved from your duties and services as ${c.fromDesignation || 'Employee'} (${c.fromBranch || 'Udgam Microfinance'}) with effect from the close of business hours on ${fmtDate(c.effectiveDate)}.`,
+        'This relieving letter is formally issued upon completion and fulfillment of your notice period requirements.',
+        'We hereby confirm that you have handed over all company assets, documents, keys, files, and responsibilities in your custody. There are no outstanding dues, financial claims, or obligations pending against you.',
+        'During your tenure with Udgam Microfinance, your conduct, integrity, and performance have been commendable.',
+        'We thank you for your valuable services and contributions to the organization and wish you the very best in all your future personal and career pursuits.',
+      ];
+    } else {
+      title = 'Transfer Letter';
+      paragraphs = [
+        `Dear ${c.employeeName},`,
+        `You are transferred from ${c.fromBranch} to ${c.toBranch} with effect from ${fmtDate(c.effectiveDate)}. Please hand over your charge and report to the new branch on that date.`,
+        ...(c.remark ? [c.remark] : []),
+        'We wish you every success.',
+      ];
+    }
+    if (!printLetter({ company, title, paragraphs, to: { name: c.employeeName, code: c.employeeCode }, ref: c.letterNo, date: fmtDate(today()) })) toast.error('Allow pop-ups to print the letter');
   }
   const items = list.data?.items || [];
   return (
@@ -931,7 +976,7 @@ export function PromotionTransfer() {
       <PageHeader title="Promotion & Transfer" description="Promote an employee (new designation, and a new salary if it changes) or transfer one to another branch. It is applied to the employee at once; a letter with a number is made, ready to print." />
       <div className="panel">
         <div className="toolbar" style={{ flexWrap: 'wrap' }}>
-          <select value={kind} onChange={(e) => setKind(e.target.value)} aria-label="Kind"><option value="">Promotion and transfer</option><option value="promotion">Promotion</option><option value="transfer">Transfer</option></select>
+          <select value={kind} onChange={(e) => setKind(e.target.value)} aria-label="Kind"><option value="">Promotion and transfer</option><option value="promotion">Promotion</option><option value="transfer">Transfer</option><option value="relieving">Relieving Letter</option></select>
           <Refresh onClick={list.load} loading={list.loading} />
           <button className="btn primary" onClick={() => { setF({ employee: '', kind: 'promotion', toDesignation: '', toSalary: '', salaryLines: [], toBranch: '', effectiveDate: today(), remark: '' }); sv.setErrors({}); setAdding(true); }}>New promotion / transfer</button>
         </div>
@@ -942,8 +987,8 @@ export function PromotionTransfer() {
               <tbody>
                 {items.map((c) => (
                   <tr key={c.id}>
-                    <td data-label="Letter"><strong>{c.letterNo}</strong></td><td data-label="Employee">{c.employeeCode} {c.employeeName}</td><td data-label="Kind"><span className={`badge ${c.kind === 'promotion' ? 'green' : 'grey'}`}>{cap(c.kind)}</span></td>
-                    <td data-label="Change">{c.kind === 'promotion' ? <>{c.fromDesignation || '—'} → <strong>{c.toDesignation}</strong>{c.toSalary !== c.fromSalary && <div className="muted small">{inr(c.fromSalary)} → {inr(c.toSalary)}</div>}{c.salaryLines?.length > 0 && <div className="muted small">{c.salaryLines.map((l) => `${l.label} ${inr(l.amount)}`).join(' · ')}</div>}</> : <>{c.fromBranch} → <strong>{c.toBranch}</strong></>}</td>
+                    <td data-label="Letter"><strong>{c.letterNo}</strong></td><td data-label="Employee">{c.employeeCode} {c.employeeName}</td><td data-label="Kind"><span className={`badge ${c.kind === 'promotion' ? 'green' : c.kind === 'relieving' ? 'amber' : 'grey'}`}>{cap(c.kind)}</span></td>
+                    <td data-label="Change">{c.kind === 'promotion' ? <>{c.fromDesignation || '—'} → <strong>{c.toDesignation}</strong>{c.toSalary !== c.fromSalary && <div className="muted small">{inr(c.fromSalary)} → {inr(c.toSalary)}</div>}{c.salaryLines?.length > 0 && <div className="muted small">{c.salaryLines.map((l) => `${l.label} ${inr(l.amount)}`).join(' · ')}</div>}</> : c.kind === 'relieving' ? <>Relieved from <strong>{c.fromDesignation || 'Post'}</strong> ({c.fromBranch})</> : <>{c.fromBranch} → <strong>{c.toBranch}</strong></>}</td>
                     <td data-label="From">{dmy(c.effectiveDate)}<div className="muted small">by {c.by}</div></td>
                     <td><button className="btn sm" onClick={() => letter(c)}>Letter</button></td>
                   </tr>
@@ -956,10 +1001,10 @@ export function PromotionTransfer() {
       {adding && (
         <FormModal title="New promotion / transfer" onClose={() => setAdding(false)} busy={sv.busy} onSave={() => sv.run(() => api.hr.createChange(f), (r) => `${cap(r.item.kind)} done — letter ${r.item.letterNo}`)}>
           <div className="form-grid">
-            <FormField id="pckind" label="Kind" required error={sv.errors.kind}><select id="pckind" value={f.kind} onChange={set('kind')}><option value="promotion">Promotion</option><option value="transfer">Transfer</option></select></FormField>
+            <FormField id="pckind" label="Kind" required error={sv.errors.kind}><select id="pckind" value={f.kind} onChange={set('kind')}><option value="promotion">Promotion</option><option value="transfer">Transfer</option><option value="relieving">Relieving Letter</option></select></FormField>
             <FormField id="pcdate" label="With effect from" required error={sv.errors.effectiveDate}><input id="pcdate" type="date" value={f.effectiveDate} onChange={set('effectiveDate')} /></FormField>
             <EmployeePick id="pcemp" value={f.employee} onChange={(v) => setF((x) => ({ ...x, employee: v }))} error={sv.errors.employee} />
-            {f.kind === 'promotion' ? (
+            {f.kind === 'relieving' ? null : f.kind === 'promotion' ? (
               <>
                 <FormField id="pcdes" label="New designation" required error={sv.errors.toDesignation}><select id="pcdes" value={f.toDesignation} onChange={set('toDesignation')}><option value="">Select</option>{opts.designations.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></FormField>
                 <div className="span-2">

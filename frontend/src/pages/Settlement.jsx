@@ -46,6 +46,96 @@ function printSettlement(s) {
   return true;
 }
 
+// Opens the NOC (No Objection Certificate / Loan Clearance) and prints/downloads it.
+function printNoc(s) {
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>NOC - ${esc(s.loanId || s.formId)}</title>
+  <style>
+    body { font-family: 'Times New Roman', Times, serif, Arial; max-width: 720px; margin: 30px auto; color: #111; line-height: 1.6; padding: 20px; }
+    .header { text-align: center; border-bottom: 2px solid #222; padding-bottom: 12px; margin-bottom: 20px; }
+    .header h1 { margin: 0; font-size: 24px; text-transform: uppercase; letter-spacing: 1px; color: #003366; }
+    .header .sub { font-size: 13px; color: #555; margin-top: 4px; }
+    .title-box { text-align: center; margin: 24px 0 20px; }
+    .title-box h2 { display: inline-block; font-size: 18px; margin: 0; padding: 6px 20px; border: 1.5px solid #222; text-transform: uppercase; letter-spacing: 1.5px; background: #f9f9f9; }
+    .meta-row { display: flex; justify-content: space-between; margin-bottom: 16px; font-size: 13px; }
+    .content p { font-size: 14.5px; text-align: justify; margin: 12px 0; }
+    .table-details { width: 100%; border-collapse: collapse; margin: 18px 0; font-size: 13.5px; }
+    .table-details td { padding: 6px 10px; border: 1px solid #bbb; }
+    .table-details td.label { font-weight: bold; width: 35%; background: #fcfcfc; }
+    .clearance-badge { border: 2px dashed #2e7d32; background: #e8f5e9; padding: 10px; text-align: center; margin: 20px 0; font-weight: bold; color: #1b5e20; font-size: 15px; border-radius: 4px; }
+    .signature-area { display: flex; justify-content: space-between; margin-top: 60px; font-size: 14px; }
+    .signature-box { text-align: center; width: 42%; border-top: 1.5px solid #222; padding-top: 6px; }
+    .seal-box { text-align: center; width: 30%; border: 1px dashed #aaa; padding: 20px 10px; font-size: 12px; color: #777; border-radius: 4px; margin-top: -15px; }
+    @media print {
+      body { margin: 0; padding: 15mm; }
+      @page { size: A4; margin: 10mm; }
+    }
+  </style>
+  </head>
+  <body>
+    <div class="header">
+      <h1>Udgam Microfinance</h1>
+      <div class="sub">Registered Financial Institution · Dedicated to Financial Inclusion & Social Upliftment</div>
+      <div class="sub">Branch: ${esc(s.branch ? `${s.branch.code} — ${s.branch.name}` : 'Main Branch')}</div>
+    </div>
+
+    <div class="meta-row">
+      <div><strong>Ref No:</strong> UDG/NOC/${esc(s.receiptNo)}</div>
+      <div><strong>Date:</strong> ${dmy(s.settledOn)}</div>
+    </div>
+
+    <div class="title-box">
+      <h2>No Objection Certificate (NOC)</h2>
+      <div style="font-size: 12px; color: #555; margin-top: 4px;">LOAN CLOSURE & FULL CLEARANCE CERTIFICATE</div>
+    </div>
+
+    <div class="content">
+      <p><strong>TO WHOMSOEVER IT MAY CONCERN</strong></p>
+      
+      <p>This is to certify that Mr./Ms. <strong>${esc(s.memberName)}</strong> (Member Code: <strong>${esc(s.memberCode)}</strong>)${s.group ? `, member of group <strong>${esc(s.group)}</strong>` : ''}, had availed a loan facility from <strong>Udgam Microfinance</strong> under Loan Account No. <strong>${esc(s.loanId || s.formId)}</strong>.</p>
+
+      <table class="table-details">
+        <tr><td class="label">Borrower Name</td><td>${esc(s.memberName)}</td></tr>
+        <tr><td class="label">Borrower / Member ID</td><td>${esc(s.memberCode)}</td></tr>
+        <tr><td class="label">Loan Account Number</td><td><strong>${esc(s.loanId || s.formId)}</strong></td></tr>
+        <tr><td class="label">Branch Name & Code</td><td>${esc(s.branch ? `${s.branch.code} — ${s.branch.name}` : '—')}</td></tr>
+        <tr><td class="label">Settlement / Closure Date</td><td>${dmy(s.settledOn)}</td></tr>
+        <tr><td class="label">Settlement Receipt Number</td><td>${esc(s.receiptNo)}</td></tr>
+        <tr><td class="label">Outstanding Balance as of Closure</td><td><strong>₹0.00 (NIL)</strong></td></tr>
+        <tr><td class="label">Loan Status</td><td><strong style="color: #2e7d32;">CLOSED & FULLY SETTLED</strong></td></tr>
+      </table>
+
+      <div class="clearance-badge">
+        CERTIFICATE OF ZERO OUTSTANDING DUES (NIL BALANCE)
+      </div>
+
+      <p>We hereby confirm and declare that the said loan account has been <strong>FULLY CLOSED AND SETTLED</strong> with <strong>ZERO (₹0.00) OUTSTANDING DUES</strong>. As of <strong>${dmy(s.settledOn)}</strong>, Udgam Microfinance has no further financial claims, dues, liens, or encumbrances against the borrower or their guarantors with respect to this loan account.</p>
+
+      <p>All hypothecated documents, securities, and guarantees associated with this loan stand released and discharged with immediate effect. This certificate is issued upon the request of the borrower for their records and reference without any further liability on our part.</p>
+    </div>
+
+    <div class="signature-area">
+      <div class="signature-box">
+        <div><strong>Borrower's Acknowledgement</strong></div>
+        <div style="font-size: 12px; color: #555; margin-top: 2px;">Name & Signature</div>
+      </div>
+      <div class="seal-box">
+        [ Company Seal / Stamp ]
+      </div>
+      <div class="signature-box">
+        <div><strong>Authorised Signatory / Branch Manager</strong></div>
+        <div style="font-size: 12px; color: #555; margin-top: 2px;">Udgam Microfinance</div>
+      </div>
+    </div>
+
+    <script>window.onload = function() { window.print(); };</script>
+  </body></html>`;
+  const w = window.open('', '_blank', 'width=800,height=920');
+  if (!w) return false;
+  w.document.write(html);
+  w.document.close();
+  return true;
+}
+
 function SettlementDialog({ settlement: s, onClose }) {
   const toast = useToast();
   const [full, setFull] = useState(null);
@@ -55,7 +145,11 @@ function SettlementDialog({ settlement: s, onClose }) {
   const cert = full?.certificate;
   return (
     <Modal open title={`${s.kind === 'death' ? 'Death settlement' : s.kind === 'auto' ? 'Auto settlement' : 'Loan settlement'} ${s.receiptNo}`} onClose={onClose} size="lg"
-      footer={<><button className="btn" onClick={onClose}>Close</button><button className="btn primary" onClick={() => { if (!printSettlement(s)) toast.error('Allow pop-ups to print'); }}>Print</button></>}>
+      footer={<>
+        <button className="btn" onClick={onClose}>Close</button>
+        <button className="btn" onClick={() => { if (!printSettlement(s)) toast.error('Allow pop-ups to print'); }}>Receipt</button>
+        <button className="btn primary" onClick={() => { if (!printNoc(s)) toast.error('Allow pop-ups to print'); }}>NOC</button>
+      </>}>
       <DetailList items={[
         ['Loan ID', s.loanId || s.formId], ['Branch', s.branch ? `${s.branch.code} — ${s.branch.name}` : ''], ['Borrower', `${s.memberCode} — ${s.memberName}`], ...(s.group ? [['Group', s.group]] : []),
         ['Settlement date', dmy(s.settledOn)], ['Outstanding', inr(s.outstanding)], [s.kind === 'death' ? 'Settled against insurance' : 'Waived', inr(s.waiver)], ['Amount received', inr(s.amount)],
@@ -574,6 +668,8 @@ function History({ kind, reloadKey, onCancelled }) {
                     <td data-label="Actions" className="actions-col">
                       <div className="row-actions">
                         <button className="btn sm" onClick={() => setView(s)}>View</button>
+                        <button className="btn sm" title="Print Receipt" onClick={() => { if (!printSettlement(s)) toast.error('Allow pop-ups to print'); }}>Receipt</button>
+                        <button className="btn sm primary" title="Download / Print NOC" onClick={() => { if (!printNoc(s)) toast.error('Allow pop-ups to print'); }}>NOC</button>
                         {isAdmin && s.status === 'active' && !s.auto && <button className="btn sm danger-outline" onClick={() => { setCancelling(s); setReason(''); setReasonError(''); }}>Cancel</button>}
                       </div>
                     </td>

@@ -7,6 +7,7 @@ import { generateCode } from '../services/codeSequence.js';
 import { asString, escapeRegex, parseDateOnly, parsePaging, HttpError } from '../utils/http.js';
 import { toMinor } from '../utils/money.js';
 import { audit } from '../utils/audit.js';
+import { notifyApprovers } from '../services/notify.js';
 import { branchFilter } from './groupController.js';
 import { borrowerState, loadLoan, startOfToday } from './emiController.js';
 
@@ -102,6 +103,12 @@ export async function settleLoan(req, res) {
   const s = await save(req, p, line, { kind: 'loan', outstandingPaise, amountPaise, waiverPaise, payMode, bankAccount, reference: asString(b.reference).slice(0, 60), settledOn, remark });
   await s.populate(POPULATE);
   await audit(req, { action: 'settlement.loan', entity: 'LoanSettlement', entityId: s._id, after: { receiptNo: s.receiptNo, loanId: p.loanId, member: line.code, outstanding: outstandingPaise / 100, received: amountPaise / 100, waiver: waiverPaise / 100 } });
+  notifyApprovers({
+    branch: s.branch?._id || s.branch,
+    title: 'Loan settled',
+    message: `Loan ${p.loanId} for ${line.name || line.code} settled (Receipt ${s.receiptNo}). Received: ₹${amountPaise / 100}, Waived: ₹${waiverPaise / 100}.`,
+    extraUsers: [req.user._id],
+  });
   res.status(201).json({ settlement: present(s) });
 }
 
@@ -145,6 +152,12 @@ export async function settleDeath(req, res) {
   }
   await s.populate(POPULATE);
   await audit(req, { action: 'settlement.death', entity: 'LoanSettlement', entityId: s._id, after: { receiptNo: s.receiptNo, loanId: p.loanId, member: line.code, deathDate: iso(deathDate), outstanding: outstandingPaise / 100, blocked } });
+  notifyApprovers({
+    branch: s.branch?._id || s.branch,
+    title: 'Death settlement',
+    message: `Loan ${p.loanId} for ${line.name || line.code} closed under death settlement (Receipt ${s.receiptNo}).`,
+    extraUsers: [req.user._id],
+  });
   res.status(201).json({ settlement: present(s), memberBlocked: blocked });
 }
 

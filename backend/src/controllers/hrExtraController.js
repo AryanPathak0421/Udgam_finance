@@ -9,6 +9,7 @@ import { EmiPayment } from '../models/EmiPayment.js';
 import { LoanPayment } from '../models/LoanPayment.js';
 import { elBalance, elBalances } from '../services/earnedLeave.js';
 import { notifyEmployee } from '../services/hrNotify.js';
+import { notifyApprovers } from '../services/notify.js';
 import { EARN_FIXED, fixedOf } from '../services/salaryLines.js';
 import { AppUser } from '../models/AppUser.js';
 import { Branch } from '../models/Branch.js';
@@ -465,6 +466,12 @@ export async function applyLeave(req, res) {
   await l.populate(POP_BRANCH);
   // the leave goes to the supervisor of the employee, by mail and in the app
   if (sup) notifyEmployee(sup._id, 'Leave to approve', `${e.name} (${e.employeeCode}) applied for earned leave from ${iso(from)} to ${iso(to)} (${days} day${days === 1 ? '' : 's'}). Reason: ${reason}`);
+  notifyApprovers({
+    branch: e.branch?._id || e.branch,
+    title: 'Leave application',
+    message: `${e.name} (${e.employeeCode}) applied for leave from ${iso(from)} to ${iso(to)} (${days} days). Reason: ${reason}`,
+    extraUsers: [req.user._id],
+  });
   await audit(req, { action: 'leave.apply', entity: 'Leave', entityId: l._id, after: { employee: e.employeeCode, from: iso(from), to: iso(to), days } });
   res.status(201).json({ item: presentLeave(l) });
 }
@@ -504,6 +511,12 @@ export async function decideLeave(req, res) {
   l.status = status; l.decidedByCode = req.user.employeeCode || ''; l.decidedAt = new Date(); l.rejectReason = status === 'rejected' ? reason : undefined; l.decisionRemark = status === 'approved' ? [reason, changed].filter(Boolean).join(' · ') || undefined : undefined;
   await l.save();
   notifyEmployee(l.employee, `Leave ${status}`, `Your earned leave from ${iso(l.from)} to ${iso(l.to)} (${l.days} day${l.days === 1 ? '' : 's'}) is ${status}${reason ? `: ${reason}` : ''}.`);
+  notifyApprovers({
+    branch: l.branch?._id || l.branch,
+    title: `Leave ${status}`,
+    message: `Leave for ${l.employeeName} (${l.employeeCode}) from ${iso(l.from)} to ${iso(l.to)} has been ${status}.`,
+    extraUsers: [req.user._id],
+  });
   if (status === 'approved') {
     const ops = leaveDates(l.from, l.to).map((d) => ({ updateOne: { filter: { employee: l.employee, date: d }, update: { $set: { status: 'leave', source: 'manual', remark: 'Leave approved', markedByCode: req.user.employeeCode || '' }, $unset: { firstActivity: '', lastActivity: '' } }, upsert: true } }));
     if (ops.length) await Attendance.bulkWrite(ops);
@@ -536,6 +549,12 @@ export async function applyResignation(req, res) {
   const r = await Resignation.create({ employee: e._id, employeeCode: e.employeeCode, employeeName: e.name, branch: e.branch?._id, appliedOn, lastWorkingDate, reason, appliedByCode: req.user.employeeCode || '' });
   await r.populate(POP_BRANCH);
   await audit(req, { action: 'resignation.apply', entity: 'Resignation', entityId: r._id, after: { employee: e.employeeCode } });
+  notifyApprovers({
+    branch: e.branch?._id || e.branch,
+    title: 'Resignation submitted',
+    message: `${e.name} (${e.employeeCode}) submitted resignation. Reason: ${reason}`,
+    extraUsers: [req.user._id],
+  });
   res.status(201).json({ item: presentResign(r) });
 }
 /** Approved: the employee is marked as left on the last working day (salary stops after it). */
@@ -560,6 +579,12 @@ export async function decideResignation(req, res) {
   await r.save();
   if (status === 'approved') await Employee.updateOne({ _id: r.employee }, { $set: { status: 'left', leftOn: r.lastWorkingDate } });
   notifyEmployee(r.employee, `Resignation ${status}`, status === 'approved' ? `Your resignation is approved. The notice period ends on ${iso(r.noticePeriodDate)}, which is your last working day.` : `Your resignation was not approved: ${reason}`);
+  notifyApprovers({
+    branch: r.branch?._id || r.branch,
+    title: `Resignation ${status}`,
+    message: `Resignation of ${r.employeeName} (${r.employeeCode}) was ${status}${status === 'approved' ? `. Notice ends on ${iso(r.noticePeriodDate)}.` : ''}`,
+    extraUsers: [req.user._id],
+  });
   await audit(req, { action: `resignation.${status}`, entity: 'Resignation', entityId: r._id, after: { employee: r.employeeCode } });
   res.json({ item: presentResign(r) });
 }
@@ -571,21 +596,30 @@ const presentChange = (c) => ({ id: c._id, letterNo: c.letterNo, kind: c.kind, e
 export async function listChanges(req, res) {
   const emps = await Employee.find({ isDeleted: false, ...branchFilter(req.user) }).select('_id').lean();
   const filter = { employee: { $in: emps.map((e) => e._id) }, ...dateRange(req, 'effectiveDate') };
-  if (['promotion', 'transfer'].includes(asString(req.query.kind))) filter.kind = req.query.kind;
+  if (['promotion', 'transfer', 'relieving'].includes(asString(req.query.kind))) filter.kind = req.query.kind;
   const rows = await EmployeeChange.find(filter).sort({ effectiveDate: -1, createdAt: -1 }).limit(500).lean();
   res.json({ items: rows.map(presentChange) });
 }
 export async function createChange(req, res) {
   const b = req.body || {};
   const e = await employeeOf(req, b.employee);
-  if (e.status !== 'active') throw invalid({ employee: 'This employee has left' });
   const kind = asString(b.kind);
-  if (!['promotion', 'transfer'].includes(kind)) throw invalid({ kind: 'Choose promotion or transfer' });
+  if (!['promotion', 'transfer', 'relieving'].includes(kind)) throw invalid({ kind: 'Choose promotion, transfer or relieving' });
+  if (kind !== 'relieving' && e.status !== 'active') throw invalid({ employee: 'This employee has left' });
   const effectiveDate = readDate(b.effectiveDate, 'effectiveDate');
   const remark = asString(b.remark).slice(0, 300);
   const doc = { kind, employee: e._id, employeeCode: e.employeeCode, employeeName: e.name, effectiveDate, remark, byCode: req.user.employeeCode || '', fromDesignation: e.designation?.name || '', fromBranch: e.branch?._id, fromBranchName: e.branch ? `${e.branch.code} — ${e.branch.name}` : '', fromSalaryPaise: e.monthlySalaryPaise || 0 };
   const set = {};
-  if (kind === 'promotion') {
+  if (kind === 'relieving') {
+    doc.toDesignation = doc.fromDesignation;
+    doc.toBranch = e.branch?._id;
+    doc.toBranchName = doc.fromBranchName;
+    doc.toSalaryPaise = doc.fromSalaryPaise;
+    set.status = 'left';
+    set.leftOn = effectiveDate;
+    set.isBlocked = true;
+    set.blockReason = 'Relieved / Notice period completed';
+  } else if (kind === 'promotion') {
     const des = oid(b.toDesignation) ? await Designation.findOne({ _id: b.toDesignation, isDeleted: false }) : null;
     if (!des) throw invalid({ toDesignation: 'Select the new designation' });
     set.designation = des._id;
@@ -643,9 +677,17 @@ export async function createChange(req, res) {
     }
   }
   // the employee gets it by mail and in the app
-  notifyEmployee(e._id, kind === 'promotion' ? `Promotion — letter ${c.letterNo}` : `Transfer — letter ${c.letterNo}`, kind === 'promotion'
+  notifyEmployee(e._id, kind === 'promotion' ? `Promotion — letter ${c.letterNo}` : kind === 'relieving' ? `Relieving Letter — ${c.letterNo}` : `Transfer — letter ${c.letterNo}`, kind === 'promotion'
     ? `You are promoted from ${doc.fromDesignation || 'your present post'} to ${doc.toDesignation} with effect from ${iso(effectiveDate)}.${(doc.salaryLines || []).length ? ` Salary: ${doc.salaryLines.map((l) => `${l.label} Rs ${l.amountPaise / 100}`).join(', ')}; monthly total Rs ${doc.toSalaryPaise / 100}.` : doc.toSalaryPaise !== doc.fromSalaryPaise ? ` Your monthly salary is Rs ${doc.toSalaryPaise / 100}.` : ''}${remark ? ` ${remark}` : ''}`
+    : kind === 'relieving'
+    ? `You have been relieved from your post ${doc.fromDesignation || 'Employee'} with effect from ${iso(effectiveDate)}.`
     : `You are transferred from ${doc.fromBranchName} to ${doc.toBranchName} with effect from ${iso(effectiveDate)}.${remark ? ` ${remark}` : ''}`);
+  notifyApprovers({
+    branch: e.branch?._id || e.branch,
+    title: kind === 'promotion' ? 'Promotion' : kind === 'relieving' ? 'Relieving' : 'Transfer',
+    message: `${e.name} (${e.employeeCode}) — ${kind === 'promotion' ? `promoted to ${doc.toDesignation}` : kind === 'relieving' ? 'relieving letter issued' : `transferred to ${doc.toBranchName}`}`,
+    extraUsers: [req.user._id],
+  });
   await audit(req, { action: `employee.${kind}`, entity: 'Employee', entityId: e._id, after: { letterNo: c.letterNo, from: doc.fromDesignation || doc.fromBranchName, to: doc.toDesignation || doc.toBranchName } });
   res.status(201).json({ item: presentChange(c) });
 }
