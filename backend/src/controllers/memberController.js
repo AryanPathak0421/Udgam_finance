@@ -1,3 +1,4 @@
+import { Employee } from '../models/Hr.js';
 import { isAppRequest } from '../services/appRequest.js';
 import crypto from 'crypto';
 import mongoose from 'mongoose';
@@ -1157,19 +1158,49 @@ export async function employeeOptions(req, res) {
   if (!isAdmin(req.user) && !(req.user.branches || []).some((x) => String(x) === String(branch))) {
     throw new HttpError(403, 'You can only use branches assigned to you');
   }
-  // the employees of the branch, and the ones brought over from the old system (they have no login yet, but groups and records carry their staff ID)
+  // the employees of the branch: User records and Employee (HR) records, plus legacy staff
   const branchDoc = await Branch.findById(branch).select('code name').lean();
-  const users = await User.find({
-    employeeCode: { $exists: true, $nin: await blockedCodes() },
-    // the staff of this branch only (an admin is not an employee of a branch), and the ones brought over from the old system
-    role: { $nin: ['super_admin', 'admin'] },
-    branches: branch,
-    $or: [{ isActive: true }, { legacyImport: true }],
-  })
-    .select('name employeeCode role isActive')
-    .sort({ employeeCode: 1 });
+  const [users, emps] = await Promise.all([
+    User.find({
+      employeeCode: { $exists: true, $nin: await blockedCodes() },
+      branches: branch,
+      $or: [{ isActive: true }, { legacyImport: true }],
+    }).select('name employeeCode role isActive').sort({ employeeCode: 1 }).lean(),
+    Employee.find({
+      isDeleted: false,
+      isBlocked: { $ne: true },
+      branch,
+    }).select('name employeeCode designation status').sort({ employeeCode: 1 }).lean(),
+  ]);
+
+  const map = new Map();
+  users.forEach((u) => {
+    map.set(String(u.employeeCode).toUpperCase(), {
+      code: u.employeeCode,
+      name: u.name,
+      role: u.role,
+      migrated: !u.isActive,
+      branchCode: branchDoc?.code || '',
+      branchName: branchDoc?.name || '',
+    });
+  });
+  emps.forEach((e) => {
+    const k = String(e.employeeCode).toUpperCase();
+    if (!map.has(k)) {
+      map.set(k, {
+        code: e.employeeCode,
+        name: e.name,
+        role: 'field_officer',
+        migrated: false,
+        branchCode: branchDoc?.code || '',
+        branchName: branchDoc?.name || '',
+      });
+    }
+  });
+
+  const items = [...map.values()].sort((a, b) => a.code.localeCompare(b.code));
   res.json({
-    items: users.map((u) => ({ code: u.employeeCode, name: u.name, role: u.role, migrated: !u.isActive, branchCode: branchDoc?.code || '', branchName: branchDoc?.name || '' })),
+    items,
     me: await staffId(req.user),
   });
 }
