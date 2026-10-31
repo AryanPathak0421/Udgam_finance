@@ -1,3 +1,4 @@
+import { todayDateString } from '../utils/http.js';
 import { EmployeeCommission } from '../models/EmployeeCommission.js';
 import { EmiPayment } from '../models/EmiPayment.js';
 import { Salary } from '../models/Hr.js';
@@ -21,19 +22,48 @@ export const ALL_LINES = [...EARN_FIXED.map(([k, l]) => [k, l, 'earn']), ...EARN
 export const NPA_RECOVERY_SHARE = 0.1;
 
 const LOAN_TYPES = new Set(['loan_disbursement', 'group_loan_disbursement', 'personal_loan_disbursement', 'business_loan_disbursement', 'msme_loan_disbursement', 'collection', 'npa_recovery', 'employee']);
-const sum = (a) => a.reduce((s, x) => s + x, 0);
+export const sum = (a) => a.reduce((s, x) => s + x, 0);
+
+/**
+ * The Basic grows by itself automatically every year from the employee's joining date
+ * by the yearly increase percentage (10% unless set otherwise).
+ * Calculates how many completed 1-year anniversaries have occurred up to and including the target month.
+ */
+export function yearlyIncrements(emp, month) {
+  const m = month || todayDateString().slice(0, 7);
+  const rawJoin = emp.joiningDate || emp.createdAt;
+  if (!rawJoin) return 0;
+  const joinDate = new Date(rawJoin);
+  if (isNaN(joinDate.getTime())) return 0;
+
+  // Use Indian Standard Time (+05:30) offset for accurate local year and month
+  const istJoin = new Date(joinDate.getTime() + 5.5 * 3600 * 1000);
+  const joinY = istJoin.getUTCFullYear();
+  const joinM = istJoin.getUTCMonth() + 1; // 1 to 12
+
+  const [targetY, targetM] = m.split('-').map(Number);
+  if (!targetY || !targetM) return 0;
+
+  let n = 0;
+  for (let y = joinY + 1; y <= targetY; y += 1) {
+    const anniversary = `${y}-${String(joinM).padStart(2, '0')}`;
+    if (anniversary <= m) {
+      n += 1;
+    }
+  }
+  return n;
+}
 
 /** The fixed components of an employee (an employee with only a monthly salary has it all as Basic). */
 export function fixedOf(emp, month) {
+  const m = month || todayDateString().slice(0, 7);
   const st = emp.salaryStructure || {};
   const out = Object.fromEntries(EARN_FIXED.map(([k]) => [k, st[k] || 0]));
   if (!sum(Object.values(out)) && emp.monthlySalaryPaise) out.basic = emp.monthlySalaryPaise;
-  // the Basic of a slip with the yearly increase (only the Basic grows)
-  if (month) {
-    const n = yearlyIncrements(emp, month);
-    const pct = emp.yearlyIncrementPercent ?? 10;
-    if (n > 0 && pct > 0 && out.basic > 0) out.basic = Math.round(out.basic * (1 + pct / 100) ** n);
-  }
+  // the Basic grows automatically by 10% each year from joining date anniversary
+  const n = yearlyIncrements(emp, m);
+  const pct = emp.yearlyIncrementPercent ?? 10;
+  if (n > 0 && pct > 0 && out.basic > 0) out.basic = Math.round(out.basic * (1 + pct / 100) ** n);
   return out;
 }
 
@@ -47,46 +77,6 @@ export function setupAt(emp, month) {
   const out = { ...emp, setupMonth: h.month };
   SETUP_KEYS.forEach((k) => { if (h[k] !== undefined && h[k] !== null) out[k] = h[k]; });
   return out;
-}
-
-/**
- * The Basic grows by itself automatically every year from the employee's joining date
- * by the yearly increase percentage (10% unless set otherwise).
- * Calculates how many completed 1-year anniversaries have occurred up to and including the salary slip month.
- */
-export function yearlyIncrements(emp, month) {
-  if (!month) return 0;
-  const rawJoin = emp.joiningDate || emp.createdAt;
-  if (!rawJoin) return 0;
-  const joinDate = new Date(rawJoin);
-  if (isNaN(joinDate.getTime())) return 0;
-
-  const joinY = joinDate.getUTCFullYear();
-  const joinM = joinDate.getUTCMonth() + 1; // 1 to 12
-
-  const [targetY, targetM] = month.split('-').map(Number);
-  if (!targetY || !targetM) return 0;
-
-  let startY = joinY;
-  let startM = joinM;
-
-  if (emp.setupMonth && emp.setupMonth !== '0000-00') {
-    const [sY, sM] = emp.setupMonth.split('-').map(Number);
-    if (sY && sM && (sY > joinY || (sY === joinY && sM > joinM))) {
-      startY = sY;
-      startM = sM;
-    }
-  }
-
-  let n = 0;
-  for (let y = startY; y <= targetY; y += 1) {
-    const anniversary = `${y}-${String(joinM).padStart(2, '0')}`;
-    const startIso = `${startY}-${String(startM).padStart(2, '0')}`;
-    if (anniversary > startIso && anniversary <= month) {
-      n += 1;
-    }
-  }
-  return n;
 }
 
 /** Whether the employee's verification is complete: mobile and email (when there is one) by OTP, and the documents. */

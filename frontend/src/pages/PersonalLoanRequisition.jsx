@@ -1,3 +1,4 @@
+import { workDateOf } from '../utils/workDate.js';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client.js';
@@ -287,6 +288,14 @@ function RequisitionForm({ kind }) {
   const [branches, setBranches] = useState([]);
   const [schemes, setSchemes] = useState([]);
   const [form, setForm] = useState({ branch: '', loanDate: todayISO(), employeeCode: '', filterEmployee: '', schemeId: '', amount: '', mode: '', term: '', rate: '', formFrontPhoto: '', formBackPhoto: '' });
+  useEffect(() => {
+    if (form.branch) {
+      workDateOf(form.branch).then((d) => {
+        if (d) setForm((f) => ({ ...f, loanDate: d }));
+      }).catch(() => {});
+    }
+  }, [form.branch]);
+
   const isProduct = kind === 'product';
   const [stock, setStock] = useState([]); // product loan: products in stock
   const [prod, setProd] = useState({ id: '', qty: '1' });
@@ -606,8 +615,8 @@ function RequisitionForm({ kind }) {
                 {branches.map((x) => <option key={x.id} value={x.id}>{x.code} — {x.name}</option>)}
               </select>
             </FormField>
-            <FormField id="loanDate" label="Loan date" error={errors.loanDate} hint="Today only (no back date)">
-              <input id="loanDate" type="date" min={todayISO()} max={todayISO()} value={form.loanDate} readOnly disabled />
+            <FormField id="loanDate" label="Loan date" error={errors.loanDate} hint={form.loanDate ? `Branch working date: ${form.loanDate}` : 'Today only (no back date)'}>
+              <input id="loanDate" type="date" value={form.loanDate} onChange={(e) => setForm((f) => ({ ...f, loanDate: e.target.value }))} readOnly={!isAdmin && Boolean(form.branch)} />
             </FormField>
             {isGroup && (
               <EmployeeSelect

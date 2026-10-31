@@ -1,3 +1,4 @@
+import { DayClose } from '../models/DayClose.js';
 import { assertDayOpen, defaultWorkDate } from '../services/dayOpen.js';
 import { offDaysFor, dailyNext } from '../services/holidays.js';
 import { readBankAccount } from '../services/bankAccountPick.js';
@@ -126,8 +127,10 @@ async function readPaidOn(req, r, input) {
     paidOn = parseDateOnly(asString(input));
     if (!paidOn) throw invalid({ paidOn: 'Enter a valid date' });
     if (paidOn > today) throw invalid({ paidOn: 'The payment date cannot be in the future' });
-    if (paidOn < new Date(r.loanDate)) throw invalid({ paidOn: 'The payment cannot be before the requisition (loan) date' });
-    if (paidOn < earliestPayment(r)) throw invalid({ paidOn: 'The payment cannot be before the approval date' });
+    const reqLoanDate = parseDateOnly(iso(r.loanDate));
+    if (reqLoanDate && paidOn < reqLoanDate) throw invalid({ paidOn: 'The payment cannot be before the requisition (loan) date' });
+    const isRevoked = await DayClose.exists({ branch: r.branch?._id || r.branch, date: paidOn, status: 'revoked' });
+    if (!isRevoked && paidOn < earliestPayment(r)) throw invalid({ paidOn: 'The payment cannot be before the approval date' });
     if (!isAdmin(req.user) && today.getTime() - paidOn.getTime() > 30 * DAY) throw invalid({ paidOn: 'The payment date cannot be older than 30 days' });
   }
   return paidOn;
@@ -149,7 +152,7 @@ export async function preparePayment(req, res) {
       subject: kind === 'group' ? `${r.groupInfo?.code} — ${r.groupInfo?.name}` : `${r.borrower?.code} — ${r.borrower?.name}`,
     },
     dates: {
-      paidOn: iso(paidOn), emiStartDate: iso(start), emiEndDate: iso(end), defaultEmiStartDate: iso(defaultStart), minPaidOn: iso(earliestPayment(r)),
+      paidOn: iso(paidOn), emiStartDate: iso(start), emiEndDate: iso(end), defaultEmiStartDate: iso(defaultStart), minPaidOn: iso(r.loanDate),
       // the first installment is chosen from these dates when the group collects on a fixed day, otherwise from the usual date onwards
       allowedEmiStartDates: allowed, collectionDay: rule ? rule.label : '',
     },

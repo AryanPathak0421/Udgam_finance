@@ -1,3 +1,4 @@
+import { workDateOf } from '../utils/workDate.js';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client.js';
@@ -128,7 +129,14 @@ export default function GroupLoanRequisition() {
   const toast = useToast();
   const navigate = useNavigate();
   const [branches, setBranches] = useState([]);
-  const [form, setForm] = useState({ branch: '', employeeCode: '', filterEmployee: '' });
+  const [form, setForm] = useState({ branch: '', loanDate: form.loanDate || todayISO(), employeeCode: '', filterEmployee: '' });
+  useEffect(() => {
+    if (form.branch) {
+      workDateOf(form.branch).then((d) => {
+        if (d) setForm((f) => ({ ...f, loanDate: d }));
+      }).catch(() => {});
+    }
+  }, [form.branch]);
   const [schemes, setSchemes] = useState([]);
   const [productSchemes, setProductSchemes] = useState([]);
   const [stock, setStock] = useState([]);
@@ -282,8 +290,8 @@ export default function GroupLoanRequisition() {
                 {branches.map((x) => <option key={x.id} value={x.id}>{x.code} — {x.name}</option>)}
               </select>
             </FormField>
-            <FormField id="loanDate" label="Loan date" hint="A group requisition is made for today only (no back date)" error={errors.loanDate}>
-              <input id="loanDate" type="date" value={todayISO()} disabled />
+            <FormField id="loanDate" label="Loan date" hint={form.loanDate ? `Branch working date: ${form.loanDate}` : 'A group requisition is made for your branch working date'} error={errors.loanDate}>
+              <input id="loanDate" type="date" value={form.loanDate || todayISO()} onChange={(e) => setForm((f) => ({ ...f, loanDate: e.target.value }))} readOnly={!isAdmin && Boolean(form.branch)} />
             </FormField>
             <EmployeeSelect id="filterEmployee" branch={form.branch} value={form.filterEmployee} label="Filter groups by employee" required={false} autoDefault={false}
               onChange={(code) => { setForm((f) => ({ ...f, filterEmployee: code })); setPicked(null); setDetail(null); setChosen([]); }} />

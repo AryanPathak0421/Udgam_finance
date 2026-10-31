@@ -21,7 +21,12 @@ const cap = (s) => (s ? String(s).charAt(0).toUpperCase() + String(s).slice(1) :
 
 const STATUS_BADGE = { approved: 'green', rejected: 'danger', pending: 'grey', cancelled: 'grey' };
 
-const staffCell = (r) => <><strong>{r.staff}</strong>{r.staffName && <div className="muted small">{r.staffName}</div>}</>;
+const staffCell = (r) => {
+  if (r.staffName) {
+    return <><strong>{r.staffName}</strong>{r.staff && <div className="muted small">{r.staff}</div>}</>;
+  }
+  return r.staff ? <strong>{r.staff}</strong> : '—';
+};
 // the columns of every report: [label, row => cell, numeric?]
 const COLS = {
   requisition: [

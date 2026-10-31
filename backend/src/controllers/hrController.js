@@ -19,7 +19,7 @@ import { ensureEmployees } from '../services/employeeSync.js';
 import { OtpChallenge } from '../models/OtpChallenge.js';
 import { issueOtp, hashOtp, takeVerified, consumeChallenge } from '../services/otpChallenges.js';
 import { sendMail, mailConfigured } from '../services/mailer.js';
-import { EARN_FIXED, ALL_LINES, SETUP_KEYS, setupAt, loadVariable, buildLines, totalsOf, legacyLines, fixedOf, isVerified } from '../services/salaryLines.js';
+import { EARN_FIXED, ALL_LINES, SETUP_KEYS, setupAt, loadVariable, buildLines, totalsOf, legacyLines, fixedOf, isVerified, sum } from '../services/salaryLines.js';
 import { effectiveOn, monthDays } from '../services/attendanceRules.js';
 import { elBalance } from '../services/earnedLeave.js';
 import { audit } from '../utils/audit.js';
@@ -150,7 +150,7 @@ export const designations = master(Designation, 'designation', {
 const presentEmployee = (e, user) => ({
   id: e._id, employeeCode: e.employeeCode, name: e.name, mobile: showMobile(user, e.mobile), email: e.email || '', address: e.address || '',
   department: e.department?._id ? { id: e.department._id, name: e.department.name } : null, designation: e.designation?._id ? { id: e.designation._id, name: e.designation.name } : null,
-  branch: e.branch?._id ? { id: e.branch._id, code: e.branch.code, name: e.branch.name } : null, joiningDate: iso(e.joiningDate), monthlySalary: rupees(e.monthlySalaryPaise),
+  branch: e.branch?._id ? { id: e.branch._id, code: e.branch.code, name: e.branch.name } : null, joiningDate: iso(e.joiningDate), // monthlySalary computed with increment below
   bankName: e.bankName || '', ifsc: e.ifsc || '', accountNumber: isAdmin(user) ? e.accountNumber || '' : e.accountNumber ? `XXXXX${String(e.accountNumber).slice(-4)}` : '',
   status: e.status, leftOn: iso(e.leftOn), hasLogin: Boolean(e.user), isBlocked: Boolean(e.isBlocked), blockReason: e.blockReason || '',
   homeTown: e.homeTown || '', homeTownPincode: e.homeTownPincode || '', originalMarksheet: Boolean(e.originalMarksheet), fatherName: e.fatherName || '', fatherMobile: showMobile(user, e.fatherMobile) || '', motherName: e.motherName || '', maritalStatus: e.maritalStatus || '',
@@ -161,8 +161,9 @@ const presentEmployee = (e, user) => ({
   supervisedBranches: (e.supervisedBranches || []).map((b) => ({ id: b._id || b, code: b.code || '', name: b.name || '' })),
   pfNumber: e.pfNumber || '', uanNumber: e.uanNumber || '', esiNumber: e.esiNumber || '',
   mobileVerified: Boolean(e.mobileVerifiedAt), emailVerified: Boolean(e.emailVerifiedAt), documentsVerified: Boolean(e.documentsVerifiedAt), verified: isVerified(e),
+  monthlySalary: rupees(sum(Object.values(fixedOf(e, todayDateString().slice(0, 7))))) || rupees(e.monthlySalaryPaise),
   salarySetup: {
-    ...Object.fromEntries(EARN_FIXED.map(([k]) => [k, rupees(fixedOf(e)[k])])), pfPercent: e.pfPercent ?? 12, esiPercent: e.esiPercent ?? 0.75, professionalTax: rupees(e.professionalTaxPaise),
+    ...Object.fromEntries(EARN_FIXED.map(([k]) => [k, rupees(fixedOf(e, todayDateString().slice(0, 7))[k])])), pfPercent: e.pfPercent ?? 12, esiPercent: e.esiPercent ?? 0.75, professionalTax: rupees(e.professionalTaxPaise),
     advanceDeduction: rupees(e.advanceDeductionPaise), securityAmount: rupees(e.securityAmountPaise), securityMonths: e.securityMonths || 1, securityNeverEnds: Boolean(e.securityNeverEnds), yearlyIncrementPercent: e.yearlyIncrementPercent ?? 10,
     pfDeduction: Boolean(e.pfDeduction), esiDeduction: Boolean(e.esiDeduction),
   },
@@ -862,12 +863,13 @@ const monthRange = (month) => {
   return { from, to, days: to.getUTCDate() };
 };
 
-function compute(emp, marks, range, bonusPaise = 0, otherDeductionPaise = 0, holidays = new Set()) {
+function compute(emp, marks, range, bonusPaise = 0, otherDeductionPaise = 0, holidays = new Set(), month) {
   // marks: 'YYYY-MM-DD' -> { status, source }; the rules (a day with no attendance is absent, the Sunday and the Monday after an unplanned Saturday absence) are in services/attendanceRules.js
   const d = monthDays(emp, marks, range, holidays);
   const { sundays, present, half, leave, holiday, absent, unmarked } = d;
   const payable = present + half * 0.5 + leave + holiday + sundays;
-  const gross = emp.monthlySalaryPaise || 0;
+  const fixed = fixedOf(emp, month);
+  const gross = sum(Object.values(fixed)) || emp.monthlySalaryPaise || 0;
   const perDay = gross / range.days;
   const earned = Math.round(perDay * payable);
   const net = Math.max(earned + bonusPaise - otherDeductionPaise, 0);
@@ -935,7 +937,7 @@ export async function generateSalary(req, res) {
     const ex = existing.get(String(e._id));
     if (ex?.status === 'paid') { keptPaid += 1; continue; }
     if (!e.monthlySalaryPaise) noSalary += 1;
-    const c = compute(e, marks.get(String(e._id)) || new Map(), range, 0, 0, holidaysOf(e));
+    const c = compute(e, marks.get(String(e._id)) || new Map(), range, 0, 0, holidaysOf(e), month);
     // what was changed by hand on the slip stays; a slip from before the lines existed keeps its bonus and other deduction
     const kept = new Map((ex?.lines || []).filter((l) => l.manual).map((l) => [l.key, l.amountPaise]));
     if (ex && !ex.lines?.length) { if (ex.bonusPaise) kept.set('bonus', ex.bonusPaise); if (ex.otherDeductionPaise) kept.set('other', ex.otherDeductionPaise); }

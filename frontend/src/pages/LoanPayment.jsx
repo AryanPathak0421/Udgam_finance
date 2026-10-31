@@ -1,3 +1,4 @@
+import { workDateOf } from '../utils/workDate.js';
 import BankAccountSelect from '../components/BankAccountSelect.jsx';
 import { useCallback, useEffect, useState } from 'react';
 import useOffDays from '../utils/offDays.js';
@@ -117,6 +118,13 @@ function BatchPayDialog({ batch, onClose, onPaid }) {
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState([]);
+
+  useEffect(() => {
+    const bId = batch.branch?.id || batch.branch;
+    if (bId) {
+      workDateOf(bId).then((d) => { if (d) setPaidOn(d); }).catch(() => {});
+    }
+  }, [batch]);
 
   useEffect(() => {
     Promise.all(batch.loans.map((l) => api.loanPayments.prepare(l.id, { paidOn: paidOn || undefined, emiStartDate: emiStart || undefined })))
