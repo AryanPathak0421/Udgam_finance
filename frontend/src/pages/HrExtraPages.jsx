@@ -9,7 +9,7 @@ import { useToast } from '../components/ui/Toast.jsx';
 import useDebounce from '../hooks/useDebounce.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { PhotoField } from './NewBorrower.jsx';
-import { BranchSelect, Refresh, Summary, useLoad, inr, dmy, today, MODE_LABEL } from './HrPages.jsx';
+import { BranchSelect, Refresh, Summary, useLoad, inr, dmy, today, MODE_LABEL, SupervisorBranchTransfer } from './HrPages.jsx';
 import { todayIso } from '../utils/format.js';
 
 const monthNow = () => todayIso().slice(0, 7);
@@ -928,6 +928,7 @@ export function PromotionTransfer() {
   const [kind, setKind] = useState('');
   const list = useLoad(() => api.hr.changes({ kind }), [kind]);
   const [adding, setAdding] = useState(false);
+  const [branchTransferring, setBranchTransferring] = useState(false);
   const [f, setF] = useState({});
   const [opts, setOpts] = useState({ departments: [], designations: [] });
   const [branches, setBranches] = useState([]);
@@ -978,6 +979,7 @@ export function PromotionTransfer() {
         <div className="toolbar" style={{ flexWrap: 'wrap' }}>
           <select value={kind} onChange={(e) => setKind(e.target.value)} aria-label="Kind"><option value="">Promotion and transfer</option><option value="promotion">Promotion</option><option value="transfer">Transfer</option><option value="relieving">Relieving Letter</option></select>
           <Refresh onClick={list.load} loading={list.loading} />
+          <button className="btn" onClick={() => setBranchTransferring(true)}>Supervisor branch transfer</button>
           <button className="btn primary" onClick={() => { setF({ employee: '', kind: 'promotion', toDesignation: '', toSalary: '', salaryLines: [], toBranch: '', effectiveDate: today(), remark: '' }); sv.setErrors({}); setAdding(true); }}>New promotion / transfer</button>
         </div>
         <Body list={list} empty="No promotion or transfer yet.">{() => (<>
@@ -998,6 +1000,7 @@ export function PromotionTransfer() {
           </div>
         </>)}</Body>
       </div>
+      {branchTransferring && <SupervisorBranchTransfer onClose={() => setBranchTransferring(false)} onDone={() => { setBranchTransferring(false); list.load(); }} />}
       {adding && (
         <FormModal title="New promotion / transfer" onClose={() => setAdding(false)} busy={sv.busy} onSave={() => sv.run(() => api.hr.createChange(f), (r) => `${cap(r.item.kind)} done — letter ${r.item.letterNo}`)}>
           <div className="form-grid">

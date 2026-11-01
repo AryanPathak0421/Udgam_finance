@@ -448,6 +448,53 @@ export async function supervisorTransfer(req, res) {
   res.json({ moved: ids.length, leavesMoved: leaves.modifiedCount || 0 });
 }
 
+/**
+ * Moves supervised branches from supervisor 1 to supervisor 2 (all of them, or the chosen ones).
+ */
+export async function supervisorBranchTransfer(req, res) {
+  const b = req.body || {};
+  const pick = async (id, field) => {
+    const e = mongoose.isValidObjectId(asString(id)) ? await Employee.findOne({ _id: id, isDeleted: false }).select('employeeCode name branch supervisedBranches').populate('branch', 'city') : null;
+    if (!e) throw invalid({ [field]: 'Select the supervisor' });
+    return e;
+  };
+  const from = await pick(b.from, 'from');
+  const to = await pick(b.to, 'to');
+  if (String(from._id) === String(to._id)) throw invalid({ to: 'Choose a different supervisor' });
+  const fromBranchIds = (from.supervisedBranches || []).map(String);
+  if (!fromBranchIds.length) throw invalid({ from: 'The selected supervisor does not have any supervised branches' });
+  const chosen = (Array.isArray(b.branches) ? b.branches : []).map(String).filter((x) => mongoose.isValidObjectId(x));
+  const toMove = chosen.length ? fromBranchIds.filter((x) => chosen.includes(x)) : fromBranchIds;
+  if (!toMove.length) throw invalid({ branches: 'Select at least one branch to transfer' });
+
+  // Check city compatibility if target supervisor has a home branch
+  if (to.branch?.city) {
+    const sBranches = await Branch.find({ _id: { $in: toMove } }).select('code name city').lean();
+    const diffCity = sBranches.filter((br) => br.city && br.city.toLowerCase().trim() !== to.branch.city.toLowerCase().trim());
+    if (diffCity.length) {
+      throw invalid({ branches: `Supervisor ${to.name} can only supervise branches in the same city (${to.branch.city}). Different city: ${diffCity.map((x) => x.name).join(', ')}` });
+    }
+  }
+
+  // Update from supervisor: remove transferred branches
+  const newFromBranches = fromBranchIds.filter((x) => !toMove.includes(x));
+  await Employee.updateOne({ _id: from._id }, { $set: { supervisedBranches: newFromBranches } });
+
+  // Update to supervisor: add transferred branches (unique)
+  const existingToBranches = (to.supervisedBranches || []).map(String);
+  const newToBranches = [...new Set([...existingToBranches, ...toMove])];
+  await Employee.updateOne({ _id: to._id }, { $set: { supervisedBranches: newToBranches } });
+
+  await audit(req, {
+    action: 'employee.supervisor-branch-transfer',
+    entity: 'Employee',
+    after: { from: from.employeeCode, to: to.employeeCode, branches: toMove.length }
+  });
+  notifyEmployee(to._id, 'Branches assigned to you', `${toMove.length} branch${toMove.length === 1 ? ' was' : 'es were'} transferred from supervisor ${from.name} (${from.employeeCode}) to you.`);
+
+  res.json({ moved: toMove.length });
+}
+
 /** Staff logins that have no HR record yet. */
 export async function employeeStaffOptions(_req, res) {
   const linked = (await Employee.find({ isDeleted: false, user: { $exists: true } }).select('user').lean()).map((e) => e.user);
@@ -950,7 +997,7 @@ export async function generateSalary(req, res) {
   const month = asString(req.body?.month);
   const range = monthRange(month);
   if (!range) throw invalid({ month: 'Choose the month' });
-  if (range.to > startOfToday()) throw invalid({ month: 'The salary of a month is generated once the month is over' });
+  if (range.from > startOfToday()) throw invalid({ month: 'Salary cannot be generated for a future month' });
   const emps = (await Employee.find({ isDeleted: false, ...scope({ query: { branch: req.body?.branch }, user: req.user }) }).populate(EMP_POPULATE).lean())
     .filter((e) => (!e.joiningDate || e.joiningDate <= range.to) && (e.status === 'active' || (e.leftOn && e.leftOn >= range.from)))
     .map((e) => setupAt(e, month)); // each employee with the salary set for that month

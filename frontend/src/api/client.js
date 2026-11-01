@@ -166,6 +166,7 @@ export const api = {
     employee: (id) => request(`/hr/employees/${id}`),
     employeePincode: (pin) => request(`/hr/employees/pincode/${pin}`),
     supervisorTransfer: (data) => request('/hr/supervisor-transfer', { method: 'POST', body: data }),
+    supervisorBranchTransfer: (data) => request('/hr/supervisor-branch-transfer', { method: 'POST', body: data }),
     setAttendanceLocation: (id, data) => request(`/hr/employees/${id}/attendance-location`, { method: 'PUT', body: data }),
     pendingVerification: (params) => request(`/hr/employees/pending-verification${qs(params)}`),
     sendEmployeeOtp: (id, data) => request(`/hr/employees/${id}/otp`, { method: 'POST', body: data }),

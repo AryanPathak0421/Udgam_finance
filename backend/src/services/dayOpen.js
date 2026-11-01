@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import { DayClose } from '../models/DayClose.js';
 import { HttpError, parseDateOnly, startOfToday } from '../utils/http.js';
+import { offDaysFor, nextWorking, addDay } from './holidays.js';
 
 const DAY = 24 * 3600 * 1000;
 const ADMIN = ['super_admin', 'admin'];
@@ -8,7 +9,8 @@ const iso = (d) => new Date(d).toISOString().slice(0, 10);
 const isAdminUser = (user) => Boolean(user && ADMIN.includes(user.role));
 
 /**
- * The date a branch works on: the day after its last approved day close (denomination). A branch with no approved close has no such date.
+ * The date a branch works on: the next working day after its last approved day close (denomination),
+ * skipping Sundays and holidays. A branch with no approved close has no such date.
  * Only the other users are held to it; the admin works on any date.
  */
 export async function branchWorkingDate(branchId) {
@@ -17,10 +19,11 @@ export async function branchWorkingDate(branchId) {
     DayClose.findOne({ branch: branchId, status: 'revoked' }).sort({ date: 1 }).select('date').lean(),
     DayClose.findOne({ branch: branchId, status: 'approved' }).sort({ date: -1 }).select('date').lean(),
   ]);
+  const off = await offDaysFor(branchId);
   // a day the admin has revoked (a back date) is worked on first; once its denomination is approved the branch is back on the day after its last approved close
-  if (revoked) return revoked.date;
+  if (revoked) return nextWorking(revoked.date, off);
   if (!last) return null;
-  return new Date(last.date.getTime() + DAY);
+  return nextWorking(addDay(last.date), off);
 }
 
 /** What a branch may still do while the admin has REJECTED its denomination: collect EMIs (and make the denomination again). */

@@ -1039,19 +1039,27 @@ export async function listRequisitions(req, res) {
     LoanRequisition.find(filter).populate(POPULATE).sort({ createdAt: -1 }).skip(skip).limit(limit),
     LoanRequisition.countDocuments(filter),
   ]);
-  const codes = [...new Set(items.map((r) => r.employeeCode).filter(Boolean))];
+  const codes = [...new Set(items.map((r) => r.employeeCode || r.groupInfo?.employeeCode).filter(Boolean))];
   const [users, emps] = await Promise.all([
-    User.find({ employeeCode: { $in: codes } }).select('employeeCode name username').lean(),
-    Employee.find({ employeeCode: { $in: codes } }).select('employeeCode name').lean(),
+    User.find({}).select('employeeCode name username').lean(),
+    Employee.find({}).select('employeeCode name').lean(),
   ]);
   const nameMap = new Map();
-  users.forEach((u) => { if (u.employeeCode && (u.name || u.username)) nameMap.set(String(u.employeeCode).toUpperCase(), u.name || u.username); });
-  emps.forEach((e) => { if (e.employeeCode && e.name) nameMap.set(String(e.employeeCode).toUpperCase(), e.name); });
+  users.forEach((u) => {
+    if (u.employeeCode && (u.name || u.username)) nameMap.set(String(u.employeeCode).trim().toUpperCase(), u.name || u.username);
+    if (u._id && (u.name || u.username)) nameMap.set(String(u._id), u.name || u.username);
+  });
+  emps.forEach((e) => {
+    if (e.employeeCode && e.name) nameMap.set(String(e.employeeCode).trim().toUpperCase(), e.name);
+    if (e._id && e.name) nameMap.set(String(e._id), e.name);
+  });
 
   res.json({
     items: items.map((r) => {
       const p = present(r, req.user);
-      p.employeeName = nameMap.get(String(r.employeeCode || '').toUpperCase()) || '';
+      const code = String(r.employeeCode || r.groupInfo?.employeeCode || '').trim();
+      p.employeeCode = code;
+      p.employeeName = nameMap.get(code.toUpperCase()) || nameMap.get(String(r.createdBy?._id || r.createdBy || '')) || r.createdBy?.name || '';
       return p;
     }),
     page,
@@ -1105,9 +1113,18 @@ export async function getRequisition(req, res) {
   if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Requisition not found');
   const r = await LoanRequisition.findOne({ _id: req.params.id, isDeleted: false, ...branchFilter(req.user) })
     .select('+business.shopPhoto +business.shopPhotos +business.bankStatement +business.itr +business.agreement +business.udyamCertificate +formFrontPhoto +formBackPhoto +memberForms.front +memberForms.back')
-    .populate(POPULATE);
+    .populate(POPULATE)
+    .populate('createdBy', 'employeeCode name username');
   if (!r) throw new HttpError(404, 'Requisition not found');
-  res.json({ requisition: present(r, req.user, { detail: true }) });
+  const out = present(r, req.user, { detail: true });
+  const code = String(r.employeeCode || r.groupInfo?.employeeCode || r.createdBy?.employeeCode || '').trim();
+  const [u, emp] = await Promise.all([
+    User.findOne({ $or: [{ employeeCode: code ? code.toUpperCase() : '__' }, { _id: r.createdBy?._id || r.createdBy }] }).select('name username').lean(),
+    Employee.findOne({ employeeCode: code ? code.toUpperCase() : '__' }).select('name').lean(),
+  ]);
+  out.employeeCode = code;
+  out.employeeName = emp?.name || u?.name || u?.username || '';
+  res.json({ requisition: out });
 }
 
 /** OTP to the mobile registered on the borrower (the Aadhaar / consent check of a business loan). */

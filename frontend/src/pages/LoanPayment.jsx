@@ -490,7 +490,7 @@ export function PendingPayments() {
                       <td data-label="Loan date">{r.loanDate}</td>
                       <td data-label="Type">{r.kindLabel}</td>
                       <td data-label="Borrower">{r.subjectCode} — {r.subjectName}</td>
-                      <td data-label="Staff name"><strong>{r.employeeName || '—'}</strong>{r.employeeCode && r.employeeName !== r.employeeCode ? <div className="muted small">{r.employeeCode}</div> : null}</td>
+                      <td data-label="Staff name"><strong>{r.employeeName || r.employeeCode || '—'}</strong>{r.employeeCode && r.employeeName && r.employeeName !== r.employeeCode ? <div className="muted small">{r.employeeCode}</div> : null}</td>
                       <td data-label="Branch">{r.branch?.name || '—'}</td>
                       <td data-label="Scheme">{r.schemeName}</td>
                       <td data-label="Amount" className="num">{inr(r.amount)}{r.kind === 'group' && r.memberCount > 1 && <div className="muted small">× {r.memberCount} = {inr(r.totalAmount)}</div>}</td>
@@ -595,7 +595,7 @@ export function PaidLoans() {
                       <td data-label="Form ID">{p.formId}</td>
                       <td data-label="Type">{p.kind}</td>
                       <td data-label="Borrower">{p.group || `${p.lines[0]?.code} — ${p.lines[0]?.name}`}{p.lines.length > 1 && <div className="muted small">{p.lines.length} members</div>}</td>
-                      <td data-label="Staff name"><strong>{p.employeeName || '—'}</strong>{p.employeeCode && p.employeeName !== p.employeeCode ? <div className="muted small">{p.employeeCode}</div> : null}</td>
+                      <td data-label="Staff name"><strong>{p.employeeName || p.employeeCode || '—'}</strong>{p.employeeCode && p.employeeName && p.employeeName !== p.employeeCode ? <div className="muted small">{p.employeeCode}</div> : null}</td>
                       <td data-label="Branch">{p.branch?.name || '—'}</td>
                       <td data-label="Amount" className="num">{inr(p.totalAmount)}</td>
                       <td data-label="Cash" className="num">{inr(p.totalCash)}</td>

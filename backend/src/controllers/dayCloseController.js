@@ -6,6 +6,7 @@ import { audit } from '../utils/audit.js';
 import { isAdmin } from './groupController.js';
 import { cashbookData } from './cashbookController.js';
 import { branchWorkingDate } from '../services/dayOpen.js';
+import { offDaysFor, nextWorking } from '../services/holidays.js';
 import { notifyApprovers } from '../services/notify.js';
 import { UserNotification } from '../models/SuperAdmin.js';
 
@@ -57,7 +58,9 @@ export async function status(req, res) {
   ]);
   const workingDate = await branchWorkingDate(branch._id);
   const today = startOfToday();
+  const off = await offDaysFor(branch._id);
   let date = revokedClose ? revokedClose.date : pending ? pending.date : workingDate || parseDateOnly(asString(req.query.date)) || today;
+  if (!workingDate && !pending && !revokedClose) date = nextWorking(date, off);
   if (date > today) date = today;
   const cash = await cashOf(req, branch._id, date);
   const isClosingNegative = cash.closing < 0;
@@ -103,6 +106,10 @@ export async function submit(req, res) {
   let date = parseDateOnly(asString(b.date)) || today;
   const working = await branchWorkingDate(branch._id);
   if (working) date = working; // the branch goes date by date (a day the admin revoked first)
+  else {
+    const off = await offDaysFor(branch._id);
+    date = nextWorking(date, off);
+  }
   const isRevokedDay = await DayClose.exists({ branch: branch._id, date, status: 'revoked' });
   const waiting = await DayClose.findOne({ branch: branch._id, status: 'submitted' }).lean();
   if (waiting && !isRevokedDay && iso(waiting.date) !== iso(date)) {

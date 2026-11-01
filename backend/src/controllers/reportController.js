@@ -249,7 +249,7 @@ const REPORTS = {
       .populate('requisition', 'employeeCode')
       .populate('createdBy', 'employeeCode name')
       .lean();
-    const mobiles = await mobileMap(req, loans.map((l) => l.lines[0]?.code));
+    const mobiles = await mobileMap(req, loans.map((l) => (l.lines && l.lines[0]?.code) || ''));
     const groupCodes = [...new Set(loans.map((l) => l.group?.code).filter(Boolean))];
     const groupDocs = groupCodes.length ? await Group.find({ code: { $in: groupCodes } }).select('code employeeCode').lean() : [];
     const groupStaffMap = new Map(groupDocs.map((g) => [g.code, g.employeeCode]));
@@ -260,15 +260,17 @@ const REPORTS = {
       const code = String(l.employeeCode || l.requisition?.employeeCode || groupStaffMap.get(l.group?.code) || l.createdByCode || l.createdBy?.employeeCode || '').trim();
       if (staffFilter && code.toUpperCase() !== staffFilter) return false;
       const sName = names.get(code.toUpperCase()) || names.get(String(l.createdBy?._id || '')) || l.createdBy?.name || '';
-      return matches(q, l.loanId, l.formId, l.receiptNo, l.group?.name, code, sName, ...l.lines.map((x) => `${x.code} ${x.name}`));
+      const memberNames = (l.lines || []).map((x) => `${x.code || ''} ${x.name || ''}`);
+      return matches(q, l.loanId, l.formId, l.receiptNo, l.group?.name, code, sName, ...memberNames);
     }).map((l) => {
       const code = String(l.employeeCode || l.requisition?.employeeCode || groupStaffMap.get(l.group?.code) || l.createdByCode || l.createdBy?.employeeCode || '').trim();
       const sName = names.get(code.toUpperCase()) || names.get(String(l.createdBy?._id || '')) || l.createdBy?.name || (code && isNaN(code) && code.length > 3 ? code : '');
+      const lines = l.lines || [];
       return {
-        mobile: mobiles.get(l.lines[0]?.code) || '', key: String(l._id), loanId: l.loanId || l.formId, receiptNo: l.receiptNo, date: iso(l.paidOn), branch: l.branch?.code || '', loanType: l.kind === 'group' ? 'group' : l.loanType || l.kind,
-        borrowers: l.group?.code ? `${l.group.code} — ${l.group.name} (${l.lines.length} members)` : l.lines.map((x) => `${x.code} ${x.name}`).join(', '), scheme: l.schemeName || '', mode: l.modeLabel || l.mode,
-        installments: l.installments, amount: rupees(l.totalAmountPaise ?? l.lines.reduce((s, x) => s + (x.amountPaise || 0), 0)), cash: rupees(l.totalCashPaise), payMode: l.payMode,
-        staff: code || sName || '—', staffName: sName || code || '—', paidBy: code,
+        mobile: (lines[0]?.code ? mobiles.get(lines[0].code) : '') || '', key: String(l._id), loanId: l.loanId || l.formId, receiptNo: l.receiptNo, date: iso(l.paidOn), branch: l.branch?.code || '', loanType: l.kind === 'group' ? 'group' : l.loanType || l.kind,
+        borrowers: l.group?.code ? `${l.group.code} — ${l.group.name} (${lines.length} members)` : lines.length ? lines.map((x) => `${x.code} ${x.name}`).join(', ') : (l.memberName || l.memberCode || '—'), scheme: l.schemeName || '', mode: l.modeLabel || l.mode,
+        installments: l.installments, amount: rupees(l.totalAmountPaise ?? lines.reduce((s, x) => s + (x.amountPaise || 0), 0)), cash: rupees(l.totalCashPaise), payMode: l.payMode,
+        staff: sName || code || '—', staffName: sName || code || '—', paidBy: code,
       };
     });
     return { rows, summary: { loans: rows.length, amount: sumOf(rows, 'amount'), cash: sumOf(rows, 'cash') } };

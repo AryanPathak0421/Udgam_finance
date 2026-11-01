@@ -16,6 +16,7 @@ const dmy = (s) => (s ? new Date(`${String(s).slice(0, 10)}T00:00:00`).toLocaleD
 const today = () => todayIso();
 const time = (s) => (s ? new Date(s).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '');
 const lastMonth = () => { const d = new Date(); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() - 1); return d.toISOString().slice(0, 7); };
+const thisMonth = () => todayIso().slice(0, 7);
 const monthLabel = (m) => new Date(`${m}-01T00:00:00`).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
 const MODE_LABEL = { cash: 'Cash', bank: 'Bank', upi: 'UPI', cheque: 'Cheque' };
 
@@ -521,7 +522,18 @@ function SupervisorTransfer({ onClose, onDone }) {
   const [busy, setBusy] = useState(false);
   const [errors, setErrors] = useState({});
   const all = everyone.data?.items || [];
-  const supervisors = all.filter((e) => e.teamCount > 0);
+  const isSupervisor = (e) => Boolean(
+    (e.teamCount && e.teamCount > 0) ||
+    (Array.isArray(e.supervisedBranches) && e.supervisedBranches.length > 0) ||
+    /supervisor/i.test(e.designation?.name || '') ||
+    /supervisor/i.test(e.name || '')
+  );
+  const supervisors = all.filter(isSupervisor);
+  const fromSupervisors = supervisors.filter((e) => (e.teamCount || 0) > 0);
+  const fromList = fromSupervisors.length > 0 ? fromSupervisors : supervisors;
+  const toSupervisors = supervisors.filter((e) => e.id !== from);
+  const toList = toSupervisors.length > 0 ? toSupervisors : all.filter((e) => e.id !== from);
+
   useEffect(() => {
     setTeam([]); setPicked(new Set());
     if (!from) return;
@@ -539,8 +551,8 @@ function SupervisorTransfer({ onClose, onDone }) {
     <Modal open title="Transfer employees to another supervisor" onClose={onClose} busy={busy} size="lg"
       footer={<><button className="btn" onClick={onClose} disabled={busy}>Close</button><button className="btn primary" onClick={go} disabled={busy || !from || !to || picked.size === 0}>{busy ? 'Moving…' : `Transfer ${picked.size || ''}`.trim()}</button></>}>
       <div className="form-grid">
-        <FormField id="stfrom" label="Supervisor 1 (from)" required error={errors.from}><select id="stfrom" value={from} onChange={(e) => setFrom(e.target.value)}><option value="">Select</option>{supervisors.map((e) => <option key={e.id} value={e.id}>{staffLabel(e)} · team {e.teamCount}</option>)}</select></FormField>
-        <FormField id="stto" label="Supervisor 2 (to)" required error={errors.to}><select id="stto" value={to} onChange={(e) => setTo(e.target.value)}><option value="">Select</option>{all.filter((e) => e.id !== from).map((e) => <option key={e.id} value={e.id}>{staffLabel(e)}</option>)}</select></FormField>
+        <FormField id="stfrom" label="Supervisor 1 (from)" required error={errors.from}><select id="stfrom" value={from} onChange={(e) => setFrom(e.target.value)}><option value="">Select</option>{fromList.map((e) => <option key={e.id} value={e.id}>{staffLabel(e)} · team {e.teamCount || 0}</option>)}</select></FormField>
+        <FormField id="stto" label="Supervisor 2 (to)" required error={errors.to}><select id="stto" value={to} onChange={(e) => setTo(e.target.value)}><option value="">Select</option>{toList.map((e) => <option key={e.id} value={e.id}>{staffLabel(e)}</option>)}</select></FormField>
       </div>
       {from && (
         <>
@@ -549,6 +561,98 @@ function SupervisorTransfer({ onClose, onDone }) {
           <div className="table-wrap" style={{ maxHeight: 260, overflow: 'auto' }}>
             <table className="data-table"><tbody>
               {team.map((x) => <tr key={x.id}><td><input type="checkbox" aria-label={`Move ${x.employeeCode}`} checked={picked.has(x.id)} onChange={() => setPicked((p) => { const n = new Set(p); if (n.has(x.id)) n.delete(x.id); else n.add(x.id); return n; })} /></td><td><strong>{x.employeeCode}</strong> {x.name}</td><td>{x.branch?.code || '—'}</td><td>{x.designation?.name || '—'}</td></tr>)}
+            </tbody></table>
+          </div>
+        </>
+      )}
+    </Modal>
+  );
+}
+
+// Moves the supervised branches of supervisor 1 to supervisor 2 (all, or chosen ones)
+export function SupervisorBranchTransfer({ onClose, onDone }) {
+  const toast = useToast();
+  const everyone = useLoad(() => api.hr.employees({ status: 'active' }), []);
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [branches, setBranches] = useState([]);
+  const [picked, setPicked] = useState(new Set());
+  const [busy, setBusy] = useState(false);
+  const [errors, setErrors] = useState({});
+  const all = everyone.data?.items || [];
+  const isSupervisor = (e) => Boolean(
+    (e.teamCount && e.teamCount > 0) ||
+    (Array.isArray(e.supervisedBranches) && e.supervisedBranches.length > 0) ||
+    /supervisor/i.test(e.designation?.name || '') ||
+    /supervisor/i.test(e.name || '')
+  );
+  const supervisors = all.filter(isSupervisor);
+  const withBranches = supervisors.filter((e) => Array.isArray(e.supervisedBranches) && e.supervisedBranches.length > 0);
+  const fromList = withBranches.length > 0 ? withBranches : supervisors;
+
+  useEffect(() => {
+    setBranches([]); setPicked(new Set());
+    if (!from) return;
+    const selected = fromList.find((x) => x.id === from);
+    const sBranches = selected?.supervisedBranches || [];
+    setBranches(sBranches);
+    setPicked(new Set(sBranches.map((x) => x.id)));
+  }, [from, fromList]);
+
+  async function go() {
+    setBusy(true); setErrors({});
+    try {
+      const r = await api.hr.supervisorBranchTransfer({
+        from,
+        to,
+        branches: picked.size === branches.length ? [] : [...picked]
+      });
+      toast.success(`${r.moved} supervised branch${r.moved === 1 ? '' : 'es'} transferred to the new supervisor`);
+      onDone();
+    } catch (err) {
+      setErrors(err.errors || {});
+      toast.error(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const toSupervisors = supervisors.filter((e) => e.id !== from);
+  const toList = toSupervisors.length > 0 ? toSupervisors : all.filter((e) => e.id !== from);
+
+  return (
+    <Modal open title="Supervisor branch transfer" onClose={onClose} busy={busy} size="lg"
+      footer={<><button className="btn" onClick={onClose} disabled={busy}>Close</button><button className="btn primary" onClick={go} disabled={busy || !from || !to || picked.size === 0}>{busy ? 'Transferring…' : `Transfer ${picked.size || ''} branches`.trim()}</button></>}>
+      <div className="form-grid">
+        <FormField id="sbtfrom" label="Supervisor 1 (from)" required error={errors.from}>
+          <select id="sbtfrom" value={from} onChange={(e) => setFrom(e.target.value)}>
+            <option value="">Select supervisor</option>
+            {fromList.map((e) => <option key={e.id} value={e.id}>{staffLabel(e)} · {e.supervisedBranches?.length || 0} branches</option>)}
+          </select>
+        </FormField>
+        <FormField id="sbtto" label="Supervisor 2 (to)" required error={errors.to}>
+          <select id="sbtto" value={to} onChange={(e) => setTo(e.target.value)}>
+            <option value="">Select target supervisor</option>
+            {toList.map((e) => <option key={e.id} value={e.id}>{staffLabel(e)}</option>)}
+          </select>
+        </FormField>
+      </div>
+      {from && (
+        <>
+          <div className="toolbar" style={{ marginTop: 12 }}>
+            <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <input type="checkbox" checked={branches.length > 0 && picked.size === branches.length} onChange={(e) => setPicked(e.target.checked ? new Set(branches.map((x) => x.id)) : new Set())} /> All branches ({branches.length})
+            </label>
+          </div>
+          {errors.branches && <div className="field-error small">{errors.branches}</div>}
+          <div className="table-wrap" style={{ maxHeight: 260, overflow: 'auto' }}>
+            <table className="data-table"><tbody>
+              {branches.map((b) => (
+                <tr key={b.id}>
+                  <td style={{ width: 40 }}><input type="checkbox" aria-label={`Move ${b.code}`} checked={picked.has(b.id)} onChange={() => setPicked((p) => { const n = new Set(p); if (n.has(b.id)) n.delete(b.id); else n.add(b.id); return n; })} /></td>
+                  <td><strong>{b.code}</strong> {b.name}</td>
+                </tr>
+              ))}
             </tbody></table>
           </div>
         </>
@@ -614,6 +718,7 @@ export function EmployeeRegistration() {
   const [profile, setProfile] = useState(null);
   const [pending, setPending] = useState(false);
   const [transferring, setTransferring] = useState(false);
+  const [branchTransferring, setBranchTransferring] = useState(false);
   const [syncing, setSyncing] = useState(false);
   async function sync() {
     setSyncing(true);
@@ -635,6 +740,7 @@ export function EmployeeRegistration() {
           <button className="btn" onClick={sync} disabled={syncing} title="Makes an employee record of every staff login that has none">{syncing ? 'Adding…' : 'Add all staff logins'}</button>
           <button className="btn" onClick={() => setPending(true)}>Pending verification</button>
           <button className="btn" onClick={() => setTransferring(true)}>Transfer supervisor</button>
+          <button className="btn" onClick={() => setBranchTransferring(true)}>Supervisor branch transfer</button>
           <button className="btn primary" onClick={() => setForm({})}>Register employee</button>
         </div>
         {list.loading && !list.data ? <Spinner label="Loading…" /> : list.error ? <ErrorState message={list.error} onRetry={list.load} /> : items.length === 0 ? <EmptyState title="No employee" description="Register an employee, or use Add all staff logins." /> : (
@@ -666,6 +772,7 @@ export function EmployeeRegistration() {
       {team && <TeamModal supervisor={team} onClose={() => setTeam(null)} />}
       {profile && <EmployeeProfile item={profile} onClose={() => setProfile(null)} />}
       {transferring && <SupervisorTransfer onClose={() => setTransferring(false)} onDone={() => { setTransferring(false); list.load(); }} />}
+      {branchTransferring && <SupervisorBranchTransfer onClose={() => setBranchTransferring(false)} onDone={() => { setBranchTransferring(false); list.load(); }} />}
       {pending && <PendingVerification onClose={() => { setPending(false); list.load(); }} />}
       {form && <EmployeeForm item={form.id ? form : null} onClose={() => setForm(null)} onSaved={() => { setForm(null); list.load(); }} />}
     </>
@@ -1201,7 +1308,7 @@ function SalaryTable({ items, picked, setPicked, onOpen, onPay, selectable }) {
 export function SalaryGenerate() {
   const toast = useToast();
   const [branch, setBranch] = useState('');
-  const [month, setMonth] = useState(lastMonth());
+  const [month, setMonth] = useState(thisMonth());
   const list = useLoad(() => api.hr.salary({ month, branch }), [month, branch]);
   const [picked, setPicked] = useState(new Set());
   const [open, setOpen] = useState(null);
@@ -1232,7 +1339,7 @@ export function SalaryGenerate() {
       <div className="panel">
         <div className="toolbar" style={{ flexWrap: 'wrap' }}>
           <BranchSelect value={branch} onChange={setBranch} />
-          <label className="small muted" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>Month <input type="month" value={month} max={lastMonth()} onChange={(e) => setMonth(e.target.value || lastMonth())} aria-label="Month" /></label>
+          <label className="small muted" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>Month <input type="month" value={month} max={thisMonth()} onChange={(e) => setMonth(e.target.value || thisMonth())} aria-label="Month" /></label>
           <Refresh onClick={list.load} loading={list.loading} />
           <button className="btn primary" onClick={generate} disabled={busy === 'gen'}>{busy === 'gen' ? 'Generating…' : 'Generate salary'}</button>
           <button className="btn" onClick={send} disabled={!picked.size || busy === 'send'}>{busy === 'send' ? 'Sending…' : `Send salary slip${picked.size ? ` (${picked.size} · ${inr(pickedTotal)})` : ''}`}</button>
@@ -1252,7 +1359,7 @@ export function SalaryGenerate() {
 export function SalaryPayment() {
   const toast = useToast();
   const [branch, setBranch] = useState('');
-  const [month, setMonth] = useState(lastMonth());
+  const [month, setMonth] = useState(thisMonth());
   const [status, setStatus] = useState('topay');
   const list = useLoad(() => api.hr.salary({ month, branch, status }), [month, branch, status]);
   const [picked, setPicked] = useState(new Set());
@@ -1290,7 +1397,7 @@ export function SalaryPayment() {
       <div className="panel">
         <div className="toolbar" style={{ flexWrap: 'wrap' }}>
           <BranchSelect value={branch} onChange={setBranch} />
-          <label className="small muted" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>Month <input type="month" value={month} max={lastMonth()} onChange={(e) => setMonth(e.target.value || lastMonth())} aria-label="Month" /></label>
+          <label className="small muted" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>Month <input type="month" value={month} max={thisMonth()} onChange={(e) => setMonth(e.target.value || thisMonth())} aria-label="Month" /></label>
           <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status"><option value="topay">To pay (slip sent)</option><option value="generated">Not sent yet</option><option value="paid">Paid</option><option value="">All</option></select>
           <Refresh onClick={list.load} loading={list.loading} />
         </div>
@@ -1374,7 +1481,7 @@ function MonthWiseReport({ branch, version }) {
 }
 
 export function BranchSalary() {
-  const [month, setMonth] = useState(lastMonth());
+  const [month, setMonth] = useState(thisMonth());
   const [branch, setBranch] = useState('');
   const list = useLoad(() => api.hr.branchSalary({ month, branch }), [month, branch]);
   const d = list.data;
@@ -1384,7 +1491,7 @@ export function BranchSalary() {
       <div className="panel">
         <div className="toolbar" style={{ flexWrap: 'wrap' }}>
           <BranchSelect value={branch} onChange={setBranch} />
-          <label className="small muted" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>Month <input type="month" value={month} max={lastMonth()} onChange={(e) => setMonth(e.target.value || lastMonth())} aria-label="Month" /></label>
+          <label className="small muted" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>Month <input type="month" value={month} max={thisMonth()} onChange={(e) => setMonth(e.target.value || thisMonth())} aria-label="Month" /></label>
           <Refresh onClick={list.load} loading={list.loading} />
         </div>
         {list.loading && !d ? <Spinner label="Loading…" /> : list.error ? <ErrorState message={list.error} onRetry={list.load} /> : !d || d.rows.length === 0 ? <EmptyState title="No salary" description={`No salary is generated for ${monthLabel(month)}.`} /> : (

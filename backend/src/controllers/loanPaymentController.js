@@ -18,7 +18,7 @@ import { branchFilter, isAdmin } from './groupController.js';
 import { reserveStock, releaseStock } from './loanRequisitionController.js';
 
 const invalid = (errors) => new HttpError(422, 'Please correct the highlighted fields', errors);
-const POPULATE = [{ path: 'branch', select: 'code name' }];
+const POPULATE = [{ path: 'branch', select: 'code name' }, { path: 'requisition', select: 'employeeCode' }, { path: 'createdBy', select: 'employeeCode name username' }];
 const iso = (d) => (d ? new Date(d).toISOString().slice(0, 10) : null);
 const money = (p) => (p === undefined || p === null ? null : p / 100);
 const DAY = 24 * 3600 * 1000;
@@ -340,20 +340,27 @@ export async function listPayments(req, res) {
     LoanPayment.find(filter).populate(POPULATE).sort({ createdAt: -1 }).skip(skip).limit(limit),
     LoanPayment.countDocuments(filter),
   ]);
-  const codes = [...new Set(items.map((p) => p.employeeCode || p.createdByCode).filter(Boolean))];
+  const codes = [...new Set(items.map((p) => p.employeeCode || p.requisition?.employeeCode || p.createdByCode || p.createdBy?.employeeCode).filter(Boolean))];
   const [users, emps] = await Promise.all([
-    User.find({ employeeCode: { $in: codes } }).select('employeeCode name username').lean(),
-    Employee.find({ employeeCode: { $in: codes } }).select('employeeCode name').lean(),
+    User.find({}).select('employeeCode name username').lean(),
+    Employee.find({}).select('employeeCode name').lean(),
   ]);
   const nameMap = new Map();
-  users.forEach((u) => { if (u.employeeCode && (u.name || u.username)) nameMap.set(String(u.employeeCode).toUpperCase(), u.name || u.username); });
-  emps.forEach((e) => { if (e.employeeCode && e.name) nameMap.set(String(e.employeeCode).toUpperCase(), e.name); });
+  users.forEach((u) => {
+    if (u.employeeCode && (u.name || u.username)) nameMap.set(String(u.employeeCode).trim().toUpperCase(), u.name || u.username);
+    if (u._id && (u.name || u.username)) nameMap.set(String(u._id), u.name || u.username);
+  });
+  emps.forEach((e) => {
+    if (e.employeeCode && e.name) nameMap.set(String(e.employeeCode).trim().toUpperCase(), e.name);
+    if (e._id && e.name) nameMap.set(String(e._id), e.name);
+  });
 
   res.json({
     items: items.map((p) => {
       const row = present(p);
-      const code = String(p.employeeCode || p.createdByCode || '').toUpperCase();
-      row.employeeName = nameMap.get(code) || '';
+      const code = String(p.employeeCode || p.requisition?.employeeCode || p.createdByCode || p.createdBy?.employeeCode || '').trim();
+      row.employeeCode = code;
+      row.employeeName = nameMap.get(code.toUpperCase()) || nameMap.get(String(p.createdBy?._id || p.createdBy || '')) || p.createdBy?.name || '';
       return row;
     }),
     page,
@@ -367,7 +374,15 @@ export async function getPayment(req, res) {
   if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Payment not found');
   const p = await LoanPayment.findOne({ _id: req.params.id, ...branchFilter(req.user) }).populate(POPULATE);
   if (!p) throw new HttpError(404, 'Payment not found');
-  res.json({ payment: present(p) });
+  const row = present(p);
+  const code = String(p.employeeCode || p.requisition?.employeeCode || p.createdByCode || p.createdBy?.employeeCode || '').trim();
+  const [u, e] = await Promise.all([
+    User.findOne({ $or: [{ employeeCode: code ? code.toUpperCase() : '__' }, { _id: p.createdBy?._id || p.createdBy }] }).select('name username employeeCode').lean(),
+    Employee.findOne({ employeeCode: code ? code.toUpperCase() : '__' }).select('name employeeCode').lean(),
+  ]);
+  row.employeeCode = code || e?.employeeCode || u?.employeeCode || '';
+  row.employeeName = e?.name || u?.name || u?.username || '';
+  res.json({ payment: row });
 }
 
 /** Admin cancels a payment made by mistake: the loan goes back to Pending Payment and the products return to stock. */
