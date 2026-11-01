@@ -3,7 +3,7 @@ import { LoanPayment } from '../models/LoanPayment.js';
 
 const DAY = 24 * 3600 * 1000;
 const iso = (d) => new Date(d).toISOString().slice(0, 10);
-const addDay = (d, n = 1) => new Date(d.getTime() + n * DAY);
+export const addDay = (d, n = 1) => new Date(d.getTime() + n * DAY);
 
 /** The holidays of the Holiday Master: the ones of every branch, and the ones of single branches. */
 export async function loadHolidays() {
