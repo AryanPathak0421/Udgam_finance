@@ -33,6 +33,29 @@ import {
   getNpaLoans,
   recoverNpaLoan,
   getCompanyQr,
+  getBorrowerSavings,
+  requestSavingsWithdrawal,
+  getEmployeeReports,
+  markFirstMeetingAttendance,
+  getSalarySlips,
+  getAttendanceHistory,
+  recordCenterVisit,
+  listCenterVisits,
+  listCgtVisits,
+  updateCgtDayPhoto,
+  getLeaveOverview,
+  applyLeave,
+  submitComplaint,
+  listMyComplaints,
+  submitResignation,
+  getResignationStatus,
+  requestBranchTransfer,
+  listTransferRequests,
+  getBranchStockProducts,
+  sellStockProduct,
+  getMyTasks,
+  updateTaskStatus,
+  getHolidays,
 } from './employeeAppController.js';
 
 const router = Router();
@@ -90,6 +113,53 @@ router.post('/npa/recover', requireAuth, h(recoverNpaLoan));
 
 // Dynamic Company UPI QR Code
 router.get('/company-qr', requireAuth, h(getCompanyQr));
+
+// 16. Borrower Savings & Withdrawal
+router.get('/savings/:query', requireAuth, h(getBorrowerSavings));
+router.post('/savings/withdraw', requireAuth, h(requestSavingsWithdrawal));
+
+// 17. Employee Reports & Targets
+router.get('/reports', requireAuth, h(getEmployeeReports));
+
+// 18 & 20. Attendance (First Meeting & History)
+router.post('/attendance/meeting', requireAuth, h(markFirstMeetingAttendance));
+router.get('/attendance/history', requireAuth, h(getAttendanceHistory));
+
+// 19. Salary Slips
+router.get('/salary-slips', requireAuth, h(getSalarySlips));
+
+// 21 & 22. New Center Visit & CGT
+router.post('/center-visits', requireAuth, h(recordCenterVisit));
+router.get('/center-visits', requireAuth, h(listCenterVisits));
+router.get('/cgt-visits', requireAuth, h(listCgtVisits));
+router.post('/cgt-visits/photo', requireAuth, h(updateCgtDayPhoto));
+
+// 23. Leave Management
+router.get('/leave', requireAuth, h(getLeaveOverview));
+router.post('/leave', requireAuth, h(applyLeave));
+
+// 24. Complaints
+router.post('/complaints', requireAuth, h(submitComplaint));
+router.get('/complaints', requireAuth, h(listMyComplaints));
+
+// 25. Resignation
+router.post('/resignation', requireAuth, h(submitResignation));
+router.get('/resignation', requireAuth, h(getResignationStatus));
+
+// 26. Branch Transfer
+router.post('/branch-transfer', requireAuth, h(requestBranchTransfer));
+router.get('/branch-transfer', requireAuth, h(listTransferRequests));
+
+// 27. Product Sale
+router.get('/stock/products', requireAuth, h(getBranchStockProducts));
+router.post('/stock/sell', requireAuth, h(sellStockProduct));
+
+// 28. Tasks
+router.get('/tasks', requireAuth, h(getMyTasks));
+router.patch('/tasks/:id', requireAuth, h(updateTaskStatus));
+
+// 29. Holidays
+router.get('/holidays', requireAuth, h(getHolidays));
 
 export default router;
 

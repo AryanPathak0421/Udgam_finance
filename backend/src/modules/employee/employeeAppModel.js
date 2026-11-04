@@ -77,3 +77,105 @@ guarantorChangeRequestSchema.index({ branch: 1, status: 1 });
 
 export const GuarantorChangeRequest = mongoose.model('GuarantorChangeRequest', guarantorChangeRequestSchema);
 
+// -----------------------------------------------------------------------------
+// NEW CENTER VISIT
+// -----------------------------------------------------------------------------
+const centerVisitSchema = new mongoose.Schema(
+  {
+    employeeCode: { type: String, required: true },
+    employeeName: String,
+    branch: { type: mongoose.Schema.Types.ObjectId, ref: 'Branch' },
+    centerName: { type: String, required: true },
+    contactName: { type: String, required: true },
+    contactNumber: { type: String, required: true },
+    location: {
+      lat: Number,
+      lng: Number,
+      address: String,
+    },
+    image: String,
+    visitDate: { type: Date, default: Date.now },
+    notes: String,
+  },
+  { timestamps: true }
+);
+
+export const CenterVisit = mongoose.model('CenterVisit', centerVisitSchema);
+
+// -----------------------------------------------------------------------------
+// CGT (CONTINUOUS GROUP TRAINING) VISIT
+// -----------------------------------------------------------------------------
+const cgtVisitSchema = new mongoose.Schema(
+  {
+    centerName: { type: String, required: true },
+    branch: { type: mongoose.Schema.Types.ObjectId, ref: 'Branch' },
+    employeeCode: { type: String, required: true },
+    day1: {
+      date: Date,
+      photo: String,
+      byCode: String,
+    },
+    day2: {
+      date: Date,
+      photo: String,
+      byCode: String,
+    },
+    day3: {
+      date: Date,
+      photo: String,
+      byCode: String,
+    },
+    status: { type: String, enum: ['in_progress', 'completed'], default: 'in_progress' },
+  },
+  { timestamps: true }
+);
+
+export const CgtVisit = mongoose.model('CgtVisit', cgtVisitSchema);
+
+// -----------------------------------------------------------------------------
+// FIRST MEETING ATTENDANCE
+// -----------------------------------------------------------------------------
+const firstMeetingAttendanceSchema = new mongoose.Schema(
+  {
+    employeeCode: { type: String, required: true },
+    employeeName: String,
+    branch: { type: mongoose.Schema.Types.ObjectId, ref: 'Branch' },
+    date: { type: Date, required: true },
+    photo: { type: String, required: true },
+    location: {
+      lat: Number,
+      lng: Number,
+      address: String,
+    },
+    status: { type: String, default: 'present' },
+  },
+  { timestamps: true }
+);
+firstMeetingAttendanceSchema.index({ employeeCode: 1, date: 1 });
+
+export const FirstMeetingAttendance = mongoose.model('FirstMeetingAttendance', firstMeetingAttendanceSchema);
+
+// -----------------------------------------------------------------------------
+// PRODUCT SALE ORDER
+// -----------------------------------------------------------------------------
+const productSaleOrderSchema = new mongoose.Schema(
+  {
+    receiptNo: { type: String, required: true, uppercase: true },
+    employeeCode: { type: String, required: true },
+    branch: { type: mongoose.Schema.Types.ObjectId, ref: 'Branch' },
+    memberCode: { type: String, required: true },
+    memberName: String,
+    productCode: { type: String, required: true },
+    productName: String,
+    quantity: { type: Number, default: 1, min: 1 },
+    unitPrice: { type: Number, required: true },
+    totalAmount: { type: Number, required: true },
+    payMode: { type: String, enum: ['cash', 'upi', 'loan_adjust'], default: 'cash' },
+    status: { type: String, enum: ['completed', 'pending'], default: 'completed' },
+  },
+  { timestamps: true }
+);
+
+export const ProductSaleOrder = mongoose.model('ProductSaleOrder', productSaleOrderSchema);
+
+

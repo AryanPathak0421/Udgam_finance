@@ -19,6 +19,15 @@ import EmployeeEmiPayment from './pages/EmployeeEmiPayment.jsx';
 import EmployeeAdvancePayment from './pages/EmployeeAdvancePayment.jsx';
 import EmployeeNpaRecovery from './pages/EmployeeNpaRecovery.jsx';
 import EmployeeTrackLoan from './pages/EmployeeTrackLoan.jsx';
+import EmployeeBorrowerSavings from './pages/EmployeeBorrowerSavings.jsx';
+import EmployeeReports from './pages/EmployeeReports.jsx';
+import EmployeeAttendance from './pages/EmployeeAttendance.jsx';
+import EmployeeSalarySlips from './pages/EmployeeSalarySlips.jsx';
+import EmployeeCenterVisits from './pages/EmployeeCenterVisits.jsx';
+import EmployeeHrServices from './pages/EmployeeHrServices.jsx';
+import EmployeeProductSale from './pages/EmployeeProductSale.jsx';
+import EmployeeTasks from './pages/EmployeeTasks.jsx';
+import EmployeeHolidays from './pages/EmployeeHolidays.jsx';
 
 import './employee.css';
 
@@ -61,6 +70,15 @@ function EmployeeAppRoutes() {
             <Route path="advance-payment" element={empUser ? <EmployeeAdvancePayment /> : <Navigate to="/employee/login" replace />} />
             <Route path="npa-recovery" element={empUser ? <EmployeeNpaRecovery /> : <Navigate to="/employee/login" replace />} />
             <Route path="track-loan" element={empUser ? <EmployeeTrackLoan /> : <Navigate to="/employee/login" replace />} />
+            <Route path="borrower-savings" element={empUser ? <EmployeeBorrowerSavings /> : <Navigate to="/employee/login" replace />} />
+            <Route path="reports" element={empUser ? <EmployeeReports /> : <Navigate to="/employee/login" replace />} />
+            <Route path="attendance" element={empUser ? <EmployeeAttendance /> : <Navigate to="/employee/login" replace />} />
+            <Route path="salary-slips" element={empUser ? <EmployeeSalarySlips /> : <Navigate to="/employee/login" replace />} />
+            <Route path="center-visits" element={empUser ? <EmployeeCenterVisits /> : <Navigate to="/employee/login" replace />} />
+            <Route path="hr-services" element={empUser ? <EmployeeHrServices /> : <Navigate to="/employee/login" replace />} />
+            <Route path="product-sale" element={empUser ? <EmployeeProductSale /> : <Navigate to="/employee/login" replace />} />
+            <Route path="tasks" element={empUser ? <EmployeeTasks /> : <Navigate to="/employee/login" replace />} />
+            <Route path="holidays" element={empUser ? <EmployeeHolidays /> : <Navigate to="/employee/login" replace />} />
 
             {/* Fallback */}
             <Route path="*" element={<Navigate to="/employee" replace />} />

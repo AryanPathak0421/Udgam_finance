@@ -1,7 +1,14 @@
 import mongoose from 'mongoose';
 import jwt from 'jsonwebtoken';
-import { EmployeeMpin, GuarantorChangeRequest } from './employeeAppModel.js';
-import { Employee, Department, Designation, Attendance } from '../../models/Hr.js';
+import {
+  EmployeeMpin,
+  GuarantorChangeRequest,
+  CenterVisit,
+  CgtVisit,
+  FirstMeetingAttendance,
+  ProductSaleOrder,
+} from './employeeAppModel.js';
+import { Employee, Department, Designation, Attendance, Salary } from '../../models/Hr.js';
 import { User } from '../../models/User.js';
 import { Branch } from '../../models/Branch.js';
 import { Member } from '../../models/Member.js';
@@ -10,7 +17,10 @@ import { EmiPayment } from '../../models/EmiPayment.js';
 import { LoanRequisition } from '../../models/LoanRequisition.js';
 import { LoanScheme } from '../../models/LoanScheme.js';
 import { Group } from '../../models/Group.js';
-import { Task } from '../../models/HrExtra.js';
+import { Task, Complaint, Leave, Resignation, EmployeeChange, TargetTask } from '../../models/HrExtra.js';
+import { SecurityWithdrawal } from '../../models/SecurityWithdrawal.js';
+import { StockProduct } from '../../models/StockProduct.js';
+import { Holiday } from '../../models/SuperAdmin.js';
 import { Company } from '../../models/Company.js';
 import { BankAccount } from '../../models/BankAccount.js';
 import { generateCode } from '../../services/codeSequence.js';
@@ -1321,5 +1331,704 @@ export async function getCompanyQr(req, res) {
     qrImageUrl,
   });
 }
+
+// -----------------------------------------------------------------------------
+// 19. BORROWER SAVING AMOUNT & WITHDRAWAL REQUEST (POINT 16)
+// -----------------------------------------------------------------------------
+export async function getBorrowerSavings(req, res) {
+  const query = cleanStr(req.params.query);
+  const member = await Member.findOne({
+    $or: [{ code: new RegExp(`^${query}$`, 'i') }, { mobile: query }, { aadhaar: query }],
+    isDeleted: false,
+  }).lean();
+  if (!member) throw new HttpError(404, `Member not found matching '${query}'`);
+
+  const loans = await LoanPayment.find({
+    status: 'paid',
+    'lines.member': member._id,
+  }).lean();
+
+  let totalDepositedPaise = 0;
+  const deposits = [];
+  for (const l of loans) {
+    const line = l.lines?.find((x) => String(x.member) === String(member._id));
+    if (line && line.securityPaise > 0) {
+      totalDepositedPaise += line.securityPaise;
+      deposits.push({
+        loanId: l.loanId || l.receiptNo,
+        date: l.paidOn,
+        amount: line.securityPaise / 100,
+      });
+    }
+  }
+
+  const withdrawals = await SecurityWithdrawal.find({ member: member._id }).sort({ createdAt: -1 }).lean();
+  const approvedWithdrawals = withdrawals.filter((w) => w.status === 'approved');
+  const pendingWithdrawals = withdrawals.filter((w) => w.status === 'pending');
+  const withdrawnPaise = approvedWithdrawals.reduce((sum, w) => sum + (w.amountPaise || 0), 0);
+  const pendingPaise = pendingWithdrawals.reduce((sum, w) => sum + (w.amountPaise || 0), 0);
+  const availablePaise = Math.max(0, totalDepositedPaise - withdrawnPaise - pendingPaise);
+
+  res.json({
+    member: {
+      id: member._id,
+      code: member.code,
+      name: member.name,
+      mobile: member.mobile,
+      branch: member.branch,
+    },
+    totalDeposited: totalDepositedPaise / 100,
+    totalWithdrawn: withdrawnPaise / 100,
+    pendingWithdrawal: pendingPaise / 100,
+    availableBalance: availablePaise / 100,
+    deposits,
+    withdrawals: withdrawals.map((w) => ({
+      id: w._id,
+      receiptNo: w.receiptNo,
+      date: w.createdAt,
+      kind: w.kind,
+      amount: w.amountPaise / 100,
+      status: w.status,
+      remark: w.remark,
+    })),
+  });
+}
+
+export async function requestSavingsWithdrawal(req, res) {
+  const { memberId, amount, kind = 'withdraw', remark = '' } = req.body || {};
+  const member = await Member.findById(memberId);
+  if (!member) throw new HttpError(404, 'Member not found');
+
+  const payAmount = Number(amount);
+  if (!payAmount || payAmount < 100) throw new HttpError(400, 'Minimum withdrawal request is ₹100');
+
+  const receiptNo = await generateCode('securityReceipt').catch(() => `SEC${Date.now().toString().slice(-8)}`);
+  const doc = await SecurityWithdrawal.create({
+    receiptNo,
+    member: member._id,
+    memberCode: member.code,
+    memberName: member.name,
+    branch: member.branch,
+    kind,
+    amountPaise: Math.round(payAmount * 100),
+    remark,
+    status: 'pending',
+    requestedByCode: req.user?.employeeCode || '',
+    createdBy: req.user._id,
+  });
+
+  res.status(201).json({
+    success: true,
+    receiptNo: doc.receiptNo,
+    amount: payAmount,
+    message: `Withdrawal request of ₹${payAmount} submitted for admin approval`,
+  });
+}
+
+// -----------------------------------------------------------------------------
+// 20. EMPLOYEE REPORTS & TARGETS (POINT 17)
+// -----------------------------------------------------------------------------
+export async function getEmployeeReports(req, res) {
+  const code = req.user?.employeeCode;
+  const { dateFrom, dateTo } = req.query;
+
+  const dateFilter = {};
+  if (dateFrom && dateTo) {
+    dateFilter.createdAt = {
+      $gte: new Date(`${dateFrom}T00:00:00.000Z`),
+      $lte: new Date(`${dateTo}T23:59:59.999Z`),
+    };
+  }
+
+  const disbursements = await LoanPayment.find({
+    employeeCode: code,
+    status: 'paid',
+    ...dateFilter,
+  }).sort({ paidOn: -1 }).limit(100).lean();
+
+  const totalDisbursed = disbursements.reduce((sum, d) => sum + (d.totalAmountPaise || d.amountPaise || 0), 0) / 100;
+
+  const requisitions = await LoanRequisition.find({
+    employeeCode: code,
+    isDeleted: false,
+    ...dateFilter,
+  }).sort({ createdAt: -1 }).limit(100).lean();
+
+  const approvals = requisitions.filter((r) => r.status === 'approved');
+
+  const npaPayments = await EmiPayment.find({
+    employeeCode: code,
+    npa: true,
+    status: 'paid',
+    ...dateFilter,
+  }).sort({ paidOn: -1 }).limit(100).lean();
+
+  const totalNpaRecovered = npaPayments.reduce((sum, p) => sum + (p.amountPaise || 0), 0) / 100;
+
+  const targetTasks = await TargetTask.find({
+    status: 'active',
+    'employees.code': code,
+  }).sort({ fromDate: -1 }).limit(5).lean();
+
+  res.json({
+    summary: {
+      totalDisbursed,
+      disbursementCount: disbursements.length,
+      requisitionCount: requisitions.length,
+      approvalCount: approvals.length,
+      totalNpaRecovered,
+      npaRecoveryCount: npaPayments.length,
+    },
+    disbursements: disbursements.map((d) => ({
+      loanId: d.loanId || d.receiptNo,
+      borrower: d.lines?.[0]?.name,
+      amount: (d.totalAmountPaise || d.amountPaise || 0) / 100,
+      mode: d.mode,
+      date: d.paidOn ? new Date(d.paidOn).toLocaleDateString() : 'N/A',
+    })),
+    requisitions: requisitions.map((r) => ({
+      formId: r.formId,
+      borrower: r.borrower?.name,
+      amount: (r.amountPaise || 0) / 100,
+      status: r.status,
+      date: r.createdAt ? new Date(r.createdAt).toLocaleDateString() : 'N/A',
+    })),
+    approvals: approvals.map((a) => ({
+      formId: a.formId,
+      borrower: a.borrower?.name,
+      amount: (a.amountPaise || 0) / 100,
+      status: a.status,
+    })),
+    npaRecovery: npaPayments.map((p) => ({
+      receiptNo: p.receiptNo,
+      member: p.memberName,
+      amount: (p.amountPaise || 0) / 100,
+      date: p.paidOn ? new Date(p.paidOn).toLocaleDateString() : 'N/A',
+      payMode: p.payMode,
+    })),
+    targets: targetTasks.map((t) => ({
+      id: t._id,
+      fromDate: t.fromDate,
+      toDate: t.toDate,
+      targets: t.targets,
+      achieved: {
+        d6: totalDisbursed,
+        npaRecovery: totalNpaRecovered,
+      },
+    })),
+  });
+}
+
+// -----------------------------------------------------------------------------
+// 21. FIRST MEETING ATTENDANCE (POINT 18)
+// -----------------------------------------------------------------------------
+export async function markFirstMeetingAttendance(req, res) {
+  const code = req.user?.employeeCode;
+  const { photo, location } = req.body || {};
+  if (!photo) throw new HttpError(400, 'Meeting photo upload is required');
+
+  const emp = await Employee.findOne({ employeeCode: code });
+  if (!emp) throw new HttpError(404, 'Employee record not found');
+
+  const today = startOfToday();
+
+  const meetingRecord = await FirstMeetingAttendance.findOneAndUpdate(
+    { employeeCode: code, date: today },
+    {
+      employeeCode: code,
+      employeeName: emp.name,
+      branch: emp.branch,
+      date: today,
+      photo,
+      location,
+      status: 'present',
+    },
+    { upsert: true, new: true }
+  );
+
+  await Attendance.findOneAndUpdate(
+    { employee: emp._id, date: today },
+    {
+      employee: emp._id,
+      date: today,
+      status: 'present',
+      source: 'app',
+      lat: location?.lat,
+      lng: location?.lng,
+      firstActivity: new Date(),
+      remark: 'First meeting marked with photo in app',
+    },
+    { upsert: true }
+  );
+
+  res.status(201).json({
+    success: true,
+    message: 'First meeting attendance marked successfully with photo!',
+    item: meetingRecord,
+  });
+}
+
+// -----------------------------------------------------------------------------
+// 22. SALARY SLIP MONTH WISE (POINT 19)
+// -----------------------------------------------------------------------------
+export async function getSalarySlips(req, res) {
+  const code = req.user?.employeeCode;
+  const slips = await Salary.find({ employeeCode: code })
+    .sort({ month: -1 })
+    .lean();
+
+  res.json({
+    items: slips.map((s) => ({
+      id: s._id,
+      month: s.month,
+      name: s.name,
+      designation: s.designation,
+      branch: s.branchName,
+      basicSalary: (s.basicPaise || 0) / 100,
+      allowances: (s.allowancesPaise || 0) / 100,
+      deductions: (s.deductionsPaise || 0) / 100,
+      netSalary: (s.netSalaryPaise || 0) / 100,
+      paidDays: s.paidDays || 30,
+      status: s.status,
+      paidOn: s.paidOn,
+    })),
+  });
+}
+
+// -----------------------------------------------------------------------------
+// 23. ATTENDANCE HISTORY MONTH WISE (POINT 20)
+// -----------------------------------------------------------------------------
+export async function getAttendanceHistory(req, res) {
+  const code = req.user?.employeeCode;
+  const emp = await Employee.findOne({ employeeCode: code });
+  if (!emp) throw new HttpError(404, 'Employee not found');
+
+  const monthStr = cleanStr(req.query.month) || new Date().toISOString().slice(0, 7);
+  const startMonth = new Date(`${monthStr}-01T00:00:00.000Z`);
+  const endMonth = new Date(startMonth.getFullYear(), startMonth.getMonth() + 1, 0, 23, 59, 59, 999);
+
+  const records = await Attendance.find({
+    employee: emp._id,
+    date: { $gte: startMonth, $lte: endMonth },
+  }).sort({ date: 1 }).lean();
+
+  const meetingPhotos = await FirstMeetingAttendance.find({
+    employeeCode: code,
+    date: { $gte: startMonth, $lte: endMonth },
+  }).lean();
+
+  const photoMap = new Map();
+  meetingPhotos.forEach((p) => {
+    photoMap.set(new Date(p.date).toISOString().slice(0, 10), p.photo);
+  });
+
+  const presentCount = records.filter((r) => r.status === 'present').length;
+  const absentCount = records.filter((r) => r.status === 'absent').length;
+  const leaveCount = records.filter((r) => r.status === 'leave').length;
+
+  res.json({
+    month: monthStr,
+    summary: {
+      present: presentCount,
+      absent: absentCount,
+      leave: leaveCount,
+      totalMarked: records.length,
+    },
+    days: records.map((r) => {
+      const dStr = new Date(r.date).toISOString().slice(0, 10);
+      return {
+        date: dStr,
+        status: r.status,
+        photo: photoMap.get(dStr) || null,
+        firstActivity: r.firstActivity,
+        remark: r.remark,
+      };
+    }),
+  });
+}
+
+// -----------------------------------------------------------------------------
+// 24. NEW CENTER VISIT UPDATE (POINT 21)
+// -----------------------------------------------------------------------------
+export async function recordCenterVisit(req, res) {
+  const code = req.user?.employeeCode;
+  const emp = await Employee.findOne({ employeeCode: code });
+  const { centerName, contactName, contactNumber, location, image, notes } = req.body || {};
+
+  if (!centerName || !contactName || !contactNumber) {
+    throw new HttpError(400, 'Center name, contact person name and mobile number are required');
+  }
+
+  const visit = await CenterVisit.create({
+    employeeCode: code,
+    employeeName: emp?.name,
+    branch: emp?.branch,
+    centerName,
+    contactName,
+    contactNumber,
+    location,
+    image,
+    visitDate: new Date(),
+    notes,
+  });
+
+  res.status(201).json({
+    success: true,
+    message: 'New Center visit updated successfully!',
+    item: visit,
+  });
+}
+
+export async function listCenterVisits(req, res) {
+  const code = req.user?.employeeCode;
+  const items = await CenterVisit.find({ employeeCode: code }).sort({ visitDate: -1 }).limit(50).lean();
+  res.json({ items });
+}
+
+// -----------------------------------------------------------------------------
+// 25. CGT VISIT UPDATE (POINT 22)
+// -----------------------------------------------------------------------------
+export async function listCgtVisits(req, res) {
+  const code = req.user?.employeeCode;
+  const items = await CgtVisit.find({ employeeCode: code }).sort({ updatedAt: -1 }).limit(50).lean();
+  res.json({ items });
+}
+
+export async function updateCgtDayPhoto(req, res) {
+  const code = req.user?.employeeCode;
+  const { centerName, day, photo, date = new Date() } = req.body || {};
+  if (!centerName || !day || !photo) {
+    throw new HttpError(400, 'Center name, CGT day (1, 2, or 3), and photo are required');
+  }
+
+  const emp = await Employee.findOne({ employeeCode: code });
+  let visit = await CgtVisit.findOne({ centerName: new RegExp(`^${centerName}$`, 'i'), employeeCode: code });
+
+  if (!visit) {
+    visit = new CgtVisit({
+      centerName,
+      branch: emp?.branch,
+      employeeCode: code,
+    });
+  }
+
+  const dayKey = `day${day}`;
+  visit[dayKey] = {
+    date: new Date(date),
+    photo,
+    byCode: code,
+  };
+
+  if (visit.day1?.photo && visit.day2?.photo && visit.day3?.photo) {
+    visit.status = 'completed';
+  }
+
+  await visit.save();
+
+  res.json({
+    success: true,
+    message: `CGT Day ${day} photo updated successfully for ${centerName}!`,
+    item: visit,
+  });
+}
+
+// -----------------------------------------------------------------------------
+// 26. LEAVE APPLY, HISTORY & BALANCES (POINT 23)
+// -----------------------------------------------------------------------------
+export async function getLeaveOverview(req, res) {
+  const code = req.user?.employeeCode;
+  const emp = await Employee.findOne({ employeeCode: code });
+  if (!emp) throw new HttpError(404, 'Employee not found');
+
+  const leaves = await Leave.find({ employee: emp._id }).sort({ createdAt: -1 }).limit(30).lean();
+
+  const approvedCasual = leaves.filter((l) => l.type === 'casual' && l.status === 'approved').reduce((s, l) => s + (l.days || 1), 0);
+  const approvedEarned = leaves.filter((l) => l.type === 'earned' && l.status === 'approved').reduce((s, l) => s + (l.days || 1), 0);
+
+  res.json({
+    balances: {
+      clTotal: 12,
+      clUsed: approvedCasual,
+      clBalance: Math.max(0, 12 - approvedCasual),
+      elTotal: 15,
+      elUsed: approvedEarned,
+      elBalance: Math.max(0, 15 - approvedEarned),
+    },
+    leaves,
+  });
+}
+
+export async function applyLeave(req, res) {
+  const code = req.user?.employeeCode;
+  const emp = await Employee.findOne({ employeeCode: code });
+  const { type = 'casual', from, to, reason } = req.body || {};
+
+  if (!from || !to) throw new HttpError(400, 'From date and To date are required');
+
+  const d1 = new Date(from);
+  const d2 = new Date(to);
+  const days = Math.max(1, Math.round((d2 - d1) / (1000 * 60 * 60 * 24)) + 1);
+
+  const doc = await Leave.create({
+    employee: emp._id,
+    employeeCode: code,
+    employeeName: emp.name,
+    branch: emp.branch,
+    type,
+    from: d1,
+    to: d2,
+    days,
+    reason,
+    status: 'pending',
+    appliedByCode: code,
+  });
+
+  res.status(201).json({
+    success: true,
+    message: `Leave application for ${days} day(s) submitted for approval!`,
+    item: doc,
+  });
+}
+
+// -----------------------------------------------------------------------------
+// 27. COMPLAINT SUBMISSION (POINT 24)
+// -----------------------------------------------------------------------------
+export async function submitComplaint(req, res) {
+  const code = req.user?.employeeCode;
+  const emp = await Employee.findOne({ employeeCode: code });
+  const { category = 'other', description, loanId, callerMobile } = req.body || {};
+
+  if (!description) throw new HttpError(400, 'Complaint description is required');
+
+  const count = await Complaint.countDocuments({});
+  const complaintNo = `CMP${String(count + 1001).padStart(6, '0')}`;
+
+  const doc = await Complaint.create({
+    complaintNo,
+    date: new Date(),
+    callerName: emp?.name || code,
+    callerMobile: callerMobile || emp?.mobile || '',
+    branch: emp?.branch,
+    category,
+    loanId,
+    description,
+    status: 'open',
+    enteredByCode: code,
+  });
+
+  res.status(201).json({
+    success: true,
+    complaintNo: doc.complaintNo,
+    message: `Complaint ${complaintNo} registered successfully!`,
+  });
+}
+
+export async function listMyComplaints(req, res) {
+  const code = req.user?.employeeCode;
+  const items = await Complaint.find({ enteredByCode: code }).sort({ createdAt: -1 }).limit(30).lean();
+  res.json({ items });
+}
+
+// -----------------------------------------------------------------------------
+// 28. RESIGNATION SUBMISSION (POINT 25)
+// -----------------------------------------------------------------------------
+export async function submitResignation(req, res) {
+  const code = req.user?.employeeCode;
+  const emp = await Employee.findOne({ employeeCode: code });
+  const { lastWorkingDate, reason } = req.body || {};
+
+  if (!lastWorkingDate || !reason) throw new HttpError(400, 'Proposed last working date and reason are required');
+
+  const doc = await Resignation.create({
+    employee: emp._id,
+    employeeCode: code,
+    employeeName: emp.name,
+    branch: emp.branch,
+    appliedOn: new Date(),
+    lastWorkingDate: new Date(lastWorkingDate),
+    reason,
+    status: 'pending',
+    appliedByCode: code,
+  });
+
+  res.status(201).json({
+    success: true,
+    message: 'Resignation request submitted to HR Management for review.',
+    item: doc,
+  });
+}
+
+export async function getResignationStatus(req, res) {
+  const code = req.user?.employeeCode;
+  const item = await Resignation.findOne({ employeeCode: code }).sort({ createdAt: -1 }).lean();
+  res.json({ item });
+}
+
+// -----------------------------------------------------------------------------
+// 29. BRANCH TRANSFER REQUEST (POINT 26)
+// -----------------------------------------------------------------------------
+export async function requestBranchTransfer(req, res) {
+  const code = req.user?.employeeCode;
+  const emp = await Employee.findOne({ employeeCode: code }).populate('branch');
+  const { targetBranchId, reason } = req.body || {};
+
+  if (!targetBranchId) throw new HttpError(400, 'Please select the target branch');
+
+  const targetBranch = await Branch.findById(targetBranchId);
+  if (!targetBranch) throw new HttpError(404, 'Target branch not found');
+
+  const count = await EmployeeChange.countDocuments({});
+  const letterNo = `TRF${String(count + 1001).padStart(6, '0')}`;
+
+  const doc = await EmployeeChange.create({
+    letterNo,
+    kind: 'transfer',
+    employee: emp._id,
+    employeeCode: code,
+    employeeName: emp.name,
+    effectiveDate: new Date(),
+    fromBranch: emp.branch?._id || emp.branch,
+    toBranch: targetBranch._id,
+    fromBranchName: emp.branch?.name || '',
+    toBranchName: targetBranch.name,
+    remark: reason || 'Transfer requested by employee via Employee App',
+    byCode: code,
+  });
+
+  res.status(201).json({
+    success: true,
+    letterNo: doc.letterNo,
+    message: `Transfer request to ${targetBranch.name} submitted successfully!`,
+  });
+}
+
+export async function listTransferRequests(req, res) {
+  const code = req.user?.employeeCode;
+  const items = await EmployeeChange.find({ employeeCode: code, kind: 'transfer' }).sort({ createdAt: -1 }).lean();
+  res.json({ items });
+}
+
+// -----------------------------------------------------------------------------
+// 30. PRODUCT SALE (POINT 27)
+// -----------------------------------------------------------------------------
+export async function getBranchStockProducts(req, res) {
+  const code = req.user?.employeeCode;
+  const emp = await Employee.findOne({ employeeCode: code });
+  const branchId = emp?.branch;
+
+  const products = await StockProduct.find({
+    isDeleted: false,
+    isActive: true,
+    $or: [{ branch: branchId }, { branch: null }],
+  }).lean();
+
+  res.json({
+    items: products.map((p) => ({
+      id: p._id,
+      code: p.code,
+      name: p.name,
+      category: p.category,
+      brand: p.brand,
+      model: p.model,
+      unitPrice: (p.unitPricePaise || 0) / 100,
+      stockQty: p.stockQty || 0,
+    })),
+  });
+}
+
+export async function sellStockProduct(req, res) {
+  const code = req.user?.employeeCode;
+  const emp = await Employee.findOne({ employeeCode: code });
+  const { memberCode, productCode, quantity = 1, payMode = 'cash' } = req.body || {};
+
+  const product = await StockProduct.findOne({ code: productCode, isDeleted: false });
+  if (!product) throw new HttpError(404, 'Product not found');
+  if (product.stockQty < quantity) throw new HttpError(400, `Insufficient stock (Available: ${product.stockQty})`);
+
+  const member = await Member.findOne({ code: memberCode });
+  const unitPrice = (product.unitPricePaise || 0) / 100;
+  const totalAmount = unitPrice * quantity;
+
+  product.stockQty -= quantity;
+  await product.save();
+
+  const receiptNo = `SALE${Date.now().toString().slice(-8)}`;
+  const saleDoc = await ProductSaleOrder.create({
+    receiptNo,
+    employeeCode: code,
+    branch: emp?.branch,
+    memberCode,
+    memberName: member?.name || 'Customer',
+    productCode: product.code,
+    productName: product.name,
+    quantity,
+    unitPrice,
+    totalAmount,
+    payMode,
+    status: 'completed',
+  });
+
+  res.status(201).json({
+    success: true,
+    receiptNo,
+    totalAmount,
+    message: `Product ${product.name} sold successfully (Receipt: ${receiptNo})`,
+    item: saleDoc,
+  });
+}
+
+// -----------------------------------------------------------------------------
+// 31. TASKS (POINT 28)
+// -----------------------------------------------------------------------------
+export async function getMyTasks(req, res) {
+  const code = req.user?.employeeCode;
+  const tasks = await Task.find({ assignedToCode: code }).sort({ dueDate: 1 }).lean();
+  res.json({ items: tasks });
+}
+
+export async function updateTaskStatus(req, res) {
+  const { id } = req.params;
+  const { status, remark } = req.body || {};
+
+  const task = await Task.findById(id);
+  if (!task) throw new HttpError(404, 'Task not found');
+
+  task.status = status;
+  if (!task.history) task.history = [];
+  task.history.push({
+    status,
+    remark,
+    byCode: req.user?.employeeCode || '',
+    at: new Date(),
+  });
+  await task.save();
+
+  res.json({ success: true, item: task });
+}
+
+// -----------------------------------------------------------------------------
+// 32. HOLIDAYS (POINT 29)
+// -----------------------------------------------------------------------------
+export async function getHolidays(req, res) {
+  const year = Number(req.query.year) || new Date().getFullYear();
+  const startYear = new Date(year, 0, 1);
+  const endYear = new Date(year, 11, 31, 23, 59, 59);
+
+  const holidays = await Holiday.find({
+    isDeleted: false,
+    isActive: true,
+    date: { $gte: startYear, $lte: endYear },
+  }).sort({ date: 1 }).lean();
+
+  res.json({
+    year,
+    items: holidays.map((h) => ({
+      id: h._id,
+      name: h.name,
+      date: new Date(h.date).toISOString().slice(0, 10),
+    })),
+  });
+}
+
 
 

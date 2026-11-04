@@ -167,6 +167,51 @@ export default function EmployeeHome() {
           <div className="tile-icon">🧮</div>
           <div className="tile-title">{t('calculator')}</div>
         </div>
+
+        <div className="emp-action-tile" onClick={() => navigate('/employee/borrower-savings')}>
+          <div className="tile-icon">🏦</div>
+          <div className="tile-title">Borrower Savings &amp; Return</div>
+        </div>
+
+        <div className="emp-action-tile" onClick={() => navigate('/employee/reports')}>
+          <div className="tile-icon">📊</div>
+          <div className="tile-title">My Reports &amp; Targets</div>
+        </div>
+
+        <div className="emp-action-tile" onClick={() => navigate('/employee/attendance')}>
+          <div className="tile-icon">📸</div>
+          <div className="tile-title">Meeting Attendance</div>
+        </div>
+
+        <div className="emp-action-tile" onClick={() => navigate('/employee/salary-slips')}>
+          <div className="tile-icon">📑</div>
+          <div className="tile-title">Salary Slips</div>
+        </div>
+
+        <div className="emp-action-tile" onClick={() => navigate('/employee/center-visits')}>
+          <div className="tile-icon">🏘️</div>
+          <div className="tile-title">Center &amp; CGT Visits</div>
+        </div>
+
+        <div className="emp-action-tile" onClick={() => navigate('/employee/hr-services')}>
+          <div className="tile-icon">⚙️</div>
+          <div className="tile-title">HR Services &amp; Leaves</div>
+        </div>
+
+        <div className="emp-action-tile" onClick={() => navigate('/employee/product-sale')}>
+          <div className="tile-icon">📦</div>
+          <div className="tile-title">Product Sale</div>
+        </div>
+
+        <div className="emp-action-tile" onClick={() => navigate('/employee/tasks')}>
+          <div className="tile-icon">📌</div>
+          <div className="tile-title">My Tasks</div>
+        </div>
+
+        <div className="emp-action-tile" onClick={() => navigate('/employee/holidays')}>
+          <div className="tile-icon">🎉</div>
+          <div className="tile-title">Holiday Calendar</div>
+        </div>
       </div>
     </div>
   );
