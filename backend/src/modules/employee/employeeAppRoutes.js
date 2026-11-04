@@ -10,7 +10,7 @@ import {
   getEmployeeProfile,
   rateEmployee,
   getDashboard,
-  getTodayCollectionHistory,
+  getCollectionHistory,
   getTodayDueList,
   sendMemberOtp,
   verifyMemberOtp,
@@ -72,7 +72,7 @@ router.post('/calculator/public', h(calculateLoanEmi));
 router.get('/profile', requireAuth, h(getEmployeeProfile));
 router.post('/profile/rate', requireAuth, h(rateEmployee));
 router.get('/dashboard', requireAuth, h(getDashboard));
-router.get('/collections/today', requireAuth, h(getTodayCollectionHistory));
+router.get('/collections/today', requireAuth, h(getCollectionHistory));
 router.get('/collections/due', requireAuth, h(getTodayDueList));
 
 // Member Registration (Phone OTP first) & KYC
