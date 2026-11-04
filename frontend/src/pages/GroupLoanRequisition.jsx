@@ -129,7 +129,7 @@ export default function GroupLoanRequisition() {
   const toast = useToast();
   const navigate = useNavigate();
   const [branches, setBranches] = useState([]);
-  const [form, setForm] = useState({ branch: '', loanDate: form.loanDate || todayISO(), employeeCode: '', filterEmployee: '' });
+  const [form, setForm] = useState({ branch: '', loanDate: todayISO(), employeeCode: '', filterEmployee: '' });
   useEffect(() => {
     if (form.branch) {
       workDateOf(form.branch).then((d) => {

@@ -90,9 +90,21 @@ export default function DayClose() {
               <span>Last approved day <strong>{data.lastClosed ? dmy(data.lastClosed) : 'none yet'}</strong></span>
             </div>
             {!data.dateFixed && (
-              <FormField id="dcdate" label="Date to close" hint="Only for the very first close. After that the branch goes date by date.">
-                <input id="dcdate" type="date" value={date || data.date} max={todayIso()} onChange={(e) => setDate(e.target.value)} />
+              <FormField id="dcdate" label="Date to close" hint="Only for the very first close. Sundays and holidays are skipped. After that the branch goes date by date.">
+                <input id="dcdate" type="date" value={date || data.date} max={todayIso()} onChange={(e) => {
+                  const val = e.target.value;
+                  if (val && new Date(`${val}T00:00:00`).getDay() === 0) {
+                    toast.error('Sunday cannot be selected for Denomination. Please select a working day.');
+                    return;
+                  }
+                  setDate(val);
+                }} />
               </FormField>
+            )}
+            {data.date && new Date(`${data.date}T00:00:00`).getDay() === 0 && (
+              <div className="notice warn" style={{ margin: '8px 0' }}>
+                ⚠️ The selected date ({dmy(data.date)}) is a Sunday. Denomination cannot be created for Sundays.
+              </div>
             )}
             {data.reason && <div className="notice" style={{ margin: '8px 0' }}>{data.reason}</div>}
             {data.rejected && <div className="notice" style={{ margin: '8px 0', borderColor: 'var(--danger, #c0392b)' }}><strong>The denomination of {dmy(data.rejected.date)} was rejected{data.rejected.rejectReason ? `: ${data.rejected.rejectReason}` : ''}.</strong> Only EMI collection is allowed until you make it again and the admin approves it. Requisition, approval, payment, product entry, settlement, new member, group, security, commission payment, vouchers and bank deposit / withdrawal are stopped.</div>}
@@ -145,7 +157,7 @@ export default function DayClose() {
                 </div>
                 {errors.counts && <div className="field-error">{errors.counts}</div>}
                 <FormField id="dcremark" label="Remark" hint="Optional"><input id="dcremark" value={remark} maxLength={200} onChange={(e) => setRemark(e.target.value)} /></FormField>
-                <button className="btn primary" onClick={submit} disabled={busy || diff !== 0 || closing < 0} title={closing < 0 ? 'Cashbook closing cannot be negative' : diff !== 0 ? 'The count must match the Cashbook closing' : ''}>{busy ? 'Saving…' : 'Make the denomination and close the day'}</button>
+                <button className="btn primary" onClick={submit} disabled={busy || diff !== 0 || closing < 0 || (data.date && new Date(`${data.date}T00:00:00`).getDay() === 0)} title={data.date && new Date(`${data.date}T00:00:00`).getDay() === 0 ? 'Denomination cannot be made on Sunday' : closing < 0 ? 'Cashbook closing cannot be negative' : diff !== 0 ? 'The count must match the Cashbook closing' : ''}>{busy ? 'Saving…' : 'Make the denomination and close the day'}</button>
                 {diff !== 0 && <div className="notice warn" style={{ marginTop: 8 }}>The denomination is {diff > 0 ? 'more' : 'less'} than the Cashbook closing by {inr(Math.abs(diff))}. The day can be closed only when they match: count again, or correct the Cashbook entries of {dmy(data.date)} first.</div>}
               </>
             ) : data.waiting && (

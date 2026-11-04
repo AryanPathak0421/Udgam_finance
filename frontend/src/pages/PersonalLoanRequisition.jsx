@@ -887,7 +887,7 @@ function RequisitionForm({ kind }) {
                 <input id="gstNumber" value={biz.gstNumber} onChange={(e) => { setBiz((x) => ({ ...x, gstNumber: e.target.value.toUpperCase().slice(0, 15) })); setErrors((er) => ({ ...er, 'business.gstNumber': undefined })); }} maxLength={15} />
               </FormField>
               {[0, 1, 2].map((i) => (
-                <PhotoField key={i} id={`shopPhoto${i + 1}`} label={`Shop photo ${i + 1}`} required value={biz.shopPhotos[i]} error={i === 0 ? errors['business.shopPhoto'] : undefined}
+                <PhotoField key={i} id={`shopPhoto${i + 1}`} label={i === 2 ? 'Staff + shop photo' : `Shop photo ${i + 1}`} cameraOnly required value={biz.shopPhotos[i]} error={i === 0 ? errors['business.shopPhoto'] : undefined}
                   onChange={(v) => { setBiz((x) => ({ ...x, shopPhotos: x.shopPhotos.map((p, j) => (j === i ? v : p)) })); setErrors((er) => ({ ...er, 'business.shopPhoto': undefined })); }} />
               ))}
               <DocumentField id="bankStatement" label="Bank statement" required value={biz.bankStatement} name={biz.bankStatementName} error={errors['business.bankStatement']}

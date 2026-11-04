@@ -6,7 +6,7 @@ import { audit } from '../utils/audit.js';
 import { isAdmin } from './groupController.js';
 import { cashbookData } from './cashbookController.js';
 import { branchWorkingDate } from '../services/dayOpen.js';
-import { offDaysFor, nextWorking } from '../services/holidays.js';
+import { offDaysFor, nextWorking, isOff } from '../services/holidays.js';
 import { notifyApprovers } from '../services/notify.js';
 import { UserNotification } from '../models/SuperAdmin.js';
 
@@ -60,8 +60,9 @@ export async function status(req, res) {
   const today = startOfToday();
   const off = await offDaysFor(branch._id);
   let date = revokedClose ? revokedClose.date : pending ? pending.date : workingDate || parseDateOnly(asString(req.query.date)) || today;
-  if (!workingDate && !pending && !revokedClose) date = nextWorking(date, off);
-  if (date > today) date = today;
+  if (!pending && !revokedClose) {
+    if (isOff(date, off)) date = nextWorking(date, off);
+  }
   const cash = await cashOf(req, branch._id, date);
   const isClosingNegative = cash.closing < 0;
   const canClose = (revokedClose ? true : (!pending && (!workingDate || workingDate <= today))) && !isClosingNegative;
@@ -105,10 +106,13 @@ export async function submit(req, res) {
   const lastApproved = await DayClose.findOne({ branch: branch._id, status: 'approved' }).sort({ date: -1 }).lean();
   let date = parseDateOnly(asString(b.date)) || today;
   const working = await branchWorkingDate(branch._id);
+  const off = await offDaysFor(branch._id);
   if (working) date = working; // the branch goes date by date (a day the admin revoked first)
   else {
-    const off = await offDaysFor(branch._id);
     date = nextWorking(date, off);
+  }
+  if (isOff(date, off)) {
+    throw new HttpError(422, 'Sunday ya holiday ka denomination nahi ban sakta. Working day par banayein.');
   }
   const isRevokedDay = await DayClose.exists({ branch: branch._id, date, status: 'revoked' });
   const waiting = await DayClose.findOne({ branch: branch._id, status: 'submitted' }).lean();

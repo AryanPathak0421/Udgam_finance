@@ -302,6 +302,8 @@ export const api = {
     guarantorDeaths: (params) => request(`/settlements/guarantor-deaths${qs(params)}`),
     list: (params) => request(`/settlements${qs(params)}`),
     get: (id) => request(`/settlements/${id}`),
+    approve: (id) => request(`/settlements/${id}/approve`, { method: 'POST' }),
+    reject: (id, reason) => request(`/settlements/${id}/reject`, { method: 'POST', body: { reason } }),
     cancel: (id, reason) => request(`/settlements/${id}/cancel`, { method: 'POST', body: { reason } }),
   },
   emi: {

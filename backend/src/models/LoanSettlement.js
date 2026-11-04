@@ -30,7 +30,7 @@ const loanSettlementSchema = new mongoose.Schema(
     certificate: { type: String, select: false }, // death certificate (PDF or image)
     claimRef: String, // insurance claim reference
     verifier: { code: String, name: String }, // the employee who verified it
-    status: { type: String, enum: ['active', 'cancelled'], default: 'active' },
+    status: { type: String, enum: ['active', 'cancelled', 'pending', 'rejected'], default: 'active' },
     cancelReason: String,
     cancelledAt: Date,
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },

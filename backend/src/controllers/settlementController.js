@@ -71,7 +71,9 @@ async function prepare(req, b) {
 }
 
 async function save(req, p, line, data) {
-  await assertDayOpen(p.branch._id, data.settledOn, req.user);
+  if (data.status !== 'pending') {
+    await assertDayOpen(p.branch._id, data.settledOn, req.user);
+  }
   try {
     return await LoanSettlement.create({
       ...data, receiptNo: await generateCode('settlementReceipt'), loanPayment: p._id, loanId: p.loanId, formId: p.formId, branch: p.branch._id, member: line.member, memberCode: line.code,
@@ -136,14 +138,30 @@ export async function settleDeath(req, res) {
   if (!DOC_RE.test(certificate)) throw invalid({ certificate: 'The death certificate must be a PDF or an image' });
   if (certificate.length > MAX_DOC_CHARS) throw invalid({ certificate: 'The death certificate must be 800 KB or smaller' });
 
+  // Check if there is already an active or pending settlement for this member on this loan
+  const existing = await LoanSettlement.findOne({
+    loanPayment: p._id,
+    memberCode: line.code,
+    status: { $in: ['active', 'pending'] },
+  });
+  if (existing) {
+    if (existing.status === 'pending') {
+      throw new HttpError(409, `A death settlement request is already pending approval (${existing.receiptNo})`);
+    }
+    throw new HttpError(409, `This loan is already settled (${existing.receiptNo})`);
+  }
+
   // The verifier is the signed-in employee (code and name come from the account, not from the form).
   const verifier = { code: req.user.employeeCode || '', name: req.user.name || '' };
+  const isAdminUser = ['super_admin', 'admin'].includes(req.user.role);
+  const status = isAdminUser ? 'active' : 'pending';
+
   const s = await save(req, p, line, {
-    kind: 'death', outstandingPaise, amountPaise: 0, waiverPaise: outstandingPaise, settledOn, remark, deathDate, certificate, claimRef: asString(b.claimRef).slice(0, 60), verifier,
+    kind: 'death', outstandingPaise, amountPaise: 0, waiverPaise: outstandingPaise, settledOn, remark, deathDate, certificate, claimRef: asString(b.claimRef).slice(0, 60), verifier, status,
   });
-  // After a death settlement the member is blocked (the same record the Block / Unblock screen keeps).
+  // After an approved death settlement the member is blocked (the same record the Block / Unblock screen keeps).
   let blocked = false;
-  if (line.member) {
+  if (status === 'active' && line.member) {
     const m = await Member.findById(line.member).select('isBlocked');
     if (m && !m.isBlocked) {
       await Member.updateOne({ _id: m._id }, { $set: { isBlocked: true }, $push: { blockHistory: { action: 'block', reason: `Death settlement ${s.receiptNo} (died on ${iso(deathDate)})`, at: new Date(), by: req.user._id, byCode: verifier.code } } });
@@ -151,14 +169,21 @@ export async function settleDeath(req, res) {
     }
   }
   await s.populate(POPULATE);
-  await audit(req, { action: 'settlement.death', entity: 'LoanSettlement', entityId: s._id, after: { receiptNo: s.receiptNo, loanId: p.loanId, member: line.code, deathDate: iso(deathDate), outstanding: outstandingPaise / 100, blocked } });
+  await audit(req, {
+    action: isAdminUser ? 'settlement.death' : 'settlement.deathRequest',
+    entity: 'LoanSettlement',
+    entityId: s._id,
+    after: { receiptNo: s.receiptNo, loanId: p.loanId, member: line.code, deathDate: iso(deathDate), outstanding: outstandingPaise / 100, status, blocked },
+  });
   notifyApprovers({
     branch: s.branch?._id || s.branch,
-    title: 'Death settlement',
-    message: `Loan ${p.loanId} for ${line.name || line.code} closed under death settlement (Receipt ${s.receiptNo}).`,
+    title: isAdminUser ? 'Death settlement' : 'Death settlement request',
+    message: isAdminUser
+      ? `Loan ${p.loanId} for ${line.name || line.code} closed under death settlement (Receipt ${s.receiptNo}).`
+      : `Death settlement request submitted for Loan ${p.loanId} (${line.name || line.code}) awaiting Admin approval.`,
     extraUsers: [req.user._id],
   });
-  res.status(201).json({ settlement: present(s), memberBlocked: blocked });
+  res.status(201).json({ settlement: present(s), pending: status === 'pending', memberBlocked: blocked });
 }
 
 /**
@@ -208,7 +233,11 @@ export async function guarantorDeathList(req, res) {
 
 export async function listSettlements(req, res) {
   const { page, limit, skip } = parsePaging(req.query, { defaultLimit: 25 });
-  const filter = { ...branchFilter(req.user), kind: req.query.kind === 'death' ? 'death' : req.query.kind === 'auto' ? 'auto' : req.query.kind === 'manual' ? 'loan' : { $in: ['loan', 'auto'] }, status: req.query.status === 'cancelled' ? 'cancelled' : 'active' };
+  const statusParam = asString(req.query.status);
+  const status = ['active', 'cancelled', 'pending', 'rejected'].includes(statusParam)
+    ? statusParam
+    : (statusParam === 'all' ? { $in: ['active', 'cancelled', 'pending', 'rejected'] } : 'active');
+  const filter = { ...branchFilter(req.user), kind: req.query.kind === 'death' ? 'death' : req.query.kind === 'auto' ? 'auto' : req.query.kind === 'manual' ? 'loan' : { $in: ['loan', 'auto'] }, status };
   if (mongoose.isValidObjectId(req.query.branch)) filter.branch = req.query.branch;
   const from = parseDateOnly(asString(req.query.from));
   const to = parseDateOnly(asString(req.query.to));
@@ -227,6 +256,87 @@ export async function listSettlements(req, res) {
     LoanSettlement.countDocuments(filter),
   ]);
   res.json({ items: items.map((s) => present(s)), page, limit, total, totalPages: Math.max(Math.ceil(total / limit), 1) });
+}
+
+export async function approveDeathSettlement(req, res) {
+  if (!['super_admin', 'admin'].includes(req.user.role)) throw new HttpError(403, 'Only admin can approve death settlement');
+  const s = await LoanSettlement.findOne({ _id: req.params.id, status: 'pending', kind: 'death' });
+  if (!s) throw new HttpError(404, 'Pending death settlement request not found');
+
+  const settledOn = await defaultWorkDate(s.branch, req.user);
+  await assertDayOpen(s.branch, settledOn, req.user);
+
+  s.status = 'active';
+  s.settledOn = settledOn;
+  await s.save();
+
+  let blocked = false;
+  if (s.member) {
+    const m = await Member.findById(s.member).select('isBlocked');
+    if (m && !m.isBlocked) {
+      await Member.updateOne(
+        { _id: m._id },
+        {
+          $set: { isBlocked: true },
+          $push: {
+            blockHistory: {
+              action: 'block',
+              reason: `Death settlement approved ${s.receiptNo} (died on ${iso(s.deathDate)})`,
+              at: new Date(),
+              by: req.user._id,
+              byCode: req.user.employeeCode || '',
+            },
+          },
+        }
+      );
+      blocked = true;
+    }
+  }
+
+  await audit(req, {
+    action: 'settlement.deathApprove',
+    entity: 'LoanSettlement',
+    entityId: s._id,
+    after: { receiptNo: s.receiptNo, loanId: s.loanId, member: s.memberCode, deathDate: iso(s.deathDate), blocked },
+  });
+
+  notifyApprovers({
+    branch: s.branch,
+    title: 'Death settlement approved',
+    message: `Death settlement for Loan ${s.loanId} (${s.memberName || s.memberCode}) has been approved by Admin. Loan closed.`,
+    extraUsers: [s.createdBy],
+  });
+
+  res.json({ message: 'Death settlement approved and loan closed', settlement: present(s), memberBlocked: blocked });
+}
+
+export async function rejectDeathSettlement(req, res) {
+  if (!['super_admin', 'admin'].includes(req.user.role)) throw new HttpError(403, 'Only admin can reject death settlement');
+  const reason = asString(req.body?.reason).trim();
+  if (reason.length < 3) throw invalid({ reason: 'Enter reason for rejection (at least 3 characters)' });
+  const s = await LoanSettlement.findOne({ _id: req.params.id, status: 'pending', kind: 'death' });
+  if (!s) throw new HttpError(404, 'Pending death settlement request not found');
+
+  s.status = 'rejected';
+  s.cancelReason = reason;
+  s.cancelledAt = new Date();
+  await s.save();
+
+  await audit(req, {
+    action: 'settlement.deathReject',
+    entity: 'LoanSettlement',
+    entityId: s._id,
+    after: { receiptNo: s.receiptNo, loanId: s.loanId, member: s.memberCode, reason },
+  });
+
+  notifyApprovers({
+    branch: s.branch,
+    title: 'Death settlement rejected',
+    message: `Death settlement request for Loan ${s.loanId} (${s.memberName || s.memberCode}) was rejected by Admin. Reason: ${reason}`,
+    extraUsers: [s.createdBy],
+  });
+
+  res.json({ message: 'Death settlement request rejected', settlement: present(s) });
 }
 
 export async function getSettlement(req, res) {

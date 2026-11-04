@@ -348,6 +348,8 @@ function LoanSettleForm({ loanId, member, canSettle, onDone }) {
 
 // ---- death settlement --------------------------------------------------------------------------------------------------
 function DeathSettleForm({ loanId, member, canSettle, onDone }) {
+  const { user } = useAuth();
+  const isAdmin = ['super_admin', 'admin'].includes(user?.role);
   const toast = useToast();
   const { data: d, error, load } = usePreview(loanId, member);
   const [form, setForm] = useState({ deathDate: '', settledOn: todayISO(), remark: '', claimRef: '', certificate: '', certificateName: '' });
@@ -384,7 +386,11 @@ function DeathSettleForm({ loanId, member, canSettle, onDone }) {
     setBusy(true);
     try {
       const r = await api.settlements.settleDeath({ loan: loanId, member, ...form, settledOn: undefined });
-      toast.success(`Death settlement saved — ${r.settlement.receiptNo}${r.memberBlocked ? '. The member is blocked.' : ''}`);
+      if (r.pending) {
+        toast.success(`Death settlement request submitted (${r.settlement.receiptNo}) — awaiting Admin approval`);
+      } else {
+        toast.success(`Death settlement saved — ${r.settlement.receiptNo}${r.memberBlocked ? '. The member is blocked.' : ''}`);
+      }
       onDone(r.settlement);
     } catch (err) {
       setErrors(err.errors || {});
@@ -401,7 +407,7 @@ function DeathSettleForm({ loanId, member, canSettle, onDone }) {
         <div className="muted">You can view the loan but not settle it.</div>
       ) : (
         <div className="panel" style={{ padding: 16 }}>
-          <h3 className="section-title">Death settlement — {d.borrower.code} {d.borrower.name}</h3>
+          <h3 className="section-title">{isAdmin ? 'Death settlement' : 'Death settlement request'} — {d.borrower.code} {d.borrower.name}</h3>
           <div className="form-grid">
             <FormField id="dbranch" label="Branch"><input id="dbranch" value={d.loan.branch} disabled /></FormField>
             <FormField id="ddeath" label="Date of death" required error={errors.deathDate}>
@@ -429,10 +435,16 @@ function DeathSettleForm({ loanId, member, canSettle, onDone }) {
               <input id="dremark" value={form.remark} maxLength={300} onChange={set('remark')} />
             </FormField>
           </div>
-          <div className="notice warn" style={{ margin: '10px 0' }}>
-            The outstanding {inr(d.state.outstanding)} is settled against the loan insurance and no more EMI is due on this loan. After saving, <strong>{d.borrower.name} is blocked automatically</strong>.
-          </div>
-          <button className="btn primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save death settlement'}</button>
+          {isAdmin ? (
+            <div className="notice warn" style={{ margin: '10px 0' }}>
+              The outstanding {inr(d.state.outstanding)} is settled against the loan insurance and no more EMI is due on this loan. After saving, <strong>{d.borrower.name} is blocked automatically</strong>.
+            </div>
+          ) : (
+            <div className="notice" style={{ margin: '10px 0', borderColor: 'var(--brand, #1976d2)', background: 'var(--surface-2, #e8f4fd)' }}>
+              <strong>Death settlement request:</strong> This request will be submitted to Admin for approval. Once approved by Admin, the loan will be closed and <strong>{d.borrower.name} will be blocked automatically</strong>.
+            </div>
+          )}
+          <button className="btn primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : (isAdmin ? 'Save death settlement' : 'Submit death settlement request')}</button>
         </div>
       )}
     </>
@@ -574,6 +586,7 @@ function History({ kind, reloadKey, onCancelled }) {
   const [search, setSearch] = useState('');
   const [view, setView] = useState(null);
   const [cancelling, setCancelling] = useState(null);
+  const [rejecting, setRejecting] = useState(null);
   const [reason, setReason] = useState('');
   const [reasonError, setReasonError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -597,6 +610,37 @@ function History({ kind, reloadKey, onCancelled }) {
     load();
   }, [load, reloadKey]);
   useEffect(() => setPage(1), [status, type, branch, from, to, q]);
+
+  async function approve(s) {
+    if (!window.confirm(`Approve death settlement for ${s.memberCode} ${s.memberName || ''}? The loan will be closed and member blocked.`)) return;
+    setBusy(true);
+    try {
+      const r = await api.settlements.approve(s.id);
+      toast.success(r.message || 'Death settlement approved — loan closed and member blocked');
+      load();
+      if (onCancelled) onCancelled();
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function reject() {
+    if (reason.trim().length < 3) return setReasonError('Enter the rejection reason');
+    setBusy(true);
+    try {
+      await api.settlements.reject(rejecting.id, reason.trim());
+      toast.success('Death settlement request rejected');
+      setRejecting(null);
+      setReason('');
+      load();
+    } catch (err) {
+      setReasonError(err.errors?.reason || err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function cancel() {
     if (reason.trim().length < 3) return setReasonError('Enter the reason');
@@ -636,12 +680,13 @@ function History({ kind, reloadKey, onCancelled }) {
         )}
         <input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} aria-label="From date" />
         <input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} aria-label="To date" />
-        {isAdmin && (
-          <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status">
-            <option value="active">Settled</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
-        )}
+        <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status">
+          <option value="active">Settled (Approved)</option>
+          {death && <option value="pending">Pending Approval</option>}
+          <option value="cancelled">Cancelled</option>
+          {death && <option value="rejected">Rejected</option>}
+          <option value="all">All statuses</option>
+        </select>
       </div>
       {loading && !data.items.length ? <Spinner label="Loading…" /> : error ? <ErrorState message={error} onRetry={load} /> : data.items.length === 0 ? (
         <EmptyState title={death ? 'No death settlement' : 'No loan settlement'} description="Settlements appear here." />
@@ -655,7 +700,13 @@ function History({ kind, reloadKey, onCancelled }) {
               <tbody>
                 {data.items.map((s) => (
                   <tr key={s.id}>
-                    <td data-label="Receipt"><strong>{s.receiptNo}</strong>{s.auto && <div><span className="badge green">Auto settle</span></div>}</td>
+                    <td data-label="Receipt">
+                      <strong>{s.receiptNo}</strong>
+                      {s.status === 'pending' && <div><span className="badge amber">Pending Approval</span></div>}
+                      {s.status === 'rejected' && <div><span className="badge danger">Rejected</span></div>}
+                      {s.status === 'cancelled' && <div><span className="badge danger">Cancelled</span></div>}
+                      {s.auto && <div><span className="badge green">Auto settle</span></div>}
+                    </td>
                     <td data-label="Date">{dmy(s.settledOn)}</td>
                     <td data-label="Loan ID">{s.loanId || s.formId}</td>
                     <td data-label="Borrower"><strong>{s.memberCode}</strong> {s.memberName}{s.group && <div className="muted small">{s.group}</div>}</td>
@@ -668,8 +719,18 @@ function History({ kind, reloadKey, onCancelled }) {
                     <td data-label="Actions" className="actions-col">
                       <div className="row-actions">
                         <button className="btn sm" onClick={() => setView(s)}>View</button>
-                        <button className="btn sm" title="Print Receipt" onClick={() => { if (!printSettlement(s)) toast.error('Allow pop-ups to print'); }}>Receipt</button>
-                        <button className="btn sm primary" title="Download / Print NOC" onClick={() => { if (!printNoc(s)) toast.error('Allow pop-ups to print'); }}>NOC</button>
+                        {isAdmin && death && s.status === 'pending' && (
+                          <>
+                            <button className="btn sm primary" onClick={() => approve(s)} disabled={busy}>Approve</button>
+                            <button className="btn sm danger-outline" onClick={() => { setRejecting(s); setReason(''); setReasonError(''); }} disabled={busy}>Reject</button>
+                          </>
+                        )}
+                        {s.status === 'active' && (
+                          <>
+                            <button className="btn sm" title="Print Receipt" onClick={() => { if (!printSettlement(s)) toast.error('Allow pop-ups to print'); }}>Receipt</button>
+                            <button className="btn sm primary" title="Download / Print NOC" onClick={() => { if (!printNoc(s)) toast.error('Allow pop-ups to print'); }}>NOC</button>
+                          </>
+                        )}
                         {isAdmin && s.status === 'active' && !s.auto && <button className="btn sm danger-outline" onClick={() => { setCancelling(s); setReason(''); setReasonError(''); }}>Cancel</button>}
                       </div>
                     </td>
@@ -688,6 +749,15 @@ function History({ kind, reloadKey, onCancelled }) {
           <p style={{ marginTop: 0 }}>The loan of this borrower is open again and EMI is due as before.{death ? ' The member stays blocked until you unblock them.' : ''}</p>
           <FormField id="screason" label="Reason" required error={reasonError}>
             <input id="screason" value={reason} maxLength={200} autoFocus onChange={(e) => { setReason(e.target.value); setReasonError(''); }} />
+          </FormField>
+        </Modal>
+      )}
+      {rejecting && (
+        <Modal open title={`Reject request ${rejecting.receiptNo}?`} onClose={() => setRejecting(null)} busy={busy}
+          footer={<><button className="btn" onClick={() => setRejecting(null)} disabled={busy}>Cancel</button><button className="btn danger-outline" onClick={reject} disabled={busy}>Reject request</button></>}>
+          <p style={{ marginTop: 0 }}>Rejecting this death settlement request means the loan will NOT be closed and will continue as active.</p>
+          <FormField id="rjreason" label="Rejection reason" required error={reasonError}>
+            <input id="rjreason" value={reason} maxLength={200} autoFocus onChange={(e) => { setReason(e.target.value); setReasonError(''); }} />
           </FormField>
         </Modal>
       )}

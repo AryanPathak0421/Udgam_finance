@@ -165,7 +165,7 @@ export function EmployeeSelect({ id = 'employeeCode', label = 'Employee ID', req
   );
 }
 
-export function PhotoField({ id, label, value, error, onChange, required }) {
+export function PhotoField({ id, label, value, error, onChange, required, cameraOnly = false }) {
   const ref = useRef(null);
   const [err, setErr] = useState('');
   async function pick(e) {
@@ -184,8 +184,8 @@ export function PhotoField({ id, label, value, error, onChange, required }) {
       <div className="stamp-upload">
         {value ? <img src={value} alt={label} className="stamp-img" /> : <div className="stamp-empty">No image</div>}
         <div className="stamp-actions">
-          <input id={id} ref={ref} type="file" accept="image/png,image/jpeg" onChange={pick} hidden />
-          <button type="button" className="btn sm" onClick={() => ref.current?.click()}>{value ? 'Change' : 'Upload'}</button>
+          <input id={id} ref={ref} type="file" accept="image/*" capture={cameraOnly ? 'environment' : undefined} onChange={pick} hidden />
+          <button type="button" className="btn sm" onClick={() => ref.current?.click()}>{value ? 'Change' : (cameraOnly ? 'Take photo' : 'Upload')}</button>
           {value && <button type="button" className="btn sm danger-outline" onClick={() => onChange('')}>Remove</button>}
         </div>
       </div>

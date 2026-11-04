@@ -105,7 +105,7 @@ export async function quantityReport(req, res) {
   const category = asString(req.query.category);
   if (category) filter.category = category;
   const q = asString(req.query.q).toLowerCase();
-  const low = Number(asString(req.query.low));
+  const lowParam = asString(req.query.low);
   const products = await StockProduct.find(filter).sort({ category: 1, name: 1 }).limit(5000).populate(POP).lean();
   const entered = new Map((await StockEntry.aggregate([{ $match: { status: 'active', entryDate: { $gte: from, $lte: to }, product: { $in: products.map((p) => p._id) } } }, { $group: { _id: '$product', n: { $sum: '$quantity' } } }])).map((r) => [String(r._id), r.n]));
   const moves = await StockTransfer.find({ createdAt: { $gte: from, $lt: new Date(to.getTime() + 24 * 3600 * 1000) } }).select('fromBranch toBranch name quantity').lean();
@@ -120,7 +120,16 @@ export async function quantityReport(req, res) {
     id: p._id, code: p.code, name: p.name, category: p.category, place: branchLabel(p.branch), isActive: p.isActive, unitPrice: rupees(p.unitPricePaise), stock: p.stockQty, value: rupees(p.stockQty * p.unitPricePaise),
     received: entered.get(String(p._id)) || 0, transferIn: tin.get(key(p.name, p.branch?._id)) || 0, transferOut: tout.get(key(p.name, p.branch?._id)) || 0,
   })).filter((r) => !q || [r.code, r.name, r.category].some((v) => String(v).toLowerCase().includes(q)));
-  if (Number.isFinite(low) && asString(req.query.low) !== '') rows = rows.filter((r) => r.stock <= low);
+  if (lowParam === 'available') {
+    rows = rows.filter((r) => r.stock > 0);
+  } else if (lowParam === '0') {
+    rows = rows.filter((r) => r.stock === 0);
+  } else if (lowParam === '5' || lowParam === '10') {
+    const lim = Number(lowParam);
+    rows = rows.filter((r) => r.stock > 0 && r.stock <= lim);
+  } else if (Number.isFinite(Number(lowParam)) && lowParam !== '') {
+    rows = rows.filter((r) => r.stock > 0 && r.stock <= Number(lowParam));
+  }
   const sum = (f) => rows.reduce((s, r) => s + r[f], 0);
   const categories = [...new Set(products.map((p) => p.category))].sort();
   res.json({ from: iso(from), to: iso(to), rows, categories, totals: { products: rows.length, stock: sum('stock'), value: Math.round(sum('value') * 100) / 100, received: sum('received'), transferIn: sum('transferIn'), transferOut: sum('transferOut'), outOfStock: rows.filter((r) => r.stock === 0).length } });

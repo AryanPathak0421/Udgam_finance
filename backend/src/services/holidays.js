@@ -24,7 +24,7 @@ export async function loadHolidays() {
 export const offDaysOf = ({ company, byBranch }, branchId) => new Set([...company, ...(byBranch.get(String(branchId)) || [])]);
 export async function offDaysFor(branchId) { return offDaysOf(await loadHolidays(), branchId); }
 
-const isOff = (d, off) => d.getUTCDay() === 0 || off.has(iso(d));
+export const isOff = (d, off) => d.getUTCDay() === 0 || off.has(iso(d));
 export const nextWorking = (d, off) => { let x = d; while (isOff(x, off)) x = addDay(x); return x; };
 /** The date of installment k of a daily loan that starts on s: Sundays and holidays are skipped. */
 export const dailyNext = (off) => (s, k) => {

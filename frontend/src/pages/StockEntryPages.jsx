@@ -156,7 +156,7 @@ export function QuantityReport() {
         <div className="toolbar" style={{ flexWrap: 'wrap' }}>
           <PlaceSelect value={place} onChange={setPlace} isAdmin={isAdmin} />
           <select value={category} onChange={(e) => setCategory(e.target.value)} aria-label="Category"><option value="">All categories</option>{(d?.categories || []).map((c) => <option key={c} value={c}>{c}</option>)}</select>
-          <select value={low} onChange={(e) => setLow(e.target.value)} aria-label="Stock level"><option value="">Any stock</option><option value="0">Out of stock</option><option value="5">5 or less</option><option value="10">10 or less</option></select>
+          <select value={low} onChange={(e) => setLow(e.target.value)} aria-label="Stock level"><option value="">Any stock</option><option value="available">Available stock</option><option value="0">Out of stock</option><option value="5">Low stock (5 or less)</option><option value="10">10 or less</option></select>
           <Dates from={from} setFrom={setFrom} to={to} setTo={setTo} />
           <input type="search" placeholder="Search product" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search" />
           <Refresh onClick={list.load} loading={list.loading} />

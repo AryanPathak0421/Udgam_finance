@@ -142,7 +142,7 @@ function ReviewDialog({ id, onClose, onDone }) {
                 ]} />
                 <div className="stamp-view sign-row" style={{ marginTop: 10 }}>
                   {(r.business.shopPhotos?.length ? r.business.shopPhotos : [r.business.shopPhoto]).map((p, i) => (
-                    <div key={`shop${i}`}><div className="detail-label">Shop photo {i + 1}</div><Img src={p} alt={`Shop photo ${i + 1}`} /></div>
+                    <div key={`shop${i}`}><div className="detail-label">{i === 2 ? 'Staff + shop photo' : `Shop photo ${i + 1}`}</div><Img src={p} alt={i === 2 ? 'Staff + shop photo' : `Shop photo ${i + 1}`} /></div>
                   ))}
                   {[['Bank statement', 'bankStatement'], ['ITR', 'itr'], ['Shop / business agreement', 'agreement'], ['Udyam certificate', 'udyamCertificate']].map(([label, k]) => (
                     <div key={k}>

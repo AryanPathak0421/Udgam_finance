@@ -156,7 +156,7 @@ export function Detail({ id, onClose, onChanged }) {
             <div className="stamp-view sign-row" style={{ marginTop: 12 }}>
               {(r.business.shopPhotos?.length ? r.business.shopPhotos : [r.business.shopPhoto]).map((p, i) => (
                 <div key={i}>
-                  <div className="detail-label">Shop photo {i + 1}</div>
+                  <div className="detail-label">{i === 2 ? 'Staff + shop photo' : `Shop photo ${i + 1}`}</div>
                   {p ? <img src={p} alt={`Shop ${i + 1}`} className="stamp-img" /> : <span className="muted">—</span>}
                 </div>
               ))}

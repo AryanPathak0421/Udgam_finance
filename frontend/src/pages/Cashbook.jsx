@@ -243,7 +243,7 @@ export default function Cashbook() {
               extra={<div className="muted small" style={{ marginTop: 6 }}>Receipts in the period {inr(data.totals.receipts)}</div>} />
             <Side title="Payment side" lines={data.paymentLines} rows={data.payments} total={data.totals.payments} totalLabel="Total" tone="danger" canDelete={isAdmin} onDelete={remove}
               closeRow={<><tr><td><strong>Closing balance</strong></td><td /><td className="num"><span className="badge grey"><strong>{inr(data.closing)}</strong></span></td></tr><tr style={{ borderTop: '2px solid currentColor' }}><td><strong>Grand total (payments + closing)</strong></td><td /><td className="num"><span className="badge danger"><strong>{inr(data.totals.grand)}</strong></span></td></tr></>}
-              extra={<div className="muted small" style={{ marginTop: 6 }}>"Today due" is the EMI still to be collected up to {dmy(data.asOf)}; it is part of the payment total.</div>} />
+              extra={<div className="muted small" style={{ marginTop: 6 }}>"Today due" is the balance due (Total scheduled due minus today's collection received) on {dmy(data.asOf)}.</div>} />
           </div>
         )}
         <CashbookPhotos branch={branch} date={to || from || today()} />
