@@ -166,6 +166,12 @@ export default function EmployeeLogin() {
             Create mPIN
           </Link>
         </div>
+
+        <div style={{ marginTop: 12, textAlign: 'center' }}>
+          <Link to="/login" style={{ fontSize: '0.82rem', color: 'var(--emp-text-muted)', textDecoration: 'none' }}>
+            🖥️ Go to Admin / Head Office Portal
+          </Link>
+        </div>
       </div>
 
       {/* Forgot mPIN Modal */}

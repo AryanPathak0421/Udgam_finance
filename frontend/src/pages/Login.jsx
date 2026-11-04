@@ -28,6 +28,47 @@ export default function Login() {
   return (
     <AuthShell>
       <form className="auth-card" onSubmit={onSubmit} noValidate>
+        {/* Switch to Employee Mobile App Banner */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          background: 'linear-gradient(135deg, #eef7f6, #eff1fe)',
+          border: '1.5px solid #107870',
+          borderRadius: 12,
+          padding: '12px 14px',
+          marginBottom: 20
+        }}>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: '0.92rem', color: '#107870', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span>📱</span> Employee & Field App
+            </div>
+            <div style={{ fontSize: '0.8rem', color: '#555', marginTop: 2 }}>
+              कर्मचारी एवं फील्ड लॉगिन (mPIN)
+            </div>
+          </div>
+          <Link
+            to="/employee/login"
+            style={{
+              padding: '8px 14px',
+              background: '#107870',
+              color: '#ffffff',
+              borderRadius: 8,
+              fontWeight: 700,
+              fontSize: '0.82rem',
+              textDecoration: 'none',
+              whiteSpace: 'nowrap',
+              boxShadow: '0 2px 6px rgba(16,120,112,0.3)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4
+            }}
+          >
+            Open App ➔
+          </Link>
+        </div>
+
         <h1>Welcome back</h1>
         <p className="auth-sub">Sign in to continue to the admin panel</p>
 
@@ -86,6 +127,23 @@ export default function Login() {
 
         <div className="auth-secure">
           <Icon name="shield" size={14} /> Secure, encrypted session
+        </div>
+
+        <div style={{ marginTop: 20, textAlign: 'center', borderTop: '1px solid #eef0f4', paddingTop: 14 }}>
+          <Link
+            to="/employee/login"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              color: '#107870',
+              fontWeight: 700,
+              fontSize: '0.9rem',
+              textDecoration: 'none'
+            }}
+          >
+            <span>📱</span> Switch to Employee / Field Officer App
+          </Link>
         </div>
       </form>
     </AuthShell>
