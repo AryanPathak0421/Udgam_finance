@@ -734,3 +734,4 @@ export default function EmployeeEmiPayment() {
     </div>
   );
 }
+
