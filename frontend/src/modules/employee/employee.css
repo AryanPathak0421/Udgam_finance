@@ -1,0 +1,353 @@
+/* ==========================================================================
+   Udgam Finance - Employee App Stylesheet
+   Modern, Native-like, Fully Responsive Mobile-First Design
+   ========================================================================== */
+
+:root {
+  --emp-bg: #f8fafc;
+  --emp-card-bg: #ffffff;
+  --emp-text: #0f172a;
+  --emp-text-muted: #64748b;
+  --emp-border: #e2e8f0;
+  --emp-primary: #2563eb;
+  --emp-primary-hover: #1d4ed8;
+  --emp-primary-light: #eff6ff;
+  --emp-success: #16a34a;
+  --emp-success-light: #f0fdf4;
+  --emp-warning: #ea580c;
+  --emp-warning-light: #fff7ed;
+  --emp-danger: #dc2626;
+  --emp-danger-light: #fef2f2;
+  --emp-header-bg: #ffffff;
+  --emp-nav-bg: #ffffff;
+  --emp-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.07), 0 2px 4px -2px rgb(0 0 0 / 0.05);
+}
+
+.emp-dark {
+  --emp-bg: #0b1120;
+  --emp-card-bg: #1e293b;
+  --emp-text: #f1f5f9;
+  --emp-text-muted: #94a3b8;
+  --emp-border: #334155;
+  --emp-primary: #3b82f6;
+  --emp-primary-hover: #60a5fa;
+  --emp-primary-light: #1e3a8a;
+  --emp-header-bg: #0f172a;
+  --emp-nav-bg: #0f172a;
+  --emp-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.3);
+}
+
+.emp-app-shell {
+  min-height: 100vh;
+  background-color: #0f172a;
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: var(--emp-text);
+}
+
+.emp-app-container {
+  width: 100%;
+  max-width: 480px;
+  background-color: var(--emp-bg);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.25);
+}
+
+/* Header */
+.emp-header {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background-color: var(--emp-header-bg);
+  border-bottom: 1px solid var(--emp-border);
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.emp-header-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: var(--emp-primary);
+  text-decoration: none;
+}
+
+.emp-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.emp-icon-btn {
+  background: none;
+  border: 1px solid var(--emp-border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  color: var(--emp-text);
+  font-size: 0.85rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.15s ease;
+}
+
+.emp-icon-btn:hover {
+  background-color: var(--emp-primary-light);
+  border-color: var(--emp-primary);
+}
+
+/* Main scrollable view */
+.emp-main-content {
+  flex: 1;
+  padding: 16px;
+  padding-bottom: 90px;
+  overflow-y: auto;
+}
+
+/* Bottom Nav */
+.emp-bottom-nav {
+  position: fixed;
+  bottom: 0;
+  width: 100%;
+  max-width: 480px;
+  background-color: var(--emp-nav-bg);
+  border-top: 1px solid var(--emp-border);
+  display: flex;
+  justify-content: space-around;
+  padding: 8px 4px 10px;
+  z-index: 50;
+  box-shadow: 0 -4px 6px -1px rgb(0 0 0 / 0.05);
+}
+
+.emp-nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  color: var(--emp-text-muted);
+  text-decoration: none;
+  font-size: 0.72rem;
+  font-weight: 500;
+  padding: 4px 8px;
+  border-radius: 8px;
+  transition: color 0.15s ease;
+}
+
+.emp-nav-item.active {
+  color: var(--emp-primary);
+  font-weight: 700;
+}
+
+.emp-nav-item .icon {
+  font-size: 1.25rem;
+}
+
+/* Cards & UI elements */
+.emp-card {
+  background-color: var(--emp-card-bg);
+  border: 1px solid var(--emp-border);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 14px;
+  box-shadow: var(--emp-shadow);
+}
+
+.emp-card-title {
+  font-size: 1rem;
+  font-weight: 700;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.emp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background-color: var(--emp-primary);
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  width: 100%;
+  transition: background-color 0.15s ease;
+}
+
+.emp-btn:hover {
+  background-color: var(--emp-primary-hover);
+}
+
+.emp-btn.secondary {
+  background-color: transparent;
+  color: var(--emp-text);
+  border: 1px solid var(--emp-border);
+}
+
+.emp-btn.secondary:hover {
+  background-color: var(--emp-primary-light);
+}
+
+.emp-btn.sm {
+  padding: 6px 12px;
+  font-size: 0.82rem;
+  width: auto;
+}
+
+.emp-input-group {
+  margin-bottom: 12px;
+}
+
+.emp-label {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--emp-text-muted);
+  margin-bottom: 4px;
+}
+
+.emp-input, .emp-select, .emp-textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--emp-border);
+  background-color: var(--emp-card-bg);
+  color: var(--emp-text);
+  font-size: 0.95rem;
+  box-sizing: border-box;
+}
+
+.emp-input:focus, .emp-select:focus, .emp-textarea:focus {
+  outline: none;
+  border-color: var(--emp-primary);
+  box-shadow: 0 0 0 2px var(--emp-primary-light);
+}
+
+/* Badges */
+.emp-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.emp-badge.blue-tick {
+  background-color: #e0f2fe;
+  color: #0369a1;
+  border: 1px solid #bae6fd;
+}
+
+.emp-badge.green {
+  background-color: var(--emp-success-light);
+  color: var(--emp-success);
+}
+
+.emp-badge.red {
+  background-color: var(--emp-danger-light);
+  color: var(--emp-danger);
+}
+
+.emp-badge.amber {
+  background-color: var(--emp-warning-light);
+  color: var(--emp-warning);
+}
+
+/* Quick Actions Grid */
+.emp-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.emp-action-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  text-decoration: none;
+  color: var(--emp-text);
+  background-color: var(--emp-card-bg);
+  border: 1px solid var(--emp-border);
+  border-radius: 12px;
+  padding: 12px 6px;
+  gap: 6px;
+  box-shadow: var(--emp-shadow);
+  transition: transform 0.15s ease;
+}
+
+.emp-action-tile:hover {
+  transform: translateY(-2px);
+  border-color: var(--emp-primary);
+}
+
+.emp-action-tile .tile-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.4rem;
+  background-color: var(--emp-primary-light);
+  color: var(--emp-primary);
+}
+
+.emp-action-tile .tile-title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+/* Stat row */
+.emp-stat-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--emp-border);
+  font-size: 0.88rem;
+}
+
+.emp-stat-row:last-child {
+  border-bottom: none;
+}
+
+.emp-stat-label {
+  color: var(--emp-text-muted);
+}
+
+.emp-stat-value {
+  font-weight: 600;
+  text-align: right;
+}
+
+/* Responsive tweaks */
+@media (max-width: 480px) {
+  .emp-app-shell {
+    background-color: var(--emp-bg);
+  }
+  .emp-app-container {
+    box-shadow: none;
+  }
+  .emp-actions-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}

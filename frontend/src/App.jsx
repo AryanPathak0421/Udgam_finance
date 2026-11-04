@@ -1,4 +1,4 @@
-﻿import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext.jsx';
 import Login from './pages/Login.jsx';
 import ForgotPassword from './pages/ForgotPassword.jsx';
@@ -58,6 +58,7 @@ import CommissionGenerate from './pages/CommissionGenerate.jsx';
 import GroupTransfer from './pages/GroupTransfer.jsx';
 import MemberGroupTransfer from './pages/MemberGroupTransfer.jsx';
 import Layout from './components/Layout.jsx';
+import EmployeeApp from './modules/employee/EmployeeApp.jsx';
 import { routableItems, canOpenPath } from './config/nav.js';
 
 // Pages that exist; every other nav path renders the placeholder.
@@ -208,6 +209,7 @@ const routes = routableItems().filter((i) => i.path !== '/');
 export default function App() {
   return (
     <Routes>
+      <Route path="/employee/*" element={<EmployeeApp />} />
       <Route path="/login" element={<PublicOnly><Login /></PublicOnly>} />
       <Route path="/forgot-password" element={<PublicOnly><ForgotPassword /></PublicOnly>} />
       <Route path="/reset-password" element={<ResetPassword />} />
