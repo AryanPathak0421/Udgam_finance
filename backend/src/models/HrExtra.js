@@ -231,3 +231,27 @@ const targetTaskSchema = new mongoose.Schema(
 );
 targetTaskSchema.index({ fromDate: -1 });
 export const TargetTask = mongoose.model('TargetTask', targetTaskSchema);
+
+// Supervisor visit to a branch under their supervision.
+const supervisorVisitSchema = new mongoose.Schema(
+  {
+    supervisor: { ...ref('Employee'), required: true },
+    supervisorCode: String,
+    supervisorName: String,
+    supervisorMobile: String,
+    branch: { ...ref('Branch'), required: true },
+    branchCode: String,
+    branchName: String,
+    branchCity: String,
+    branchPincode: String,
+    visitDate: { type: Date, required: true },
+    roomRentCharged: { type: Boolean, default: true },
+    notes: String,
+    status: { type: String, enum: ['scheduled', 'completed', 'cancelled'], default: 'scheduled' },
+    createdByCode: String,
+  },
+  { timestamps: true }
+);
+supervisorVisitSchema.index({ supervisor: 1, visitDate: 1 });
+supervisorVisitSchema.index({ branch: 1, visitDate: 1 });
+export const SupervisorVisit = mongoose.model('SupervisorVisit', supervisorVisitSchema);

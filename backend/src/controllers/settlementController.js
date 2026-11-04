@@ -1,4 +1,5 @@
 import { assertDayOpen, defaultWorkDate } from '../services/dayOpen.js';
+import { offDaysFor, isOff, nextWorking } from '../services/holidays.js';
 import { readBankAccount } from '../services/bankAccountPick.js';
 import mongoose from 'mongoose';
 import { LoanSettlement } from '../models/LoanSettlement.js';
@@ -38,7 +39,9 @@ const present = (s, { full = false } = {}) => ({
 export async function preview(req, res) {
   const p = await loadLoan(req, req.query.loan);
   const line = findLine(p, req.query.member);
-  const asOf = startOfToday();
+  let asOf = await defaultWorkDate(p.branch?._id || p.branch, req.user);
+  const off = await offDaysFor(p.branch?._id || p.branch);
+  if (isOff(asOf, off)) asOf = nextWorking(asOf, off);
   const st = await borrowerState(p, line, asOf);
   const nextDue = st.left[0];
   const guarantor = line.member ? (await Member.findById(line.member).select('guarantor.name guarantor.mobile guarantor.deceasedOn guarantor.deathRecordedByCode'))?.guarantor : null;
@@ -60,8 +63,10 @@ export async function preview(req, res) {
 async function prepare(req, b) {
   const p = await loadLoan(req, b.loan);
   const line = findLine(p, b.member);
-  // a settlement is made on the working date of the branch (today): there is no other date
-  const settledOn = await defaultWorkDate(p.branch?._id || p.branch, req.user);
+  // a settlement is made on the working date of the branch: there is no other date, Sunday & holidays skipped
+  let settledOn = await defaultWorkDate(p.branch?._id || p.branch, req.user);
+  const off = await offDaysFor(p.branch?._id || p.branch);
+  if (isOff(settledOn, off)) settledOn = nextWorking(settledOn, off);
   if (b.settledOn && iso(parseDateOnly(asString(b.settledOn))) !== iso(settledOn)) throw invalid({ settledOn: 'The settlement date is the working date of the branch and cannot be changed' });
   if (settledOn < p.paidOn) throw invalid({ settledOn: 'The settlement cannot be before the loan was paid out' });
   const st = await borrowerState(p, line, settledOn);

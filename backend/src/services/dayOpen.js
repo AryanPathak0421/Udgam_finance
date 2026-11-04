@@ -81,9 +81,10 @@ export async function assertDayOpen(branchId, date, user) {
 /** The date work is made on when none is given: the working date of the branch for the other users (the admin and branches with no day close: today). */
 export async function defaultWorkDate(branchId, user) {
   const today = startOfToday();
-  if (!branchId || !user || isAdminUser(user)) return today;
+  const off = await offDaysFor(branchId);
+  if (!branchId || !user || isAdminUser(user)) return nextWorking(today, off);
   const working = await branchWorkingDate(branchId);
-  if (!working) return today;
+  if (!working) return nextWorking(today, off);
   if (working > today) throw new HttpError(409, `The day of this branch is closed. Work opens on ${iso(working)}.`, { date: `Work opens on ${iso(working)}` });
-  return working;
+  return nextWorking(working, off);
 }

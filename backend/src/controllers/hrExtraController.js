@@ -836,16 +836,42 @@ export async function createTargetTask(req, res) {
 export async function listTargetTasks(req, res) {
   const month = asString(req.query.month);
   const filter = {};
+  let monthStart = null;
   if (/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
     const [y, m] = month.split('-').map(Number);
+    monthStart = new Date(Date.UTC(y, m - 1, 1));
     filter.fromDate = { $lte: new Date(Date.UTC(y, m, 0)) };
-    filter.toDate = { $gte: new Date(Date.UTC(y, m - 1, 1)) };
+    filter.toDate = { $gte: monthStart };
   }
   const allowed = allowedBranches(req);
   if (allowed) filter['employees.branch'] = { $in: [...allowed].map((x) => new mongoose.Types.ObjectId(x)) };
   const rows = await TargetTask.find(filter).sort({ fromDate: -1, createdAt: -1 }).limit(100);
   const items = [];
-  for (const t of rows) items.push(await presentTarget(t, allowed)); // eslint-disable-line no-await-in-loop
+  const seenIds = new Set();
+  for (const t of rows) {
+    seenIds.add(String(t._id));
+    items.push(await presentTarget(t, allowed)); // eslint-disable-line no-await-in-loop
+  }
+
+  // Also include active target tasks from earlier months whose targets are still pending
+  if (monthStart) {
+    const prevFilter = {
+      status: 'active',
+      toDate: { $lt: monthStart },
+      ...(allowed ? { 'employees.branch': { $in: [...allowed].map((x) => new mongoose.Types.ObjectId(x)) } } : {})
+    };
+    const prevRows = await TargetTask.find(prevFilter).sort({ toDate: -1 }).limit(50);
+    for (const t of prevRows) {
+      if (seenIds.has(String(t._id))) continue;
+      // eslint-disable-next-line no-await-in-loop
+      const presented = await presentTarget(t, allowed);
+      if (presented.summary.pending > 0) {
+        presented.isPreviousMonthPending = true;
+        items.push(presented);
+      }
+    }
+  }
+
   res.json({ items });
 }
 

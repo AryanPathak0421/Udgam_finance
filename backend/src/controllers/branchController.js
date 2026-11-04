@@ -13,6 +13,7 @@ const present = (b) => ({
   address: b.address,
   state: b.state,
   city: b.city,
+  pincode: b.pincode || '',
   openingDate: b.openingDate.toISOString().slice(0, 10),
   isActive: b.isActive,
   createdAt: b.createdAt,
@@ -27,11 +28,13 @@ function validateBranch(b, { requireCode }) {
     address: asString(b.address),
     state: asString(b.state),
     city: asString(b.city),
+    pincode: asString(b.pincode).trim(),
     openingDate: parseDateOnly(b.openingDate),
   };
   if (requireCode && !CODE_RE.test(out.code)) v.add('code', 'Code must be 2–12 characters: letters, numbers or hyphen');
   if (out.name.length < 2 || out.name.length > 100) v.add('name', 'Branch name must be 2–100 characters');
   if (out.address.length < 5 || out.address.length > 300) v.add('address', 'Address must be 5–300 characters');
+  if (out.pincode && !/^\d{6}$/.test(out.pincode)) v.add('pincode', 'Pincode must be 6 digits');
   if (!INDIA_LOCATIONS[out.state]) v.add('state', 'Select a valid state');
   else if (!INDIA_LOCATIONS[out.state].includes(out.city)) v.add('city', 'Select a city from the list for this state');
   if (!out.openingDate) v.add('openingDate', 'Enter a valid opening date');
@@ -112,6 +115,7 @@ export async function updateBranch(req, res) {
     address: data.address,
     state: data.state,
     city: data.city,
+    pincode: data.pincode,
     openingDate: data.openingDate,
     updatedBy: req.user._id,
   });

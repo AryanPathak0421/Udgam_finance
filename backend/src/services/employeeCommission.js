@@ -142,7 +142,11 @@ function rulesFor(rules, user) {
   const rank = user.rank ? String(user.rank) : '';
   const own = rules.filter((r) => rank && r.rank === rank);
   const ownTypes = new Set(own.map((r) => r.commissionFor));
-  return [...own, ...rules.filter((r) => !r.rank && !ownTypes.has(r.commissionFor))];
+  const general = rules.filter((r) => !r.rank && !ownTypes.has(r.commissionFor));
+  if (own.length || general.length) return [...own, ...general];
+  // Old employees or staff without an explicit rank assigned:
+  // Fall back to rules for their own activity (scope === 'own') or all-rank rules so their commission generates
+  return rules.filter((r) => !r.rank || r.scope === 'own');
 }
 
 /** What an employee achieved for a rule: his own activity, or that of his branches (a supervisor, those he supervises). */

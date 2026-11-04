@@ -351,6 +351,9 @@ export async function cashbookData(req, query) {
       if (!l) return;
       const memo = e.payMode === 'security';
       add('receive', memo ? 'security_adjust' : e.npa ? 'npa_receive' : collectionKey(l), { date: iso(e.paidOn), particulars: `${e.type === 'advance' ? 'Advance EMI' : 'EMI'} — ${nameOfMember(e)}`, ref: `${e.receiptNo} · ${e.loanId || e.formId}`, mode: e.payMode, bank: e.bankAccount, amount: e.amountPaise, branchId: e.branch, memo });
+      if (memo) {
+        add('payment', 'security_return', { date: iso(e.paidOn), particulars: `Security adjust (against EMI) — ${nameOfMember(e)}`, ref: `${e.receiptNo} · ${e.loanId || e.formId}`, mode: 'security', bank: e.bankAccount, amount: e.amountPaise, branchId: e.branch, memo: true });
+      }
     });
     sets.forEach((x) => {
       const l = loanInfo.get(String(x.loanPayment));

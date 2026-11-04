@@ -38,25 +38,43 @@ const present = (e, user) => ({
 
 /** Monthly group-wise report. */
 export async function report(req, res) {
+  const isPaidQuery = req.query.status === 'deposited' || req.query.paidFrom || req.query.paidTo;
   const month = asString(req.query.month) || currentMonth();
-  if (parseMonth(month) === null) throw new HttpError(422, 'Choose a valid month', { month: 'Choose a valid month' });
+  if (!isPaidQuery && parseMonth(month) === null) throw new HttpError(422, 'Choose a valid month', { month: 'Choose a valid month' });
 
-  const filter = { month, ...branchFilter(req.user) };
+  const filter = { ...branchFilter(req.user) };
+  if (!isPaidQuery || (!req.query.paidFrom && !req.query.paidTo)) filter.month = month;
   if (mongoose.isValidObjectId(req.query.branch)) filter.branch = req.query.branch;
   if (COMMISSION_STATUS.includes(req.query.status)) filter.status = req.query.status;
 
-  let entries = await GroupLeaderCommission.find(filter).populate(POPULATE).sort({ createdAt: 1 });
+  if (req.query.paidFrom || req.query.paidTo) {
+    filter.status = 'deposited';
+    filter.depositedAt = {};
+    if (req.query.paidFrom) {
+      const pFrom = parseDateOnly(asString(req.query.paidFrom));
+      if (pFrom) filter.depositedAt.$gte = pFrom;
+    }
+    if (req.query.paidTo) {
+      const pTo = parseDateOnly(asString(req.query.paidTo));
+      if (pTo) filter.depositedAt.$lte = new Date(`${asString(req.query.paidTo)}T23:59:59.999Z`);
+    }
+    if (Object.keys(filter.depositedAt).length === 0) delete filter.depositedAt;
+  }
+
+  let entries = await GroupLeaderCommission.find(filter).populate(POPULATE).sort({ depositedAt: -1, createdAt: -1 });
   const q = asString(req.query.q).toLowerCase();
   if (q) {
     entries = entries.filter((e) => [e.group?.code, e.group?.name, e.group?.leaderName].some((x) => String(x || '').toLowerCase().includes(q)));
   }
-  entries.sort((a, b) => String(a.group?.code).localeCompare(String(b.group?.code)));
+  if (!isPaidQuery) {
+    entries.sort((a, b) => String(a.group?.code).localeCompare(String(b.group?.code)));
+  }
 
   const sum = (list) => list.reduce((s, e) => s + e.amountPaise, 0) / 100;
   const pending = entries.filter((e) => e.status === 'pending');
   const deposited = entries.filter((e) => e.status === 'deposited');
   res.json({
-    month,
+    month: isPaidQuery ? '' : month,
     items: entries.map((e) => present(e, req.user)),
     totals: {
       groups: entries.length,

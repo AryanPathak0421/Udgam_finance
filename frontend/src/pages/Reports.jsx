@@ -22,9 +22,13 @@ const cap = (s) => (s ? String(s).charAt(0).toUpperCase() + String(s).slice(1) :
 const STATUS_BADGE = { approved: 'green', rejected: 'danger', pending: 'grey', cancelled: 'grey' };
 
 const staffCell = (r) => {
-  const name = r.staffName || r.staff;
+  const name = r.staffName || (r.staff && r.staff !== r.paidBy ? r.staff : '');
+  const code = r.paidBy || (r.staff !== name ? r.staff : '');
   if (name && name !== '—') {
-    return <><strong>{name}</strong>{r.staff && r.staff !== name && r.staff !== '—' && <div className="muted small">{r.staff}</div>}</>;
+    return <><strong>{name}</strong>{code && code !== name && <div className="muted small">{code}</div>}</>;
+  }
+  if (code && code !== '—') {
+    return <strong>{code}</strong>;
   }
   return '—';
 };

@@ -320,8 +320,8 @@ function LoanSettleForm({ loanId, member, canSettle, onDone }) {
         <div className="panel" style={{ padding: 16 }}>
           <h3 className="section-title">Settle the loan</h3>
           <div className="form-grid">
-            <FormField id="sdate" label="Settlement date" hint="Today. It cannot be changed" error={errors.settledOn}>
-              <input id="sdate" type="date" value={todayISO()} disabled readOnly />
+            <FormField id="sdate" label="Settlement date" hint="Branch working date (Sundays & holidays skipped)" error={errors.settledOn}>
+              <input id="sdate" type="date" value={d.today} disabled readOnly />
             </FormField>
             <FormField id="samount" label="Settlement amount received (₹)" required error={errors.amount} hint={`Must be exactly the outstanding ${inr(d.state.outstanding)}; a lower amount does not settle the loan`}>
               <input id="samount" inputMode="decimal" value={form.amount} onChange={(e) => { setForm((f) => ({ ...f, amount: e.target.value.replace(/[^\d.]/g, '') })); setErrors((x) => ({ ...x, amount: undefined })); }} />
@@ -413,8 +413,8 @@ function DeathSettleForm({ loanId, member, canSettle, onDone }) {
             <FormField id="ddeath" label="Date of death" required error={errors.deathDate}>
               <input id="ddeath" type="date" max={todayISO()} min={d.loan.paidOn} value={form.deathDate} onChange={set('deathDate')} />
             </FormField>
-            <FormField id="dsettle" label="Settlement date" hint="Today. It cannot be changed" error={errors.settledOn}>
-              <input id="dsettle" type="date" value={todayISO()} disabled readOnly />
+            <FormField id="dsettle" label="Settlement date" hint="Branch working date (Sundays & holidays skipped)" error={errors.settledOn}>
+              <input id="dsettle" type="date" value={d.today} disabled readOnly />
             </FormField>
             <FormField id="dclaim" label="Insurance claim reference" hint="Optional" error={errors.claimRef}>
               <input id="dclaim" value={form.claimRef} maxLength={60} onChange={set('claimRef')} />

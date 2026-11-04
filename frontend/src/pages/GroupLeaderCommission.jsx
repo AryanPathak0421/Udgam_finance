@@ -257,6 +257,95 @@ function ReportTab() {
   );
 }
 
+function PaidTab() {
+  const [paidFrom, setPaidFrom] = useState(() => `${thisMonth()}-01`);
+  const [paidTo, setPaidTo] = useState(() => todayISO());
+  const [search, setSearch] = useState('');
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const q = useDebounce(search);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      setData(await api.groupCommission.report({ status: 'deposited', paidFrom, paidTo, q }));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [paidFrom, paidTo, q]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const items = data?.items || [];
+  const t = data?.totals;
+
+  return (
+    <>
+      {t && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12, marginBottom: 12 }}>
+          <div className="panel" style={{ padding: 14 }}><div className="muted small">Paid groups</div><strong style={{ fontSize: 22 }}>{items.length}</strong></div>
+          <div className="panel" style={{ padding: 14 }}><div className="muted small">Eligible loans</div><strong style={{ fontSize: 22 }}>{t.loans}</strong></div>
+          <div className="panel" style={{ padding: 14 }}><div className="muted small">Total paid commission</div><strong style={{ fontSize: 22, color: 'var(--success, #16a34a)' }}>{inr(t.depositedAmount)}</strong></div>
+        </div>
+      )}
+      <div className="panel">
+        <div className="toolbar" style={{ flexWrap: 'wrap' }}>
+          <label className="small muted" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            Paid from
+            <input type="date" value={paidFrom} onChange={(e) => setPaidFrom(e.target.value)} aria-label="Paid from date" />
+          </label>
+          <label className="small muted" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            Paid to
+            <input type="date" value={paidTo} onChange={(e) => setPaidTo(e.target.value)} aria-label="Paid to date" />
+          </label>
+          <input type="search" className="toolbar-search" placeholder="Search group or leader" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search" />
+          <button className="btn" onClick={load}>Refresh</button>
+        </div>
+        {loading && !data ? <Spinner label="Loading paid commissions…" /> : error ? <ErrorState message={error} onRetry={load} /> : !items.length ? (
+          <EmptyState title="No paid commissions found" description="No group leader commissions were marked as paid in this date range." />
+        ) : (
+          <div className={`table-wrap${loading ? ' dim' : ''}`}>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Paid on</th>
+                  <th>Group code</th>
+                  <th>Group</th>
+                  <th>Leader</th>
+                  <th>Mobile</th>
+                  <th className="num">Loans</th>
+                  <th className="num">Commission</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((e) => (
+                  <tr key={e.id}>
+                    <td data-label="Paid on"><strong>{e.depositedAt ? new Date(e.depositedAt).toLocaleDateString('en-IN') : '—'}</strong></td>
+                    <td data-label="Group code"><strong>{e.groupCode}</strong></td>
+                    <td data-label="Group">{e.groupName}</td>
+                    <td data-label="Leader">{e.leaderName}</td>
+                    <td data-label="Mobile">{e.leaderMobile}</td>
+                    <td data-label="Loans" className="num">{e.loans}</td>
+                    <td data-label="Commission" className="num"><strong>{inr(e.amount)}</strong></td>
+                    <td data-label="Status"><span className="badge green">Paid</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
 export default function GroupLeaderCommission() {
   const { user } = useAuth();
   const canPay = FINANCE.includes(user?.role);
@@ -272,8 +361,9 @@ export default function GroupLeaderCommission() {
       <div className="toolbar" style={{ marginBottom: 12 }}>
         <button className={`btn${tab === 'due' ? ' primary' : ''}`} onClick={() => setTab('due')}>Due commission</button>
         <button className={`btn${tab === 'report' ? ' primary' : ''}`} onClick={() => setTab('report')}>Monthly report</button>
+        <button className={`btn${tab === 'paid' ? ' primary' : ''}`} onClick={() => setTab('paid')}>Paid commission</button>
       </div>
-      {tab === 'due' ? <DueTab canPay={canPay} /> : <ReportTab />}
+      {tab === 'due' ? <DueTab canPay={canPay} /> : tab === 'paid' ? <PaidTab /> : <ReportTab />}
     </>
   );
 }

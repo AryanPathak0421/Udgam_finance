@@ -342,7 +342,7 @@ function TargetTasks() {
         <Body list={list} empty={`No target task in ${month}.`}>{() => items.map((t) => (
           <div key={t.id} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12, marginBottom: 12, opacity: t.status === 'cancelled' ? 0.6 : 1 }}>
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div><strong>{dmy(t.fromDate)} – {dmy(t.toDate)}</strong> · {t.rank || 'Chosen employees'} <span className="muted small">by {t.by}</span>{t.remark && <div className="muted small">{t.remark}</div>}</div>
+              <div>{t.isPreviousMonthPending && <span className="badge danger" style={{ marginRight: 6 }}>Carryover (old month pending)</span>}<strong>{dmy(t.fromDate)} – {dmy(t.toDate)}</strong> · {t.rank || 'Chosen employees'} <span className="muted small">by {t.by}</span>{t.remark && <div className="muted small">{t.remark}</div>}</div>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <span className="badge green">{t.summary.done} done</span><span className="badge danger">{t.summary.pending} pending</span>{t.status === 'cancelled' ? <Badge s="cancelled" /> : <button className="btn sm danger-outline" onClick={() => cancel(t)}>Cancel</button>}
               </div>

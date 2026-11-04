@@ -383,13 +383,25 @@ export async function collectionList(req, res) {
   const wantStaff = asString(req.query.staff).toUpperCase();
   const wantMode = asString(req.query.mode);
   const wantType = asString(req.query.loanType);
+  const wantWeekday = req.query.weekday !== undefined && req.query.weekday !== '' && !isNaN(Number(req.query.weekday)) ? Number(req.query.weekday) : null;
   const q = asString(req.query.q).toLowerCase();
   const rows = [];
   for (let at = 0; at < loanIds.length; at += 250) {
     // eslint-disable-next-line no-await-in-loop
     const batch = await LoanPayment.find({ _id: { $in: loanIds.slice(at, at + 250) } }).select('loanId formId kind loanType mode modeLabel employeeCode group branch lines schedule.no schedule.dueDate schedule.installmentPaise').populate(POPULATE).lean(); // only what the list needs: the rest of the schedule is most of a loan's size
     batch.forEach((l) => { if (l.employeeCode) staffSet.add(l.employeeCode); if (modeOf(l)) modeSet.add(modeOf(l)); });
-    const pick = batch.filter((l) => (!wantStaff || l.employeeCode === wantStaff) && (!wantMode || modeOf(l) === wantMode) && (kindScope === 'group' || !wantType || loanTypeOf(l) === wantType));
+    const pick = batch.filter((l) => {
+      if (wantStaff && l.employeeCode !== wantStaff) return false;
+      const mode = modeOf(l);
+      if (wantMode && mode !== wantMode && (!l.modeLabel || !l.modeLabel.toLowerCase().includes(wantMode.toLowerCase()))) return false;
+      if (kindScope !== 'group' && wantType && loanTypeOf(l) !== wantType) return false;
+      if (wantWeekday !== null) {
+        if (mode === 'daily') return true;
+        const schedDays = new Set((l.schedule || []).map((s) => s.dueDate ? new Date(s.dueDate).getDay() : -1));
+        if (!schedDays.has(wantWeekday)) return false;
+      }
+      return true;
+    });
     if (!pick.length) continue;
 
     // what has been received on each installment, for the loans of this batch

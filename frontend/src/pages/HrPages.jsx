@@ -328,17 +328,19 @@ function EmployeeForm({ item, onClose, onSaved }) {
           <select id="ensup" value={f.supervisor} onChange={set('supervisor')}><option value="">No supervisor</option>{supList.map((x) => <option key={x.id} value={x.id}>{staffLabel(x)}{x.designation?.name ? ` · ${x.designation.name}` : ''}</option>)}</select>
         </FormField>
         <div className="span-2">
-          <strong>Branches under this employee</strong> <span className="muted small">— tick the branches when the employee is a supervisor (only branches in the same city as home branch)</span>
+          <strong>Branches under this employee (max 5)</strong> <span className="muted small">— tick up to 5 branches when the employee is a supervisor (only branches in the same city as home branch)</span>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 16px', marginTop: 6 }}>
             {branches.map((b) => {
               const homeBranch = branches.find((x) => x.id === f.branch);
               const sameCity = !homeBranch?.city || !b.city || homeBranch.city.toLowerCase().trim() === b.city.toLowerCase().trim();
+              const isChecked = f.supervisedBranches.includes(b.id);
+              const limitReached = !isChecked && f.supervisedBranches.length >= 5;
               return (
-                <label key={b.id} style={{ display: 'flex', gap: 6, alignItems: 'center', opacity: sameCity ? 1 : 0.45 }} title={!sameCity ? `Cannot supervise: branch is in ${b.city || 'another city'}, supervisor is in ${homeBranch?.city}` : ''}>
+                <label key={b.id} style={{ display: 'flex', gap: 6, alignItems: 'center', opacity: sameCity && !limitReached ? 1 : 0.45 }} title={!sameCity ? `Cannot supervise: branch is in ${b.city || 'another city'}, supervisor is in ${homeBranch?.city}` : limitReached ? 'A supervisor can supervise at most 5 branches' : ''}>
                   <input
                     type="checkbox"
-                    disabled={!sameCity}
-                    checked={f.supervisedBranches.includes(b.id)}
+                    disabled={!sameCity || limitReached}
+                    checked={isChecked}
                     onChange={(e) => setF((x) => ({ ...x, supervisedBranches: e.target.checked ? [...x.supervisedBranches, b.id] : x.supervisedBranches.filter((i) => i !== b.id) }))}
                   /> {b.code} — {b.name} {b.city ? `(${b.city})` : ''}
                 </label>
@@ -661,6 +663,97 @@ export function SupervisorBranchTransfer({ onClose, onDone }) {
   );
 }
 
+// Schedules a branch visit for a supervisor (only branches under their supervision; skips Sunday/holidays; sends notification/mail)
+export function SupervisorBranchVisit({ onClose, onDone }) {
+  const toast = useToast();
+  const everyone = useLoad(() => api.hr.employees({ status: 'active' }), []);
+  const [supervisor, setSupervisor] = useState('');
+  const [branch, setBranch] = useState('');
+  const [visitDate, setVisitDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    if (d.getDay() === 0) d.setDate(d.getDate() + 1);
+    return d.toISOString().slice(0, 10);
+  });
+  const [notes, setNotes] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [errors, setErrors] = useState({});
+
+  const all = everyone.data?.items || [];
+  const isSupervisor = (e) => Boolean(
+    (e.teamCount && e.teamCount > 0) ||
+    (Array.isArray(e.supervisedBranches) && e.supervisedBranches.length > 0) ||
+    /supervisor/i.test(e.designation?.name || '') ||
+    /supervisor/i.test(e.name || '')
+  );
+  const supervisors = all.filter(isSupervisor);
+  const withBranches = supervisors.filter((e) => Array.isArray(e.supervisedBranches) && e.supervisedBranches.length > 0);
+  const supList = withBranches.length > 0 ? withBranches : supervisors;
+
+  const currentSup = supList.find((s) => s.id === supervisor);
+  const availableBranches = currentSup?.supervisedBranches || [];
+
+  async function submit(e) {
+    e.preventDefault();
+    setBusy(true); setErrors({});
+    try {
+      const r = await api.hr.createSupervisorVisit({ supervisor, branch, visitDate, notes });
+      toast.success(`Visit scheduled for ${dmy(r.item.visitDate)} at ${r.item.branchCode} · Notification sent`);
+      if (onDone) onDone();
+      onClose();
+    } catch (err) {
+      setErrors(err.errors || {});
+      toast.error(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal open title="Schedule Supervisor Branch Visit" onClose={onClose} busy={busy} size="md"
+      footer={<><button className="btn" onClick={onClose} disabled={busy}>Cancel</button><button className="btn primary" onClick={submit} disabled={busy || !supervisor || !branch || !visitDate}>{busy ? 'Scheduling…' : 'Schedule Visit'}</button></>}>
+      <form onSubmit={submit} className="form-grid">
+        <FormField id="sbvsup" label="Select Supervisor" required error={errors.supervisor} className="span-2">
+          <select id="sbvsup" value={supervisor} onChange={(e) => { setSupervisor(e.target.value); setBranch(''); }}>
+            <option value="">Select supervisor</option>
+            {supList.map((s) => <option key={s.id} value={s.id}>{staffLabel(s)} · {s.supervisedBranches?.length || 0} branches</option>)}
+          </select>
+        </FormField>
+        {currentSup && (
+          <div className="span-2 notice small">
+            <strong>Supervisor:</strong> {currentSup.name} ({currentSup.employeeCode}) · <strong>Mobile:</strong> {currentSup.mobile || 'Not recorded'}
+          </div>
+        )}
+        <FormField id="sbvdate" label="Visit Date (Sunday & Holidays skipped)" required error={errors.visitDate} className="span-2">
+          <input id="sbvdate" type="date" value={visitDate} onChange={(e) => {
+            const val = e.target.value;
+            const d = new Date(val);
+            if (d.getDay() === 0) {
+              d.setDate(d.getDate() + 1);
+              toast.info('Sunday is a weekly off; shifted to Monday');
+              setVisitDate(d.toISOString().slice(0, 10));
+            } else {
+              setVisitDate(val);
+            }
+          }} />
+        </FormField>
+        <FormField id="sbvbranch" label="Branch to Visit (under this supervisor only)" required error={errors.branch} className="span-2" hint={supervisor && availableBranches.length === 0 ? 'No supervised branches assigned to this supervisor' : ''}>
+          <select id="sbvbranch" value={branch} onChange={(e) => setBranch(e.target.value)} disabled={!supervisor || availableBranches.length === 0}>
+            <option value="">Select branch</option>
+            {availableBranches.map((b) => <option key={b.id} value={b.id}>{b.code} — {b.name} {b.city ? `(${b.city})` : ''}</option>)}
+          </select>
+        </FormField>
+        <FormField id="sbvnotes" label="Notes / Visit Purpose" className="span-2" error={errors.notes}>
+          <input id="sbvnotes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Inspection / audit / review" />
+        </FormField>
+        <div className="span-2 muted small">
+          An alert and notification with supervisor mobile, geo/pincode, and branch details will be sent. Staying consecutively at the same branch exempts room rent charges.
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 /** The profile of an employee: who, the salary, the security cut from it so far (and what is left) and the earned leave due. */
 function EmployeeProfile({ item, onClose }) {
   const [e, setE] = useState(null);
@@ -719,6 +812,7 @@ export function EmployeeRegistration() {
   const [pending, setPending] = useState(false);
   const [transferring, setTransferring] = useState(false);
   const [branchTransferring, setBranchTransferring] = useState(false);
+  const [visitOpen, setVisitOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
   async function sync() {
     setSyncing(true);
@@ -741,6 +835,7 @@ export function EmployeeRegistration() {
           <button className="btn" onClick={() => setPending(true)}>Pending verification</button>
           <button className="btn" onClick={() => setTransferring(true)}>Transfer supervisor</button>
           <button className="btn" onClick={() => setBranchTransferring(true)}>Supervisor branch transfer</button>
+          <button className="btn" onClick={() => setVisitOpen(true)}>Supervisor visit</button>
           <button className="btn primary" onClick={() => setForm({})}>Register employee</button>
         </div>
         {list.loading && !list.data ? <Spinner label="Loading…" /> : list.error ? <ErrorState message={list.error} onRetry={list.load} /> : items.length === 0 ? <EmptyState title="No employee" description="Register an employee, or use Add all staff logins." /> : (
@@ -773,6 +868,7 @@ export function EmployeeRegistration() {
       {profile && <EmployeeProfile item={profile} onClose={() => setProfile(null)} />}
       {transferring && <SupervisorTransfer onClose={() => setTransferring(false)} onDone={() => { setTransferring(false); list.load(); }} />}
       {branchTransferring && <SupervisorBranchTransfer onClose={() => setBranchTransferring(false)} onDone={() => { setBranchTransferring(false); list.load(); }} />}
+      {visitOpen && <SupervisorBranchVisit onClose={() => setVisitOpen(false)} onDone={() => { setVisitOpen(false); list.load(); }} />}
       {pending && <PendingVerification onClose={() => { setPending(false); list.load(); }} />}
       {form && <EmployeeForm item={form.id ? form : null} onClose={() => setForm(null)} onSaved={() => { setForm(null); list.load(); }} />}
     </>

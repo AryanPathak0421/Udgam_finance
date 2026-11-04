@@ -11,7 +11,7 @@ import useLocations from '../../hooks/useLocations.js';
 import { formatDate } from '../../utils/format.js';
 
 const LIMIT = 10;
-const EMPTY = { code: '', name: '', address: '', state: '', city: '', openingDate: '' };
+const EMPTY = { code: '', name: '', address: '', state: '', city: '', pincode: '', openingDate: '' };
 const CODE_RE = /^[A-Z0-9-]{2,12}$/;
 
 function validate(f, isEdit) {
@@ -19,6 +19,7 @@ function validate(f, isEdit) {
   if (!isEdit && !CODE_RE.test(f.code.trim().toUpperCase())) e.code = 'Use 2–12 letters, numbers or hyphen';
   if (f.name.trim().length < 2) e.name = 'Branch name is required';
   if (f.address.trim().length < 5) e.address = 'Address is required (min 5 characters)';
+  if (f.pincode && !/^\d{6}$/.test(f.pincode.trim())) e.pincode = 'Pincode must be 6 digits';
   if (!f.state) e.state = 'Select a state';
   if (!f.city) e.city = 'Select a city';
   if (!f.openingDate) e.openingDate = 'Opening date is required';
@@ -84,6 +85,9 @@ function BranchForm({ initial, isEdit, onClose, onSaved }) {
         </FormField>
         <FormField id="address" label="Address" required error={errors.address} className="span-2">
           <textarea id="address" rows={3} value={form.address} onChange={set('address')} maxLength={300} />
+        </FormField>
+        <FormField id="pincode" label="Pincode" error={errors.pincode} hint="6-digit pincode">
+          <input id="pincode" inputMode="numeric" value={form.pincode || ''} onChange={(e) => { const v = e.target.value.replace(/\D/g, '').slice(0, 6); setForm((f) => ({ ...f, pincode: v })); setErrors((x) => ({ ...x, pincode: undefined })); }} maxLength={6} placeholder="e.g. 800001" />
         </FormField>
         <FormField id="state" label="State" required error={errors.state}>
           <select id="state" value={form.state} onChange={set('state')}>
@@ -238,6 +242,7 @@ export default function BranchMaster() {
                     <th className="sortable" onClick={() => toggleSort('name')}>Branch name{arrow('name')}</th>
                     <th className="sortable" onClick={() => toggleSort('city')}>City{arrow('city')}</th>
                     <th className="sortable" onClick={() => toggleSort('state')}>State{arrow('state')}</th>
+                    <th>Pincode</th>
                     <th className="sortable" onClick={() => toggleSort('openingDate')}>Opening date{arrow('openingDate')}</th>
                     <th>Status</th>
                     <th className="actions-col">Actions</th>
@@ -250,6 +255,7 @@ export default function BranchMaster() {
                       <td data-label="Branch name">{b.name}</td>
                       <td data-label="City">{b.city}</td>
                       <td data-label="State">{b.state}</td>
+                      <td data-label="Pincode">{b.pincode || '—'}</td>
                       <td data-label="Opening date">{formatDate(b.openingDate)}</td>
                       <td data-label="Status"><StatusBadge active={b.isActive} /></td>
                       <td data-label="Actions" className="actions-col">
@@ -296,6 +302,7 @@ export default function BranchMaster() {
               ['Branch code', dialog.branch.code],
               ['Branch name', dialog.branch.name],
               ['Address', dialog.branch.address],
+              ['Pincode', dialog.branch.pincode || '—'],
               ['State', dialog.branch.state],
               ['City', dialog.branch.city],
               ['Opening date', formatDate(dialog.branch.openingDate)],

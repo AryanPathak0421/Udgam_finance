@@ -13,7 +13,8 @@ import { asString, parseDateOnly, HttpError, startOfToday, todayDateString } fro
 import { toMinor } from '../utils/money.js';
 import { lookupPincode } from '../services/lookup.js';
 import crypto from 'crypto';
-import { Leave } from '../models/HrExtra.js';
+import { Leave, SupervisorVisit } from '../models/HrExtra.js';
+import { offDaysFor, isOff, nextWorking } from '../services/holidays.js';
 import { notifyEmployee } from '../services/hrNotify.js';
 import { ensureEmployees } from '../services/employeeSync.js';
 import { OtpChallenge } from '../models/OtpChallenge.js';
@@ -495,6 +496,99 @@ export async function supervisorBranchTransfer(req, res) {
   res.json({ moved: toMove.length });
 }
 
+export async function listSupervisorVisits(req, res) {
+  const filter = {};
+  if (mongoose.isValidObjectId(req.query.supervisor)) filter.supervisor = req.query.supervisor;
+  if (mongoose.isValidObjectId(req.query.branch)) filter.branch = req.query.branch;
+  const visits = await SupervisorVisit.find(filter).sort({ visitDate: -1, createdAt: -1 }).limit(100).lean();
+  res.json({
+    items: visits.map((v) => ({
+      id: v._id,
+      supervisor: v.supervisor,
+      supervisorCode: v.supervisorCode,
+      supervisorName: v.supervisorName,
+      supervisorMobile: showMobile(req.user, v.supervisorMobile),
+      branch: v.branch,
+      branchCode: v.branchCode,
+      branchName: v.branchName,
+      branchCity: v.branchCity,
+      branchPincode: v.branchPincode,
+      visitDate: v.visitDate ? v.visitDate.toISOString().slice(0, 10) : '',
+      roomRentCharged: v.roomRentCharged,
+      status: v.status,
+      notes: v.notes,
+    }))
+  });
+}
+
+export async function createSupervisorVisit(req, res) {
+  const b = req.body || {};
+  const supId = asString(b.supervisor);
+  if (!mongoose.isValidObjectId(supId)) throw invalid({ supervisor: 'Select a valid supervisor' });
+  const supervisor = await Employee.findOne({ _id: supId, isDeleted: false }).populate('supervisedBranches', 'code name city pincode');
+  if (!supervisor) throw invalid({ supervisor: 'Supervisor not found' });
+
+  const supervised = supervisor.supervisedBranches || [];
+  if (!supervised.length) throw invalid({ supervisor: 'This supervisor has no supervised branches assigned' });
+
+  const branchId = asString(b.branch);
+  const targetBranch = supervised.find((br) => String(br._id) === branchId);
+  if (!targetBranch) throw invalid({ branch: 'Branch must be one of the branches under this supervisor' });
+
+  let visitDate = parseDateOnly(asString(b.visitDate));
+  if (!visitDate) throw invalid({ visitDate: 'Enter a valid visit date' });
+
+  // Skip Sundays and holidays
+  const off = await offDaysFor(targetBranch._id);
+  if (isOff(visitDate, off)) {
+    visitDate = nextWorking(visitDate, off);
+  }
+
+  // Check consecutive days at the same branch
+  const oneDayMs = 24 * 60 * 60 * 1000;
+  const prevDate = new Date(visitDate.getTime() - oneDayMs);
+  const prevVisit = await SupervisorVisit.findOne({
+    supervisor: supervisor._id,
+    branch: targetBranch._id,
+    status: { $ne: 'cancelled' },
+    visitDate: { $gte: new Date(prevDate.getTime() - 2 * oneDayMs), $lte: visitDate },
+  }).sort({ visitDate: -1 });
+
+  // If staying at same branch in consecutive days, room rent is not charged again
+  const roomRentCharged = !prevVisit || String(prevVisit.branch) !== String(targetBranch._id);
+
+  const visit = await SupervisorVisit.create({
+    supervisor: supervisor._id,
+    supervisorCode: supervisor.employeeCode,
+    supervisorName: supervisor.name,
+    supervisorMobile: supervisor.mobile || '',
+    branch: targetBranch._id,
+    branchCode: targetBranch.code,
+    branchName: targetBranch.name,
+    branchCity: targetBranch.city || '',
+    branchPincode: targetBranch.pincode || '',
+    visitDate,
+    roomRentCharged,
+    notes: asString(b.notes),
+    createdByCode: req.user.employeeCode || 'ADMIN',
+  });
+
+  const msg = `Branch visit scheduled for ${visitDate.toISOString().slice(0, 10)} at ${targetBranch.code} - ${targetBranch.name} (${targetBranch.city || ''}, Pincode: ${targetBranch.pincode || 'N/A'}). Supervisor Mobile: ${supervisor.mobile || 'N/A'}. Room rent: ${roomRentCharged ? 'Charged' : 'Exempt (consecutive day stay)'}.`;
+  notifyEmployee(supervisor._id, 'Branch Visit Scheduled', msg);
+  if (supervisor.email && mailConfigured()) {
+    sendMail({ to: supervisor.email, subject: 'Branch Visit Notification', text: msg }).catch(() => {});
+  }
+
+  await audit(req, {
+    action: 'employee.supervisor-visit',
+    entity: 'SupervisorVisit',
+    entityId: visit._id,
+    after: { supervisor: supervisor.employeeCode, branch: targetBranch.code, date: visitDate.toISOString().slice(0, 10), roomRentCharged }
+  });
+
+  res.status(201).json({ item: visit });
+}
+
 /** Staff logins that have no HR record yet. */
 export async function employeeStaffOptions(_req, res) {
   const linked = (await Employee.find({ isDeleted: false, user: { $exists: true } }).select('user').lean()).map((e) => e.user);
@@ -582,6 +676,7 @@ async function readEmployee(b) {
   d.previousCompany = d.hasExperience ? asString(b.previousCompany).slice(0, 100) : '';
   d.previousPost = d.hasExperience ? asString(b.previousPost).slice(0, 80) : '';
   const sb = [...new Set((Array.isArray(b.supervisedBranches) ? b.supervisedBranches : []).map(String).filter((x) => mongoose.isValidObjectId(x)))];
+  if (sb.length > 5) throw invalid({ supervisedBranches: 'A supervisor can supervise at most 5 branches' });
   if (sb.length) {
     const sBranches = await Branch.find({ _id: { $in: sb } }).select('code name city').lean();
     if (sBranches.length !== sb.length) throw invalid({ supervisedBranches: 'Select the branches from the list' });
@@ -887,6 +982,11 @@ export async function punchAttendance(req, res) {
     if (now < e.attendanceTime.from || now > e.attendanceTime.to) throw new HttpError(422, `The attendance can be marked only between ${e.attendanceTime.from} and ${e.attendanceTime.to} (it is ${now} now).`, { time: `${e.attendanceTime.from} – ${e.attendanceTime.to}` });
   }
   const places = locationsOf(e);
+  // A supervisor visiting a branch today can mark attendance at that branch
+  const todayVisit = await SupervisorVisit.findOne({ supervisor: e._id, visitDate: startOfToday(), status: { $ne: 'cancelled' } }).populate('branch', 'name pincode');
+  if (todayVisit?.branch) {
+    places.push({ name: `${todayVisit.branch.name} (Pincode: ${todayVisit.branch.pincode || 'Branch'})`, lat: Number(req.body?.lat), lng: Number(req.body?.lng), radius: 10000 });
+  }
   if (!places.length) throw new HttpError(422, 'Your attendance location is not set. Ask HR to set it.');
   const lat = Number(req.body?.lat);
   const lng = Number(req.body?.lng);

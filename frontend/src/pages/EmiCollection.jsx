@@ -67,6 +67,16 @@ function Filters({ f, set, branches, staff, modes }) {
         <option value="">All modes</option>
         {modes.map((m) => <option key={m} value={m}>{REPAY_LABEL[m] || m}</option>)}
       </select>
+      <select value={f.weekday ?? ''} onChange={(e) => set({ weekday: e.target.value })} aria-label="Day of week">
+        <option value="">All days</option>
+        <option value="1">Monday</option>
+        <option value="2">Tuesday</option>
+        <option value="3">Wednesday</option>
+        <option value="4">Thursday</option>
+        <option value="5">Friday</option>
+        <option value="6">Saturday</option>
+        <option value="0">Sunday</option>
+      </select>
       {f.status && (
         <select value={f.status} onChange={(e) => set({ status: e.target.value })} aria-label="Paid or unpaid groups">
           <option value="unpaid">Unpaid groups</option>
@@ -83,7 +93,7 @@ function Filters({ f, set, branches, staff, modes }) {
 }
 
 function useCollection(kind) {
-  const [f, setF] = useState({ search: '', branch: '', date: skipSunday(todayISO()), staff: '', mode: '', loanType: '', status: 'unpaid', withType: kind === 'single' });
+  const [f, setF] = useState({ search: '', branch: '', date: skipSunday(todayISO()), staff: '', mode: '', weekday: '', loanType: '', status: 'unpaid', withType: kind === 'single' });
   const [branches, setBranches] = useState([]);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -100,17 +110,17 @@ function useCollection(kind) {
     setLoading(true);
     setError('');
     try {
-      setData(await api.emi.collection({ kind, page, limit: LIMIT, branch: f.branch, date: f.date, staff: f.staff, mode: f.mode, loanType: f.loanType, status: kind === 'group' ? f.status : undefined, q }));
+      setData(await api.emi.collection({ kind, page, limit: LIMIT, branch: f.branch, date: f.date, staff: f.staff, mode: f.mode, weekday: f.weekday, loanType: f.loanType, status: kind === 'group' ? f.status : undefined, q }));
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [kind, page, f.branch, f.date, f.staff, f.mode, f.loanType, f.status, q]);
+  }, [kind, page, f.branch, f.date, f.staff, f.mode, f.weekday, f.loanType, f.status, q]);
   useEffect(() => {
     load();
   }, [load]);
-  useEffect(() => setPage(1), [f.branch, f.date, f.staff, f.mode, f.loanType, f.status, q]);
+  useEffect(() => setPage(1), [f.branch, f.date, f.staff, f.mode, f.weekday, f.loanType, f.status, q]);
   return { f, set: (patch) => setF((x) => ({ ...x, ...patch })), branches, data, loading, error, load, page, setPage };
 }
 
