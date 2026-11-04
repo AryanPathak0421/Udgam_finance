@@ -518,6 +518,15 @@ export const api = {
     calculateLoan: (data) => request('/employee/calculator', { method: 'POST', body: data }),
     createRequisition: (data) => request('/employee/requisitions', { method: 'POST', body: data }),
     requisitions: () => request('/employee/requisitions'),
+    trackLoan: (loanId) => request(`/employee/loans/track/${encodeURIComponent(loanId)}`),
+    emiGroups: (params) => request(`/employee/emi/groups${qs(params)}`),
+    groupEmiMembers: (groupCode, params) => request(`/employee/emi/groups/${encodeURIComponent(groupCode)}/members${qs(params)}`),
+    collectBulkEmi: (data) => request('/employee/emi/collect-bulk', { method: 'POST', body: data }),
+    individualLoans: (params) => request(`/employee/emi/individual-loans${qs(params)}`),
+    advancePayment: (data) => request('/employee/advance-payment', { method: 'POST', body: data }),
+    npaLoans: () => request('/employee/npa/loans'),
+    recoverNpa: (data) => request('/employee/npa/recover', { method: 'POST', body: data }),
+    companyQr: (params) => request(`/employee/company-qr${qs(params)}`),
   },
 };
 

@@ -15,9 +15,9 @@ export default function EmployeeBottomNav() {
           <span>{t('home')}</span>
         </NavLink>
 
-        <NavLink to="/employee/collections" className={({ isActive }) => `emp-nav-item ${isActive ? 'active' : ''}`}>
+        <NavLink to="/employee/emi-payment" className={({ isActive }) => `emp-nav-item ${isActive ? 'active' : ''}`}>
           <span className="icon">💳</span>
-          <span>{t('collections')}</span>
+          <span>EMI Pay</span>
         </NavLink>
 
         <button
@@ -58,29 +58,29 @@ export default function EmployeeBottomNav() {
               <button className="emp-icon-btn" onClick={() => setActionsOpen(false)}>✕</button>
             </div>
             <div className="emp-actions-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+              <div className="emp-action-tile" onClick={() => { setActionsOpen(false); navigate('/employee/emi-payment'); }}>
+                <div className="tile-icon">💰</div>
+                <div className="tile-title">EMI Pay</div>
+              </div>
+              <div className="emp-action-tile" onClick={() => { setActionsOpen(false); navigate('/employee/advance-payment'); }}>
+                <div className="tile-icon">💳</div>
+                <div className="tile-title">Advance Pay</div>
+              </div>
+              <div className="emp-action-tile" onClick={() => { setActionsOpen(false); navigate('/employee/npa-recovery'); }}>
+                <div className="tile-icon">🚨</div>
+                <div className="tile-title">NPA Recovery</div>
+              </div>
+              <div className="emp-action-tile" onClick={() => { setActionsOpen(false); navigate('/employee/track-loan'); }}>
+                <div className="tile-icon">🔎</div>
+                <div className="tile-title">Track Loan</div>
+              </div>
               <div className="emp-action-tile" onClick={() => { setActionsOpen(false); navigate('/employee/new-member'); }}>
                 <div className="tile-icon">👥</div>
                 <div className="tile-title">{t('new_member')}</div>
               </div>
-              <div className="emp-action-tile" onClick={() => { setActionsOpen(false); navigate('/employee/member-kyc'); }}>
+              <div className="emp-action-tile" onClick={() => { setActionsOpen(false); navigate('/employee/kyc'); }}>
                 <div className="tile-icon">🆔</div>
                 <div className="tile-title">{t('member_kyc')}</div>
-              </div>
-              <div className="emp-action-tile" onClick={() => { setActionsOpen(false); navigate('/employee/loan-requisition'); }}>
-                <div className="tile-icon">📝</div>
-                <div className="tile-title">{t('loan_requisition')}</div>
-              </div>
-              <div className="emp-action-tile" onClick={() => { setActionsOpen(false); navigate('/employee/guarantor-change'); }}>
-                <div className="tile-icon">🔄</div>
-                <div className="tile-title">{t('guarantor_change')}</div>
-              </div>
-              <div className="emp-action-tile" onClick={() => { setActionsOpen(false); navigate('/employee/synopsis'); }}>
-                <div className="tile-icon">🔍</div>
-                <div className="tile-title">{t('synopsis')}</div>
-              </div>
-              <div className="emp-action-tile" onClick={() => { setActionsOpen(false); navigate('/employee/due-list'); }}>
-                <div className="tile-icon">📅</div>
-                <div className="tile-title">{t('due_list')}</div>
               </div>
             </div>
           </div>
@@ -89,3 +89,4 @@ export default function EmployeeBottomNav() {
     </>
   );
 }
+

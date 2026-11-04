@@ -11,6 +11,9 @@ import { LoanRequisition } from '../../models/LoanRequisition.js';
 import { LoanScheme } from '../../models/LoanScheme.js';
 import { Group } from '../../models/Group.js';
 import { Task } from '../../models/HrExtra.js';
+import { Company } from '../../models/Company.js';
+import { BankAccount } from '../../models/BankAccount.js';
+import { generateCode } from '../../services/codeSequence.js';
 import { issueOtp, takeVerified, consumeChallenge } from '../../services/otpChallenges.js';
 import { sendSms } from '../../services/sms.js';
 import { sendMail, mailConfigured } from '../../services/mailer.js';
@@ -803,3 +806,520 @@ export async function listEmployeeRequisitions(req, res) {
     .lean();
   res.json({ items });
 }
+
+// -----------------------------------------------------------------------------
+// 13. TRACK LOAN HISTORY (LOAN ID WISE)
+// -----------------------------------------------------------------------------
+export async function trackLoanHistory(req, res) {
+  const query = cleanStr(req.params.loanId);
+  if (!query) throw new HttpError(400, 'Loan ID or Account number is required');
+
+  const loan = await LoanPayment.findOne({
+    $or: [
+      { loanId: new RegExp(`^${query}$`, 'i') },
+      { receiptNo: new RegExp(`^${query}$`, 'i') },
+      { formId: new RegExp(`^${query}$`, 'i') },
+      { 'lines.code': new RegExp(`^${query}$`, 'i') },
+    ],
+  }).populate('branch', 'name code').populate('requisition').lean();
+
+  if (!loan) throw new HttpError(404, `No loan record found matching '${query}'`);
+
+  const emiPayments = await EmiPayment.find({ loanPayment: loan._id, status: 'paid' })
+    .sort({ paidOn: -1 })
+    .lean();
+
+  const totalCollectedPaise = emiPayments.reduce((acc, p) => acc + (p.amountPaise || 0), 0);
+  const totalAmountPaise = loan.totalAmountPaise || loan.amountPaise || 0;
+  const balancePaise = Math.max(0, totalAmountPaise - totalCollectedPaise);
+
+  const scheduleWithStatus = (loan.schedule || []).map((s) => {
+    const isPaid = totalCollectedPaise >= (s.installmentPaise || 0) * s.no;
+    const isOverdue = !isPaid && s.dueDate && new Date(s.dueDate) < new Date();
+    return {
+      no: s.no,
+      dueDate: s.dueDate ? new Date(s.dueDate).toISOString().split('T')[0] : 'N/A',
+      installmentAmount: (s.installmentPaise || 0) / 100,
+      principal: (s.principalPaise || 0) / 100,
+      interest: (s.interestPaise || 0) / 100,
+      status: isPaid ? 'paid' : isOverdue ? 'overdue' : 'upcoming',
+    };
+  });
+
+  res.json({
+    loan: {
+      loanId: loan.loanId || loan.receiptNo,
+      formId: loan.formId,
+      branchName: loan.branch?.name,
+      group: loan.group,
+      paidOn: loan.paidOn,
+      mode: loan.mode || 'monthly',
+      loanType: loan.loanType || loan.kind || 'group',
+      borrowers: (loan.lines || []).map((l) => ({ code: l.code, name: l.name, amount: (l.amountPaise || 0) / 100 })),
+      totalAmount: totalAmountPaise / 100,
+      totalCollected: totalCollectedPaise / 100,
+      balance: balancePaise / 100,
+      status: balancePaise <= 0 ? 'closed' : 'active',
+      scheduleCount: loan.schedule?.length || 0,
+    },
+    schedule: scheduleWithStatus,
+    payments: emiPayments.map((p) => ({
+      receiptNo: p.receiptNo,
+      type: p.type,
+      paidOn: p.paidOn ? new Date(p.paidOn).toISOString().split('T')[0] : 'N/A',
+      amount: (p.amountPaise || 0) / 100,
+      payMode: p.payMode,
+      memberCode: p.memberCode,
+      memberName: p.memberName,
+      npa: p.npa,
+    })),
+  });
+}
+
+// -----------------------------------------------------------------------------
+// 14. GROUP EMI PAYMENT & FILTERS (DAILY, WEEKLY, MONTHLY)
+// -----------------------------------------------------------------------------
+export async function getEmiGroups(req, res) {
+  const mode = cleanStr(req.query.mode || 'daily').toLowerCase();
+  const dateStr = cleanStr(req.query.date) || todayDateString();
+
+  const loans = await LoanPayment.find({
+    status: 'paid',
+    'group.code': { $exists: true, $ne: '' },
+    $or: [{ mode: new RegExp(`^${mode}$`, 'i') }, { modeLabel: new RegExp(`^${mode}$`, 'i') }],
+  }).lean();
+
+  const groupMap = new Map();
+  for (const l of loans) {
+    const code = l.group?.code;
+    if (!code) continue;
+    if (!groupMap.has(code)) {
+      groupMap.set(code, {
+        groupCode: code,
+        groupName: l.group.name || code,
+        mode: l.mode || mode,
+        loans: [],
+        membersCount: 0,
+        totalDueAmount: 0,
+        totalCollectedToday: 0,
+      });
+    }
+    const g = groupMap.get(code);
+    g.loans.push(l._id);
+    g.membersCount += l.lines?.length || 1;
+    for (const line of (l.lines || [])) {
+      const emi = (l.schedule?.[0]?.installmentPaise || 0) + (line.extraEmiPaise || 0);
+      g.totalDueAmount += emi / 100;
+    }
+  }
+
+  const startDay = new Date(`${dateStr}T00:00:00.000Z`);
+  const endDay = new Date(`${dateStr}T23:59:59.999Z`);
+
+  const groups = [];
+  for (const [, g] of groupMap.entries()) {
+    const collections = await EmiPayment.aggregate([
+      { $match: { loanPayment: { $in: g.loans }, status: 'paid', paidOn: { $gte: startDay, $lte: endDay } } },
+      { $group: { _id: null, total: { $sum: '$amountPaise' } } },
+    ]);
+    const collectedPaise = collections[0]?.total || 0;
+    g.totalCollectedToday = collectedPaise / 100;
+    const progress = g.totalDueAmount > 0 ? Math.min(100, Math.round((g.totalCollectedToday / g.totalDueAmount) * 100)) : 100;
+    groups.push({
+      groupCode: g.groupCode,
+      groupName: g.groupName,
+      mode: g.mode,
+      membersCount: g.membersCount,
+      totalDueAmount: g.totalDueAmount,
+      totalCollectedToday: g.totalCollectedToday,
+      collectionProgressPercent: progress,
+      isCompleted: progress >= 100,
+    });
+  }
+
+  res.json({ mode, date: dateStr, groups });
+}
+
+export async function getGroupEmiMembers(req, res) {
+  const groupCode = cleanStr(req.params.groupCode);
+  const dateStr = cleanStr(req.query.date) || todayDateString();
+
+  const loans = await LoanPayment.find({
+    status: 'paid',
+    'group.code': new RegExp(`^${groupCode}$`, 'i'),
+  }).populate('lines.member').lean();
+
+  if (!loans.length) throw new HttpError(404, `No loans found for group ${groupCode}`);
+
+  const startDay = new Date(`${dateStr}T00:00:00.000Z`);
+  const endDay = new Date(`${dateStr}T23:59:59.999Z`);
+
+  const members = [];
+  const groupName = loans[0].group?.name || groupCode;
+
+  for (const l of loans) {
+    for (const line of (l.lines || [])) {
+      const pastPayments = await EmiPayment.find({
+        loanPayment: l._id,
+        memberCode: line.code,
+        status: 'paid',
+      }).lean();
+
+      const totalPaidPaise = pastPayments.reduce((acc, p) => acc + (p.amountPaise || 0), 0);
+      const todayPaidPaise = pastPayments.filter((p) => p.paidOn >= startDay && p.paidOn <= endDay)
+        .reduce((acc, p) => acc + (p.amountPaise || 0), 0);
+
+      const emiPaise = (l.schedule?.[0]?.installmentPaise || 0) + (line.extraEmiPaise || 0);
+      const totalLoanPaise = line.amountPaise || l.totalAmountPaise || 0;
+
+      const dueSchedule = (l.schedule || []).filter((s) => s.dueDate && new Date(s.dueDate) <= new Date(dateStr));
+      const expectedDuePaise = dueSchedule.length * emiPaise;
+      const advancePaise = Math.max(0, totalPaidPaise - expectedDuePaise);
+      const duesPaise = Math.max(0, expectedDuePaise - totalPaidPaise);
+
+      // Note: "and जिस मेंबर का Advance payment है उसका EMI update नहीं होगा"
+      const isAdvancePaid = advancePaise >= emiPaise;
+      const alreadyPaidToday = todayPaidPaise > 0;
+
+      members.push({
+        loanPaymentId: l._id,
+        loanId: l.loanId || l.receiptNo,
+        memberId: line.member?._id || line.member,
+        memberCode: line.code,
+        memberName: line.name,
+        emiAmount: emiPaise / 100,
+        suggestedAmount: emiPaise / 100,
+        dueAmount: duesPaise / 100,
+        advanceAmount: advancePaise / 100,
+        isAdvancePaid,
+        alreadyPaidToday,
+        balanceAmount: Math.max(0, totalLoanPaise - totalPaidPaise) / 100,
+      });
+    }
+  }
+
+  res.json({
+    groupCode,
+    groupName,
+    members,
+  });
+}
+
+export async function collectBulkEmi(req, res) {
+  const { items, date, payMode = 'cash', reference = '' } = req.body || {};
+  if (!Array.isArray(items) || !items.length) {
+    throw new HttpError(400, 'Please select at least one member to collect EMI');
+  }
+
+  const results = [];
+  const paidOn = date ? new Date(date) : new Date();
+  const staffCode = req.user?.employeeCode || '';
+
+  for (const it of items) {
+    try {
+      const amount = Number(it.amount);
+      if (!amount || amount < 1) continue;
+
+      const p = await LoanPayment.findById(it.loanPaymentId);
+      if (!p) throw new Error('Loan not found');
+
+      const line = (p.lines || []).find((l) => l.code === it.memberCode || String(l.member) === String(it.memberId));
+      if (!line) throw new Error('Borrower not found in loan');
+
+      const receiptNo = await generateCode('emiReceipt').catch(() => `REC${Date.now().toString().slice(-8)}`);
+      const doc = await EmiPayment.create({
+        receiptNo,
+        loanPayment: p._id,
+        loanId: p.loanId,
+        formId: p.formId,
+        branch: p.branch,
+        type: 'regular',
+        member: line.member,
+        memberCode: line.code,
+        memberName: line.name,
+        group: p.group?.code ? `${p.group.code} — ${p.group.name}` : '',
+        amountPaise: Math.round(amount * 100),
+        paidOn,
+        payMode: it.payMode || payMode,
+        reference: it.reference || reference,
+        employeeCode: staffCode,
+        createdBy: req.user._id,
+        createdByCode: staffCode,
+        status: 'paid',
+      });
+
+      results.push({
+        memberCode: line.code,
+        memberName: line.name,
+        receiptNo: doc.receiptNo,
+        amount,
+        status: 'success',
+      });
+    } catch (err) {
+      results.push({
+        memberCode: it.memberCode,
+        status: 'error',
+        message: err.message,
+      });
+    }
+  }
+
+  const successful = results.filter((r) => r.status === 'success');
+  const totalCollected = successful.reduce((acc, r) => acc + r.amount, 0);
+
+  res.json({
+    success: true,
+    collectedCount: successful.length,
+    failedCount: results.length - successful.length,
+    totalCollected,
+    results,
+  });
+}
+
+// -----------------------------------------------------------------------------
+// 15. INDIVIDUAL LOAN EMI COLLECTION (PERSONAL, BUSINESS/MSME, PRODUCT)
+// -----------------------------------------------------------------------------
+export async function getIndividualLoans(req, res) {
+  const loanType = cleanStr(req.query.loanType || 'personal').toLowerCase();
+  const mode = cleanStr(req.query.mode || 'daily').toLowerCase();
+  const dateStr = cleanStr(req.query.date) || todayDateString();
+
+  const typeFilter = loanType === 'business' || loanType === 'msme' || loanType === 'business_msme'
+    ? { $in: ['business', 'msme', 'business_msme'] }
+    : loanType;
+
+  const loans = await LoanPayment.find({
+    status: 'paid',
+    $or: [
+      { loanType: typeFilter },
+      { kind: typeFilter },
+    ],
+    mode: new RegExp(`^${mode}$`, 'i'),
+  }).lean();
+
+  const startDay = new Date(`${dateStr}T00:00:00.000Z`);
+  const endDay = new Date(`${dateStr}T23:59:59.999Z`);
+
+  const items = [];
+  for (const l of loans) {
+    for (const line of (l.lines || [])) {
+      const pastPayments = await EmiPayment.find({
+        loanPayment: l._id,
+        memberCode: line.code,
+        status: 'paid',
+      }).lean();
+
+      const totalPaidPaise = pastPayments.reduce((acc, p) => acc + (p.amountPaise || 0), 0);
+      const todayPaidPaise = pastPayments.filter((p) => p.paidOn >= startDay && p.paidOn <= endDay)
+        .reduce((acc, p) => acc + (p.amountPaise || 0), 0);
+
+      const emiPaise = (l.schedule?.[0]?.installmentPaise || 0) + (line.extraEmiPaise || 0);
+      const totalLoanPaise = line.amountPaise || l.totalAmountPaise || 0;
+
+      const dueSchedule = (l.schedule || []).filter((s) => s.dueDate && new Date(s.dueDate) <= new Date(dateStr));
+      const expectedDuePaise = dueSchedule.length * emiPaise;
+      const advancePaise = Math.max(0, totalPaidPaise - expectedDuePaise);
+      const duesPaise = Math.max(0, expectedDuePaise - totalPaidPaise);
+
+      const isAdvancePaid = advancePaise >= emiPaise;
+      const alreadyPaidToday = todayPaidPaise > 0;
+      const isCompleted = alreadyPaidToday || isAdvancePaid;
+
+      items.push({
+        loanPaymentId: l._id,
+        loanId: l.loanId || l.receiptNo,
+        memberId: line.member?._id || line.member,
+        memberCode: line.code,
+        memberName: line.name,
+        loanType: l.loanType || loanType,
+        mode: l.mode,
+        emiAmount: emiPaise / 100,
+        suggestedAmount: emiPaise / 100,
+        dueAmount: duesPaise / 100,
+        advanceAmount: advancePaise / 100,
+        isAdvancePaid,
+        alreadyPaidToday,
+        isCompleted,
+        balanceAmount: Math.max(0, totalLoanPaise - totalPaidPaise) / 100,
+      });
+    }
+  }
+
+  res.json({ loanType, mode, items });
+}
+
+// -----------------------------------------------------------------------------
+// 16. ADVANCE PAYMENT & DYNAMIC COMPANY UPI QR CODE
+// -----------------------------------------------------------------------------
+export async function advancePayment(req, res) {
+  const { loanId, memberCode, amount, payMode = 'cash', reference = '' } = req.body || {};
+  if (!loanId) throw new HttpError(400, 'Loan ID is required');
+  const payAmount = Number(amount);
+  if (!payAmount || payAmount < 1) throw new HttpError(400, 'Enter valid amount of ₹1 or more');
+
+  const loan = await LoanPayment.findOne({
+    $or: [{ loanId: new RegExp(`^${loanId}$`, 'i') }, { receiptNo: new RegExp(`^${loanId}$`, 'i') }],
+    status: 'paid',
+  });
+  if (!loan) throw new HttpError(404, `Loan '${loanId}' not found or already closed`);
+
+  const line = (loan.lines || []).find((l) => (memberCode && l.code === memberCode)) || loan.lines?.[0];
+  if (!line) throw new HttpError(404, 'Borrower line not found in this loan');
+
+  const receiptNo = await generateCode('emiReceipt').catch(() => `ADV${Date.now().toString().slice(-8)}`);
+  const doc = await EmiPayment.create({
+    receiptNo,
+    loanPayment: loan._id,
+    loanId: loan.loanId,
+    formId: loan.formId,
+    branch: loan.branch,
+    type: 'advance',
+    member: line.member,
+    memberCode: line.code,
+    memberName: line.name,
+    group: loan.group?.code ? `${loan.group.code} — ${loan.group.name}` : '',
+    amountPaise: Math.round(payAmount * 100),
+    paidOn: new Date(),
+    payMode,
+    reference,
+    employeeCode: req.user?.employeeCode || '',
+    createdBy: req.user._id,
+    createdByCode: req.user?.employeeCode || '',
+    status: 'paid',
+  });
+
+  res.status(201).json({
+    success: true,
+    receiptNo: doc.receiptNo,
+    amount: payAmount,
+    loanId: loan.loanId,
+    memberCode: line.code,
+    memberName: line.name,
+    message: `Advance payment of ₹${payAmount} successfully credited to Loan ${loan.loanId}`,
+  });
+}
+
+// -----------------------------------------------------------------------------
+// 17. NPA RECOVERY (NPA MEMBERS & OVERDUE RECOVERY)
+// -----------------------------------------------------------------------------
+export async function getNpaLoans(req, res) {
+  const loans = await LoanPayment.find({ status: 'paid' }).populate('branch', 'name code').lean();
+  const npaList = [];
+  const today = new Date();
+
+  for (const l of loans) {
+    for (const line of (l.lines || [])) {
+      const pastPayments = await EmiPayment.find({
+        loanPayment: l._id,
+        memberCode: line.code,
+        status: 'paid',
+      }).lean();
+
+      const totalPaidPaise = pastPayments.reduce((acc, p) => acc + (p.amountPaise || 0), 0);
+      const totalLoanPaise = line.amountPaise || l.totalAmountPaise || 0;
+      const emiPaise = (l.schedule?.[0]?.installmentPaise || 0) + (line.extraEmiPaise || 0);
+
+      const overdueSchedules = (l.schedule || []).filter((s) => s.dueDate && new Date(s.dueDate) < today);
+      const expectedDuePaise = overdueSchedules.length * emiPaise;
+      const overduePaise = Math.max(0, expectedDuePaise - totalPaidPaise);
+
+      if (overduePaise <= 0) continue;
+
+      const unpaidDue = overdueSchedules[0]?.dueDate;
+      const dpd = unpaidDue ? Math.max(0, Math.floor((today - new Date(unpaidDue)) / (1000 * 60 * 60 * 24))) : 0;
+
+      if (dpd >= 90 || (l.emiEndDate && new Date(l.emiEndDate) < today)) {
+        const memberDoc = await Member.findById(line.member).select('mobile').lean();
+        npaList.push({
+          loanPaymentId: l._id,
+          loanId: l.loanId || l.receiptNo,
+          memberId: line.member,
+          memberCode: line.code,
+          memberName: line.name,
+          phone: memberDoc?.mobile || 'N/A',
+          branchName: l.branch?.name || '',
+          dpd,
+          overduePrincipal: Math.round(overduePaise * 0.7) / 100,
+          overdueInterest: Math.round(overduePaise * 0.3) / 100,
+          totalOverdue: overduePaise / 100,
+          totalBalance: Math.max(0, totalLoanPaise - totalPaidPaise) / 100,
+          npaCategory: dpd > 365 ? 'Loss' : dpd > 180 ? 'Doubtful' : 'Sub-Standard',
+        });
+      }
+    }
+  }
+
+  res.json({ items: npaList });
+}
+
+export async function recoverNpaLoan(req, res) {
+  const { loanPaymentId, memberCode, amount, payMode = 'cash', reference = '' } = req.body || {};
+  const payAmount = Number(amount);
+  if (!payAmount || payAmount < 1) throw new HttpError(400, 'Enter recovery amount of ₹1 or more');
+
+  const loan = await LoanPayment.findById(loanPaymentId);
+  if (!loan) throw new HttpError(404, 'Loan record not found');
+
+  const line = (loan.lines || []).find((l) => l.code === memberCode) || loan.lines?.[0];
+  if (!line) throw new HttpError(404, 'Borrower line not found in loan');
+
+  const receiptNo = await generateCode('emiReceipt').catch(() => `NPA${Date.now().toString().slice(-8)}`);
+  const doc = await EmiPayment.create({
+    receiptNo,
+    loanPayment: loan._id,
+    loanId: loan.loanId,
+    formId: loan.formId,
+    branch: loan.branch,
+    type: 'regular',
+    npa: true,
+    member: line.member,
+    memberCode: line.code,
+    memberName: line.name,
+    group: loan.group?.code ? `${loan.group.code} — ${loan.group.name}` : '',
+    amountPaise: Math.round(payAmount * 100),
+    paidOn: new Date(),
+    payMode,
+    reference,
+    employeeCode: req.user?.employeeCode || '',
+    createdBy: req.user._id,
+    createdByCode: req.user?.employeeCode || '',
+    status: 'paid',
+  });
+
+  res.status(201).json({
+    success: true,
+    receiptNo: doc.receiptNo,
+    amount: payAmount,
+    loanId: loan.loanId,
+    memberCode: line.code,
+    memberName: line.name,
+    message: `NPA recovery payment of ₹${payAmount} recorded successfully (Receipt ${doc.receiptNo})`,
+  });
+}
+
+// -----------------------------------------------------------------------------
+// 18. COMPANY DYNAMIC UPI QR
+// -----------------------------------------------------------------------------
+export async function getCompanyQr(req, res) {
+  const { amount = 0, loanId = '', memberName = '' } = req.query;
+  const company = await Company.findOne().lean();
+  const bank = await BankAccount.findOne({ isActive: true }).lean();
+
+  const companyName = company?.name || 'Udgam Micro Finance';
+  const upiId = bank?.accountNumber ? `${bank.accountNumber}@bank` : 'udgamfinance@upi';
+
+  const upiString = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(companyName)}&am=${amount}&cu=INR&tn=${encodeURIComponent(`Loan ${loanId} EMI - ${memberName}`)}`;
+  const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(upiString)}`;
+
+  res.json({
+    companyName,
+    upiId,
+    amount: Number(amount),
+    loanId,
+    memberName,
+    upiString,
+    qrImageUrl,
+  });
+}
+
+

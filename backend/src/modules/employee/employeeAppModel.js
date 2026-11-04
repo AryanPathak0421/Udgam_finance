@@ -76,3 +76,4 @@ guarantorChangeRequestSchema.index({ member: 1, status: 1 });
 guarantorChangeRequestSchema.index({ branch: 1, status: 1 });
 
 export const GuarantorChangeRequest = mongoose.model('GuarantorChangeRequest', guarantorChangeRequestSchema);
+

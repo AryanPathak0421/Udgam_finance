@@ -711,3 +711,4 @@ export default function EmployeeNewMember() {
     </div>
   );
 }
+

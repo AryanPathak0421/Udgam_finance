@@ -108,27 +108,47 @@ export default function EmployeeHome() {
       {/* Main Operations Grid */}
       <h4 style={{ margin: '14px 0 8px', fontSize: '0.95rem' }}>{t('quick_actions')}</h4>
       <div className="emp-actions-grid">
+        <div className="emp-action-tile" onClick={() => navigate('/employee/emi-payment')}>
+          <div className="tile-icon">💰</div>
+          <div className="tile-title">EMI Payment (Daily/Wk/Mo)</div>
+        </div>
+
+        <div className="emp-action-tile" onClick={() => navigate('/employee/advance-payment')}>
+          <div className="tile-icon">💳</div>
+          <div className="tile-title">Advance Payment (QR/Cash)</div>
+        </div>
+
+        <div className="emp-action-tile" onClick={() => navigate('/employee/npa-recovery')}>
+          <div className="tile-icon">🚨</div>
+          <div className="tile-title">NPA Recovery</div>
+        </div>
+
+        <div className="emp-action-tile" onClick={() => navigate('/employee/track-loan')}>
+          <div className="tile-icon">🔎</div>
+          <div className="tile-title">Track Loan History</div>
+        </div>
+
         <div className="emp-action-tile" onClick={() => navigate('/employee/new-member')}>
           <div className="tile-icon">👥</div>
           <div className="tile-title">{t('new_member')}</div>
         </div>
 
-        <div className="emp-action-tile" onClick={() => navigate('/employee/member-kyc')}>
+        <div className="emp-action-tile" onClick={() => navigate('/employee/kyc')}>
           <div className="tile-icon">🆔</div>
           <div className="tile-title">{t('member_kyc')}</div>
         </div>
 
-        <div className="emp-action-tile" onClick={() => navigate('/employee/loan-requisition')}>
+        <div className="emp-action-tile" onClick={() => navigate('/employee/requisition')}>
           <div className="tile-icon">📝</div>
           <div className="tile-title">{t('loan_requisition')}</div>
         </div>
 
-        <div className="emp-action-tile" onClick={() => navigate('/employee/collections')}>
+        <div className="emp-action-tile" onClick={() => navigate('/employee/collection-history')}>
           <div className="tile-icon">💵</div>
           <div className="tile-title">{t('collection_history')}</div>
         </div>
 
-        <div className="emp-action-tile" onClick={() => navigate('/employee/due-list')}>
+        <div className="emp-action-tile" onClick={() => navigate('/employee/today-due')}>
           <div className="tile-icon">📅</div>
           <div className="tile-title">{t('due_list')}</div>
         </div>
@@ -139,7 +159,7 @@ export default function EmployeeHome() {
         </div>
 
         <div className="emp-action-tile" onClick={() => navigate('/employee/synopsis')}>
-          <div className="tile-icon">🔍</div>
+          <div className="tile-icon">📋</div>
           <div className="tile-title">{t('synopsis')}</div>
         </div>
 
@@ -151,3 +171,4 @@ export default function EmployeeHome() {
     </div>
   );
 }
+

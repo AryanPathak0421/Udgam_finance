@@ -24,6 +24,15 @@ import {
   calculateLoanEmi,
   createLoanRequisition,
   listEmployeeRequisitions,
+  trackLoanHistory,
+  getEmiGroups,
+  getGroupEmiMembers,
+  collectBulkEmi,
+  getIndividualLoans,
+  advancePayment,
+  getNpaLoans,
+  recoverNpaLoan,
+  getCompanyQr,
 } from './employeeAppController.js';
 
 const router = Router();
@@ -63,4 +72,24 @@ router.post('/calculator', requireAuth, h(calculateLoanEmi));
 router.post('/requisitions', requireAuth, h(createLoanRequisition));
 router.get('/requisitions', requireAuth, h(listEmployeeRequisitions));
 
+// Track Loan History Loan ID Wise
+router.get('/loans/track/:loanId', requireAuth, h(trackLoanHistory));
+
+// EMI Payment - Group & Individual (Daily, Weekly, Monthly)
+router.get('/emi/groups', requireAuth, h(getEmiGroups));
+router.get('/emi/groups/:groupCode/members', requireAuth, h(getGroupEmiMembers));
+router.post('/emi/collect-bulk', requireAuth, h(collectBulkEmi));
+router.get('/emi/individual-loans', requireAuth, h(getIndividualLoans));
+
+// Advance Payment
+router.post('/advance-payment', requireAuth, h(advancePayment));
+
+// NPA Recovery
+router.get('/npa/loans', requireAuth, h(getNpaLoans));
+router.post('/npa/recover', requireAuth, h(recoverNpaLoan));
+
+// Dynamic Company UPI QR Code
+router.get('/company-qr', requireAuth, h(getCompanyQr));
+
 export default router;
+

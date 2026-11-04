@@ -15,6 +15,10 @@ import EmployeeMemberKyc from './pages/EmployeeMemberKyc.jsx';
 import EmployeeGuarantorChange from './pages/EmployeeGuarantorChange.jsx';
 import EmployeeMemberSynopsis from './pages/EmployeeMemberSynopsis.jsx';
 import EmployeeLoanRequisition from './pages/EmployeeLoanRequisition.jsx';
+import EmployeeEmiPayment from './pages/EmployeeEmiPayment.jsx';
+import EmployeeAdvancePayment from './pages/EmployeeAdvancePayment.jsx';
+import EmployeeNpaRecovery from './pages/EmployeeNpaRecovery.jsx';
+import EmployeeTrackLoan from './pages/EmployeeTrackLoan.jsx';
 
 import './employee.css';
 
@@ -53,6 +57,10 @@ function EmployeeAppRoutes() {
             <Route path="guarantor-change" element={empUser ? <EmployeeGuarantorChange /> : <Navigate to="/employee/login" replace />} />
             <Route path="synopsis" element={empUser ? <EmployeeMemberSynopsis /> : <Navigate to="/employee/login" replace />} />
             <Route path="requisition" element={empUser ? <EmployeeLoanRequisition /> : <Navigate to="/employee/login" replace />} />
+            <Route path="emi-payment" element={empUser ? <EmployeeEmiPayment /> : <Navigate to="/employee/login" replace />} />
+            <Route path="advance-payment" element={empUser ? <EmployeeAdvancePayment /> : <Navigate to="/employee/login" replace />} />
+            <Route path="npa-recovery" element={empUser ? <EmployeeNpaRecovery /> : <Navigate to="/employee/login" replace />} />
+            <Route path="track-loan" element={empUser ? <EmployeeTrackLoan /> : <Navigate to="/employee/login" replace />} />
 
             {/* Fallback */}
             <Route path="*" element={<Navigate to="/employee" replace />} />
@@ -72,3 +80,4 @@ export default function EmployeeApp() {
     </EmployeeAppProvider>
   );
 }
+
