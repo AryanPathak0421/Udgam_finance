@@ -2,6 +2,7 @@ import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { EmployeeAppProvider, useEmployeeApp } from './EmployeeAppContext.jsx';
 import EmployeeHeader from './components/EmployeeHeader.jsx';
 import EmployeeBottomNav from './components/EmployeeBottomNav.jsx';
+import PwaInstallBanner from './components/PwaInstallBanner.jsx';
 
 import EmployeeLogin from './pages/EmployeeLogin.jsx';
 import EmployeeRegistration from './pages/EmployeeRegistration.jsx';
@@ -51,6 +52,9 @@ function EmployeeAppRoutes() {
         {!isAuthPage && <EmployeeHeader />}
 
         <main style={{ flex: 1, paddingBottom: !isAuthPage ? 80 : 0 }}>
+          <div style={{ padding: '10px 14px 0', maxWidth: 480, margin: '0 auto' }}>
+            <PwaInstallBanner />
+          </div>
           <Routes>
             <Route path="login" element={empUser ? <Navigate to="/employee" replace /> : <EmployeeLogin />} />
             <Route path="register" element={<EmployeeRegistration />} />

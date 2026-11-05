@@ -1,0 +1,33 @@
+{
+  "name": "Udgam Microfinance - Staff App",
+  "short_name": "Udgam Staff",
+  "description": "Udgam Microfinance Field Officer & Staff Operations Portal",
+  "start_url": "/employee/login",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#107870",
+  "theme_color": "#107870",
+  "orientation": "portrait",
+  "lang": "en-IN",
+  "categories": ["finance", "business", "productivity"],
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

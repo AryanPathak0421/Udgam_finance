@@ -171,6 +171,29 @@ export default function EmployeeProfile() {
         </div>
       )}
 
+      {/* App & Device Info Card */}
+      <div className="emp-card">
+        <div className="emp-card-title">Udgam Staff App (PWA)</div>
+        <div className="emp-stat-row">
+          <span className="emp-stat-label">App Platform</span>
+          <span className="emp-stat-value">Progressive Web App</span>
+        </div>
+        <div className="emp-stat-row">
+          <span className="emp-stat-label">Offline Support</span>
+          <span className="emp-stat-value" style={{ color: '#059669', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <Icon name="checkcircle" size={13} /> Active
+          </span>
+        </div>
+        <div className="emp-stat-row">
+          <span className="emp-stat-label">Display Mode</span>
+          <span className="emp-stat-value">
+            {typeof window !== 'undefined' && (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone)
+              ? 'Installed Standalone App'
+              : 'Web Browser (Installable)'}
+          </span>
+        </div>
+      </div>
+
       {/* Supervisor Rating Modal */}
       {rateModal && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
