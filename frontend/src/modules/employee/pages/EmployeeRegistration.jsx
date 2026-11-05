@@ -31,8 +31,8 @@ export default function EmployeeRegistration() {
 
   async function handleCreateMpin(e) {
     e.preventDefault();
-    if (mpin.length < 4 || mpin.length > 6) {
-      setError('mPIN must be 4 to 6 digits');
+    if (mpin.length !== 4) {
+      setError('mPIN must be exactly 4 digits');
       return;
     }
     if (mpin !== confirmMpin) {
@@ -121,30 +121,32 @@ export default function EmployeeRegistration() {
 
           <form onSubmit={handleCreateMpin}>
             <div className="emp-input-group">
-              <label className="emp-label">Set 4 to 6-digit mPIN</label>
+              <label className="emp-label">Set 4-digit mPIN</label>
               <input
                 type="password"
                 inputMode="numeric"
-                maxLength={6}
+                maxLength={4}
+                pattern="[0-9]{4}"
                 className="emp-input"
                 required
                 placeholder="••••"
                 value={mpin}
-                onChange={(e) => setMpin(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                onChange={(e) => setMpin(e.target.value.replace(/\D/g, '').slice(0, 4))}
               />
             </div>
 
             <div className="emp-input-group">
-              <label className="emp-label">Confirm mPIN</label>
+              <label className="emp-label">Confirm 4-digit mPIN</label>
               <input
                 type="password"
                 inputMode="numeric"
-                maxLength={6}
+                maxLength={4}
+                pattern="[0-9]{4}"
                 className="emp-input"
                 required
                 placeholder="••••"
                 value={confirmMpin}
-                onChange={(e) => setConfirmMpin(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                onChange={(e) => setConfirmMpin(e.target.value.replace(/\D/g, '').slice(0, 4))}
               />
             </div>
 

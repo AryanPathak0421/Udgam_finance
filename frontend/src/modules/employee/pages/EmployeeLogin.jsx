@@ -29,6 +29,14 @@ export default function EmployeeLogin() {
       setError('Please fill in both fields');
       return;
     }
+    if (tab === 'phone' && identifier.trim().length !== 10) {
+      setError('Mobile number must be exactly 10 digits');
+      return;
+    }
+    if (mpin.trim().length !== 4) {
+      setError('Secret mPIN must be exactly 4 digits');
+      return;
+    }
     setBusy(true);
     setError('');
     try {
@@ -169,18 +177,26 @@ export default function EmployeeLogin() {
             </label>
             <input
               type={tab === 'phone' ? 'tel' : tab === 'email' ? 'email' : 'text'}
+              inputMode={tab === 'phone' ? 'numeric' : undefined}
+              maxLength={tab === 'phone' ? 10 : undefined}
               className="emp-input"
               required
               autoFocus
               placeholder={tab === 'phone' ? '9876543210' : tab === 'code' ? 'EMP001' : 'staff@udgam.com'}
               value={identifier}
-              onChange={(e) => setIdentifier(e.target.value)}
+              onChange={(e) => {
+                if (tab === 'phone') {
+                  setIdentifier(e.target.value.replace(/\D/g, '').slice(0, 10));
+                } else {
+                  setIdentifier(e.target.value);
+                }
+              }}
             />
           </div>
 
           <div className="emp-input-group">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <label className="emp-label">Secret mPIN</label>
+              <label className="emp-label">Secret mPIN (4 Digits)</label>
               <button
                 type="button"
                 onClick={() => { setForgotOpen(true); setForgotId(identifier); }}
@@ -192,12 +208,13 @@ export default function EmployeeLogin() {
             <input
               type="password"
               inputMode="numeric"
-              maxLength={6}
+              maxLength={4}
+              pattern="[0-9]{4}"
               className="emp-input"
               required
               placeholder="••••"
               value={mpin}
-              onChange={(e) => setMpin(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              onChange={(e) => setMpin(e.target.value.replace(/\D/g, '').slice(0, 4))}
             />
           </div>
 
@@ -276,14 +293,16 @@ export default function EmployeeLogin() {
                   />
                 </div>
                 <div className="emp-input-group">
-                  <label className="emp-label">Set New mPIN (4 to 6 digits)</label>
+                  <label className="emp-label">Set New 4-digit mPIN</label>
                   <input
                     type="password"
-                    maxLength={6}
+                    inputMode="numeric"
+                    maxLength={4}
                     className="emp-input"
                     required
+                    placeholder="••••"
                     value={newMpin}
-                    onChange={(e) => setNewMpin(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    onChange={(e) => setNewMpin(e.target.value.replace(/\D/g, '').slice(0, 4))}
                   />
                 </div>
                 <button type="submit" className="emp-btn" disabled={forgotBusy}>
