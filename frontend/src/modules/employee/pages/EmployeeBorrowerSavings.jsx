@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api } from '../../../api/client.js';
 import { useEmployeeApp } from '../EmployeeAppContext.jsx';
+import Icon from '../../../components/Icon.jsx';
 
 export default function EmployeeBorrowerSavings() {
   const { t } = useEmployeeApp();
@@ -73,8 +74,9 @@ export default function EmployeeBorrowerSavings() {
     <div className="emp-page-container">
       {/* Search Header */}
       <div className="emp-card">
-        <h2 style={{ fontSize: '1.2rem', fontWeight: 800, margin: '0 0 8px 0', color: 'var(--emp-text)' }}>
-          💰 Borrower Saving / Security Amount
+        <h2 style={{ fontSize: '1.2rem', fontWeight: 800, margin: '0 0 8px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Icon name="bank" size={20} style={{ color: 'var(--emp-primary)' }} />
+          <span>Borrower Savings &amp; Security Deposits</span>
         </h2>
         <p style={{ fontSize: '0.82rem', color: 'var(--emp-text-muted)', margin: '0 0 14px 0' }}>
           Search member ID to view deposit &amp; withdrawal history, and submit a withdrawal request.

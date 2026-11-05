@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../../api/client.js';
 import { useEmployeeApp } from '../EmployeeAppContext.jsx';
+import Icon from '../../../components/Icon.jsx';
 import { compressImage } from '../../../utils/image.js';
 
 export default function EmployeeCenterVisits() {
@@ -134,18 +135,20 @@ export default function EmployeeCenterVisits() {
         <button
           type="button"
           className={tab === 'new' ? 'emp-btn-primary' : 'emp-btn-secondary'}
-          style={{ flex: 1, padding: '10px' }}
+          style={{ flex: 1, padding: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontWeight: 700 }}
           onClick={() => setTab('new')}
         >
-          📍 New Center Visit
+          <Icon name="mappin" size={16} />
+          <span>New Center Visit</span>
         </button>
         <button
           type="button"
           className={tab === 'cgt' ? 'emp-btn-primary' : 'emp-btn-secondary'}
-          style={{ flex: 1, padding: '10px' }}
+          style={{ flex: 1, padding: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontWeight: 700 }}
           onClick={() => setTab('cgt')}
         >
-          🎓 CGT 1,2,3 Visit Photos
+          <Icon name="users" size={16} />
+          <span>CGT 1,2,3 Visits</span>
         </button>
       </div>
 
@@ -167,8 +170,9 @@ export default function EmployeeCenterVisits() {
       {/* Tab 1: New Center Visit */}
       {tab === 'new' && (
         <div className="emp-card">
-          <h2 style={{ fontSize: '1.2rem', fontWeight: 800, margin: '0 0 6px 0', color: 'var(--emp-text)' }}>
-            🏘️ New Center Visit Update
+          <h2 style={{ fontSize: '1.2rem', fontWeight: 800, margin: '0 0 6px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Icon name="building" size={20} style={{ color: 'var(--emp-primary)' }} />
+            <span>New Center Visit Update</span>
           </h2>
           <p style={{ fontSize: '0.8rem', color: 'var(--emp-text-muted)', margin: '0 0 16px 0' }}>
             Location is auto-detected via GPS. Record contact person name, mobile number, and photo.
@@ -265,8 +269,9 @@ export default function EmployeeCenterVisits() {
       {tab === 'cgt' && (
         <div>
           <div className="emp-card" style={{ marginBottom: 12 }}>
-            <h3 style={{ fontSize: '1.05rem', fontWeight: 800, margin: '0 0 4px 0', color: 'var(--emp-text)' }}>
-              🎓 CGT (Continuous Group Training)
+            <h3 style={{ fontSize: '1.05rem', fontWeight: 800, margin: '0 0 4px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Icon name="users" size={18} style={{ color: 'var(--emp-primary)' }} />
+              <span>CGT (Continuous Group Training)</span>
             </h3>
             <p style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', margin: 0 }}>
               Click on Day 1, 2, or 3 date on any center to upload meeting photo and mark completion.
@@ -277,7 +282,7 @@ export default function EmployeeCenterVisits() {
             <div style={{ textAlign: 'center', padding: '30px', color: 'var(--emp-text-muted)' }}>Loading CGT centers...</div>
           ) : cgtVisits.length === 0 ? (
             <div className="emp-card" style={{ textAlign: 'center', padding: '30px', color: 'var(--emp-text-muted)' }}>
-              <div style={{ fontSize: '2rem', marginBottom: 6 }}>📚</div>
+              <div style={{ color: 'var(--emp-text-muted)', marginBottom: 8 }}><Icon name="book" size={36} /></div>
               <div style={{ fontWeight: 600 }}>No active CGT centers found</div>
               <button
                 type="button"
@@ -345,8 +350,9 @@ export default function EmployeeCenterVisits() {
           {cgtModal && (
             <div className="emp-modal-overlay" onClick={() => setCgtModal(null)}>
               <div className="emp-modal-sheet" onClick={(e) => e.stopPropagation()}>
-                <h3 style={{ fontSize: '1.1rem', fontWeight: 800, margin: '0 0 4px 0', color: 'var(--emp-text)' }}>
-                  📸 CGT Day {cgtModal.day} Photo: {cgtModal.centerName}
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 800, margin: '0 0 4px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Icon name="camera" size={18} style={{ color: 'var(--emp-primary)' }} />
+                  <span>CGT Day {cgtModal.day} Photo: {cgtModal.centerName}</span>
                 </h3>
                 <p style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', margin: '0 0 14px 0' }}>
                   Upload a photo of the group training session for Day {cgtModal.day}.

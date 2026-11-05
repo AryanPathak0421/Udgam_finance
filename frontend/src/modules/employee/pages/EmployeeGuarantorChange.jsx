@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../../api/client.js';
 import { useEmployeeApp } from '../EmployeeAppContext.jsx';
+import Icon from '../../../components/Icon.jsx';
 
 export default function EmployeeGuarantorChange() {
   const { empUser, t } = useEmployeeApp();
@@ -113,18 +114,18 @@ export default function EmployeeGuarantorChange() {
         <button
           type="button"
           className={tab === 'new' ? 'emp-btn-primary' : 'emp-btn-secondary'}
-          style={{ flex: 1, padding: '10px' }}
+          style={{ flex: 1, padding: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
           onClick={() => setTab('new')}
         >
-          ➕ Change Request
+          <Icon name="plus" size={15} /> Change Request
         </button>
         <button
           type="button"
           className={tab === 'list' ? 'emp-btn-primary' : 'emp-btn-secondary'}
-          style={{ flex: 1, padding: '10px' }}
+          style={{ flex: 1, padding: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
           onClick={() => setTab('list')}
         >
-          📋 Status & History
+          <Icon name="file" size={15} /> Status & History
         </button>
       </div>
 
@@ -144,8 +145,8 @@ export default function EmployeeGuarantorChange() {
         <>
           {/* Member Search Card */}
           <div className="emp-card">
-            <h2 style={{ fontSize: '1.15rem', fontWeight: 800, margin: '0 0 10px 0', color: 'var(--emp-text)' }}>
-              👥 {t('guarantorChange')}
+            <h2 style={{ fontSize: '1.15rem', fontWeight: 800, margin: '0 0 10px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Icon name="users" size={20} style={{ color: 'var(--emp-primary)' }} /> {t('guarantorChange')}
             </h2>
             <p style={{ fontSize: '0.82rem', color: 'var(--emp-text-muted)', margin: '0 0 14px 0' }}>
               Search member to change their guarantor. All guarantor changes require Branch Manager approval before updating the Member Joining Report.
@@ -281,8 +282,9 @@ export default function EmployeeGuarantorChange() {
                     />
                   </div>
 
-                  <div style={{ background: '#fef3c7', padding: '10px 12px', borderRadius: 8, fontSize: '0.78rem', color: '#92400e' }}>
-                    ⚠️ This request will be sent to the <strong>Branch Manager</strong> for review and digital signature before updating the system.
+                  <div style={{ background: '#fef3c7', padding: '10px 12px', borderRadius: 8, fontSize: '0.78rem', color: '#92400e', display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                    <Icon name="alertcircle" size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+                    <span>This request will be sent to the <strong>Branch Manager</strong> for review and digital signature before updating the system.</span>
                   </div>
 
                   <button
@@ -307,8 +309,10 @@ export default function EmployeeGuarantorChange() {
               Loading requests...
             </div>
           ) : requests.length === 0 ? (
-            <div className="emp-card" style={{ textAlign: 'center', padding: '30px 16px', color: 'var(--emp-text-muted)' }}>
-              <div style={{ fontSize: '2.5rem', marginBottom: 8 }}>📭</div>
+            <div className="emp-card" style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--emp-text-muted)' }}>
+              <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 56, height: 56, borderRadius: '50%', background: 'rgba(16, 120, 112, 0.08)', color: 'var(--emp-primary)', margin: '0 auto 12px' }}>
+                <Icon name="inbox" size={30} />
+              </div>
               <div style={{ fontWeight: 600 }}>No guarantor change requests found</div>
             </div>
           ) : (
@@ -322,9 +326,21 @@ export default function EmployeeGuarantorChange() {
                     </div>
                   </div>
                   <div>
-                    {r.status === 'approved' && <span className="emp-badge emp-badge-success">✓ Approved</span>}
-                    {r.status === 'rejected' && <span className="emp-badge emp-badge-danger">✕ Rejected</span>}
-                    {r.status === 'pending' && <span className="emp-badge emp-badge-warning">⏳ Pending BM</span>}
+                    {r.status === 'approved' && (
+                      <span className="emp-badge emp-badge-success" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        <Icon name="checkcircle" size={12} /> Approved
+                      </span>
+                    )}
+                    {r.status === 'rejected' && (
+                      <span className="emp-badge emp-badge-danger" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        <Icon name="cross" size={12} /> Rejected
+                      </span>
+                    )}
+                    {r.status === 'pending' && (
+                      <span className="emp-badge emp-badge-warning" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        <Icon name="clock" size={12} /> Pending BM
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -340,18 +356,18 @@ export default function EmployeeGuarantorChange() {
                     <button
                       type="button"
                       className="emp-btn-primary"
-                      style={{ flex: 1, padding: '6px 12px', fontSize: '0.8rem' }}
+                      style={{ flex: 1, padding: '6px 12px', fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
                       onClick={() => handleDecision(r.id || r._id, 'approved')}
                     >
-                      ✓ Approve (BM)
+                      <Icon name="checkcircle" size={13} /> Approve (BM)
                     </button>
                     <button
                       type="button"
                       className="emp-btn-secondary"
-                      style={{ flex: 1, padding: '6px 12px', fontSize: '0.8rem', color: '#dc2626' }}
+                      style={{ flex: 1, padding: '6px 12px', fontSize: '0.8rem', color: '#dc2626', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
                       onClick={() => handleDecision(r.id || r._id, 'rejected')}
                     >
-                      ✕ Reject
+                      <Icon name="cross" size={13} /> Reject
                     </button>
                   </div>
                 )}

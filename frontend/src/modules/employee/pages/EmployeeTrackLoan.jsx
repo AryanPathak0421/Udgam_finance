@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api } from '../../../api/client.js';
 import { useEmployeeApp } from '../EmployeeAppContext.jsx';
+import Icon from '../../../components/Icon.jsx';
 
 export default function EmployeeTrackLoan() {
   const { t } = useEmployeeApp();
@@ -31,8 +32,9 @@ export default function EmployeeTrackLoan() {
     <div className="emp-page-container">
       {/* Search Bar Card */}
       <div className="emp-card">
-        <h2 style={{ fontSize: '1.2rem', fontWeight: 800, margin: '0 0 8px 0', color: 'var(--emp-text)' }}>
-          🔍 Track Loan History (Loan ID Wise)
+        <h2 style={{ fontSize: '1.2rem', fontWeight: 800, margin: '0 0 8px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Icon name="search" size={20} style={{ color: 'var(--emp-primary)' }} />
+          <span>Track Loan History (Loan ID Wise)</span>
         </h2>
         <p style={{ fontSize: '0.8rem', color: 'var(--emp-text-muted)', margin: '0 0 14px 0' }}>
           Enter any Loan ID or account number to view complete loan lifecycle, repayment schedule, and EMI receipts.
@@ -118,18 +120,20 @@ export default function EmployeeTrackLoan() {
             <button
               type="button"
               className={activeTab === 'schedule' ? 'emp-btn-primary' : 'emp-btn-secondary'}
-              style={{ flex: 1, padding: '8px' }}
+              style={{ flex: 1, padding: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontWeight: 700 }}
               onClick={() => setActiveTab('schedule')}
             >
-              📅 Repayment Schedule ({loanData.schedule?.length || 0})
+              <Icon name="calendar" size={15} />
+              <span>Schedule ({loanData.schedule?.length || 0})</span>
             </button>
             <button
               type="button"
               className={activeTab === 'receipts' ? 'emp-btn-primary' : 'emp-btn-secondary'}
-              style={{ flex: 1, padding: '8px' }}
+              style={{ flex: 1, padding: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontWeight: 700 }}
               onClick={() => setActiveTab('receipts')}
             >
-              🧾 Receipts History ({loanData.payments?.length || 0})
+              <Icon name="file" size={15} />
+              <span>Receipts ({loanData.payments?.length || 0})</span>
             </button>
           </div>
 

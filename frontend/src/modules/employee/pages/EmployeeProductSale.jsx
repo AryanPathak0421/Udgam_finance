@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../../api/client.js';
 import { useEmployeeApp } from '../EmployeeAppContext.jsx';
+import Icon from '../../../components/Icon.jsx';
 
 export default function EmployeeProductSale() {
   const { t } = useEmployeeApp();
@@ -67,8 +68,8 @@ export default function EmployeeProductSale() {
   return (
     <div className="emp-page-container">
       <div className="emp-card">
-        <h2 style={{ fontSize: '1.2rem', fontWeight: 800, margin: '0 0 6px 0', color: 'var(--emp-text)' }}>
-          📦 Product Sale &amp; Booking
+        <h2 style={{ fontSize: '1.2rem', fontWeight: 800, margin: '0 0 6px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Icon name="product" size={20} style={{ color: 'var(--emp-primary)' }} /> Product Sale &amp; Booking
         </h2>
         <p style={{ fontSize: '0.8rem', color: 'var(--emp-text-muted)', margin: '0 0 14px 0' }}>
           Sell consumer products, electronics, or solar goods from branch stock to members.
@@ -82,8 +83,10 @@ export default function EmployeeProductSale() {
 
         {result && (
           <div style={{ background: '#dcfce7', color: '#166534', padding: '14px', borderRadius: 8, fontSize: '0.88rem', marginBottom: 14 }}>
-            <div style={{ fontWeight: 800 }}>✓ {result.message}</div>
-            <div style={{ fontSize: '0.78rem', marginTop: 2 }}>Receipt No: <strong>{result.receiptNo}</strong> • Total Paid: ₹{result.totalAmount}</div>
+            <div style={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Icon name="checkcircle" size={16} /> {result.message}
+            </div>
+            <div style={{ fontSize: '0.78rem', marginTop: 4 }}>Receipt No: <strong>{result.receiptNo}</strong> • Total Paid: ₹{result.totalAmount}</div>
           </div>
         )}
 
@@ -161,10 +164,11 @@ export default function EmployeeProductSale() {
             <button
               type="submit"
               className="emp-btn-primary"
-              style={{ padding: '12px', fontSize: '0.95rem', fontWeight: 800, marginTop: 4 }}
+              style={{ padding: '12px', fontSize: '0.95rem', fontWeight: 800, marginTop: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
               disabled={submitting}
             >
-              {submitting ? 'Processing Sale...' : '✓ Complete Product Sale'}
+              <Icon name="checkcircle" size={16} />
+              {submitting ? 'Processing Sale...' : 'Complete Product Sale'}
             </button>
           </form>
         )}

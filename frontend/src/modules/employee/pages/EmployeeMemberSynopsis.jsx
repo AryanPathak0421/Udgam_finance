@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api } from '../../../api/client.js';
 import { useEmployeeApp } from '../EmployeeAppContext.jsx';
+import Icon from '../../../components/Icon.jsx';
 
 export default function EmployeeMemberSynopsis() {
   const { t } = useEmployeeApp();
@@ -29,8 +30,8 @@ export default function EmployeeMemberSynopsis() {
     <div className="emp-page-container">
       {/* Search Header */}
       <div className="emp-card">
-        <h2 style={{ fontSize: '1.2rem', fontWeight: 800, margin: '0 0 10px 0', color: 'var(--emp-text)' }}>
-          📑 {t('borrowerSynopsis')}
+        <h2 style={{ fontSize: '1.2rem', fontWeight: 800, margin: '0 0 10px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Icon name="file" size={20} style={{ color: 'var(--emp-primary)' }} /> {t('borrowerSynopsis')}
         </h2>
         <p style={{ fontSize: '0.82rem', color: 'var(--emp-text-muted)', margin: '0 0 14px 0' }}>
           Comprehensive 360° Borrower Report including profile, KYC badges, loan exposure, and repayment history.

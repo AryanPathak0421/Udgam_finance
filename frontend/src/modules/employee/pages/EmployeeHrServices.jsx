@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../../api/client.js';
 import { useEmployeeApp } from '../EmployeeAppContext.jsx';
+import Icon from '../../../components/Icon.jsx';
 
 export default function EmployeeHrServices() {
   const { t } = useEmployeeApp();
@@ -158,19 +159,20 @@ export default function EmployeeHrServices() {
       {/* 4 Tabs */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6, marginBottom: 14 }}>
         {[
-          { id: 'leave', label: '🏖️ Leaves' },
-          { id: 'complaint', label: '⚠️ Complaint' },
-          { id: 'transfer', label: '🔄 Transfer' },
-          { id: 'resign', label: '🚪 Resign' },
+          { id: 'leave', label: 'Leaves', icon: 'calendar' },
+          { id: 'complaint', label: 'Complaint', icon: 'alert' },
+          { id: 'transfer', label: 'Transfer', icon: 'refresh' },
+          { id: 'resign', label: 'Resign', icon: 'logout' },
         ].map((s) => (
           <button
             key={s.id}
             type="button"
             className={section === s.id ? 'emp-btn-primary' : 'emp-btn-secondary'}
-            style={{ padding: '8px 4px', fontSize: '0.75rem', fontWeight: 700 }}
+            style={{ padding: '8px 4px', fontSize: '0.75rem', fontWeight: 700, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}
             onClick={() => setSection(s.id)}
           >
-            {s.label}
+            <Icon name={s.icon} size={15} />
+            <span>{s.label}</span>
           </button>
         ))}
       </div>
@@ -338,8 +340,9 @@ export default function EmployeeHrServices() {
       {/* ---------------- SECTION 3: RESIGNATION ---------------- */}
       {section === 'resign' && (
         <div className="emp-card">
-          <h3 style={{ fontSize: '1.05rem', fontWeight: 800, margin: '0 0 6px 0', color: 'var(--emp-text)' }}>
-            🚪 Submit Resignation
+          <h3 style={{ fontSize: '1.05rem', fontWeight: 800, margin: '0 0 6px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Icon name="logout" size={18} style={{ color: 'var(--emp-danger)' }} />
+            <span>Submit Resignation</span>
           </h3>
           <p style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', margin: '0 0 14px 0' }}>
             Submit your formal resignation to HR Management. Notice period will be calculated as per company policy.

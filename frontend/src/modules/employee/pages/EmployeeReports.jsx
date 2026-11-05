@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../../api/client.js';
 import { useEmployeeApp } from '../EmployeeAppContext.jsx';
+import Icon from '../../../components/Icon.jsx';
 
 export default function EmployeeReports() {
   const { t } = useEmployeeApp();
@@ -34,8 +35,8 @@ export default function EmployeeReports() {
     <div className="emp-page-container">
       {/* Header & Date Filter Card */}
       <div className="emp-card">
-        <h2 style={{ fontSize: '1.2rem', fontWeight: 800, margin: '0 0 8px 0', color: 'var(--emp-text)' }}>
-          📊 My Performance &amp; Reports
+        <h2 style={{ fontSize: '1.2rem', fontWeight: 800, margin: '0 0 8px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Icon name="chart" size={20} style={{ color: 'var(--emp-primary)' }} /> My Performance &amp; Reports
         </h2>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 10 }}>
           <div>
@@ -197,7 +198,9 @@ export default function EmployeeReports() {
                     </div>
                     <div style={{ textAlign: 'right' }}>
                       <div style={{ fontWeight: 800, color: '#059669' }}>₹{a.amount.toLocaleString('en-IN')}</div>
-                      <span className="emp-badge emp-badge-success" style={{ fontSize: '0.68rem' }}>✓ Approved</span>
+                      <span className="emp-badge emp-badge-success" style={{ fontSize: '0.68rem', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                        <Icon name="checkcircle" size={10} /> Approved
+                      </span>
                     </div>
                   </div>
                 </div>

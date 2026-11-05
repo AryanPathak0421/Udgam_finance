@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../../api/client.js';
 import { useEmployeeApp } from '../EmployeeAppContext.jsx';
+import Icon from '../../../components/Icon.jsx';
 
 export default function EmployeeCollectionHistory() {
   const { t } = useEmployeeApp();
@@ -34,8 +35,9 @@ export default function EmployeeCollectionHistory() {
       {/* Header filter card */}
       <div className="emp-card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <h2 style={{ fontSize: '1.15rem', fontWeight: 700, margin: 0, color: 'var(--emp-text)' }}>
-            📊 {t('collectionHistory')}
+          <h2 style={{ fontSize: '1.15rem', fontWeight: 700, margin: 0, color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Icon name="cash" size={20} style={{ color: 'var(--emp-primary)' }} />
+            <span>{t('collectionHistory')}</span>
           </h2>
           <span className="emp-badge emp-badge-info">{collections.length} Receipts</span>
         </div>
@@ -76,7 +78,7 @@ export default function EmployeeCollectionHistory() {
         </div>
       ) : collections.length === 0 ? (
         <div className="emp-card" style={{ textAlign: 'center', padding: '30px 16px', color: 'var(--emp-text-muted)' }}>
-          <div style={{ fontSize: '2.5rem', marginBottom: 8 }}>📭</div>
+          <div style={{ color: 'var(--emp-text-muted)', marginBottom: 8 }}><Icon name="folder" size={40} /></div>
           <div style={{ fontWeight: 600 }}>No collections found for this date</div>
           <div style={{ fontSize: '0.8rem', marginTop: 4 }}>Change date or record a new collection.</div>
         </div>

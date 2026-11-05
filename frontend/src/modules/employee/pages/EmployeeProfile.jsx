@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../../api/client.js';
 import { useEmpApp } from '../EmployeeAppContext.jsx';
+import Icon from '../../../components/Icon.jsx';
 
 export default function EmployeeProfile() {
   const { t, logout } = useEmpApp();
@@ -61,8 +62,8 @@ export default function EmployeeProfile() {
               style={{ width: 80, height: 80, borderRadius: '50%', objectFit: 'cover', border: '3px solid var(--emp-primary)' }}
             />
           ) : (
-            <div style={{ width: 80, height: 80, borderRadius: '50%', background: 'var(--emp-primary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2.5rem', margin: '0 auto' }}>
-              👤
+            <div style={{ width: 80, height: 80, borderRadius: '50%', background: 'var(--emp-primary-light)', color: 'var(--emp-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto' }}>
+              <Icon name="user" size={36} />
             </div>
           )}
           <span className={`emp-badge ${data.status === 'Active' ? 'green' : 'red'}`} style={{ position: 'absolute', bottom: -6, right: -4 }}>
@@ -70,23 +71,25 @@ export default function EmployeeProfile() {
           </span>
         </div>
 
-        <h3 style={{ margin: '10px 0 2px', fontSize: '1.25rem' }}>{data.name}</h3>
+        <h3 style={{ margin: '10px 0 2px', fontSize: '1.25rem', fontWeight: 800 }}>{data.name}</h3>
         <div style={{ color: 'var(--emp-primary)', fontWeight: 600, fontSize: '0.88rem' }}>{data.designation}</div>
         <div style={{ color: 'var(--emp-text-muted)', fontSize: '0.8rem' }}>{data.employeeCode} · {data.department}</div>
 
         {/* Staff Rating display */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 8 }}>
-          <span style={{ color: '#eab308', fontSize: '1.2rem' }}>★</span>
+          <span style={{ color: '#eab308' }}><Icon name="rank" size={16} /></span>
           <strong style={{ fontSize: '1rem' }}>{data.averageRating || 5.0}</strong>
           <span style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)' }}>({data.ratings?.length || 0} reviews)</span>
         </div>
 
         <div style={{ marginTop: 12, display: 'flex', gap: 8, justifyContent: 'center' }}>
-          <button className="emp-btn sm secondary" onClick={() => setRateModal(true)}>
-            ⭐ Rate Staff
+          <button className="emp-btn sm secondary" onClick={() => setRateModal(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Icon name="rank" size={14} />
+            <span>Rate Staff</span>
           </button>
-          <button className="emp-btn sm secondary" onClick={logout} style={{ color: 'var(--emp-danger)' }}>
-            🚪 {t('logout')}
+          <button className="emp-btn sm secondary" onClick={logout} style={{ color: 'var(--emp-danger)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Icon name="logout" size={14} />
+            <span>{t('logout')}</span>
           </button>
         </div>
       </div>
@@ -174,19 +177,21 @@ export default function EmployeeProfile() {
           <div style={{ background: 'var(--emp-card-bg)', width: '100%', maxWidth: 360, borderRadius: 16, padding: 20 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <strong style={{ fontSize: '1.05rem' }}>Rate Staff Performance</strong>
-              <button className="emp-icon-btn" onClick={() => setRateModal(false)}>✕</button>
+              <button className="emp-icon-btn" onClick={() => setRateModal(false)}>
+                <Icon name="cross" size={16} />
+              </button>
             </div>
             <form onSubmit={submitRating}>
               <div className="emp-input-group">
                 <label className="emp-label">Rating (1 to 5 Stars)</label>
-                <div style={{ display: 'flex', gap: 8, fontSize: '1.8rem', cursor: 'pointer', margin: '4px 0 10px' }}>
+                <div style={{ display: 'flex', gap: 8, cursor: 'pointer', margin: '6px 0 12px' }}>
                   {[1, 2, 3, 4, 5].map((star) => (
                     <span
                       key={star}
                       onClick={() => setStars(star)}
-                      style={{ color: star <= stars ? '#eab308' : '#cbd5e1' }}
+                      style={{ color: star <= stars ? '#f59e0b' : '#cbd5e1', display: 'inline-flex' }}
                     >
-                      ★
+                      <Icon name="star" size={24} style={{ fill: star <= stars ? '#f59e0b' : 'none' }} />
                     </span>
                   ))}
                 </div>

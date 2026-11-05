@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../../api/client.js';
 import { useEmployeeApp } from '../EmployeeAppContext.jsx';
+import Icon from '../../../components/Icon.jsx';
 
 export default function EmployeeNpaRecovery() {
   const { t } = useEmployeeApp();
@@ -105,8 +106,9 @@ export default function EmployeeNpaRecovery() {
       <div className="emp-card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <h2 style={{ fontSize: '1.2rem', fontWeight: 800, margin: 0, color: 'var(--emp-text)' }}>
-              🚨 NPA Recovery Management
+            <h2 style={{ fontSize: '1.2rem', fontWeight: 800, margin: 0, color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Icon name="alert" size={20} style={{ color: 'var(--emp-danger)' }} />
+              <span>NPA Recovery Management</span>
             </h2>
             <p style={{ fontSize: '0.8rem', color: 'var(--emp-text-muted)', margin: '4px 0 0 0' }}>
               Overdue defaulted loans (DPD &gt; 90). Collect recovery via Cash or Online Company QR.
@@ -144,7 +146,7 @@ export default function EmployeeNpaRecovery() {
         </div>
       ) : npaLoans.length === 0 ? (
         <div className="emp-card" style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--emp-text-muted)' }}>
-          <div style={{ fontSize: '2.5rem', marginBottom: 8 }}>🎉</div>
+          <div style={{ color: 'var(--emp-success)', marginBottom: 8 }}><Icon name="shieldcheck" size={40} /></div>
           <div style={{ fontWeight: 700, fontSize: '1rem', color: '#059669' }}>Zero NPA in your portfolio!</div>
           <div style={{ fontSize: '0.8rem', marginTop: 4 }}>All loan dues and repayments are currently on track.</div>
         </div>
@@ -168,8 +170,9 @@ export default function EmployeeNpaRecovery() {
                   </div>
 
                   {item.phone && (
-                    <div style={{ fontSize: '0.75rem', marginTop: 3 }}>
-                      📞 <a href={`tel:${item.phone}`} style={{ color: 'var(--emp-primary)', fontWeight: 600 }}>{item.phone}</a>
+                    <div style={{ fontSize: '0.75rem', marginTop: 3, display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <Icon name="phone" size={13} />
+                      <a href={`tel:${item.phone}`} style={{ color: 'var(--emp-primary)', fontWeight: 600, textDecoration: 'none' }}>{item.phone}</a>
                     </div>
                   )}
                 </div>
@@ -205,10 +208,10 @@ export default function EmployeeNpaRecovery() {
                 <button
                   type="button"
                   className="emp-btn-primary"
-                  style={{ width: '100%', padding: '8px', fontSize: '0.85rem', fontWeight: 700, background: '#dc2626' }}
+                  style={{ width: '100%', padding: '10px', fontSize: '0.85rem', fontWeight: 700, background: '#b91c1c' }}
                   onClick={() => handleOpenPay(item)}
                 >
-                  ⚡ Pay Now / Recover NPA
+                  Pay Now / Recover NPA
                 </button>
               </div>
             </div>
@@ -220,8 +223,9 @@ export default function EmployeeNpaRecovery() {
       {activeNpa && (
         <div className="emp-modal-overlay" onClick={() => setActiveNpa(null)}>
           <div className="emp-modal-sheet" onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ fontSize: '1.1rem', fontWeight: 800, margin: '0 0 4px 0', color: 'var(--emp-text)' }}>
-              💵 NPA Recovery: {activeNpa.memberName}
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 800, margin: '0 0 4px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Icon name="cash" size={18} style={{ color: 'var(--emp-danger)' }} />
+              <span>NPA Recovery: {activeNpa.memberName}</span>
             </h3>
             <p style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', margin: '0 0 14px 0' }}>
               Loan A/c: <strong>{activeNpa.loanId}</strong> • Total Overdue: <strong>₹{activeNpa.totalOverdue}</strong>
@@ -255,12 +259,17 @@ export default function EmployeeNpaRecovery() {
                       padding: '10px',
                       borderRadius: 8,
                       border: payMode === 'cash' ? '2px solid var(--emp-primary)' : '1px solid var(--emp-border)',
-                      background: payMode === 'cash' ? 'rgba(37, 99, 235, 0.08)' : 'var(--emp-card-bg)',
+                      background: payMode === 'cash' ? 'var(--emp-primary-light)' : 'var(--emp-card-bg)',
                       fontWeight: 700,
                       cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 6
                     }}
                   >
-                    💵 Cash Recovery
+                    <Icon name="cash" size={16} />
+                    <span>Cash Recovery</span>
                   </button>
                   <button
                     type="button"
@@ -275,9 +284,14 @@ export default function EmployeeNpaRecovery() {
                       background: payMode === 'upi' ? '#ecfdf5' : 'var(--emp-card-bg)',
                       fontWeight: 700,
                       cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 6
                     }}
                   >
-                    📲 Online Company QR
+                    <Icon name="qrcode" size={16} />
+                    <span>Online Company QR</span>
                   </button>
                 </div>
               </div>
@@ -335,8 +349,8 @@ export default function EmployeeNpaRecovery() {
       {qrModal && (
         <div className="emp-modal-overlay" onClick={() => setQrModal(null)}>
           <div className="emp-modal-sheet" onClick={(e) => e.stopPropagation()} style={{ textAlign: 'center' }}>
-            <h3 style={{ fontSize: '1.15rem', fontWeight: 800, margin: '0 0 6px 0', color: 'var(--emp-text)' }}>
-              📲 Scan & Pay to Company
+            <h3 style={{ fontSize: '1.15rem', fontWeight: 800, margin: '0 0 6px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+              <Icon name="qrcode" size={20} style={{ color: 'var(--emp-primary)' }} /> Scan &amp; Pay to Company
             </h3>
             <p style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', margin: '0 0 14px 0' }}>
               Borrower pays directly to <strong>{qrModal.companyName}</strong> bank account.

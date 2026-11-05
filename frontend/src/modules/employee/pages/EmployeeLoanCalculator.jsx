@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../../api/client.js';
 import { useEmployeeApp } from '../EmployeeAppContext.jsx';
+import Icon from '../../../components/Icon.jsx';
 
 export default function EmployeeLoanCalculator() {
   const { t } = useEmployeeApp();
@@ -41,8 +42,9 @@ export default function EmployeeLoanCalculator() {
   return (
     <div className="emp-page-container">
       <div className="emp-card">
-        <h2 style={{ fontSize: '1.25rem', fontWeight: 700, margin: '0 0 16px 0', color: 'var(--emp-text)' }}>
-          🧮 {t('loanCalculator')}
+        <h2 style={{ fontSize: '1.25rem', fontWeight: 800, margin: '0 0 16px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Icon name="calculator" size={22} style={{ color: 'var(--emp-primary)' }} />
+          <span>{t('loanCalculator')}</span>
         </h2>
 
         {error && (

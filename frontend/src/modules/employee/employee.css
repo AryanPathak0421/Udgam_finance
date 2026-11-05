@@ -4,37 +4,39 @@
    ========================================================================== */
 
 :root {
-  --emp-bg: #f8fafc;
+  --emp-bg: #f4f6f9;
   --emp-card-bg: #ffffff;
-  --emp-text: #0f172a;
-  --emp-text-muted: #64748b;
+  --emp-text: #0f2a2a;
+  --emp-text-muted: #5a6b70;
   --emp-border: #e2e8f0;
-  --emp-primary: #2563eb;
-  --emp-primary-hover: #1d4ed8;
-  --emp-primary-light: #eff6ff;
-  --emp-success: #16a34a;
+  --emp-primary: #107870;
+  --emp-primary-hover: #0b5d57;
+  --emp-primary-light: #e6f4f2;
+  --emp-accent: #feba10;
+  --emp-success: #15803d;
   --emp-success-light: #f0fdf4;
-  --emp-warning: #ea580c;
-  --emp-warning-light: #fff7ed;
-  --emp-danger: #dc2626;
+  --emp-warning: #b45309;
+  --emp-warning-light: #fffbeb;
+  --emp-danger: #b91c1c;
   --emp-danger-light: #fef2f2;
   --emp-header-bg: #ffffff;
   --emp-nav-bg: #ffffff;
-  --emp-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.07), 0 2px 4px -2px rgb(0 0 0 / 0.05);
+  --emp-shadow: 0 4px 14px -2px rgba(16, 120, 112, 0.08), 0 2px 6px -1px rgba(0, 0, 0, 0.04);
 }
 
 .emp-dark {
-  --emp-bg: #0b1120;
-  --emp-card-bg: #1e293b;
-  --emp-text: #f1f5f9;
-  --emp-text-muted: #94a3b8;
-  --emp-border: #334155;
-  --emp-primary: #3b82f6;
-  --emp-primary-hover: #60a5fa;
-  --emp-primary-light: #1e3a8a;
-  --emp-header-bg: #0f172a;
-  --emp-nav-bg: #0f172a;
-  --emp-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.3);
+  --emp-bg: #091313;
+  --emp-card-bg: #122121;
+  --emp-text: #f0fdfa;
+  --emp-text-muted: #8aa1a1;
+  --emp-border: #1e3838;
+  --emp-primary: #14b8a6;
+  --emp-primary-hover: #2dd4bf;
+  --emp-primary-light: #134e4a;
+  --emp-accent: #fbbf24;
+  --emp-header-bg: #0d1a1a;
+  --emp-nav-bg: #0d1a1a;
+  --emp-shadow: 0 4px 16px -2px rgba(0, 0, 0, 0.5);
 }
 
 .emp-app-shell {

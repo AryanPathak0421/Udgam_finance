@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { api } from '../../../api/client.js';
 import { useEmployeeApp } from '../EmployeeAppContext.jsx';
 import { compressImage } from '../../../utils/image.js';
+import Icon from '../../../components/Icon.jsx';
 
 export default function EmployeeMemberKyc() {
   const { t } = useEmployeeApp();
@@ -58,8 +59,8 @@ export default function EmployeeMemberKyc() {
     <div className="emp-page-container">
       {/* Search Header */}
       <div className="emp-card">
-        <h2 style={{ fontSize: '1.2rem', fontWeight: 800, margin: '0 0 12px 0', color: 'var(--emp-text)' }}>
-          🔍 {t('memberKyc')}
+        <h2 style={{ fontSize: '1.2rem', fontWeight: 800, margin: '0 0 12px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Icon name="kyc" size={20} style={{ color: 'var(--emp-primary)' }} /> {t('memberKyc')}
         </h2>
         <form onSubmit={handleSearch} style={{ display: 'flex', gap: 10 }}>
           <input
@@ -138,15 +139,21 @@ export default function EmployeeMemberKyc() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
                   <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{member.mobile}</span>
                   {member.mobileVerified ? (
-                    <span className="emp-verified-badge" style={{ fontSize: '0.75rem', padding: '2px 6px' }}>
-                      ✓ Verified
+                    <span className="emp-verified-badge" style={{ fontSize: '0.75rem', padding: '2px 8px', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      <Icon name="checkcircle" size={12} /> Verified
                     </span>
                   ) : (
                     <span className="emp-badge emp-badge-warning" style={{ fontSize: '0.75rem' }}>Unverified</span>
                   )}
                 </div>
-                <div style={{ fontSize: '0.7rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
-                  {member.mobileVerified ? '🔒 Locked (Admin only edit)' : 'Verification pending'}
+                <div style={{ fontSize: '0.7rem', color: 'var(--emp-text-muted)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  {member.mobileVerified ? (
+                    <>
+                      <Icon name="lock" size={11} /> Locked (Admin only edit)
+                    </>
+                  ) : (
+                    'Verification pending'
+                  )}
                 </div>
               </div>
 
@@ -155,8 +162,8 @@ export default function EmployeeMemberKyc() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
                   <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{member.aadhaar ? `•••• •••• ${member.aadhaar.slice(-4)}` : 'N/A'}</span>
                   {member.aadhaarVerified ? (
-                    <span className="emp-verified-badge" style={{ fontSize: '0.75rem', padding: '2px 6px' }}>
-                      ✓ Verified
+                    <span className="emp-verified-badge" style={{ fontSize: '0.75rem', padding: '2px 8px', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      <Icon name="checkcircle" size={12} /> Verified
                     </span>
                   ) : (
                     <span className="emp-badge emp-badge-warning" style={{ fontSize: '0.75rem' }}>Pending</span>
@@ -176,7 +183,8 @@ export default function EmployeeMemberKyc() {
                 style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
                 title="Documents pending review for over 7 days are subject to automatic rejection."
               >
-                <span>ℹ️ 7-Day Policy</span>
+                <Icon name="help" size={13} />
+                <span>7-Day Policy</span>
               </div>
             </div>
 
@@ -206,9 +214,21 @@ export default function EmployeeMemberKyc() {
                       </div>
 
                       <div>
-                        {isApproved && <span className="emp-badge emp-badge-success">✓ Approved</span>}
-                        {isRejected && <span className="emp-badge emp-badge-danger">✕ Rejected</span>}
-                        {!isApproved && !isRejected && <span className="emp-badge emp-badge-warning">⏳ Pending</span>}
+                        {isApproved && (
+                          <span className="emp-badge emp-badge-success" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                            <Icon name="checkcircle" size={12} /> Approved
+                          </span>
+                        )}
+                        {isRejected && (
+                          <span className="emp-badge emp-badge-danger" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                            <Icon name="cross" size={12} /> Rejected
+                          </span>
+                        )}
+                        {!isApproved && !isRejected && (
+                          <span className="emp-badge emp-badge-warning" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                            <Icon name="clock" size={12} /> Pending
+                          </span>
+                        )}
                       </div>
                     </div>
 
@@ -230,11 +250,12 @@ export default function EmployeeMemberKyc() {
                           <button
                             type="button"
                             className="emp-btn-primary"
-                            style={{ padding: '6px 14px', fontSize: '0.8rem', background: '#dc2626' }}
+                            style={{ padding: '6px 14px', fontSize: '0.8rem', background: '#dc2626', display: 'inline-flex', alignItems: 'center', gap: 6 }}
                             onClick={() => document.getElementById(`file-${doc.type}`).click()}
                             disabled={reuploadBusy}
                           >
-                            {reuploadBusy ? 'Uploading...' : '🔄 Re-Upload Document'}
+                            <Icon name="upload" size={13} />
+                            {reuploadBusy ? 'Uploading...' : 'Re-Upload Document'}
                           </button>
                         </div>
                       </div>

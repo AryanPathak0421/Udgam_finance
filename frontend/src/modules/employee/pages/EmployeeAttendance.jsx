@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../../api/client.js';
 import { useEmployeeApp } from '../EmployeeAppContext.jsx';
+import Icon from '../../../components/Icon.jsx';
 import { compressImage } from '../../../utils/image.js';
 
 export default function EmployeeAttendance() {
@@ -97,25 +98,28 @@ export default function EmployeeAttendance() {
         <button
           type="button"
           className={activeTab === 'mark' ? 'emp-btn-primary' : 'emp-btn-secondary'}
-          style={{ flex: 1, padding: '10px' }}
+          style={{ flex: 1, padding: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontWeight: 700 }}
           onClick={() => setActiveTab('mark')}
         >
-          📸 First Meeting Attendance
+          <Icon name="camera" size={16} />
+          <span>First Meeting</span>
         </button>
         <button
           type="button"
           className={activeTab === 'history' ? 'emp-btn-primary' : 'emp-btn-secondary'}
-          style={{ flex: 1, padding: '10px' }}
+          style={{ flex: 1, padding: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontWeight: 700 }}
           onClick={() => setActiveTab('history')}
         >
-          📅 Month-wise History
+          <Icon name="calendar" size={16} />
+          <span>Attendance History</span>
         </button>
       </div>
 
       {activeTab === 'mark' && (
         <div className="emp-card">
-          <h2 style={{ fontSize: '1.2rem', fontWeight: 800, margin: '0 0 6px 0', color: 'var(--emp-text)' }}>
-            📍 First Meeting Check-In
+          <h2 style={{ fontSize: '1.2rem', fontWeight: 800, margin: '0 0 6px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Icon name="mappin" size={20} style={{ color: 'var(--emp-primary)' }} />
+            <span>First Meeting Check-In</span>
           </h2>
           <p style={{ fontSize: '0.8rem', color: 'var(--emp-text-muted)', margin: '0 0 16px 0' }}>
             Mark your morning presence by capturing a photo of the first meeting with GPS location and timestamp.
@@ -161,10 +165,11 @@ export default function EmployeeAttendance() {
               <button
                 type="button"
                 className="emp-btn-secondary"
-                style={{ width: '100%', padding: '12px', border: '2px dashed var(--emp-primary)', color: 'var(--emp-primary)', fontWeight: 700 }}
+                style={{ width: '100%', padding: '12px', border: '2px dashed var(--emp-primary)', color: 'var(--emp-primary)', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
                 onClick={() => document.getElementById('meeting-photo-input').click()}
               >
-                📷 Capture / Upload Meeting Photo
+                <Icon name="camera" size={18} />
+                <span>Capture / Upload Meeting Photo</span>
               </button>
 
               {photo && (

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../../api/client.js';
 import { useEmployeeApp } from '../EmployeeAppContext.jsx';
+import Icon from '../../../components/Icon.jsx';
 
 export default function EmployeeTasks() {
   const { t } = useEmployeeApp();
@@ -37,8 +38,9 @@ export default function EmployeeTasks() {
       <div className="emp-card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <h2 style={{ fontSize: '1.2rem', fontWeight: 800, margin: 0, color: 'var(--emp-text)' }}>
-              📌 My Assigned Tasks
+            <h2 style={{ fontSize: '1.2rem', fontWeight: 800, margin: 0, color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Icon name="ticket" size={20} style={{ color: 'var(--emp-primary)' }} />
+              <span>My Assigned Tasks</span>
             </h2>
             <p style={{ fontSize: '0.8rem', color: 'var(--emp-text-muted)', margin: '4px 0 0 0' }}>
               Field and collection tasks assigned by Branch Manager / Supervisor.
@@ -54,7 +56,7 @@ export default function EmployeeTasks() {
         <div style={{ textAlign: 'center', padding: '30px', color: 'var(--emp-text-muted)' }}>Loading tasks...</div>
       ) : tasks.length === 0 ? (
         <div className="emp-card" style={{ textAlign: 'center', padding: '36px', color: 'var(--emp-text-muted)' }}>
-          <div style={{ fontSize: '2.5rem', marginBottom: 8 }}>🎉</div>
+          <div style={{ color: 'var(--emp-success)', marginBottom: 8 }}><Icon name="checkcircle" size={40} /></div>
           <div style={{ fontWeight: 700, fontSize: '1rem', color: '#059669' }}>No pending tasks!</div>
           <div style={{ fontSize: '0.8rem', marginTop: 4 }}>You have completed all your assigned tasks.</div>
         </div>

@@ -34,18 +34,31 @@ export default function Login() {
           alignItems: 'center',
           justifyContent: 'space-between',
           gap: 12,
-          background: 'linear-gradient(135deg, #eef7f6, #eff1fe)',
-          border: '1.5px solid #107870',
+          background: 'linear-gradient(135deg, #f0fdfa, #f8fafc)',
+          border: '1px solid #99f6e4',
           borderRadius: 12,
-          padding: '12px 14px',
+          padding: '12px 16px',
           marginBottom: 20
         }}>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: '0.92rem', color: '#107870', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span>📱</span> Employee & Field App
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{
+              width: 36,
+              height: 36,
+              borderRadius: 8,
+              background: '#e6f4f2',
+              color: '#107870',
+              display: 'grid',
+              placeItems: 'center'
+            }}>
+              <Icon name="phone" size={18} />
             </div>
-            <div style={{ fontSize: '0.8rem', color: '#555', marginTop: 2 }}>
-              कर्मचारी एवं फील्ड लॉगिन (mPIN)
+            <div>
+              <div style={{ fontWeight: 700, fontSize: '0.92rem', color: '#0f2a2a' }}>
+                Field & Employee App
+              </div>
+              <div style={{ fontSize: '0.78rem', color: '#5a6b70', marginTop: 1 }}>
+                Quick login via mPIN / Mobile
+              </div>
             </div>
           </div>
           <Link
@@ -55,17 +68,18 @@ export default function Login() {
               background: '#107870',
               color: '#ffffff',
               borderRadius: 8,
-              fontWeight: 700,
+              fontWeight: 600,
               fontSize: '0.82rem',
               textDecoration: 'none',
               whiteSpace: 'nowrap',
-              boxShadow: '0 2px 6px rgba(16,120,112,0.3)',
+              boxShadow: '0 2px 6px rgba(16,120,112,0.25)',
               display: 'inline-flex',
               alignItems: 'center',
-              gap: 4
+              gap: 6
             }}
           >
-            Open App ➔
+            <span>Open App</span>
+            <Icon name="arrowright" size={14} />
           </Link>
         </div>
 
@@ -137,12 +151,13 @@ export default function Login() {
               alignItems: 'center',
               gap: 8,
               color: '#107870',
-              fontWeight: 700,
-              fontSize: '0.9rem',
+              fontWeight: 600,
+              fontSize: '0.88rem',
               textDecoration: 'none'
             }}
           >
-            <span>📱</span> Switch to Employee / Field Officer App
+            <Icon name="phone" size={16} />
+            <span>Switch to Field Staff Mobile App</span>
           </Link>
         </div>
       </form>

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api } from '../../../api/client.js';
 import { useEmployeeApp } from '../EmployeeAppContext.jsx';
+import Icon from '../../../components/Icon.jsx';
 
 export default function EmployeeAdvancePayment() {
   const { t } = useEmployeeApp();
@@ -103,8 +104,9 @@ export default function EmployeeAdvancePayment() {
     <div className="emp-page-container">
       {/* Header Search Card */}
       <div className="emp-card">
-        <h2 style={{ fontSize: '1.2rem', fontWeight: 800, margin: '0 0 8px 0', color: 'var(--emp-text)' }}>
-          💳 Advance Payment (Loan ID Wise)
+        <h2 style={{ fontSize: '1.2rem', fontWeight: 800, margin: '0 0 8px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Icon name="creditcard" size={20} style={{ color: 'var(--emp-primary)' }} />
+          <span>Advance Payment (Loan ID Wise)</span>
         </h2>
         <p style={{ fontSize: '0.82rem', color: 'var(--emp-text-muted)', margin: '0 0 14px 0' }}>
           Deposit any amount in advance. Member can also scan company QR code to pay directly to the company bank account.
@@ -215,12 +217,17 @@ export default function EmployeeAdvancePayment() {
                       padding: '12px',
                       borderRadius: 8,
                       border: payMode === 'cash' ? '2px solid var(--emp-primary)' : '1px solid var(--emp-border)',
-                      background: payMode === 'cash' ? 'rgba(37, 99, 235, 0.08)' : 'var(--emp-card-bg)',
+                      background: payMode === 'cash' ? 'var(--emp-primary-light)' : 'var(--emp-card-bg)',
                       fontWeight: 700,
                       cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 6
                     }}
                   >
-                    💵 Cash Deposit
+                    <Icon name="cash" size={16} />
+                    <span>Cash Deposit</span>
                   </button>
                   <button
                     type="button"
@@ -235,9 +242,14 @@ export default function EmployeeAdvancePayment() {
                       background: payMode === 'upi' ? '#ecfdf5' : 'var(--emp-card-bg)',
                       fontWeight: 700,
                       cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 6
                     }}
                   >
-                    📲 Online Company QR
+                    <Icon name="qrcode" size={16} />
+                    <span>Online Company QR</span>
                   </button>
                 </div>
               </div>
@@ -297,8 +309,9 @@ export default function EmployeeAdvancePayment() {
       {qrModal && (
         <div className="emp-modal-overlay" onClick={() => setQrModal(null)}>
           <div className="emp-modal-sheet" onClick={(e) => e.stopPropagation()} style={{ textAlign: 'center' }}>
-            <h3 style={{ fontSize: '1.15rem', fontWeight: 800, margin: '0 0 6px 0', color: 'var(--emp-text)' }}>
-              📲 Scan & Pay to Company
+            <h3 style={{ fontSize: '1.15rem', fontWeight: 800, margin: '0 0 6px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+              <Icon name="qrcode" size={20} style={{ color: 'var(--emp-primary)' }} />
+              <span>Scan & Pay to Company</span>
             </h3>
             <p style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', margin: '0 0 14px 0' }}>
               Borrower pays directly to <strong>{qrModal.companyName}</strong>. Staff does NOT take cash into personal account.
@@ -308,15 +321,16 @@ export default function EmployeeAdvancePayment() {
               <img src={qrModal.qrImageUrl} alt="Company UPI QR" style={{ width: 220, height: 220, display: 'block' }} />
             </div>
 
-            <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#059669', marginBottom: 4 }}>
+            <div style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--emp-primary)', marginBottom: 4 }}>
               ₹{Number(qrModal.amount).toLocaleString('en-IN')}
             </div>
             <div style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)', marginBottom: 16 }}>
               UPI ID: <strong>{qrModal.upiId}</strong>
             </div>
 
-            <div style={{ background: '#fef3c7', padding: '10px 14px', borderRadius: 8, fontSize: '0.78rem', color: '#92400e', marginBottom: 16, textAlign: 'left' }}>
-              ⚡ <strong>Accepted Apps:</strong> Google Pay, PhonePe, Paytm, BHIM, or any UPI banking app.
+            <div style={{ background: '#fef3c7', padding: '10px 14px', borderRadius: 8, fontSize: '0.78rem', color: '#92400e', marginBottom: 16, textAlign: 'left', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Icon name="shieldcheck" size={16} />
+              <span><strong>Accepted Apps:</strong> Google Pay, PhonePe, Paytm, BHIM, or any UPI banking app.</span>
             </div>
 
             <button

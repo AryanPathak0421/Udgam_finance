@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../../api/client.js';
 import { useEmployeeApp } from '../EmployeeAppContext.jsx';
+import Icon from '../../../components/Icon.jsx';
 
 export default function EmployeeTodayDue() {
   const { t } = useEmployeeApp();
@@ -78,8 +79,8 @@ export default function EmployeeTodayDue() {
       {/* Date Filter Card */}
       <div className="emp-card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <h2 style={{ fontSize: '1.15rem', fontWeight: 700, margin: 0, color: 'var(--emp-text)' }}>
-            ⏰ {t('todayDue')}
+          <h2 style={{ fontSize: '1.15rem', fontWeight: 700, margin: 0, color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Icon name="clock" size={20} style={{ color: 'var(--emp-primary)' }} /> {t('todayDue')}
           </h2>
           <span className="emp-badge emp-badge-warning">{dues.length} Due</span>
         </div>
@@ -120,7 +121,7 @@ export default function EmployeeTodayDue() {
         </div>
       ) : dues.length === 0 ? (
         <div className="emp-card" style={{ textAlign: 'center', padding: '30px 16px', color: 'var(--emp-text-muted)' }}>
-          <div style={{ fontSize: '2.5rem', marginBottom: 8 }}>🎉</div>
+          <div style={{ color: 'var(--emp-success)', marginBottom: 8 }}><Icon name="checkcircle" size={40} /></div>
           <div style={{ fontWeight: 600 }}>All dues are clear for this date!</div>
           <div style={{ fontSize: '0.8rem', marginTop: 4 }}>No pending installments remaining.</div>
         </div>
@@ -137,8 +138,9 @@ export default function EmployeeTodayDue() {
                     Code: <strong>{d.memberCode}</strong> | Group: <strong>{d.groupName || 'General'}</strong>
                   </div>
                   {d.phone && (
-                    <div style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
-                      📞 <a href={`tel:${d.phone}`} style={{ color: 'var(--emp-primary)' }}>{d.phone}</a>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <Icon name="phone" size={13} />
+                      <a href={`tel:${d.phone}`} style={{ color: 'var(--emp-primary)', textDecoration: 'none', fontWeight: 600 }}>{d.phone}</a>
                     </div>
                   )}
                   <div style={{ fontSize: '0.75rem', color: '#dc2626', marginTop: 3, fontWeight: 600 }}>
@@ -168,8 +170,9 @@ export default function EmployeeTodayDue() {
       {collectModal && (
         <div className="emp-modal-overlay" onClick={() => setCollectModal(null)}>
           <div className="emp-modal-sheet" onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 12px 0', color: 'var(--emp-text)' }}>
-              💵 Collect EMI: {collectModal.memberName}
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 12px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Icon name="cash" size={18} style={{ color: 'var(--emp-primary)' }} />
+              <span>Collect EMI: {collectModal.memberName}</span>
             </h3>
 
             {actionMessage.text && (

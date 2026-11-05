@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../../../api/client.js';
 import { useEmployeeApp } from '../EmployeeAppContext.jsx';
 import { compressImage } from '../../../utils/image.js';
+import Icon from '../../../components/Icon.jsx';
 
 export default function EmployeeNewMember() {
   const { t } = useEmployeeApp();
@@ -194,8 +195,10 @@ export default function EmployeeNewMember() {
     return (
       <div className="emp-page-container">
         <div className="emp-card" style={{ textAlign: 'center', padding: '36px 20px' }}>
-          <div style={{ fontSize: '3.5rem', marginBottom: 12 }}>🎉</div>
-          <h2 style={{ fontSize: '1.4rem', fontWeight: 800, color: '#059669', margin: '0 0 8px 0' }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 64, height: 64, borderRadius: '50%', background: 'rgba(16, 120, 112, 0.12)', color: 'var(--emp-primary)', margin: '0 auto 16px' }}>
+            <Icon name="checkcircle" size={38} />
+          </div>
+          <h2 style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--emp-primary)', margin: '0 0 8px 0' }}>
             Member Registered Successfully!
           </h2>
           <p style={{ color: 'var(--emp-text-muted)', fontSize: '0.9rem', marginBottom: 20 }}>
@@ -245,8 +248,8 @@ export default function EmployeeNewMember() {
       {/* Step 1: Pre-verification Phone Input */}
       {step === 1 && (
         <div className="emp-card">
-          <h2 style={{ fontSize: '1.25rem', fontWeight: 800, margin: '0 0 8px 0', color: 'var(--emp-text)' }}>
-            📝 {t('newMember')}
+          <h2 style={{ fontSize: '1.25rem', fontWeight: 800, margin: '0 0 8px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Icon name="userplus" size={22} style={{ color: 'var(--emp-primary)' }} /> {t('newMember')}
           </h2>
           <p style={{ fontSize: '0.85rem', color: 'var(--emp-text-muted)', margin: '0 0 20px 0' }}>
             As per security policy, please verify the member's mobile number via OTP before opening the registration form.
@@ -293,16 +296,16 @@ export default function EmployeeNewMember() {
       {/* Step 2: OTP Verification */}
       {step === 2 && (
         <div className="emp-card">
-          <h2 style={{ fontSize: '1.25rem', fontWeight: 800, margin: '0 0 8px 0', color: 'var(--emp-text)' }}>
-            🔐 Verify OTP
+          <h2 style={{ fontSize: '1.25rem', fontWeight: 800, margin: '0 0 8px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Icon name="shieldcheck" size={22} style={{ color: 'var(--emp-primary)' }} /> Verify OTP
           </h2>
           <p style={{ fontSize: '0.85rem', color: 'var(--emp-text-muted)', margin: '0 0 16px 0' }}>
             Enter the 6-digit verification code sent to <strong>+91 {phone}</strong>
           </p>
 
           {devOtp && (
-            <div style={{ background: '#fef3c7', color: '#92400e', padding: '10px 14px', borderRadius: 8, fontSize: '0.85rem', marginBottom: 14, border: '1px dashed #f59e0b' }}>
-              ⚡ <strong>Dev Mode OTP:</strong> {devOtp}
+            <div style={{ background: '#fef3c7', color: '#92400e', padding: '10px 14px', borderRadius: 8, fontSize: '0.85rem', marginBottom: 14, border: '1px dashed #f59e0b', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Icon name="key" size={16} /> <span><strong>Dev Mode OTP:</strong> {devOtp}</span>
             </div>
           )}
 

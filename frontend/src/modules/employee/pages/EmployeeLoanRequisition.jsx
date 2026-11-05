@@ -2,12 +2,13 @@ import { useEffect, useState } from 'react';
 import { api } from '../../../api/client.js';
 import { useEmployeeApp } from '../EmployeeAppContext.jsx';
 import { compressImage } from '../../../utils/image.js';
+import Icon from '../../../components/Icon.jsx';
 
 const LOAN_TYPES = [
-  { id: 'group', label: '👥 Group Loan', desc: 'Joint liability microfinance loan for SHG members' },
-  { id: 'personal', label: '👤 Personal Loan', desc: 'Direct unsecured loan for individual borrowers' },
-  { id: 'business_msme', label: '🏢 Business / MSME', desc: 'Micro & small enterprise financing with shop verification' },
-  { id: 'product', label: '📦 Product Loan', desc: 'Consumer durables, solar, or equipment financing' },
+  { id: 'group', label: 'Group Loan', desc: 'Joint liability microfinance loan for SHG members', icon: 'group' },
+  { id: 'personal', label: 'Personal Loan', desc: 'Direct unsecured loan for individual borrowers', icon: 'customer' },
+  { id: 'business_msme', label: 'Business / MSME', desc: 'Micro & small enterprise financing with shop verification', icon: 'building' },
+  { id: 'product', label: 'Product Loan', desc: 'Consumer durables, solar, or equipment financing', icon: 'product' },
 ];
 
 export default function EmployeeLoanRequisition() {
@@ -182,18 +183,20 @@ export default function EmployeeLoanRequisition() {
         <button
           type="button"
           className={activeTab === 'new' ? 'emp-btn-primary' : 'emp-btn-secondary'}
-          style={{ flex: 1, padding: '10px' }}
+          style={{ flex: 1, padding: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontWeight: 700 }}
           onClick={() => setActiveTab('new')}
         >
-          ➕ New Requisition
+          <Icon name="userplus" size={16} />
+          <span>New Requisition</span>
         </button>
         <button
           type="button"
           className={activeTab === 'list' ? 'emp-btn-primary' : 'emp-btn-secondary'}
-          style={{ flex: 1, padding: '10px' }}
+          style={{ flex: 1, padding: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontWeight: 700 }}
           onClick={() => setActiveTab('list')}
         >
-          📋 Recent Requisitions
+          <Icon name="file" size={16} />
+          <span>Recent Requisitions</span>
         </button>
       </div>
 
@@ -385,8 +388,9 @@ export default function EmployeeLoanRequisition() {
               {/* Conditional: Business / MSME Loan Specific Section */}
               {loanType === 'business_msme' && (
                 <div className="emp-card">
-                  <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: '0 0 12px 0', color: 'var(--emp-text)' }}>
-                    🏢 Business & Shop Verification
+                  <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: '0 0 12px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Icon name="building" size={18} style={{ color: 'var(--emp-primary)' }} />
+                    <span>Business &amp; Shop Verification</span>
                   </h3>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -427,8 +431,8 @@ export default function EmployeeLoanRequisition() {
               {/* Conditional: Product Loan Specific Section */}
               {loanType === 'product' && (
                 <div className="emp-card">
-                  <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: '0 0 12px 0', color: 'var(--emp-text)' }}>
-                    📦 Product Item Details
+                  <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: '0 0 12px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Icon name="product" size={18} style={{ color: 'var(--emp-primary)' }} /> Product Item Details
                   </h3>
 
                   <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10 }}>
@@ -481,8 +485,10 @@ export default function EmployeeLoanRequisition() {
               Loading requisitions...
             </div>
           ) : requisitions.length === 0 ? (
-            <div className="emp-card" style={{ textAlign: 'center', padding: '30px 16px', color: 'var(--emp-text-muted)' }}>
-              <div style={{ fontSize: '2.5rem', marginBottom: 8 }}>📭</div>
+            <div className="emp-card" style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--emp-text-muted)' }}>
+              <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 56, height: 56, borderRadius: '50%', background: 'rgba(16, 120, 112, 0.08)', color: 'var(--emp-primary)', margin: '0 auto 12px' }}>
+                <Icon name="inbox" size={30} />
+              </div>
               <div style={{ fontWeight: 600 }}>No loan requisitions found</div>
             </div>
           ) : (

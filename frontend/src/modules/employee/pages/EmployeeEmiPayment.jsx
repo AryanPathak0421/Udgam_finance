@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../../api/client.js';
 import { useEmployeeApp } from '../EmployeeAppContext.jsx';
+import Icon from '../../../components/Icon.jsx';
 
 const LOAN_TYPES = [
-  { id: 'group', label: '👥 Group Loan' },
-  { id: 'personal', label: '👤 Personal Loan' },
-  { id: 'business_msme', label: '🏢 Business / MSME' },
-  { id: 'product', label: '📦 Product Loan' },
+  { id: 'group', label: 'Group Loan', icon: 'group' },
+  { id: 'personal', label: 'Personal Loan', icon: 'customer' },
+  { id: 'business_msme', label: 'Business / MSME', icon: 'building' },
+  { id: 'product', label: 'Product Loan', icon: 'product' },
 ];
 
 const MODES = [
@@ -308,7 +309,7 @@ export default function EmployeeEmiPayment() {
             <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--emp-text-muted)' }}>Loading groups...</div>
           ) : groups.length === 0 ? (
             <div className="emp-card" style={{ textAlign: 'center', padding: '30px 16px', color: 'var(--emp-text-muted)' }}>
-              <div style={{ fontSize: '2.5rem', marginBottom: 6 }}>👥</div>
+              <div style={{ color: 'var(--emp-text-muted)', marginBottom: 8 }}><Icon name="group" size={40} /></div>
               <div style={{ fontWeight: 600 }}>No {mode} groups found for this date</div>
             </div>
           ) : (
@@ -584,7 +585,7 @@ export default function EmployeeEmiPayment() {
             <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--emp-text-muted)' }}>Loading loans...</div>
           ) : individualLoans.length === 0 ? (
             <div className="emp-card" style={{ textAlign: 'center', padding: '30px 16px', color: 'var(--emp-text-muted)' }}>
-              <div style={{ fontSize: '2.5rem', marginBottom: 6 }}>💼</div>
+              <div style={{ color: 'var(--emp-text-muted)', marginBottom: 8 }}><Icon name="briefcase" size={40} /></div>
               <div style={{ fontWeight: 600 }}>No {loanType} {mode} loans found for this date</div>
             </div>
           ) : (

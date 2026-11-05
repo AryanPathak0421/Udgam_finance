@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { api } from '../../../api/client.js';
 import { useEmpApp } from '../EmployeeAppContext.jsx';
+import Icon from '../../../components/Icon.jsx';
 
 export default function EmployeeLogin() {
   const { login, t } = useEmpApp();
@@ -76,43 +77,88 @@ export default function EmployeeLogin() {
   return (
     <div style={{ padding: '24px 16px', maxWidth: 420, margin: '0 auto' }}>
       <div style={{ textAlign: 'center', marginBottom: 24 }}>
-        <div style={{ fontSize: '3rem', marginBottom: 8 }}>🪙</div>
-        <h2 style={{ margin: 0, fontSize: '1.4rem' }}>Udgam Finance</h2>
-        <p style={{ margin: '4px 0 0', color: 'var(--emp-text-muted)', fontSize: '0.9rem' }}>Employee & Field Officer App</p>
+        <img
+          src="/logo.png"
+          alt="Udgam Microfinance"
+          style={{ height: 44, borderRadius: 8, marginBottom: 10, display: 'inline-block' }}
+        />
+        <h2 style={{ margin: 0, fontSize: '1.35rem', color: 'var(--emp-text)', fontWeight: 800 }}>Udgam Finance</h2>
+        <p style={{ margin: '4px 0 0', color: 'var(--emp-text-muted)', fontSize: '0.88rem' }}>Field Officer & Employee App</p>
       </div>
 
-      <div className="emp-card">
+      <div className="emp-card" style={{ borderTop: '4px solid var(--emp-accent, #feba10)' }}>
         {/* Tab selection */}
         <div style={{ display: 'flex', borderBottom: '1px solid var(--emp-border)', marginBottom: 16 }}>
           <button
             type="button"
             className="emp-btn secondary sm"
-            style={{ flex: 1, borderBottom: tab === 'phone' ? '2px solid var(--emp-primary)' : 'none', borderRadius: 0, fontWeight: tab === 'phone' ? 700 : 400 }}
+            style={{
+              flex: 1,
+              borderBottom: tab === 'phone' ? '2px solid var(--emp-primary)' : 'none',
+              borderRadius: 0,
+              fontWeight: tab === 'phone' ? 700 : 500,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 6
+            }}
             onClick={() => { setTab('phone'); setIdentifier(''); setError(''); }}
           >
-            📱 Mobile
+            <Icon name="phone" size={15} />
+            <span>Mobile</span>
           </button>
           <button
             type="button"
             className="emp-btn secondary sm"
-            style={{ flex: 1, borderBottom: tab === 'code' ? '2px solid var(--emp-primary)' : 'none', borderRadius: 0, fontWeight: tab === 'code' ? 700 : 400 }}
+            style={{
+              flex: 1,
+              borderBottom: tab === 'code' ? '2px solid var(--emp-primary)' : 'none',
+              borderRadius: 0,
+              fontWeight: tab === 'code' ? 700 : 500,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 6
+            }}
             onClick={() => { setTab('code'); setIdentifier(''); setError(''); }}
           >
-            🆔 Staff Code
+            <Icon name="hash" size={15} />
+            <span>Staff ID</span>
           </button>
           <button
             type="button"
             className="emp-btn secondary sm"
-            style={{ flex: 1, borderBottom: tab === 'email' ? '2px solid var(--emp-primary)' : 'none', borderRadius: 0, fontWeight: tab === 'email' ? 700 : 400 }}
+            style={{
+              flex: 1,
+              borderBottom: tab === 'email' ? '2px solid var(--emp-primary)' : 'none',
+              borderRadius: 0,
+              fontWeight: tab === 'email' ? 700 : 500,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 6
+            }}
             onClick={() => { setTab('email'); setIdentifier(''); setError(''); }}
           >
-            ✉️ Email
+            <Icon name="mail" size={15} />
+            <span>Email</span>
           </button>
         </div>
 
         {error && (
-          <div style={{ padding: '8px 12px', background: 'var(--emp-danger-light)', color: 'var(--emp-danger)', borderRadius: 8, fontSize: '0.85rem', marginBottom: 12 }}>
-            ⚠️ {error}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '10px 12px',
+            background: 'var(--emp-danger-light)',
+            color: 'var(--emp-danger)',
+            borderRadius: 8,
+            fontSize: '0.85rem',
+            marginBottom: 12
+          }}>
+            <Icon name="alertcircle" size={16} />
+            <span>{error}</span>
           </div>
         )}
 
@@ -168,8 +214,19 @@ export default function EmployeeLogin() {
         </div>
 
         <div style={{ marginTop: 12, textAlign: 'center' }}>
-          <Link to="/login" style={{ fontSize: '0.82rem', color: 'var(--emp-text-muted)', textDecoration: 'none' }}>
-            🖥️ Go to Admin / Head Office Portal
+          <Link
+            to="/login"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              fontSize: '0.82rem',
+              color: 'var(--emp-text-muted)',
+              textDecoration: 'none'
+            }}
+          >
+            <Icon name="desktop" size={14} />
+            <span>Go to Admin / Head Office Portal</span>
           </Link>
         </div>
       </div>
@@ -180,7 +237,9 @@ export default function EmployeeLogin() {
           <div style={{ background: 'var(--emp-card-bg)', width: '100%', maxWidth: 380, borderRadius: 16, padding: 20 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <strong style={{ fontSize: '1.1rem' }}>Reset mPIN</strong>
-              <button className="emp-icon-btn" onClick={() => setForgotOpen(false)}>✕</button>
+              <button className="emp-icon-btn" onClick={() => setForgotOpen(false)} aria-label="Close">
+                <Icon name="cross" size={16} />
+              </button>
             </div>
             {forgotMsg && (
               <div style={{ padding: '8px 12px', background: 'var(--emp-primary-light)', color: 'var(--emp-primary)', borderRadius: 8, fontSize: '0.85rem', marginBottom: 12 }}>

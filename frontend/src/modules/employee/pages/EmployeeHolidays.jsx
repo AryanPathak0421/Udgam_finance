@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../../api/client.js';
 import { useEmployeeApp } from '../EmployeeAppContext.jsx';
+import Icon from '../../../components/Icon.jsx';
 
 export default function EmployeeHolidays() {
   const { t } = useEmployeeApp();
@@ -18,8 +19,9 @@ export default function EmployeeHolidays() {
   return (
     <div className="emp-page-container">
       <div className="emp-card">
-        <h2 style={{ fontSize: '1.2rem', fontWeight: 800, margin: '0 0 6px 0', color: 'var(--emp-text)' }}>
-          🎉 Company Holiday Calendar ({currentYear})
+        <h2 style={{ fontSize: '1.2rem', fontWeight: 800, margin: '0 0 6px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Icon name="calendar" size={20} style={{ color: 'var(--emp-primary)' }} />
+          <span>Company Holiday Calendar ({currentYear})</span>
         </h2>
         <p style={{ fontSize: '0.8rem', color: 'var(--emp-text-muted)', margin: 0 }}>
           Official paid company holidays and festival leaves across all branches.
@@ -30,7 +32,7 @@ export default function EmployeeHolidays() {
         <div style={{ textAlign: 'center', padding: '30px', color: 'var(--emp-text-muted)' }}>Loading holidays...</div>
       ) : holidays.length === 0 ? (
         <div className="emp-card" style={{ textAlign: 'center', padding: '36px', color: 'var(--emp-text-muted)' }}>
-          <div style={{ fontSize: '2.5rem', marginBottom: 8 }}>🏖️</div>
+          <div style={{ color: 'var(--emp-text-muted)', marginBottom: 8 }}><Icon name="calendar" size={36} /></div>
           <div style={{ fontWeight: 600 }}>No holidays recorded for {currentYear}</div>
         </div>
       ) : (
