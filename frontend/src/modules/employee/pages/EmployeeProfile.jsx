@@ -177,21 +177,19 @@ export default function EmployeeProfile() {
           <div style={{ background: 'var(--emp-card-bg)', width: '100%', maxWidth: 360, borderRadius: 16, padding: 20 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <strong style={{ fontSize: '1.05rem' }}>Rate Staff Performance</strong>
-              <button className="emp-icon-btn" onClick={() => setRateModal(false)}>
-                <Icon name="cross" size={16} />
-              </button>
+              <button className="emp-icon-btn" onClick={() => setRateModal(false)}>✕</button>
             </div>
             <form onSubmit={submitRating}>
               <div className="emp-input-group">
                 <label className="emp-label">Rating (1 to 5 Stars)</label>
-                <div style={{ display: 'flex', gap: 8, cursor: 'pointer', margin: '6px 0 12px' }}>
+                <div style={{ display: 'flex', gap: 8, fontSize: '1.8rem', cursor: 'pointer', margin: '4px 0 10px' }}>
                   {[1, 2, 3, 4, 5].map((star) => (
                     <span
                       key={star}
                       onClick={() => setStars(star)}
-                      style={{ color: star <= stars ? '#f59e0b' : '#cbd5e1', display: 'inline-flex' }}
+                      style={{ color: star <= stars ? '#eab308' : '#cbd5e1' }}
                     >
-                      <Icon name="star" size={24} style={{ fill: star <= stars ? '#f59e0b' : 'none' }} />
+                      ★
                     </span>
                   ))}
                 </div>

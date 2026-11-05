@@ -765,7 +765,7 @@ export async function getMemberSynopsis(req, res) {
 
 export async function calculateLoanEmi(req, res) {
   const amount = Number(req.body?.amount) || 10000;
-  const rateAnnual = Number(req.body?.interestRate) || 24;
+  const rateAnnual = Number(req.body?.annualRate ?? req.body?.interestRate) || 24;
   const term = Number(req.body?.term) || 52;
   const mode = req.body?.mode || 'weekly';
 
@@ -780,7 +780,9 @@ export async function calculateLoanEmi(req, res) {
 
   res.json({
     amount,
+    principal: amount,
     installment,
+    emi: installment,
     totalInterest,
     totalPayable,
     term,

@@ -79,8 +79,8 @@ export default function EmployeeTodayDue() {
       {/* Date Filter Card */}
       <div className="emp-card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <h2 style={{ fontSize: '1.15rem', fontWeight: 700, margin: 0, color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Icon name="clock" size={20} style={{ color: 'var(--emp-primary)' }} /> {t('todayDue')}
+          <h2 style={{ fontSize: '1.15rem', fontWeight: 700, margin: 0, color: 'var(--emp-text)' }}>
+            ⏰ {t('todayDue')}
           </h2>
           <span className="emp-badge emp-badge-warning">{dues.length} Due</span>
         </div>

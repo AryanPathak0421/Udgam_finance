@@ -516,6 +516,7 @@ export const api = {
     decideGuarantorRequest: (id, data) => request(`/employee/members/guarantor-requests/${id}/decide`, { method: 'POST', body: data }),
     memberSynopsis: (query) => request(`/employee/members/synopsis/${encodeURIComponent(query)}`),
     calculateLoan: (data) => request('/employee/calculator', { method: 'POST', body: data }),
+    calculateEmi: (data) => request('/employee/calculator', { method: 'POST', body: data }),
     createRequisition: (data) => request('/employee/requisitions', { method: 'POST', body: data }),
     requisitions: () => request('/employee/requisitions'),
     trackLoan: (loanId) => request(`/employee/loans/track/${encodeURIComponent(loanId)}`),

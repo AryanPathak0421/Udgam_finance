@@ -349,8 +349,8 @@ export default function EmployeeNpaRecovery() {
       {qrModal && (
         <div className="emp-modal-overlay" onClick={() => setQrModal(null)}>
           <div className="emp-modal-sheet" onClick={(e) => e.stopPropagation()} style={{ textAlign: 'center' }}>
-            <h3 style={{ fontSize: '1.15rem', fontWeight: 800, margin: '0 0 6px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-              <Icon name="qrcode" size={20} style={{ color: 'var(--emp-primary)' }} /> Scan &amp; Pay to Company
+            <h3 style={{ fontSize: '1.15rem', fontWeight: 800, margin: '0 0 6px 0', color: 'var(--emp-text)' }}>
+              📲 Scan & Pay to Company
             </h3>
             <p style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', margin: '0 0 14px 0' }}>
               Borrower pays directly to <strong>{qrModal.companyName}</strong> bank account.
