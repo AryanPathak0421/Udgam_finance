@@ -45,7 +45,36 @@ async function findEmployee(identifier) {
   if (isEmail) query.email = id.toLowerCase();
   else if (isPhone) query.mobile = id.slice(-10);
   else query.employeeCode = id.toUpperCase();
-  return Employee.findOne(query).populate('branch', 'code name city pincode').populate('department', 'name').populate('designation', 'name');
+  let emp = await Employee.findOne(query).populate('branch', 'code name city pincode').populate('department', 'name').populate('designation', 'name');
+  if (!emp) {
+    const userQuery = {};
+    if (isEmail) userQuery.email = id.toLowerCase();
+    else if (isPhone) userQuery.mobile = id.slice(-10);
+    else userQuery.employeeCode = id.toUpperCase();
+    const user = await User.findOne(userQuery);
+    if (user) {
+      emp = await Employee.findOne({ user: user._id, isDeleted: false }).populate('branch', 'code name city pincode').populate('department', 'name').populate('designation', 'name');
+      if (!emp) {
+        const empCode = user.employeeCode || `EMP${String(user._id).slice(-4).toUpperCase()}`;
+        emp = await Employee.create({
+          employeeCode: empCode,
+          user: user._id,
+          name: user.name,
+          email: user.email,
+          mobile: user.mobile,
+          branch: (user.branches || [])[0],
+          status: user.isActive === false ? 'left' : 'active',
+          createdByCode: 'AUTO'
+        });
+        if (!user.employeeCode) {
+          user.employeeCode = empCode;
+          await user.save();
+        }
+        emp = await Employee.findById(emp._id).populate('branch', 'code name city pincode').populate('department', 'name').populate('designation', 'name');
+      }
+    }
+  }
+  return emp;
 }
 
 // Ensure employee has a linked User account for token authentication
