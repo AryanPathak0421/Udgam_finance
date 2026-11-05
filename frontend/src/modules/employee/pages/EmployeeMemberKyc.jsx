@@ -127,7 +127,7 @@ export default function EmployeeMemberKyc() {
                   )}
                 </div>
                 <div style={{ fontSize: '0.8rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
-                  Code: <strong>{member.code}</strong> • Branch: {member.branchName || member.branch}
+                  Code: <strong>{member.code}</strong> • Branch: {member.branchName || (typeof member.branch === 'object' ? (member.branch?.name || member.branch?.code) : member.branch)}
                 </div>
               </div>
             </div>

@@ -276,7 +276,7 @@ export default function EmployeeLoanRequisition() {
                     Code: <strong>{selectedMember.code}</strong> • Mobile: {selectedMember.mobile}
                   </div>
                   <div style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)', marginTop: 1 }}>
-                    Branch: {selectedMember.branchName || selectedMember.branch} • Group: {selectedMember.groupName || 'Individual'}
+                    Branch: {selectedMember.branchName || (typeof selectedMember.branch === 'object' ? (selectedMember.branch?.name || selectedMember.branch?.code) : selectedMember.branch)} • Group: {selectedMember.groupName || 'Individual'}
                   </div>
                 </div>
                 <button

@@ -175,7 +175,7 @@ export default function EmployeeGuarantorChange() {
                   <div style={{ fontSize: '0.8rem', color: 'var(--emp-text-muted)' }}>Selected Member</div>
                   <div style={{ fontWeight: 800, fontSize: '1.05rem', color: 'var(--emp-text)' }}>{member.name}</div>
                   <div style={{ fontSize: '0.8rem', color: 'var(--emp-text-muted)' }}>
-                    Code: <strong>{member.code}</strong> • Branch: {member.branchName || member.branch}
+                    Code: <strong>{member.code}</strong> • Branch: {member.branchName || (typeof member.branch === 'object' ? (member.branch?.name || member.branch?.code) : member.branch)}
                   </div>
                 </div>
 

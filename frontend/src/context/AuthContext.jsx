@@ -17,6 +17,10 @@ export function AuthProvider({ children }) {
   const { pathname } = useLocation();
 
   useEffect(() => {
+    if (pathname.startsWith('/employee')) {
+      setLoading(false);
+      return;
+    }
     api
       .me()
       .then((d) => { lastRefresh.current = Date.now(); setUser(d.user); })

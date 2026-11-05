@@ -3,6 +3,13 @@ import { api } from '../../../api/client.js';
 import { useEmpApp } from '../EmployeeAppContext.jsx';
 import Icon from '../../../components/Icon.jsx';
 
+const getDisplayVal = (val) => {
+  if (!val) return '—';
+  if (typeof val === 'string') return val;
+  if (typeof val === 'object') return val.name || val.code || '—';
+  return String(val);
+};
+
 export default function EmployeeProfile() {
   const { t, logout, empUser } = useEmpApp();
   const [data, setData] = useState(() => {
@@ -117,8 +124,8 @@ export default function EmployeeProfile() {
         </div>
 
         <h3 style={{ margin: '10px 0 2px', fontSize: '1.25rem', fontWeight: 800 }}>{data.name}</h3>
-        <div style={{ color: 'var(--emp-primary)', fontWeight: 600, fontSize: '0.88rem' }}>{data.designation}</div>
-        <div style={{ color: 'var(--emp-text-muted)', fontSize: '0.8rem' }}>{data.employeeCode} · {data.department}</div>
+        <div style={{ color: 'var(--emp-primary)', fontWeight: 600, fontSize: '0.88rem' }}>{getDisplayVal(data.designation)}</div>
+        <div style={{ color: 'var(--emp-text-muted)', fontSize: '0.8rem' }}>{data.employeeCode} · {getDisplayVal(data.department)}</div>
 
         {/* Staff Rating display */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 8 }}>
@@ -183,7 +190,7 @@ export default function EmployeeProfile() {
 
         <div className="emp-stat-row">
           <span className="emp-stat-label">Branch</span>
-          <span className="emp-stat-value">{data.branch} {data.branchPincode ? `(${data.branchPincode})` : ''}</span>
+          <span className="emp-stat-value">{getDisplayVal(data.branch)} {data.branchPincode ? `(${data.branchPincode})` : ''}</span>
         </div>
 
         <div className="emp-stat-row">

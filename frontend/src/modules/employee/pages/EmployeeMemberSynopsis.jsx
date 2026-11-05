@@ -96,7 +96,7 @@ export default function EmployeeMemberSynopsis() {
                   )}
                 </div>
                 <div style={{ fontSize: '0.8rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
-                  Code: <strong>{data.code}</strong> • Branch: {data.branchName || data.branch}
+                  Code: <strong>{data.code}</strong> • Branch: {data.branchName || (typeof data.branch === 'object' ? (data.branch?.name || data.branch?.code) : data.branch)}
                 </div>
                 <div style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', marginTop: 1 }}>
                   Group: <strong>{data.groupName || 'Individual'}</strong> • Joined: {data.createdAt ? new Date(data.createdAt).toLocaleDateString() : 'N/A'}

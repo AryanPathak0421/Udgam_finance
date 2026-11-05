@@ -54,7 +54,7 @@ export default function EmployeeSalarySlips() {
                     {activeSlip.month}
                   </h3>
                   <div style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
-                    {activeSlip.designation || 'Staff'} • {activeSlip.branch || 'Udgam'}
+                    {typeof activeSlip.designation === 'object' ? activeSlip.designation?.name : (activeSlip.designation || 'Staff')} • {typeof activeSlip.branch === 'object' ? (activeSlip.branch?.name || activeSlip.branch?.code) : (activeSlip.branch || 'Udgam')}
                   </div>
                 </div>
 

@@ -20,7 +20,9 @@ async function request(path, { method = 'GET', body, headers = {} } = {}) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     // An expired session on a protected call sends the user back to login.
-    if (res.status === 401 && !path.startsWith('/auth/')) window.dispatchEvent(new Event('auth:expired'));
+    if (res.status === 401 && !path.startsWith('/auth/') && !path.startsWith('/employee/')) {
+      window.dispatchEvent(new Event('auth:expired'));
+    }
     const err = new Error(data.message || 'Something went wrong');
     err.status = res.status;
     err.errors = data.errors || {};
