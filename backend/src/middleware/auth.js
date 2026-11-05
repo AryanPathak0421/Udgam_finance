@@ -4,11 +4,16 @@ import { assertNotRejected } from '../services/dayOpen.js';
 
 export async function requireAuth(req, res, next) {
   try {
-    const token = req.cookies?.token;
+    const authHeader = req.headers.authorization || '';
+    const bearer = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
+    const token = bearer || req.cookies?.token || req.cookies?.udgam_token;
     if (!token) return res.status(401).json({ message: 'Not authenticated' });
-    const { id, iat } = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const userId = decoded.id || decoded.userId;
+    const iat = decoded.iat;
+    if (!userId) return res.status(401).json({ message: 'Not authenticated' });
     // Rank carries the menu permissions, so load it with the user.
-    const user = await User.findById(id).populate('rank', 'name menuPermissions isActive');
+    const user = await User.findById(userId).populate('rank', 'name menuPermissions isActive');
     if (!user || !user.isActive) return res.status(401).json({ message: 'Not authenticated' });
     // A password change invalidates every session issued before it.
     if (user.passwordChangedAt && iat < Math.floor(user.passwordChangedAt.getTime() / 1000)) {

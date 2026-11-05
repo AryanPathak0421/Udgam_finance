@@ -188,6 +188,7 @@ export async function loginWithMpin(req, res) {
 
   const token = jwt.sign(
     {
+      id: user._id,
       userId: user._id,
       role: user.role,
       employeeCode: emp.employeeCode,
@@ -198,12 +199,15 @@ export async function loginWithMpin(req, res) {
     { expiresIn: '30d' }
   );
 
-  res.cookie(COOKIE_NAME, token, {
+  const cookieOptions = {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
     maxAge: 30 * 24 * 60 * 60 * 1000,
-  });
+  };
+
+  res.cookie('token', token, cookieOptions);
+  res.cookie(COOKIE_NAME, token, cookieOptions);
 
   res.json({
     token,

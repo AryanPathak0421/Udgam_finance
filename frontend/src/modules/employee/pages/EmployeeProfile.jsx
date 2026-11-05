@@ -4,9 +4,16 @@ import { useEmpApp } from '../EmployeeAppContext.jsx';
 import Icon from '../../../components/Icon.jsx';
 
 export default function EmployeeProfile() {
-  const { t, logout } = useEmpApp();
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const { t, logout, empUser } = useEmpApp();
+  const [data, setData] = useState(() => {
+    try {
+      const saved = localStorage.getItem('udgam_emp_user');
+      return saved ? JSON.parse(saved) : empUser || null;
+    } catch {
+      return empUser || null;
+    }
+  });
+  const [loading, setLoading] = useState(!data);
   const [error, setError] = useState('');
 
   // Rating modal
@@ -16,10 +23,17 @@ export default function EmployeeProfile() {
   const [ratingBusy, setRatingBusy] = useState(false);
 
   const loadProfile = () => {
-    setLoading(true);
+    if (!data) setLoading(true);
+    setError('');
     api.employeeApp.profile()
-      .then((r) => setData(r.profile))
-      .catch((err) => setError(err.message))
+      .then((r) => {
+        if (r && r.profile) {
+          setData((prev) => ({ ...prev, ...r.profile }));
+        }
+      })
+      .catch((err) => {
+        setError(err.message || 'Failed to load profile');
+      })
       .finally(() => setLoading(false));
   };
 
@@ -47,8 +61,39 @@ export default function EmployeeProfile() {
     }
   }
 
-  if (loading) return <div style={{ textAlign: 'center', padding: 40 }}>Loading profile…</div>;
-  if (error) return <div style={{ padding: 20, color: 'var(--emp-danger)' }}>{error}</div>;
+  if (loading && !data) return <div style={{ textAlign: 'center', padding: 40, color: 'var(--emp-text-muted)' }}>Loading profile…</div>;
+
+  if (error && !data) {
+    return (
+      <div className="emp-page-container" style={{ textAlign: 'center', padding: '40px 20px' }}>
+        <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 64, height: 64, borderRadius: '50%', background: 'rgba(239, 68, 68, 0.1)', color: '#dc2626', margin: '0 auto 16px' }}>
+          <Icon name="lock" size={32} />
+        </div>
+        <h3 style={{ fontSize: '1.2rem', fontWeight: 800, margin: '0 0 8px 0', color: 'var(--emp-text)' }}>
+          Session Expired
+        </h3>
+        <p style={{ color: 'var(--emp-text-muted)', fontSize: '0.85rem', marginBottom: 20 }}>
+          Your login session has expired or authentication token is missing. Please sign in again.
+        </p>
+        <button
+          type="button"
+          className="emp-btn-primary"
+          onClick={() => {
+            logout();
+            window.location.href = '#/employee/login';
+          }}
+          style={{ maxWidth: 220, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+        >
+          <Icon name="logout" size={16} />
+          <span>Login Again</span>
+        </button>
+      </div>
+    );
+  }
+
+  if (!data) {
+    return <div style={{ textAlign: 'center', padding: 40, color: 'var(--emp-text-muted)' }}>No profile data available.</div>;
+  }
 
   return (
     <div>
