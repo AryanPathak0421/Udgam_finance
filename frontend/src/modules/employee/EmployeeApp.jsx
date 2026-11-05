@@ -52,7 +52,7 @@ function EmployeeAppRoutes() {
         {!isAuthPage && <EmployeeHeader />}
 
         <main style={{ flex: 1, paddingBottom: !isAuthPage ? 80 : 0 }}>
-          <div style={{ padding: '10px 14px 0', maxWidth: 480, margin: '0 auto' }}>
+          <div style={{ padding: '10px 16px 0', maxWidth: 480, margin: '0 auto' }}>
             <PwaInstallBanner />
           </div>
           <Routes>

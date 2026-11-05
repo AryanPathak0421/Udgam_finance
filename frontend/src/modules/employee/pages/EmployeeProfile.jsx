@@ -103,7 +103,7 @@ export default function EmployeeProfile() {
   }
 
   return (
-    <div>
+    <div className="emp-page-container">
       {/* Profile Header Card */}
       <div className="emp-card" style={{ textAlign: 'center', paddingTop: 20 }}>
         <div style={{ position: 'relative', display: 'inline-block' }}>

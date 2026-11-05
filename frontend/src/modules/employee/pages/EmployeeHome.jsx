@@ -28,7 +28,7 @@ export default function EmployeeHome() {
   const graph = data?.performanceGraph || [];
 
   return (
-    <div>
+    <div className="emp-page-container">
       {/* Executive Welcome Card */}
       <div
         className="emp-card"
