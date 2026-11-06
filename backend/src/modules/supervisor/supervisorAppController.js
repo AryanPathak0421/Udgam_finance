@@ -969,8 +969,97 @@ export async function getSupervisorSalarySlips(req, res) {
 }
 
 // -----------------------------------------------------------------------------
-// 10. ATTENDANCE: PERSONAL & TEAM-WISE (Items 20, 21)
+// 10. ATTENDANCE: PERSONAL & TEAM-WISE (Items 18, 20, 21)
 // -----------------------------------------------------------------------------
+
+const nowIst = () => new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date()).replace(/^24:/, '00:');
+
+const metresBetween = (a, b, c, d) => {
+  const R = 6371000;
+  const rad = (x) => (x * Math.PI) / 180;
+  const h = Math.sin(rad(c - a) / 2) ** 2 + Math.cos(rad(a)) * Math.cos(rad(c)) * Math.sin(rad(d - b) / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+};
+
+const locationsOf = (e) => {
+  const list = (e.attendanceLocations || []).filter((l) => l && Number.isFinite(l.lat) && Number.isFinite(l.lng));
+  if (list.length) return list.map((l) => ({ name: l.name || '', lat: l.lat, lng: l.lng, radius: l.radius || 500 }));
+  const one = e.attendanceLocation;
+  return one?.lat !== undefined && one?.lat !== null ? [{ name: '', lat: one.lat, lng: one.lng, radius: one.radius || 500 }] : [];
+};
+
+export async function markSupervisorFirstMeetingAttendance(req, res) {
+  const code = req.user?.employeeCode;
+  const { photo, location } = req.body || {};
+  if (!photo) throw new HttpError(400, 'First meeting live photo upload is required');
+
+  const emp = await Employee.findOne({ employeeCode: code, isDeleted: false });
+  if (!emp) throw new HttpError(404, 'Supervisor record not found');
+
+  const today = startOfToday();
+
+  // 1. Prevent duplicate attendance punch in 1 day
+  const existingMeeting = await FirstMeetingAttendance.findOne({ employeeCode: code, date: today });
+  const existingAtt = await Attendance.findOne({ employee: emp._id, date: today });
+  if (existingMeeting || (existingAtt && existingAtt.firstActivity)) {
+    throw new HttpError(400, 'Attendance for today is already marked. Only 1 punch per day is permitted.');
+  }
+
+  // 2. Validate time window if set for this supervisor
+  if (emp.attendanceTime?.from && emp.attendanceTime?.to) {
+    const now = nowIst();
+    if (now < emp.attendanceTime.from || now > emp.attendanceTime.to) {
+      throw new HttpError(422, `Attendance can only be marked between ${emp.attendanceTime.from} and ${emp.attendanceTime.to} (current time is ${now}).`);
+    }
+  }
+
+  // 3. Validate geofence location radius if places are configured
+  const places = locationsOf(emp);
+  if (places.length) {
+    const lat = Number(location?.lat);
+    const lng = Number(location?.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      throw new HttpError(422, 'GPS location coordinates are required for attendance verification.');
+    }
+    const measured = places.map((p) => ({ ...p, distance: Math.round(metresBetween(p.lat, p.lng, lat, lng)) })).sort((a, b) => a.distance - b.distance);
+    const nearest = measured[0];
+    if (measured.every((p) => p.distance > (p.radius || 500))) {
+      throw new HttpError(422, `You are ${nearest.distance}m away from ${nearest.name || 'attendance location'}. Attendance allowed within ${nearest.radius || 500}m.`);
+    }
+  }
+
+  const meetingRecord = await FirstMeetingAttendance.create({
+    employeeCode: code,
+    employeeName: emp.name,
+    branch: emp.branch,
+    date: today,
+    photo,
+    location,
+    status: 'present',
+  });
+
+  await Attendance.findOneAndUpdate(
+    { employee: emp._id, date: today },
+    {
+      employee: emp._id,
+      date: today,
+      status: 'present',
+      source: 'app',
+      lat: location?.lat,
+      lng: location?.lng,
+      firstActivity: new Date(),
+      lastActivity: new Date(),
+      remark: 'Supervisor first meeting marked with photo in app',
+    },
+    { upsert: true }
+  );
+
+  res.status(201).json({
+    success: true,
+    message: 'First meeting attendance marked successfully with live photo!',
+    item: meetingRecord,
+  });
+}
 
 export async function getPersonalAttendance(req, res) {
   const code = req.user?.employeeCode;

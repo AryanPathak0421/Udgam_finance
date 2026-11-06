@@ -16,6 +16,7 @@ import {
   recoverNpaLoan,
   getSupervisorStaffAttendance,
   getSupervisorSalarySlips,
+  markSupervisorFirstMeetingAttendance,
   getPersonalAttendance,
   getTeamAttendance,
   getTeamCenterVisits,
@@ -62,6 +63,7 @@ router.get('/staff-attendance', requireAuth, h(getSupervisorStaffAttendance));
 router.get('/salary-slips', requireAuth, h(getSupervisorSalarySlips));
 
 // Items 20 - 30 routes
+router.post('/attendance/meeting', requireAuth, h(markSupervisorFirstMeetingAttendance));
 router.get('/attendance/personal', requireAuth, h(getPersonalAttendance));
 router.get('/attendance/team', requireAuth, h(getTeamAttendance));
 router.get('/center-visits/team-requests', requireAuth, h(getTeamCenterVisits));
