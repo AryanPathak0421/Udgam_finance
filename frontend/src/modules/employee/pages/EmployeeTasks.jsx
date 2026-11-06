@@ -34,6 +34,11 @@ export default function EmployeeTasks() {
       prev.map((item) => ((item._id === taskId || item.id === taskId) ? { ...item, status } : item))
     );
 
+    const taskObj = tasks.find((item) => item._id === taskId || item.id === taskId);
+    if (taskObj?.isTargetTask) {
+      return; // target status updated locally
+    }
+
     try {
       await api.employeeApp.updateTask(taskId, { status, remark: `Updated to ${status} via Employee App` });
       fetchTasks();
@@ -124,6 +129,11 @@ export default function EmployeeTasks() {
                       <span className={`emp-badge ${isHigh ? 'emp-badge-danger' : 'emp-badge-info'}`} style={{ fontSize: '0.68rem' }}>
                         {t.priority}
                       </span>
+                      {t.isTargetTask && (
+                        <span style={{ background: '#fef3c7', color: '#92400e', fontSize: '0.65rem', fontWeight: 800, padding: '2px 6px', borderRadius: 6 }}>
+                          MONTHLY TARGET
+                        </span>
+                      )}
                     </div>
 
                     {t.description && (

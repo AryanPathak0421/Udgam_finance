@@ -104,11 +104,34 @@ export function EmployeeAppProvider({ children }) {
 
   const [lang, setLang] = useState(() => localStorage.getItem('udgam_emp_lang') || 'hi');
   const [theme, setTheme] = useState(() => localStorage.getItem('udgam_emp_theme') || 'light');
-  const [notifications, setNotifications] = useState([
-    { id: 1, title: 'Welcome to Udgam Employee App', time: 'Just now', read: false },
-    { id: 2, title: 'Daily Collection Target assigned', time: 'Today', read: false },
-  ]);
+  const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [notifOpen, setNotifOpen] = useState(false);
+
+  const fetchNotifications = async () => {
+    try {
+      const res = await api.employeeApp.notifications();
+      setNotifications(res.items || []);
+      setUnreadCount(res.unreadCount || 0);
+    } catch {
+      // ignore
+    }
+  };
+
+  useEffect(() => {
+    fetchNotifications();
+    const timer = setInterval(fetchNotifications, 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const markNotificationRead = async (id) => {
+    try {
+      await api.employeeApp.markNotificationRead(id);
+      fetchNotifications();
+    } catch {
+      // ignore
+    }
+  };
 
   useEffect(() => {
     localStorage.setItem('udgam_emp_lang', lang);
@@ -148,6 +171,9 @@ export function EmployeeAppProvider({ children }) {
         t,
         notifications,
         setNotifications,
+        unreadCount,
+        fetchNotifications,
+        markNotificationRead,
         notifOpen,
         setNotifOpen,
       }}

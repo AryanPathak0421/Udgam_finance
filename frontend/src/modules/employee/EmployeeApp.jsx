@@ -29,6 +29,9 @@ import EmployeeHrServices from './pages/EmployeeHrServices.jsx';
 import EmployeeProductSale from './pages/EmployeeProductSale.jsx';
 import EmployeeTasks from './pages/EmployeeTasks.jsx';
 import EmployeeHolidays from './pages/EmployeeHolidays.jsx';
+import EmployeeCivilCheck from './pages/EmployeeCivilCheck.jsx';
+import EmployeeDeathRequest from './pages/EmployeeDeathRequest.jsx';
+import EmployeeNotifications from './pages/EmployeeNotifications.jsx';
 
 import './employee.css';
 
@@ -85,6 +88,9 @@ function EmployeeAppRoutes() {
             <Route path="product-sale" element={empUser ? <EmployeeProductSale /> : <Navigate to="/employee/login" replace />} />
             <Route path="tasks" element={empUser ? <EmployeeTasks /> : <Navigate to="/employee/login" replace />} />
             <Route path="holidays" element={empUser ? <EmployeeHolidays /> : <Navigate to="/employee/login" replace />} />
+            <Route path="civil-check" element={empUser ? <EmployeeCivilCheck /> : <Navigate to="/employee/login" replace />} />
+            <Route path="death-request" element={empUser ? <EmployeeDeathRequest /> : <Navigate to="/employee/login" replace />} />
+            <Route path="notifications" element={empUser ? <EmployeeNotifications /> : <Navigate to="/employee/login" replace />} />
 
             {/* Fallback */}
             <Route path="*" element={<Navigate to="/employee" replace />} />

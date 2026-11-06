@@ -593,6 +593,13 @@ export const api = {
     tasks: () => request('/employee/tasks'),
     updateTask: (id, data) => request(`/employee/tasks/${id}`, { method: 'PATCH', body: data }),
     holidays: (params) => request(`/employee/holidays${qs(params)}`),
+    attendanceTiming: () => request('/employee/attendance/timing'),
+    checkCivilScore: (data) => request('/employee/civil-check', { method: 'POST', body: data }),
+    addCivilCheckedMember: (data) => request('/employee/civil-check/add-member', { method: 'POST', body: data }),
+    notifications: () => request('/employee/notifications'),
+    markNotificationRead: (id) => request('/employee/notifications/read', { method: 'POST', body: { id } }),
+    submitDeathRequest: (data) => request('/employee/death-requests', { method: 'POST', body: data }),
+    deathRequests: () => request('/employee/death-requests'),
   },
   supervisorApp: {
     lookup: (identifier) => request('/supervisor/auth/lookup', { method: 'POST', body: { identifier } }),

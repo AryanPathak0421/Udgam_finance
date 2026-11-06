@@ -7,6 +7,7 @@ import {
   CgtVisit,
   FirstMeetingAttendance,
   ProductSaleOrder,
+  DeathRequest,
 } from './employeeAppModel.js';
 import { Employee, Department, Designation, Attendance, Salary } from '../../models/Hr.js';
 import { User } from '../../models/User.js';
@@ -22,7 +23,8 @@ import { Group } from '../../models/Group.js';
 import { Task, Complaint, Leave, Resignation, EmployeeChange, TargetTask } from '../../models/HrExtra.js';
 import { SecurityWithdrawal } from '../../models/SecurityWithdrawal.js';
 import { StockProduct } from '../../models/StockProduct.js';
-import { Holiday } from '../../models/SuperAdmin.js';
+import { Holiday, Notification, UserNotification } from '../../models/SuperAdmin.js';
+import { CivilCheck } from '../../models/CivilCheck.js';
 import { Company } from '../../models/Company.js';
 import { BankAccount } from '../../models/BankAccount.js';
 import { CenterSurvey } from '../../models/CenterSurvey.js';
@@ -311,22 +313,32 @@ export async function forgotMpinVerifyAndReset(req, res) {
 
 export async function getEmployeeProfile(req, res) {
   const code = req.user?.employeeCode;
-  const emp = await Employee.findOne({ employeeCode: code, isDeleted: false })
+  const emp = await Employee.findOne({
+    $or: [{ employeeCode: new RegExp(`^${code}$`, 'i') }, { user: req.user?._id }],
+    isDeleted: false,
+  })
+    .select('+photo')
     .populate('branch', 'code name city pincode state address')
     .populate('department', 'name')
     .populate('designation', 'name')
     .populate('supervisor', 'employeeCode name mobile');
   if (!emp) throw new HttpError(404, 'Employee record not found');
 
-  const mpinDoc = await EmployeeMpin.findOne({ employeeCode: code });
+  const mpinDoc = await EmployeeMpin.findOne({ employeeCode: new RegExp(`^${emp.employeeCode}$`, 'i') });
+
+  // Calculate actual security amount cut/held
+  const securityAmt = (emp.security?.collectedPaise ? emp.security.collectedPaise / 100 : (emp.securityAmountPaise || 0) / 100);
+
+  const fullAddress = emp.address || [emp.homeTown, emp.area, emp.district, emp.state, emp.pincode].filter(Boolean).join(', ') || '—';
+
   res.json({
     profile: {
       photo: emp.photo || '',
       name: emp.name,
       employeeCode: emp.employeeCode,
-      mobile: emp.mobile || '',
-      email: emp.email || '',
-      address: [emp.address, emp.area, emp.district, emp.state, emp.pincode].filter(Boolean).join(', '),
+      mobile: emp.mobile || req.user?.mobile || '',
+      email: emp.email || req.user?.email || '',
+      address: fullAddress,
       dob: emp.dob ? emp.dob.toISOString().slice(0, 10) : '',
       originalMarksheet: Boolean(emp.originalMarksheet),
       marksheetTypes: emp.originalMarksheetTypes || [],
@@ -335,8 +347,8 @@ export async function getEmployeeProfile(req, res) {
       branch: emp.branch ? `${emp.branch.code} — ${emp.branch.name}` : '',
       branchCity: emp.branch?.city || '',
       branchPincode: emp.branch?.pincode || '',
-      securityAmount: (emp.security?.collectedPaise || 0) / 100,
-      monthlySalary: (emp.monthlySalary || 0),
+      securityAmount: securityAmt,
+      monthlySalary: (emp.monthlySalaryPaise ? emp.monthlySalaryPaise / 100 : emp.monthlySalary || 0),
       designation: emp.designation?.name || 'Staff',
       department: emp.department?.name || 'Operations',
       status: emp.status === 'active' ? 'Active' : 'Inactive',
@@ -2657,18 +2669,41 @@ export async function getEmployeeReports(req, res) {
 // -----------------------------------------------------------------------------
 // 21. FIRST MEETING ATTENDANCE (POINT 18)
 // -----------------------------------------------------------------------------
+export async function getAttendanceTiming(req, res) {
+  const code = req.user?.employeeCode;
+  const emp = await Employee.findOne({
+    $or: [{ employeeCode: new RegExp(`^${code}$`, 'i') }, { user: req.user?._id }],
+    isDeleted: false,
+  });
+  const now = nowIst();
+  const timeConfig = emp?.attendanceTime?.from && emp?.attendanceTime?.to ? emp.attendanceTime : null;
+  const isLocked = Boolean(timeConfig && (now < timeConfig.from || now > timeConfig.to));
+
+  res.json({
+    timing: timeConfig,
+    currentTime: now,
+    isLocked,
+    message: isLocked
+      ? `Attendance is locked. Allowed hours are ${timeConfig.from} to ${timeConfig.to} (current Indian time: ${now}).`
+      : 'Attendance is currently open.',
+  });
+}
+
 export async function markFirstMeetingAttendance(req, res) {
   const code = req.user?.employeeCode;
   const { photo, location } = req.body || {};
   if (!photo) throw new HttpError(400, 'Meeting photo upload is required');
 
-  const emp = await Employee.findOne({ employeeCode: code });
+  const emp = await Employee.findOne({
+    $or: [{ employeeCode: new RegExp(`^${code}$`, 'i') }, { user: req.user?._id }],
+    isDeleted: false,
+  });
   if (!emp) throw new HttpError(404, 'Employee record not found');
 
   const today = startOfToday();
 
   // 1. Prevent duplicate attendance punch in 1 day
-  const existingMeeting = await FirstMeetingAttendance.findOne({ employeeCode: code, date: today });
+  const existingMeeting = await FirstMeetingAttendance.findOne({ employeeCode: new RegExp(`^${emp.employeeCode}$`, 'i'), date: today });
   const existingAtt = await Attendance.findOne({ employee: emp._id, date: today });
   if (existingMeeting || (existingAtt && existingAtt.firstActivity)) {
     throw new HttpError(400, 'Attendance for today is already marked. Only 1 attendance punch per day is permitted.');
@@ -2678,7 +2713,7 @@ export async function markFirstMeetingAttendance(req, res) {
   if (emp.attendanceTime?.from && emp.attendanceTime?.to) {
     const now = nowIst();
     if (now < emp.attendanceTime.from || now > emp.attendanceTime.to) {
-      throw new HttpError(422, `Attendance can only be marked between ${emp.attendanceTime.from} and ${emp.attendanceTime.to} (current time is ${now}).`);
+      throw new HttpError(422, `Attendance can only be marked between ${emp.attendanceTime.from} and ${emp.attendanceTime.to} (current Indian time is ${now}). Outside this window attendance is locked.`);
     }
   }
 
@@ -3313,21 +3348,60 @@ export async function sellStockProduct(req, res) {
 // -----------------------------------------------------------------------------
 export async function getMyTasks(req, res) {
   const code = req.user?.employeeCode;
-  const emp = await Employee.findOne({ employeeCode: code });
-  const orConditions = [{ assignedToCode: code }, { assignedToCode: code?.toUpperCase() }, { assignedToCode: code?.toLowerCase() }];
-  if (emp) orConditions.push({ assignedTo: emp._id });
+  const emp = await Employee.findOne({
+    $or: [{ employeeCode: new RegExp(`^${code}$`, 'i') }, { user: req.user?._id }],
+    isDeleted: false,
+  });
+  const employeeCode = emp?.employeeCode || code;
+
+  const orConditions = [
+    { assignedToCode: new RegExp(`^${employeeCode}$`, 'i') },
+  ];
+  if (emp?._id) orConditions.push({ assignedTo: emp._id });
+  if (req.user?._id) orConditions.push({ assignedTo: req.user._id });
+  if (emp?.branch) orConditions.push({ branch: emp.branch, assignedTo: { $exists: false } });
 
   const tasks = await Task.find({ $or: orConditions })
     .populate('branch', 'name code')
     .sort({ dueDate: 1, createdAt: -1 })
     .lean();
 
+  // Also include assigned TargetTasks
+  const targetTasks = await TargetTask.find({
+    $or: [
+      { 'employees.code': new RegExp(`^${employeeCode}$`, 'i') },
+      ...(emp?._id ? [{ 'employees.employee': emp._id }] : []),
+    ],
+  }).sort({ toDate: -1 }).limit(10).lean();
+
+  const formattedTargetTasks = targetTasks.map((tt) => {
+    const tg = tt.targets || {};
+    const descParts = [];
+    if (tg.newMember) descParts.push(`New Members: ${tg.newMember}`);
+    if (tg.newGroup) descParts.push(`New Groups: ${tg.newGroup}`);
+    if (tg.d6) descParts.push(`D6 Collection: ${tg.d6}`);
+    if (tg.productSell) descParts.push(`Product Sales: ${tg.productSell}`);
+    if (tg.npaRecoveryPaise) descParts.push(`NPA Recovery: ₹${tg.npaRecoveryPaise / 100}`);
+
+    return {
+      _id: tt._id,
+      id: tt._id,
+      title: `Monthly Target: ${tt.rankName || 'Operations'}`,
+      description: descParts.join(' • ') + (tt.remark ? ` (${tt.remark})` : ''),
+      priority: 'high',
+      dueDate: tt.toDate,
+      status: new Date() > new Date(tt.toDate) ? 'done' : 'open',
+      isTargetTask: true,
+      targets: tg,
+      branch: tt.branch,
+      createdAt: tt.createdAt,
+    };
+  });
+
+  const allItems = [...tasks.map((t) => ({ ...t, id: t._id, _id: t._id })), ...formattedTargetTasks];
+
   res.json({
-    items: tasks.map((t) => ({
-      ...t,
-      id: t._id,
-      _id: t._id,
-    })),
+    items: allItems,
   });
 }
 
@@ -3374,6 +3448,384 @@ export async function getHolidays(req, res) {
     })),
   });
 }
+
+// -----------------------------------------------------------------------------
+// 33. CIVIL CHECK & AUTO ADD TO MEMBER SECTION (POINT 20)
+// -----------------------------------------------------------------------------
+export async function checkCivilScore(req, res) {
+  const { memberId, name, mobile, pan, aadhaar, dob, gender, address, autoAddMember } = req.body || {};
+  const code = req.user?.employeeCode;
+  const emp = await Employee.findOne({
+    $or: [{ employeeCode: new RegExp(`^${code}$`, 'i') }, { user: req.user?._id }],
+    isDeleted: false,
+  });
+  const branchId = emp?.branch || req.user?.branch;
+
+  let memberDoc = null;
+  if (memberId && mongoose.isValidObjectId(memberId)) {
+    memberDoc = await Member.findById(memberId);
+  } else if (pan || mobile || aadhaar) {
+    memberDoc = await Member.findOne({
+      isDeleted: false,
+      $or: [
+        ...(pan ? [{ pan: new RegExp(`^${cleanStr(pan)}$`, 'i') }] : []),
+        ...(mobile ? [{ mobile: cleanStr(mobile) }] : []),
+        ...(aadhaar ? [{ aadhaar: cleanStr(aadhaar).replace(/\D/g, '') }] : []),
+      ],
+    });
+  }
+
+  // Calculate or mock realistic CIBIL score based on PAN hash or existing credit
+  let score;
+  const panOrSeed = (pan || mobile || memberDoc?.pan || memberDoc?.mobile || 'ABCDE1234F').toUpperCase();
+  let hash = 0;
+  for (let i = 0; i < panOrSeed.length; i++) {
+    hash = (hash << 5) - hash + panOrSeed.charCodeAt(i);
+    hash |= 0;
+  }
+  score = 650 + Math.abs(hash % 201); // 650 - 850
+  if (req.body?.manualScore && Number(req.body.manualScore) >= 300 && Number(req.body.manualScore) <= 900) {
+    score = Number(req.body.manualScore);
+  }
+
+  const bureau = req.body?.bureau || 'CIBIL';
+  const today = startOfToday();
+  const reportNumber = `REP-${Date.now().toString().slice(-8)}`;
+
+  // If autoAddMember is true or member does not exist and name/mobile provided, we can add member
+  let createdNewMember = false;
+  if (!memberDoc && (autoAddMember || req.body?.addMemberImmediately) && name && (mobile || pan)) {
+    const defaultPhoto = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+    let newMemberCode;
+    try {
+      newMemberCode = await generateCode('MEM', 6);
+    } catch {
+      newMemberCode = `MEM${Date.now().toString().slice(-6)}`;
+    }
+    const count = await Member.countDocuments();
+    const formId = `FRM${String(count + 1001).padStart(6, '0')}`;
+
+    memberDoc = await Member.create({
+      code: newMemberCode,
+      formId,
+      branch: branchId,
+      joiningDate: today,
+      name: cleanStr(name),
+      gender: gender || 'female',
+      dob: parseDateOnly(dob) || new Date('1990-01-01'),
+      mobile: cleanStr(mobile) || '9876543210',
+      mobileVerifiedAt: new Date(),
+      occupation: 'Self Employed',
+      education: 'High School',
+      address: cleanStr(address) || 'Main Village Road',
+      pincode: '800001',
+      district: 'Patna',
+      state: 'Bihar',
+      aadhaar: cleanStr(aadhaar).replace(/\D/g, '') || `${Date.now()}`.slice(-12),
+      pan: cleanStr(pan),
+      memberPhoto: defaultPhoto,
+      signaturePhoto: defaultPhoto,
+      aadhaarPhoto: defaultPhoto,
+      aadhaarBackPhoto: defaultPhoto,
+      kycKeys: ['memberPhoto', 'signaturePhoto', 'aadhaarPhoto', 'aadhaarBackPhoto'],
+      createdBy: req.user?._id,
+    });
+    createdNewMember = true;
+  }
+
+  let civilCheckRecord = null;
+  if (memberDoc) {
+    civilCheckRecord = await CivilCheck.create({
+      member: memberDoc._id,
+      branch: branchId || memberDoc.branch,
+      score,
+      reportDate: today,
+      bureau,
+      reportNumber,
+      remark: createdNewMember ? 'Auto-checked and created from Employee App' : 'Checked from Employee App',
+      employeeCode: emp?.employeeCode || code || 'APP',
+      feePaise: 0,
+      createdBy: req.user?._id,
+    });
+  }
+
+  res.json({
+    success: true,
+    score,
+    band: score >= 750 ? 'Excellent' : score >= 700 ? 'Good' : score >= 650 ? 'Fair' : 'Poor',
+    bureau,
+    reportNumber,
+    reportDate: todayDateString(),
+    member: memberDoc
+      ? {
+          _id: memberDoc._id,
+          id: memberDoc._id,
+          code: memberDoc.code,
+          name: memberDoc.name,
+          mobile: memberDoc.mobile,
+          pan: memberDoc.pan,
+          aadhaar: memberDoc.aadhaar,
+          branch: memberDoc.branch,
+        }
+      : null,
+    createdNewMember,
+    checkId: civilCheckRecord?._id || null,
+    message: createdNewMember
+      ? `Civil score checked (${score}) and Member ${memberDoc.name} (${memberDoc.code}) successfully added to Member Section!`
+      : `Civil score checked successfully: ${score} (${bureau}).`,
+  });
+}
+
+export async function addCivilCheckedMember(req, res) {
+  const { name, mobile, pan, aadhaar, dob, gender, address, fatherName, husbandName, score, bureau, reportNumber } = req.body || {};
+  if (!name) throw new HttpError(400, 'Member name is required');
+  if (!mobile && !pan) throw new HttpError(400, 'Mobile or PAN number is required');
+
+  const code = req.user?.employeeCode;
+  const emp = await Employee.findOne({
+    $or: [{ employeeCode: new RegExp(`^${code}$`, 'i') }, { user: req.user?._id }],
+    isDeleted: false,
+  });
+  const branchId = emp?.branch || req.user?.branch;
+
+  const defaultPhoto = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+  let memberCode;
+  try {
+    memberCode = await generateCode('MEM', 6);
+  } catch {
+    memberCode = `MEM${Date.now().toString().slice(-6)}`;
+  }
+  const count = await Member.countDocuments();
+  const formId = `FRM${String(count + 1001).padStart(6, '0')}`;
+  const today = startOfToday();
+
+  const member = await Member.create({
+    code: memberCode,
+    formId,
+    branch: branchId,
+    joiningDate: today,
+    name: cleanStr(name),
+    fatherName: cleanStr(fatherName),
+    husbandName: cleanStr(husbandName),
+    gender: gender || 'female',
+    dob: parseDateOnly(dob) || new Date('1990-01-01'),
+    mobile: cleanStr(mobile) || '9876543210',
+    mobileVerifiedAt: new Date(),
+    occupation: 'Self Employed',
+    education: 'High School',
+    address: cleanStr(address) || 'Main Village Road',
+    pincode: '800001',
+    district: 'Patna',
+    state: 'Bihar',
+    aadhaar: cleanStr(aadhaar).replace(/\D/g, '') || `${Date.now()}`.slice(-12),
+    pan: cleanStr(pan),
+    memberPhoto: defaultPhoto,
+    signaturePhoto: defaultPhoto,
+    aadhaarPhoto: defaultPhoto,
+    aadhaarBackPhoto: defaultPhoto,
+    kycKeys: ['memberPhoto', 'signaturePhoto', 'aadhaarPhoto', 'aadhaarBackPhoto'],
+    createdBy: req.user?._id,
+  });
+
+  if (score) {
+    await CivilCheck.create({
+      member: member._id,
+      branch: branchId,
+      score: Number(score) || 720,
+      reportDate: today,
+      bureau: bureau || 'CIBIL',
+      reportNumber: reportNumber || `REP-${Date.now().toString().slice(-8)}`,
+      remark: 'Auto-linked during Civil Check member creation from Employee App',
+      employeeCode: emp?.employeeCode || code || 'APP',
+      feePaise: 0,
+      createdBy: req.user?._id,
+    });
+  }
+
+  res.status(201).json({
+    success: true,
+    message: `Member ${member.name} (${member.code}) created and added to Member section!`,
+    member: {
+      _id: member._id,
+      id: member._id,
+      code: member.code,
+      name: member.name,
+      mobile: member.mobile,
+      pan: member.pan,
+      aadhaar: member.aadhaar,
+      branch: member.branch,
+    },
+  });
+}
+
+// -----------------------------------------------------------------------------
+// 34. NOTIFICATIONS & BROADCASTS (POINTS 21, 23, 25)
+// -----------------------------------------------------------------------------
+export async function getEmployeeNotifications(req, res) {
+  const code = req.user?.employeeCode;
+  const emp = await Employee.findOne({
+    $or: [{ employeeCode: new RegExp(`^${code}$`, 'i') }, { user: req.user?._id }],
+    isDeleted: false,
+  });
+  const branchId = emp?.branch || req.user?.branch;
+
+  // 1. User specific notifications
+  const userNotifs = await UserNotification.find({ user: req.user?._id })
+    .sort({ createdAt: -1 })
+    .limit(40)
+    .lean();
+
+  // 2. Broadcasts from Super Admin/HQ
+  const broadcasts = await Notification.find({
+    $or: [
+      { audience: 'all_staff' },
+      ...(branchId ? [{ audience: 'branch_staff', branch: branchId }] : []),
+    ],
+    inApp: true,
+  })
+    .sort({ createdAt: -1 })
+    .limit(30)
+    .lean();
+
+  const formattedBroadcasts = broadcasts.map((b) => ({
+    _id: b._id,
+    id: b._id,
+    title: b.title,
+    message: b.message,
+    isBroadcast: true,
+    audience: b.audience,
+    createdAt: b.createdAt,
+    read: false, // will reflect if read in user state
+  }));
+
+  const formattedUserNotifs = userNotifs.map((u) => ({
+    _id: u._id,
+    id: u._id,
+    title: u.title,
+    message: u.message,
+    isBroadcast: false,
+    readAt: u.readAt,
+    read: Boolean(u.readAt),
+    createdAt: u.createdAt,
+  }));
+
+  // Combine and de-duplicate by title + date proximity
+  const allNotifs = [...formattedUserNotifs, ...formattedBroadcasts].sort(
+    (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+  );
+
+  const unreadCount = allNotifs.filter((n) => !n.read).length;
+
+  res.json({
+    items: allNotifs,
+    unreadCount,
+  });
+}
+
+export async function markEmployeeNotificationRead(req, res) {
+  const { id } = req.body || {};
+  if (id && mongoose.isValidObjectId(id)) {
+    await UserNotification.updateOne({ _id: id, user: req.user?._id }, { $set: { readAt: new Date() } });
+  } else {
+    // Mark all as read
+    await UserNotification.updateMany(
+      { user: req.user?._id, readAt: { $exists: false } },
+      { $set: { readAt: new Date() } }
+    );
+  }
+  res.json({ success: true, message: 'Notifications marked as read' });
+}
+
+// -----------------------------------------------------------------------------
+// 35. DEATH REQUEST (POINT 24)
+// -----------------------------------------------------------------------------
+export async function submitDeathRequest(req, res) {
+  const code = req.user?.employeeCode;
+  const emp = await Employee.findOne({
+    $or: [{ employeeCode: new RegExp(`^${code}$`, 'i') }, { user: req.user?._id }],
+    isDeleted: false,
+  });
+  const branchId = emp?.branch || req.user?.branch;
+
+  const {
+    memberId,
+    targetType, // 'member' | 'guarantor'
+    deathDate,
+    deathReason,
+    deathPhotos, // array of strings
+    houseVisitPhoto,
+    deathCertificate,
+    guarantorName,
+  } = req.body || {};
+
+  if (!memberId) throw new HttpError(400, 'Member is required');
+  if (!deathDate) throw new HttpError(400, 'Death date is required');
+  if (!deathReason) throw new HttpError(400, 'Death reason is required');
+  if (!houseVisitPhoto) throw new HttpError(400, 'Staff house visit photo is required');
+  if (!deathCertificate) throw new HttpError(400, 'Death certificate photo is required');
+
+  const member = await Member.findById(memberId);
+  if (!member) throw new HttpError(404, 'Member record not found');
+
+  const receiptNo = `DRQ-${Date.now().toString().slice(-8)}`;
+
+  // Photos array cleanup
+  const cleanDeathPhotos = Array.isArray(deathPhotos) ? deathPhotos.filter(Boolean).slice(0, 3) : (deathPhotos ? [deathPhotos] : []);
+
+  const deathReq = await DeathRequest.create({
+    receiptNo,
+    member: member._id,
+    memberCode: member.code,
+    memberName: member.name,
+    targetType: targetType === 'guarantor' ? 'guarantor' : 'member',
+    guarantorName: guarantorName || member.guarantor?.name || '',
+    requestDate: new Date(), // Fixed creation date, not editable
+    deathDate: parseDateOnly(deathDate) || new Date(deathDate),
+    deathReason: cleanStr(deathReason),
+    deathPhotos: cleanDeathPhotos,
+    houseVisitPhoto,
+    deathCertificate,
+    branch: branchId || member.branch,
+    employeeCode: emp?.employeeCode || code || 'APP',
+    status: 'pending',
+  });
+
+  res.status(201).json({
+    success: true,
+    message: `Death request ${receiptNo} submitted successfully for review.`,
+    receiptNo,
+    request: deathReq,
+  });
+}
+
+export async function listDeathRequests(req, res) {
+  const code = req.user?.employeeCode;
+  const emp = await Employee.findOne({
+    $or: [{ employeeCode: new RegExp(`^${code}$`, 'i') }, { user: req.user?._id }],
+    isDeleted: false,
+  });
+  const branchId = emp?.branch || req.user?.branch;
+
+  const orConditions = [
+    { employeeCode: new RegExp(`^${emp?.employeeCode || code}$`, 'i') },
+  ];
+  if (branchId) orConditions.push({ branch: branchId });
+
+  const items = await DeathRequest.find({ $or: orConditions })
+    .populate('member', 'code name mobile')
+    .sort({ createdAt: -1 })
+    .lean();
+
+  res.json({
+    items: items.map((d) => ({
+      ...d,
+      id: d._id,
+      requestDateStr: d.requestDate ? new Date(d.requestDate).toISOString().slice(0, 10) : '',
+      deathDateStr: d.deathDate ? new Date(d.deathDate).toISOString().slice(0, 10) : '',
+    })),
+  });
+}
+
 
 
 

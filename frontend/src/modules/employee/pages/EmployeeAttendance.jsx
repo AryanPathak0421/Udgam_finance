@@ -15,6 +15,14 @@ export default function EmployeeAttendance() {
   const [submitting, setSubmitting] = useState(false);
   const [markSuccess, setMarkSuccess] = useState('');
   const [markError, setMarkError] = useState('');
+  const [timingInfo, setTimingInfo] = useState(null);
+
+  // Fetch attendance timing lock info
+  useEffect(() => {
+    api.employeeApp.attendanceTiming().then((res) => {
+      setTimingInfo(res);
+    }).catch(() => {});
+  }, []);
 
   // History state
   const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
@@ -125,6 +133,35 @@ export default function EmployeeAttendance() {
             Mark your morning presence by capturing a photo of the first meeting with GPS location and timestamp.
           </p>
 
+          {/* Allowed Timing Banner */}
+          {timingInfo?.timing && (
+            <div
+              style={{
+                background: timingInfo.isLocked ? '#fee2e2' : '#f0fdf4',
+                border: `1px solid ${timingInfo.isLocked ? '#f87171' : '#86efac'}`,
+                color: timingInfo.isLocked ? '#991b1b' : '#166534',
+                padding: '10px 14px',
+                borderRadius: 8,
+                fontSize: '0.82rem',
+                marginBottom: 14,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              <Icon name={timingInfo.isLocked ? 'lock' : 'check'} size={18} />
+              <div>
+                <strong>{timingInfo.isLocked ? 'Attendance Window Locked' : 'Attendance Window Open'}:</strong>{' '}
+                Allowed punch timings are <strong>{timingInfo.timing.from}</strong> to <strong>{timingInfo.timing.to}</strong>.
+                {timingInfo.isLocked && (
+                  <div style={{ fontSize: '0.75rem', marginTop: 2 }}>
+                    Current Time: {timingInfo.currentTime}. You cannot submit attendance outside permitted hours.
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {markSuccess && (
             <div style={{ background: '#dcfce7', color: '#166534', padding: '12px 14px', borderRadius: 8, fontSize: '0.85rem', marginBottom: 14 }}>
               {markSuccess}
@@ -182,10 +219,21 @@ export default function EmployeeAttendance() {
             <button
               type="submit"
               className="emp-btn-primary"
-              style={{ padding: '14px', fontSize: '1rem', fontWeight: 800, marginTop: 6 }}
-              disabled={submitting || !photo}
+              style={{
+                padding: '14px',
+                fontSize: '1rem',
+                fontWeight: 800,
+                marginTop: 6,
+                opacity: timingInfo?.isLocked ? 0.6 : 1,
+                cursor: timingInfo?.isLocked ? 'not-allowed' : 'pointer',
+              }}
+              disabled={submitting || !photo || Boolean(timingInfo?.isLocked)}
             >
-              {submitting ? 'Marking Presence...' : '✓ Mark First Meeting Present'}
+              {timingInfo?.isLocked
+                ? '🔒 Attendance Locked (Outside Allowed Hours)'
+                : submitting
+                ? 'Marking Presence...'
+                : '✓ Mark First Meeting Present'}
             </button>
           </form>
         </div>

@@ -4,11 +4,10 @@ import { useEmpApp } from '../EmployeeAppContext.jsx';
 import Icon from '../../../components/Icon.jsx';
 
 export default function EmployeeHeader({ title }) {
-  const { lang, toggleLang, theme, toggleTheme, t, notifications, notifOpen, setNotifOpen, empUser } = useEmpApp();
+  const { lang, toggleLang, theme, toggleTheme, t, notifications, unreadCount, markNotificationRead, notifOpen, setNotifOpen, empUser } = useEmpApp();
   const navigate = useNavigate();
   const location = useLocation();
   const isRoot = location.pathname === '/employee' || location.pathname === '/employee/';
-  const unreadCount = notifications.filter((n) => !n.read).length;
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
 
@@ -106,23 +105,78 @@ export default function EmployeeHeader({ title }) {
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <Icon name="bell" size={18} />
                 <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700 }}>Notifications</h3>
+                {unreadCount > 0 && (
+                  <span style={{ background: 'var(--emp-danger)', color: '#fff', padding: '2px 6px', borderRadius: 10, fontSize: 10, fontWeight: 700 }}>
+                    {unreadCount} new
+                  </span>
+                )}
               </div>
-              <button className="emp-icon-btn" onClick={() => setNotifOpen(false)}>
-                <Icon name="cross" size={16} />
-              </button>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <button
+                  type="button"
+                  style={{ background: 'none', border: 'none', color: 'var(--emp-primary)', fontSize: '0.78rem', cursor: 'pointer', fontWeight: 600 }}
+                  onClick={() => markNotificationRead()}
+                >
+                  Mark all read
+                </button>
+                <button className="emp-icon-btn" onClick={() => setNotifOpen(false)}>
+                  <Icon name="cross" size={16} />
+                </button>
+              </div>
             </div>
             {notifications.length === 0 ? (
               <div style={{ textAlign: 'center', color: 'var(--emp-text-muted)', marginTop: 40, fontSize: '0.9rem' }}>
-                No new notifications
+                No notifications or broadcasts yet.
               </div>
             ) : (
-              notifications.map((n) => (
-                <div key={n.id} style={{ padding: '12px 10px', borderBottom: '1px solid var(--emp-border)', fontSize: '0.9rem' }}>
-                  <div style={{ fontWeight: 600 }}>{n.title}</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)', marginTop: 4 }}>{n.time}</div>
-                </div>
-              ))
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {notifications.slice(0, 8).map((n) => (
+                  <div
+                    key={n._id || n.id}
+                    onClick={() => {
+                      if (!n.read) markNotificationRead(n._id || n.id);
+                    }}
+                    style={{
+                      padding: '10px',
+                      borderRadius: 8,
+                      border: '1px solid var(--emp-border)',
+                      background: n.read ? 'var(--emp-card-bg)' : '#f0fdf4',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--emp-text)' }}>{n.title}</div>
+                      {n.isBroadcast && (
+                        <span style={{ background: '#e0e7ff', color: '#3730a3', fontSize: '0.65rem', fontWeight: 800, padding: '1px 6px', borderRadius: 8 }}>
+                          BROADCAST
+                        </span>
+                      )}
+                    </div>
+                    {n.message && (
+                      <div style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', marginTop: 4, lineHeight: 1.3 }}>
+                        {n.message}
+                      </div>
+                    )}
+                    <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginTop: 4 }}>
+                      {n.createdAt ? new Date(n.createdAt).toLocaleDateString() : n.time || 'Recently'}
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
+            <div style={{ marginTop: 16, borderTop: '1px solid var(--emp-border)', paddingTop: 12 }}>
+              <button
+                type="button"
+                className="emp-btn-primary"
+                style={{ width: '100%', padding: '8px', fontSize: '0.85rem', fontWeight: 700 }}
+                onClick={() => {
+                  setNotifOpen(false);
+                  navigate('/employee/notifications');
+                }}
+              >
+                View All Notifications Page →
+              </button>
+            </div>
           </div>
         </div>
       )}

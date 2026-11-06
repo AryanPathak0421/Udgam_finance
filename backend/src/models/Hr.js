@@ -55,6 +55,8 @@ const employeeSchema = new mongoose.Schema(
     fatherName: { type: String, trim: true },
     fatherMobile: { type: String, trim: true },
     motherName: { type: String, trim: true },
+
+    dob: { type: Date },
     maritalStatus: { type: String, enum: ['', 'single', 'married', 'divorced', 'widowed'], default: '' },
     pincode: String,
     state: String,

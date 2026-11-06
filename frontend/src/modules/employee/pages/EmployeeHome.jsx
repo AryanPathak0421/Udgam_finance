@@ -297,6 +297,27 @@ export default function EmployeeHome() {
           <div className="tile-title">Tasks &amp; Follow-up</div>
         </div>
 
+        <div className="emp-action-tile" onClick={() => navigate('/employee/civil-check')}>
+          <div className="tile-icon" style={{ color: '#0284c7' }}>
+            <Icon name="shield-check" size={22} />
+          </div>
+          <div className="tile-title">Civil Score Check</div>
+        </div>
+
+        <div className="emp-action-tile" onClick={() => navigate('/employee/death-request')}>
+          <div className="tile-icon" style={{ color: '#dc2626' }}>
+            <Icon name="file-text" size={22} />
+          </div>
+          <div className="tile-title">Death Request</div>
+        </div>
+
+        <div className="emp-action-tile" onClick={() => navigate('/employee/notifications')}>
+          <div className="tile-icon" style={{ color: '#8b5cf6' }}>
+            <Icon name="bell" size={22} />
+          </div>
+          <div className="tile-title">Notifications</div>
+        </div>
+
         <div className="emp-action-tile" onClick={() => navigate('/employee/holidays')}>
           <div className="tile-icon" style={{ color: 'var(--emp-primary)' }}>
             <Icon name="award" size={22} />

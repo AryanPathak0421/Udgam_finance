@@ -195,8 +195,8 @@ export default function EmployeeProfile() {
 
         <div className="emp-stat-row">
           <span className="emp-stat-label">{t('security_amount')}</span>
-          <span className="emp-stat-value" style={{ color: 'var(--emp-primary)' }}>
-            ₹{data.securityAmount?.toLocaleString('en-IN') || 0}
+          <span className="emp-stat-value" style={{ color: 'var(--emp-primary)', fontWeight: 800 }}>
+            ₹{Number(data.securityAmount || 0).toLocaleString('en-IN')}
           </span>
         </div>
 

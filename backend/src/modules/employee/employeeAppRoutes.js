@@ -65,6 +65,13 @@ import {
   getMyTasks,
   updateTaskStatus,
   getHolidays,
+  getAttendanceTiming,
+  checkCivilScore,
+  addCivilCheckedMember,
+  getEmployeeNotifications,
+  markEmployeeNotificationRead,
+  submitDeathRequest,
+  listDeathRequests,
 } from './employeeAppController.js';
 
 const router = Router();
@@ -140,6 +147,7 @@ router.post('/savings/withdraw', requireAuth, h(requestSavingsWithdrawal));
 router.get('/reports', requireAuth, h(getEmployeeReports));
 
 // 18 & 20. Attendance (First Meeting & History)
+router.get('/attendance/timing', requireAuth, h(getAttendanceTiming));
 router.post('/attendance/meeting', requireAuth, h(markFirstMeetingAttendance));
 router.get('/attendance/history', requireAuth, h(getAttendanceHistory));
 
@@ -178,6 +186,18 @@ router.patch('/tasks/:id', requireAuth, h(updateTaskStatus));
 
 // 29. Holidays
 router.get('/holidays', requireAuth, h(getHolidays));
+
+// 30. Civil Check & Auto Add Member (Point 20)
+router.post('/civil-check', requireAuth, h(checkCivilScore));
+router.post('/civil-check/add-member', requireAuth, h(addCivilCheckedMember));
+
+// 31. Notifications & Broadcasts (Points 21, 23, 25)
+router.get('/notifications', requireAuth, h(getEmployeeNotifications));
+router.post('/notifications/read', requireAuth, h(markEmployeeNotificationRead));
+
+// 32. Death Requests (Point 24)
+router.post('/death-requests', requireAuth, h(submitDeathRequest));
+router.get('/death-requests', requireAuth, h(listDeathRequests));
 
 export default router;
 

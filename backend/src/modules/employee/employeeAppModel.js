@@ -186,4 +186,32 @@ const productSaleOrderSchema = new mongoose.Schema(
 
 export const ProductSaleOrder = mongoose.model('ProductSaleOrder', productSaleOrderSchema);
 
+const deathRequestSchema = new mongoose.Schema(
+  {
+    receiptNo: { type: String, required: true, uppercase: true },
+    member: { type: mongoose.Schema.Types.ObjectId, ref: 'Member', required: true },
+    memberCode: { type: String, required: true },
+    memberName: { type: String, required: true },
+    targetType: { type: String, enum: ['member', 'guarantor'], default: 'member', required: true },
+    guarantorName: String,
+    guarantorMobile: String,
+    requestDate: { type: Date, default: Date.now },
+    deathDate: { type: Date, required: true },
+    deathReason: { type: String, required: true },
+    deathPhotos: [{ type: String }],
+    houseVisitPhoto: { type: String },
+    deathCertificate: { type: String },
+    branch: { type: mongoose.Schema.Types.ObjectId, ref: 'Branch' },
+    employeeCode: { type: String, required: true },
+    employeeName: String,
+    status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
+    adminRemark: String,
+    decidedByCode: String,
+    decidedAt: Date,
+  },
+  { timestamps: true }
+);
+
+export const DeathRequest = mongoose.model('DeathRequest', deathRequestSchema);
+
 
