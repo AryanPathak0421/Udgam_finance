@@ -296,3 +296,212 @@ export function EmiApproval() {
     </>
   );
 }
+
+// ---------------------------------------------------------------------------------------------------------------------------
+export function ProductBookingApproval() {
+  const toast = useToast();
+  const qu = useQueue((p) => api.app.productBookings(p));
+  const [rejecting, setRejecting] = useState(null);
+  const [busy, setBusy] = useState('');
+  const [viewMode, setViewMode] = useState('employee'); // 'employee' | 'flat'
+
+  async function approve(b) {
+    setBusy(b.id);
+    try {
+      await api.app.approveProductBooking(b.id);
+      toast.success(`Booking ${b.receiptNo} approved`);
+      qu.load();
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setBusy('');
+    }
+  }
+
+  const items = qu.data?.items || [];
+  const byEmployee = qu.data?.byEmployee || [];
+  const summary = qu.data?.summary || { totalBookings: 0, totalAmount: 0, pendingCount: 0, approvedCount: 0 };
+
+  return (
+    <>
+      <PageHeader
+        title="Product Booking Approval &amp; Tracking"
+        description="Consumer and electronic product bookings made by staff via the mobile app. Filtered by branch and presented employee-wise for review and stock issuance."
+      />
+      <div className="panel">
+        <Toolbar qu={qu} placeholder="Search receipt, employee, member, product" />
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, margin: '10px 0 14px 0' }}>
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: '0.9rem' }}>
+            <span>Total Bookings: <strong>{summary.totalBookings}</strong></span>
+            <span>Total Value: <strong>{inr(summary.totalAmount)}</strong></span>
+            <span style={{ color: '#d97706' }}>Pending Approval: <strong>{summary.pendingCount}</strong></span>
+            <span style={{ color: '#059669' }}>Approved: <strong>{summary.approvedCount}</strong></span>
+          </div>
+
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button
+              type="button"
+              className={`btn sm ${viewMode === 'employee' ? 'primary' : ''}`}
+              onClick={() => setViewMode('employee')}
+            >
+              Employee-Wise Grouping
+            </button>
+            <button
+              type="button"
+              className={`btn sm ${viewMode === 'flat' ? 'primary' : ''}`}
+              onClick={() => setViewMode('flat')}
+            >
+              All Bookings List
+            </button>
+          </div>
+        </div>
+
+        {qu.loading && !qu.data ? (
+          <Spinner label="Loading product bookings…" />
+        ) : qu.error ? (
+          <ErrorState message={qu.error} onRetry={qu.load} />
+        ) : items.length === 0 ? (
+          <EmptyState title="No Product Bookings" description="No product bookings submitted from the mobile app for this filter." />
+        ) : viewMode === 'employee' ? (
+          /* Employee-Wise Grouped View */
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {byEmployee.map((emp) => (
+              <div key={emp.employeeCode} style={{ border: '1px solid var(--border-color, #e2e8f0)', borderRadius: 8, overflow: 'hidden' }}>
+                <div style={{ background: '#f8fafc', padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0' }}>
+                  <div>
+                    <strong style={{ fontSize: '1rem', color: 'var(--text-color, #1e293b)' }}>{emp.employeeName}</strong>
+                    <span className="muted small" style={{ marginLeft: 8 }}>({emp.employeeCode})</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 14, fontSize: '0.85rem' }}>
+                    <span>Bookings: <strong>{emp.totalBookings}</strong></span>
+                    <span>Units: <strong>{emp.totalQuantity}</strong></span>
+                    <span>Total Amount: <strong style={{ color: '#059669' }}>{inr(emp.totalAmount)}</strong></span>
+                    {emp.pendingCount > 0 && (
+                      <span className="badge amber">{emp.pendingCount} Pending</span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="table-wrap" style={{ margin: 0 }}>
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Booking ID</th>
+                        <th>Member / Customer</th>
+                        <th>Product</th>
+                        <th className="num">Qty</th>
+                        <th className="num">Total Amount</th>
+                        <th>Payment Mode</th>
+                        <th>Branch</th>
+                        <th>Date</th>
+                        <th>Status</th>
+                        <th />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {emp.orders.map((b) => (
+                        <tr key={b.id}>
+                          <td data-label="Booking ID"><strong>{b.receiptNo}</strong></td>
+                          <td data-label="Member">{b.memberCode} {b.memberName}</td>
+                          <td data-label="Product"><strong>{b.productName}</strong><div className="muted small">{b.productCode}</div></td>
+                          <td data-label="Qty" className="num">{b.quantity}</td>
+                          <td data-label="Amount" className="num">{inr(b.totalAmount)}</td>
+                          <td data-label="Pay Mode">{b.payMode?.toUpperCase()}</td>
+                          <td data-label="Branch">{b.branch?.code || '—'}</td>
+                          <td data-label="Date">{dmy(b.createdAt)}</td>
+                          <td data-label="Status">
+                            <Badge s={b.status} />
+                            {b.status === 'rejected' && b.rejectReason && <div className="muted small">{b.rejectReason}</div>}
+                          </td>
+                          <td>
+                            {b.status === 'pending' && (
+                              <div style={{ display: 'flex', gap: 6 }}>
+                                <button className="btn sm primary" disabled={busy === b.id} onClick={() => approve(b)}>
+                                  {busy === b.id ? '…' : 'Approve'}
+                                </button>
+                                <button className="btn sm danger-outline" onClick={() => setRejecting(b)}>
+                                  Reject
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          /* Flat All Bookings View */
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Booking ID</th>
+                  <th>Staff Member</th>
+                  <th>Customer</th>
+                  <th>Product</th>
+                  <th className="num">Qty</th>
+                  <th className="num">Total Amount</th>
+                  <th>Pay Mode</th>
+                  <th>Branch</th>
+                  <th>Date</th>
+                  <th>Status</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((b) => (
+                  <tr key={b.id}>
+                    <td data-label="Booking ID"><strong>{b.receiptNo}</strong></td>
+                    <td data-label="Staff">{b.employeeCode} {b.employeeName}</td>
+                    <td data-label="Customer">{b.memberCode} {b.memberName}</td>
+                    <td data-label="Product"><strong>{b.productName}</strong><div className="muted small">{b.productCode}</div></td>
+                    <td data-label="Qty" className="num">{b.quantity}</td>
+                    <td data-label="Amount" className="num">{inr(b.totalAmount)}</td>
+                    <td data-label="Pay Mode">{b.payMode?.toUpperCase()}</td>
+                    <td data-label="Branch">{b.branch?.code || '—'}</td>
+                    <td data-label="Date">{dmy(b.createdAt)}</td>
+                    <td data-label="Status">
+                      <Badge s={b.status} />
+                      {b.status === 'rejected' && b.rejectReason && <div className="muted small">{b.rejectReason}</div>}
+                    </td>
+                    <td>
+                      {b.status === 'pending' && (
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button className="btn sm primary" disabled={busy === b.id} onClick={() => approve(b)}>
+                            {busy === b.id ? '…' : 'Approve'}
+                          </button>
+                          <button className="btn sm danger-outline" onClick={() => setRejecting(b)}>
+                            Reject
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {rejecting && (
+        <ReasonDialog
+          title="Reject Product Booking"
+          subject={`${rejecting.receiptNo} · ${rejecting.productName} (Qty: ${rejecting.quantity}) booked by ${rejecting.employeeCode}. Reserved stock will be restored.`}
+          onClose={() => setRejecting(null)}
+          onSend={async (reason) => {
+            await api.app.rejectProductBooking(rejecting.id, reason);
+            toast.success('Product booking rejected and stock restored');
+            setRejecting(null);
+            qu.load();
+          }}
+        />
+      )}
+    </>
+  );
+}

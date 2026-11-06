@@ -113,13 +113,42 @@ export default function EmployeeCenterVisits() {
 
   const handleSaveCgtDay = async () => {
     if (!cgtPhoto || !cgtModal) return;
+    const targetCenter = cgtVisits.find((c) => c.centerName?.toLowerCase() === cgtModal.centerName?.toLowerCase());
+    const selDate = cgtModal.date || new Date().toISOString().slice(0, 10);
+
+    if (cgtModal.day === 2) {
+      if (!targetCenter?.day1?.photo || !targetCenter?.day1?.date) {
+        alert('Please complete Day 1 before Day 2 can be conducted.');
+        return;
+      }
+      const d1Str = new Date(targetCenter.day1.date).toISOString().slice(0, 10);
+      if (selDate <= d1Str) {
+        alert(`CGT Day 2 date (${selDate}) must be on a subsequent date after Day 1 (${d1Str}). Cannot be on the same date or earlier.`);
+        return;
+      }
+    } else if (cgtModal.day === 3) {
+      if (!targetCenter?.day1?.photo) {
+        alert('Please complete Day 1 before Day 3.');
+        return;
+      }
+      if (!targetCenter?.day2?.photo || !targetCenter?.day2?.date) {
+        alert('Please complete Day 2 before Day 3 can be conducted.');
+        return;
+      }
+      const d2Str = new Date(targetCenter.day2.date).toISOString().slice(0, 10);
+      if (selDate <= d2Str) {
+        alert(`CGT Day 3 date (${selDate}) must be on a subsequent date after Day 2 (${d2Str}). Cannot be on the same date or earlier.`);
+        return;
+      }
+    }
+
     setCgtSubmitting(true);
     try {
       await api.employeeApp.updateCgtPhoto({
         centerName: cgtModal.centerName,
         day: cgtModal.day,
         photo: cgtPhoto,
-        date: cgtModal.date || new Date().toISOString().slice(0, 10),
+        date: selDate,
       });
       setCgtModal(null);
       setCgtPhoto('');

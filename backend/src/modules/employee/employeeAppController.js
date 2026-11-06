@@ -25,11 +25,13 @@ import { StockProduct } from '../../models/StockProduct.js';
 import { Holiday } from '../../models/SuperAdmin.js';
 import { Company } from '../../models/Company.js';
 import { BankAccount } from '../../models/BankAccount.js';
+import { CenterSurvey } from '../../models/CenterSurvey.js';
 import { generateCode } from '../../services/codeSequence.js';
 import { issueOtp, takeVerified, consumeChallenge } from '../../services/otpChallenges.js';
 import { sendSms } from '../../services/sms.js';
 import { sendMail, mailConfigured } from '../../services/mailer.js';
 import { elBalance } from '../../services/earnedLeave.js';
+import { borrowerState } from '../../controllers/emiController.js';
 import { asString, parseDateOnly, HttpError, startOfToday, todayDateString } from '../../utils/http.js';
 import { audit } from '../../utils/audit.js';
 
@@ -2406,8 +2408,14 @@ export async function getBorrowerSavings(req, res) {
       const interest = Math.round((line.securityPaise * years * SECURITY_INTEREST_PERCENT) / 100);
       totalInterestPaise += interest;
 
-      // Determine whether this loan is closed or running
-      const isClosed = l.status === 'closed' || l.settled || Boolean(line.isSettled);
+      // Determine whether this loan is closed or running via borrowerState
+      let isClosed = false;
+      try {
+        const st = await borrowerState(l, line, asOf);
+        isClosed = Boolean(st.settled) || !st.left || st.left.length === 0;
+      } catch {
+        isClosed = l.status === 'closed' || l.settled || Boolean(line.isSettled);
+      }
       if (isClosed) {
         closedSecurityPaise += line.securityPaise;
         closedInterestPaise += interest;
@@ -2475,15 +2483,28 @@ export async function requestSavingsWithdrawal(req, res) {
   if (!payAmount || payAmount < 100) throw new HttpError(400, 'Minimum withdrawal request is ₹100');
   const requestedPaise = Math.round(payAmount * 100);
 
-  // Validate that only security from closed loans is withdrawable
+  // Validate that only security from closed loans is withdrawable (running loan security is locked)
   const loans = await LoanPayment.find({ status: 'paid', 'lines.member': member._id }).lean();
+  let totalDepositedPaise = 0;
+  let runningSecurityPaise = 0;
   let closedSecurityPaise = 0;
+  const asOf = startOfToday();
+
   for (const l of loans) {
     const line = l.lines?.find((x) => String(x.member) === String(member._id));
     if (line && line.securityPaise > 0) {
-      const isClosed = l.status === 'closed' || l.settled || Boolean(line.isSettled);
+      totalDepositedPaise += line.securityPaise;
+      let isClosed = false;
+      try {
+        const st = await borrowerState(l, line, asOf);
+        isClosed = Boolean(st.settled) || !st.left || st.left.length === 0;
+      } catch {
+        isClosed = l.status === 'closed' || l.settled || Boolean(line.isSettled);
+      }
       if (isClosed) {
         closedSecurityPaise += line.securityPaise;
+      } else {
+        runningSecurityPaise += line.securityPaise;
       }
     }
   }
@@ -2493,10 +2514,10 @@ export async function requestSavingsWithdrawal(req, res) {
   const withdrawablePaise = Math.max(0, closedSecurityPaise - alreadyRequestedPaise);
 
   if (withdrawablePaise <= 0) {
-    throw new HttpError(400, 'Security for running loans cannot be withdrawn. Only security from closed loans is eligible for withdrawal.');
+    throw new HttpError(400, `No withdrawable security available. Running loan security of ₹${runningSecurityPaise / 100} is locked until loan closure.`);
   }
   if (requestedPaise > withdrawablePaise) {
-    throw new HttpError(400, `Requested amount ₹${payAmount} exceeds withdrawable closed-loan security of ₹${withdrawablePaise / 100}. Running loan security is locked.`);
+    throw new HttpError(400, `Requested amount ₹${payAmount} exceeds withdrawable balance of ₹${withdrawablePaise / 100} (Total: ₹${totalDepositedPaise / 100}, Running locked: ₹${runningSecurityPaise / 100}).`);
   }
 
   const receiptNo = await generateCode('securityReceipt').catch(() => `SEC${Date.now().toString().slice(-8)}`);
@@ -2851,6 +2872,27 @@ export async function recordCenterVisit(req, res) {
     notes,
   });
 
+  // Sync to CenterSurvey so it immediately appears in Software's New Center Survey Report
+  if (emp?.branch) {
+    try {
+      const surveyNo = await generateCode('centerSurvey').catch(() => `SRV${Date.now().toString().slice(-8)}`);
+      await CenterSurvey.create({
+        surveyNo,
+        branch: emp.branch,
+        centerName: centerName.trim(),
+        leaderName: contactName.trim(),
+        leaderMobile: contactNumber.trim(),
+        surveyDate: new Date(),
+        remark: notes || 'Recorded via Employee App (New Center Visit)',
+        status: 'surveyed',
+        surveyedByCode: code,
+        statusHistory: [{ status: 'surveyed', remark: 'New center visit via Employee App', byCode: code, at: new Date() }],
+      });
+    } catch (err) {
+      console.warn('Failed to sync to CenterSurvey:', err.message);
+    }
+  }
+
   res.status(201).json({
     success: true,
     message: 'New Center visit updated successfully!',
@@ -2869,16 +2911,37 @@ export async function listCenterVisits(req, res) {
 // -----------------------------------------------------------------------------
 export async function listCgtVisits(req, res) {
   const code = req.user?.employeeCode;
+  const emp = await Employee.findOne({ employeeCode: code });
   const items = await CgtVisit.find({ employeeCode: code }).sort({ updatedAt: -1 }).limit(50).lean();
-  const surveyedCenters = await CenterVisit.find({ employeeCode: code }).sort({ visitDate: -1 }).limit(100).lean();
+
+  const surveyedVisits = await CenterVisit.find({ $or: [{ employeeCode: code }, { branch: emp?.branch }] }).sort({ visitDate: -1 }).limit(100).lean();
+  const branchSurveys = emp?.branch ? await CenterSurvey.find({ branch: emp.branch, isDeleted: false }).sort({ surveyDate: -1 }).limit(100).lean() : [];
+
+  const centerMap = new Map();
+  for (const c of surveyedVisits) {
+    if (c.centerName && !centerMap.has(c.centerName.trim().toLowerCase())) {
+      centerMap.set(c.centerName.trim().toLowerCase(), {
+        centerName: c.centerName,
+        contactName: c.contactName,
+        contactNumber: c.contactNumber,
+        visitDate: c.visitDate,
+      });
+    }
+  }
+  for (const s of branchSurveys) {
+    if (s.centerName && !centerMap.has(s.centerName.trim().toLowerCase())) {
+      centerMap.set(s.centerName.trim().toLowerCase(), {
+        centerName: s.centerName,
+        contactName: s.leaderName,
+        contactNumber: s.leaderMobile,
+        visitDate: s.surveyDate,
+      });
+    }
+  }
+
   res.json({
     items,
-    centers: surveyedCenters.map((c) => ({
-      centerName: c.centerName,
-      contactName: c.contactName,
-      contactNumber: c.contactNumber,
-      visitDate: c.visitDate,
-    })),
+    centers: Array.from(centerMap.values()),
   });
 }
 
@@ -2888,6 +2951,10 @@ export async function updateCgtDayPhoto(req, res) {
   if (!centerName || !day || !photo) {
     throw new HttpError(400, 'Center name, CGT day (1, 2, or 3), and photo are required');
   }
+
+  const dayNum = Number(day);
+  const targetDate = new Date(date);
+  const targetDateOnly = targetDate.toISOString().slice(0, 10);
 
   const emp = await Employee.findOne({ employeeCode: code });
   let visit = await CgtVisit.findOne({ centerName: new RegExp(`^${centerName}$`, 'i'), employeeCode: code });
@@ -2900,9 +2967,31 @@ export async function updateCgtDayPhoto(req, res) {
     });
   }
 
-  const dayKey = `day${day}`;
+  // Enforce sequential date validation: Day 2 > Day 1, Day 3 > Day 2
+  if (dayNum === 2) {
+    if (!visit.day1?.photo || !visit.day1?.date) {
+      throw new HttpError(400, 'Day 1 photo must be recorded before Day 2 can be conducted.');
+    }
+    const d1Str = new Date(visit.day1.date).toISOString().slice(0, 10);
+    if (targetDateOnly <= d1Str) {
+      throw new HttpError(400, `CGT Day 2 date (${targetDateOnly}) must be on a subsequent date after Day 1 (${d1Str}). Day 1 and Day 2 cannot be on the same date or earlier.`);
+    }
+  } else if (dayNum === 3) {
+    if (!visit.day1?.photo || !visit.day1?.date) {
+      throw new HttpError(400, 'Day 1 photo must be recorded before Day 3.');
+    }
+    if (!visit.day2?.photo || !visit.day2?.date) {
+      throw new HttpError(400, 'Day 2 photo must be recorded before Day 3 can be conducted.');
+    }
+    const d2Str = new Date(visit.day2.date).toISOString().slice(0, 10);
+    if (targetDateOnly <= d2Str) {
+      throw new HttpError(400, `CGT Day 3 date (${targetDateOnly}) must be on a subsequent date after Day 2 (${d2Str}). Day 2 and Day 3 cannot be on the same date or earlier.`);
+    }
+  }
+
+  const dayKey = `day${dayNum}`;
   visit[dayKey] = {
-    date: new Date(date),
+    date: targetDate,
     photo,
     byCode: code,
   };
@@ -2912,6 +3001,25 @@ export async function updateCgtDayPhoto(req, res) {
   }
 
   await visit.save();
+
+  // Sync CGT progress to Software Center Survey report
+  try {
+    const srv = await CenterSurvey.findOne({ centerName: new RegExp(`^${centerName}$`, 'i'), isDeleted: false });
+    if (srv) {
+      const isComplete = visit.status === 'completed';
+      srv.statusHistory.push({
+        status: isComplete ? 'formed' : 'under_review',
+        remark: `CGT Day ${dayNum} completed on ${targetDateOnly} by ${code}`,
+        byCode: code,
+        at: new Date(),
+      });
+      if (isComplete) srv.status = 'formed';
+      else if (srv.status === 'surveyed') srv.status = 'under_review';
+      await srv.save();
+    }
+  } catch (err) {
+    console.warn('Failed to sync CGT progress to CenterSurvey:', err.message);
+  }
 
   res.json({
     success: true,
@@ -2952,13 +3060,25 @@ export async function getLeaveOverview(req, res) {
 export async function applyLeave(req, res) {
   const code = req.user?.employeeCode;
   const emp = await Employee.findOne({ employeeCode: code });
+  if (!emp) throw new HttpError(404, 'Employee not found');
   const { type = 'casual', from, to, reason } = req.body || {};
 
   if (!from || !to) throw new HttpError(400, 'From date and To date are required');
 
   const d1 = new Date(from);
   const d2 = new Date(to);
+  if (d2 < d1) throw new HttpError(400, 'End date cannot be earlier than start date');
   const days = Math.max(1, Math.round((d2 - d1) / (1000 * 60 * 60 * 24)) + 1);
+
+  // Validate Earned Leave balance based on joining date
+  if (type === 'earned') {
+    const bal = await elBalance(emp);
+    if (days > bal.available) {
+      throw new HttpError(400, `Cannot apply for ${days} days of Earned Leave. Available EL balance is only ${bal.available} day(s) (Opening: ${bal.opening}, Earned: ${bal.earned}, Used/Pending: ${bal.used}).`);
+    }
+  }
+
+  const sup = emp.supervisor ? await Employee.findOne({ _id: emp.supervisor, isDeleted: false }).select('employeeCode name') : null;
 
   const doc = await Leave.create({
     employee: emp._id,
@@ -2969,7 +3089,10 @@ export async function applyLeave(req, res) {
     from: d1,
     to: d2,
     days,
-    reason,
+    reason: reason || 'Leave application',
+    approver: sup?._id,
+    approverCode: sup?.employeeCode,
+    approverName: sup?.name,
     status: 'pending',
     appliedByCode: code,
   });
@@ -3155,13 +3278,15 @@ export async function sellStockProduct(req, res) {
   const unitPrice = (product.unitPricePaise || 0) / 100;
   const totalAmount = unitPrice * quantity;
 
+  // Reserve stock for the booking
   product.stockQty -= quantity;
   await product.save();
 
-  const receiptNo = `SALE${Date.now().toString().slice(-8)}`;
+  const receiptNo = `BK${Date.now().toString().slice(-8)}`;
   const saleDoc = await ProductSaleOrder.create({
     receiptNo,
     employeeCode: code,
+    employeeName: emp?.name || code,
     branch: emp?.branch,
     memberCode,
     memberName: member?.name || 'Customer',
@@ -3171,14 +3296,14 @@ export async function sellStockProduct(req, res) {
     unitPrice,
     totalAmount,
     payMode,
-    status: 'completed',
+    status: 'pending',
   });
 
   res.status(201).json({
     success: true,
     receiptNo,
     totalAmount,
-    message: `Product ${product.name} sold successfully (Receipt: ${receiptNo})`,
+    message: `Product ${product.name} booked successfully (Booking ID: ${receiptNo}). Waiting for branch approval in Software App Section.`,
     item: saleDoc,
   });
 }

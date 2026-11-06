@@ -6,17 +6,39 @@ import { downloadSalarySlipPdf } from '../../../utils/salarySlipPdf.js';
 
 export default function EmployeeSalarySlips() {
   const { t } = useEmployeeApp();
+  const currentYear = new Date().getFullYear().toString();
   const [slips, setSlips] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [selectedYear, setSelectedYear] = useState(currentYear);
+  const [availableYears, setAvailableYears] = useState([currentYear]);
   const [selectedMonth, setSelectedMonth] = useState('');
   const [activeSlip, setActiveSlip] = useState(null);
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     api.employeeApp.salarySlips()
       .then((res) => {
         const items = res.items || [];
         setSlips(items);
-        if (items.length > 0) {
+
+        // Extract available distinct years
+        const yearSet = new Set([currentYear]);
+        items.forEach((it) => {
+          if (it.month && it.month.length >= 4) {
+            yearSet.add(it.month.slice(0, 4));
+          }
+        });
+        const sortedYears = Array.from(yearSet).sort((a, b) => b.localeCompare(a));
+        setAvailableYears(sortedYears);
+
+        const activeYear = sortedYears[0] || currentYear;
+        setSelectedYear(activeYear);
+
+        const yearSlips = items.filter((s) => (s.month || '').startsWith(activeYear));
+        if (yearSlips.length > 0) {
+          setSelectedMonth(yearSlips[0].month);
+          setActiveSlip(yearSlips[0]);
+        } else if (items.length > 0) {
           setSelectedMonth(items[0].month);
           setActiveSlip(items[0]);
         }
@@ -25,11 +47,37 @@ export default function EmployeeSalarySlips() {
       .finally(() => setLoading(false));
   }, []);
 
+  const handleYearChange = (year) => {
+    setSelectedYear(year);
+    const forYear = slips.filter((s) => (s.month || '').startsWith(year));
+    if (forYear.length > 0) {
+      setSelectedMonth(forYear[0].month);
+      setActiveSlip(forYear[0]);
+    } else {
+      setSelectedMonth('');
+      setActiveSlip(null);
+    }
+  };
+
   const handleMonthChange = (month) => {
     setSelectedMonth(month);
     const found = slips.find((s) => s.month === month);
     if (found) setActiveSlip(found);
   };
+
+  const handleDownloadPdf = async () => {
+    if (!activeSlip) return;
+    setDownloading(true);
+    try {
+      await downloadSalarySlipPdf(activeSlip);
+    } catch (err) {
+      alert(err.message || 'Failed to download salary slip PDF');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const currentYearSlips = slips.filter((s) => (s.month || '').startsWith(selectedYear));
 
   return (
     <div className="emp-page-container">
@@ -39,41 +87,63 @@ export default function EmployeeSalarySlips() {
           <Icon name="cash" size={20} style={{ color: 'var(--emp-primary)' }} /> Month-Wise Salary Slips
         </h2>
         <p style={{ fontSize: '0.8rem', color: 'var(--emp-text-muted)', margin: '0 0 12px 0' }}>
-          Select any month to inspect official salary slip, earnings, absent deductions, and net payout.
+          Select Year and Pay Month to inspect official salary slip, earnings, absent deductions, and net payout.
         </p>
 
-        {/* Month Dropdown / Tabs */}
-        {slips.length > 0 && (
-          <div>
-            <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
-              Select Pay Month:
+        {/* Year Dropdown & Month Pills */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <label style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--emp-text)', whiteSpace: 'nowrap' }}>
+              Select Year:
             </label>
-            <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}>
-              {slips.map((s) => {
-                const isSelected = selectedMonth === s.month;
-                return (
-                  <button
-                    key={s.id || s.month}
-                    onClick={() => handleMonthChange(s.month)}
-                    style={{
-                      padding: '6px 14px',
-                      borderRadius: 20,
-                      fontSize: '0.8rem',
-                      fontWeight: 700,
-                      border: isSelected ? '1px solid var(--emp-primary)' : '1px solid var(--emp-border)',
-                      background: isSelected ? 'var(--emp-primary)' : '#f8fafc',
-                      color: isSelected ? '#fff' : 'var(--emp-text)',
-                      whiteSpace: 'nowrap',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    📅 {s.month}
-                  </button>
-                );
-              })}
-            </div>
+            <select
+              className="emp-input"
+              value={selectedYear}
+              onChange={(e) => handleYearChange(e.target.value)}
+              style={{ width: '130px', fontWeight: 800, padding: '6px 10px' }}
+            >
+              {availableYears.map((y) => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
           </div>
-        )}
+
+          {currentYearSlips.length > 0 ? (
+            <div>
+              <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                Select Pay Month ({selectedYear}):
+              </label>
+              <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}>
+                {currentYearSlips.map((s) => {
+                  const isSelected = selectedMonth === s.month;
+                  return (
+                    <button
+                      key={s.id || s.month}
+                      onClick={() => handleMonthChange(s.month)}
+                      style={{
+                        padding: '6px 14px',
+                        borderRadius: 20,
+                        fontSize: '0.8rem',
+                        fontWeight: 700,
+                        border: isSelected ? '1px solid var(--emp-primary)' : '1px solid var(--emp-border)',
+                        background: isSelected ? 'var(--emp-primary)' : '#f8fafc',
+                        color: isSelected ? '#fff' : 'var(--emp-text)',
+                        whiteSpace: 'nowrap',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      📅 {s.month}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            <div style={{ fontSize: '0.8rem', color: 'var(--emp-text-muted)', fontStyle: 'italic', padding: '6px 0' }}>
+              No salary slips issued for the year {selectedYear}.
+            </div>
+          )}
+        </div>
       </div>
 
       {loading ? (
@@ -229,9 +299,10 @@ export default function EmployeeSalarySlips() {
                   gap: 8,
                   background: '#0f766e',
                 }}
-                onClick={() => downloadSalarySlipPdf(activeSlip)}
+                disabled={downloading}
+                onClick={handleDownloadPdf}
               >
-                <Icon name="download" size={18} /> Download Salary Slip (PDF)
+                <Icon name="download" size={18} /> {downloading ? 'Generating PDF...' : 'Download Salary Slip (PDF)'}
               </button>
             </div>
           </div>

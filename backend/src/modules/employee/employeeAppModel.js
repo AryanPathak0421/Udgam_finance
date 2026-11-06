@@ -166,6 +166,7 @@ const productSaleOrderSchema = new mongoose.Schema(
   {
     receiptNo: { type: String, required: true, uppercase: true },
     employeeCode: { type: String, required: true },
+    employeeName: String,
     branch: { type: mongoose.Schema.Types.ObjectId, ref: 'Branch' },
     memberCode: { type: String, required: true },
     memberName: String,
@@ -175,7 +176,10 @@ const productSaleOrderSchema = new mongoose.Schema(
     unitPrice: { type: Number, required: true },
     totalAmount: { type: Number, required: true },
     payMode: { type: String, enum: ['cash', 'upi', 'loan_adjust'], default: 'cash' },
-    status: { type: String, enum: ['completed', 'pending'], default: 'completed' },
+    status: { type: String, enum: ['pending', 'approved', 'rejected', 'completed'], default: 'pending' },
+    approvedByCode: String,
+    approvedAt: Date,
+    rejectReason: String,
   },
   { timestamps: true }
 );

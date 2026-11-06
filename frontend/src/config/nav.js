@@ -1,4 +1,4 @@
-﻿// Sidebar structure. `roles` omitted = visible to every signed-in role.
+// Sidebar structure. `roles` omitted = visible to every signed-in role.
 // An item with `children` is an expandable group (its own path is not routable).
 // Role visibility mirrors the RBAC matrix in docs/UDGAM_ANALYSIS.md (section 8).
 const ALL_ADMIN = ['super_admin', 'admin'];
@@ -265,6 +265,7 @@ export const NAV_SECTIONS = [
           { label: 'App User Creation', path: '/app/app-users', icon: 'userplus', roles: ALL_ADMIN },
           { label: 'Member Joining Approval', path: '/app/member-approval', icon: 'check' },
           { label: 'Loan EMI Collection Approval', path: '/app/emi-approval', icon: 'cash' },
+          { label: 'Product Booking Approval', path: '/app/product-booking', icon: 'product' },
         ],
       },
     ],

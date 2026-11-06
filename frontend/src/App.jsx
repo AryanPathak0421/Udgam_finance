@@ -35,7 +35,7 @@ import Cashbook from './pages/Cashbook.jsx';
 import { PaymentVoucher, ReceiveVoucher, BankDeposit, BankWithdraw, BranchTransfer } from './pages/AccountEntries.jsx';
 import { LoanLedger, RequisitionReport, ApprovalReport, DisbursementReport, DueReport, OverdueReport, OutstandingReport, EmiCollectionReport, MemberJoiningReport, NpaReport, PersonalCollectionSheet, MsmeCollectionSheet, GroupCollectionSheet, AllCollectionSheet, WriteOffReport, StaffNpaReport, StaffNpaPaymentReport, StaffDisbursementReport, GroupCollectionReport, GroupWiseCollectionReport } from './pages/Reports.jsx';
 import CenterSurveys from './pages/CenterSurveys.jsx';
-import { AppUsers, MemberApproval, EmiApproval } from './pages/AppSection.jsx';
+import { AppUsers, MemberApproval, EmiApproval, ProductBookingApproval } from './pages/AppSection.jsx';
 import { StockEntry, QuantityReport } from './pages/StockEntryPages.jsx';
 import { BulkNotification, HolidayMaster, ProfitLoss, ComplaintOverview, CompanySummary, Monitoring, CompanyGraph } from './pages/SuperAdminPages.jsx';
 import { RoomRent, Tasks, Complaints, Requirements, LeaveApply, LeaveApproval, Resignations, PromotionTransfer, Letters, EmployeeList } from './pages/HrExtraPages.jsx';
@@ -113,6 +113,7 @@ const PAGES = {
   '/app/app-users': AppUsers,
   '/app/member-approval': MemberApproval,
   '/app/emi-approval': EmiApproval,
+  '/app/product-booking': ProductBookingApproval,
   '/reports/loan-ledger': LoanLedger,
   '/reports/requisition': RequisitionReport,
   '/reports/approval': ApprovalReport,

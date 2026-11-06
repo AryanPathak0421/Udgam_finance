@@ -6,6 +6,7 @@ import { collectEmi, payEmi } from '../controllers/emiController.js';
 import { asyncHandler as h } from '../utils/http.js';
 import {
   listAppUsers, staffOptions, createAppUser, setAppUserStatus, removeAppUser, listMemberApprovals, approveMember, rejectMember, listEmiApprovals, approveEmi, rejectEmi, myAppRequests,
+  listProductBookings, approveProductBooking, rejectProductBooking,
 } from '../controllers/appController.js';
 
 const router = Router();
@@ -23,6 +24,9 @@ router.post('/app/member-approvals/:id/reject', requireAuth, requireRole(...MGMT
 router.get('/app/emi-approvals', requireAuth, requireRole(...MGMT), h(listEmiApprovals));
 router.post('/app/emi-approvals/:id/approve', requireAuth, requireRole(...MGMT), h(approveEmi));
 router.post('/app/emi-approvals/:id/reject', requireAuth, requireRole(...MGMT), h(rejectEmi));
+router.get('/app/product-bookings', requireAuth, requireRole(...MGMT), h(listProductBookings));
+router.post('/app/product-bookings/:id/approve', requireAuth, requireRole(...MGMT), h(approveProductBooking));
+router.post('/app/product-bookings/:id/reject', requireAuth, requireRole(...MGMT), h(rejectProductBooking));
 // The URLs the mobile app uses. Everything sent here is an app request: a member registered here waits for joining approval, EMI collected here waits for collection approval.
 const appOnly = h(async (req, res, next) => {
   if (!(await AppUser.exists({ user: req.user._id, isActive: true }))) return res.status(403).json({ message: 'This login is not allowed to use the app. Ask the admin (App Section → App User Creation).' });

@@ -86,7 +86,7 @@ export default function EmployeeProductSale() {
             <div style={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 6 }}>
               <Icon name="checkcircle" size={16} /> {result.message}
             </div>
-            <div style={{ fontSize: '0.78rem', marginTop: 4 }}>Receipt No: <strong>{result.receiptNo}</strong> • Total Paid: ₹{result.totalAmount}</div>
+            <div style={{ fontSize: '0.78rem', marginTop: 4 }}>Booking ID: <strong>{result.receiptNo}</strong> • Total Amount: ₹{result.totalAmount}</div>
           </div>
         )}
 
@@ -168,7 +168,7 @@ export default function EmployeeProductSale() {
               disabled={submitting}
             >
               <Icon name="checkcircle" size={16} />
-              {submitting ? 'Processing Booking...' : 'Complete Product Booking'}
+              {submitting ? 'Processing Booking...' : 'Submit Product Booking'}
             </button>
           </form>
         )}

@@ -4,6 +4,8 @@ import { AppEmiCollection, APP_EMI_STATUS } from '../models/AppEmiCollection.js'
 import { Member } from '../models/Member.js';
 import { User } from '../models/User.js';
 import { Employee } from '../models/Hr.js';
+import { ProductSaleOrder } from '../modules/employee/employeeAppModel.js';
+import { StockProduct } from '../models/StockProduct.js';
 import { blockedCodes } from '../services/blockedStaff.js';
 import { asString, HttpError } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
@@ -253,4 +255,130 @@ export async function myAppRequests(req, res) {
     emi: rows.map(presentEmi),
     members: members.map((m) => ({ id: m._id, code: m.code, name: m.name, status: m.joiningApproval?.status || 'approved', reason: m.joiningApproval?.reason || '' })),
   });
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------
+// Product Bookings submitted from mobile app - filtered by branch and presented employee-wise
+// ---------------------------------------------------------------------------------------------------------------------------
+export async function listProductBookings(req, res) {
+  const filter = scope(req);
+  const statusWanted = asString(req.query.status);
+  if (['pending', 'approved', 'rejected', 'completed'].includes(statusWanted)) {
+    filter.status = statusWanted;
+  }
+  const q = asString(req.query.q).toLowerCase();
+
+  const orders = await ProductSaleOrder.find(filter)
+    .populate('branch', 'code name')
+    .sort({ createdAt: -1 })
+    .lean();
+
+  const formatted = orders.map((o) => ({
+    id: o._id,
+    receiptNo: o.receiptNo,
+    employeeCode: o.employeeCode,
+    employeeName: o.employeeName || o.employeeCode,
+    branch: o.branch?._id ? { id: o.branch._id, code: o.branch.code, name: o.branch.name } : null,
+    memberCode: o.memberCode,
+    memberName: o.memberName || 'Customer',
+    productCode: o.productCode,
+    productName: o.productName,
+    quantity: o.quantity || 1,
+    unitPrice: o.unitPrice,
+    totalAmount: o.totalAmount,
+    payMode: o.payMode || 'cash',
+    status: o.status || 'pending',
+    approvedByCode: o.approvedByCode || '',
+    rejectReason: o.rejectReason || '',
+    createdAt: o.createdAt,
+  })).filter((o) => !q || [o.receiptNo, o.employeeCode, o.employeeName, o.memberCode, o.memberName, o.productName].some((v) => String(v || '').toLowerCase().includes(q)));
+
+  // Group employee-wise
+  const byEmployeeMap = new Map();
+  formatted.forEach((o) => {
+    const empKey = o.employeeCode || 'UNKNOWN';
+    if (!byEmployeeMap.has(empKey)) {
+      byEmployeeMap.set(empKey, {
+        employeeCode: empKey,
+        employeeName: o.employeeName || empKey,
+        totalBookings: 0,
+        totalQuantity: 0,
+        totalAmount: 0,
+        pendingCount: 0,
+        orders: [],
+      });
+    }
+    const empGroup = byEmployeeMap.get(empKey);
+    empGroup.totalBookings += 1;
+    empGroup.totalQuantity += o.quantity;
+    empGroup.totalAmount += o.totalAmount;
+    if (o.status === 'pending') empGroup.pendingCount += 1;
+    empGroup.orders.push(o);
+  });
+
+  const byEmployee = Array.from(byEmployeeMap.values()).sort((a, b) => b.totalAmount - a.totalAmount);
+
+  res.json({
+    items: formatted,
+    byEmployee,
+    summary: {
+      totalBookings: formatted.length,
+      totalAmount: formatted.reduce((s, o) => s + o.totalAmount, 0),
+      pendingCount: formatted.filter((o) => o.status === 'pending').length,
+      approvedCount: formatted.filter((o) => o.status === 'approved' || o.status === 'completed').length,
+      rejectedCount: formatted.filter((o) => o.status === 'rejected').length,
+    },
+  });
+}
+
+export async function approveProductBooking(req, res) {
+  if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Booking not found');
+  const order = await ProductSaleOrder.findOne({ _id: req.params.id, ...branchFilter(req.user) });
+  if (!order) throw new HttpError(404, 'Booking not found');
+  if (order.status !== 'pending') throw new HttpError(409, `This booking is already ${order.status}`);
+
+  order.status = 'approved';
+  order.approvedByCode = req.user.employeeCode || req.user.username || '';
+  order.approvedAt = new Date();
+  await order.save();
+
+  await audit(req, {
+    action: 'productBooking.approve',
+    entity: 'ProductSaleOrder',
+    entityId: order._id,
+    after: { receiptNo: order.receiptNo, member: order.memberCode, product: order.productCode, total: order.totalAmount },
+  });
+
+  res.json({ success: true, message: `Booking ${order.receiptNo} approved successfully!`, order });
+}
+
+export async function rejectProductBooking(req, res) {
+  if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Booking not found');
+  const order = await ProductSaleOrder.findOne({ _id: req.params.id, ...branchFilter(req.user) });
+  if (!order) throw new HttpError(404, 'Booking not found');
+  if (order.status !== 'pending') throw new HttpError(409, `This booking is already ${order.status}`);
+
+  const reason = asString(req.body?.reason).slice(0, 200);
+  order.status = 'rejected';
+  order.rejectReason = reason || 'Rejected by branch admin';
+  await order.save();
+
+  // Restore reserved product stock
+  try {
+    await StockProduct.updateOne(
+      { code: order.productCode, branch: order.branch },
+      { $inc: { stockQty: order.quantity || 1 } }
+    );
+  } catch (err) {
+    console.warn('Failed to restore stock on reject:', err.message);
+  }
+
+  await audit(req, {
+    action: 'productBooking.reject',
+    entity: 'ProductSaleOrder',
+    entityId: order._id,
+    after: { receiptNo: order.receiptNo, member: order.memberCode, reason },
+  });
+
+  res.json({ success: true, message: `Booking ${order.receiptNo} rejected and stock restored.`, status: 'rejected' });
 }

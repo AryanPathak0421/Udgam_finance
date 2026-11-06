@@ -90,13 +90,13 @@ export async function downloadSalarySlipPdf(slip, companyName = 'Udgam Micro Fin
   doc.setFontSize(10);
   doc.setTextColor(15, 90, 90);
   doc.text('EARNINGS', leftX + 4, y + 5.5);
-  doc.text('AMOUNT (₹)', leftX + tableW - 4, y + 5.5, { align: 'right' });
+  doc.text('AMOUNT (Rs.)', leftX + tableW - 4, y + 5.5, { align: 'right' });
 
   doc.setFillColor(254, 242, 242);
   doc.rect(rightX, y, tableW, 8, 'F');
   doc.setTextColor(180, 40, 40);
   doc.text('DEDUCTIONS', rightX + 4, y + 5.5);
-  doc.text('AMOUNT (₹)', rightX + tableW - 4, y + 5.5, { align: 'right' });
+  doc.text('AMOUNT (Rs.)', rightX + tableW - 4, y + 5.5, { align: 'right' });
 
   y += 10;
   doc.setFontSize(9);
@@ -124,11 +124,11 @@ export async function downloadSalarySlipPdf(slip, companyName = 'Udgam Micro Fin
     doc.setFont('helvetica', 'normal');
     if (earn) {
       doc.text(earn[0], leftX + 4, y + 4);
-      doc.text(`₹${earn[1].toLocaleString('en-IN')}`, leftX + tableW - 4, y + 4, { align: 'right' });
+      doc.text(`Rs. ${earn[1].toLocaleString('en-IN')}`, leftX + tableW - 4, y + 4, { align: 'right' });
     }
     if (ded) {
       doc.text(ded[0], rightX + 4, y + 4);
-      doc.text(`-₹${ded[1].toLocaleString('en-IN')}`, rightX + tableW - 4, y + 4, { align: 'right' });
+      doc.text(`-Rs. ${ded[1].toLocaleString('en-IN')}`, rightX + tableW - 4, y + 4, { align: 'right' });
     }
 
     doc.setDrawColor(240, 240, 240);
@@ -150,11 +150,11 @@ export async function downloadSalarySlipPdf(slip, companyName = 'Udgam Micro Fin
   doc.setFontSize(10);
   doc.setTextColor(15, 90, 90);
   doc.text('Total Earnings:', leftX + 4, y + 2);
-  doc.text(`₹${totalEarnings.toLocaleString('en-IN')}`, leftX + tableW - 4, y + 2, { align: 'right' });
+  doc.text(`Rs. ${totalEarnings.toLocaleString('en-IN')}`, leftX + tableW - 4, y + 2, { align: 'right' });
 
   doc.setTextColor(180, 40, 40);
   doc.text('Total Deductions:', rightX + 4, y + 2);
-  doc.text(`₹${totalDeductions.toLocaleString('en-IN')}`, rightX + tableW - 4, y + 2, { align: 'right' });
+  doc.text(`Rs. ${totalDeductions.toLocaleString('en-IN')}`, rightX + tableW - 4, y + 2, { align: 'right' });
 
   y += 14;
 
@@ -168,8 +168,8 @@ export async function downloadSalarySlipPdf(slip, companyName = 'Udgam Micro Fin
   doc.setTextColor(255, 255, 255);
   doc.text('NET SALARY PAYABLE:', M + 8, y + 11.5);
 
-  doc.setFontSize(15);
-  doc.text(`INR ₹${netPay.toLocaleString('en-IN')}`, W - M - 8, y + 12, { align: 'right' });
+  doc.setFontSize(14);
+  doc.text(`INR ${netPay.toLocaleString('en-IN')}`, W - M - 8, y + 12, { align: 'right' });
 
   y += 30;
 

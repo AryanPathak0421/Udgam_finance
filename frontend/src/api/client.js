@@ -272,6 +272,9 @@ export const api = {
     emiApprovals: (params) => request(`/app/emi-approvals${qs(params)}`),
     approveEmi: (id) => request(`/app/emi-approvals/${id}/approve`, { method: 'POST' }),
     rejectEmi: (id, reason) => request(`/app/emi-approvals/${id}/reject`, { method: 'POST', body: { reason } }),
+    productBookings: (params) => request(`/app/product-bookings${qs(params)}`),
+    approveProductBooking: (id) => request(`/app/product-bookings/${id}/approve`, { method: 'POST' }),
+    rejectProductBooking: (id, reason) => request(`/app/product-bookings/${id}/reject`, { method: 'POST', body: { reason } }),
   },
   reports: {
     get: (name, params) => slow(`/reports/${name}`, params),
