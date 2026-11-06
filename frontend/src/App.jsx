@@ -59,6 +59,7 @@ import GroupTransfer from './pages/GroupTransfer.jsx';
 import MemberGroupTransfer from './pages/MemberGroupTransfer.jsx';
 import Layout from './components/Layout.jsx';
 import EmployeeApp from './modules/employee/EmployeeApp.jsx';
+import SupervisorApp from './modules/supervisor/SupervisorApp.jsx';
 import { routableItems, canOpenPath } from './config/nav.js';
 
 // Pages that exist; every other nav path renders the placeholder.
@@ -210,6 +211,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/employee/*" element={<EmployeeApp />} />
+      <Route path="/supervisor/*" element={<SupervisorApp />} />
       <Route path="/login" element={<PublicOnly><Login /></PublicOnly>} />
       <Route path="/forgot-password" element={<PublicOnly><ForgotPassword /></PublicOnly>} />
       <Route path="/reset-password" element={<ResetPassword />} />

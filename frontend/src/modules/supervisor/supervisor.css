@@ -1,0 +1,382 @@
+/* ==========================================================================
+   Udgam Finance - Supervisor App Stylesheet
+   Modern, Native-like, Fully Responsive Mobile-First Design
+   ========================================================================== */
+
+:root {
+  --sup-bg: #f3f7f7;
+  --sup-card-bg: #ffffff;
+  --sup-text: #0e2a27;
+  --sup-text-muted: #546e6a;
+  --sup-border: #e2e8f0;
+  --sup-primary: #0f766e;
+  --sup-primary-hover: #0d5f58;
+  --sup-primary-light: #e6f6f4;
+  --sup-accent: #f59e0b;
+  --sup-accent-light: #fef3c7;
+  --sup-badge-bg: #042f2e;
+  --sup-badge-text: #fef08a;
+  --sup-success: #15803d;
+  --sup-success-light: #f0fdf4;
+  --sup-warning: #b45309;
+  --sup-warning-light: #fffbeb;
+  --sup-danger: #b91c1c;
+  --sup-danger-light: #fef2f2;
+  --sup-header-bg: #ffffff;
+  --sup-nav-bg: #ffffff;
+  --sup-shadow: 0 4px 14px -2px rgba(15, 118, 110, 0.08), 0 2px 6px -1px rgba(0, 0, 0, 0.04);
+}
+
+.sup-dark {
+  --sup-bg: #091413;
+  --sup-card-bg: #112220;
+  --sup-text: #f0fdfa;
+  --sup-text-muted: #8ba29e;
+  --sup-border: #1a3834;
+  --sup-primary: #14b8a6;
+  --sup-primary-hover: #2dd4bf;
+  --sup-primary-light: #134e4a;
+  --sup-accent: #fbbf24;
+  --sup-accent-light: #78350f;
+  --sup-header-bg: #0d1a18;
+  --sup-nav-bg: #0d1a18;
+  --sup-shadow: 0 4px 16px -2px rgba(0, 0, 0, 0.5);
+}
+
+.sup-app-shell {
+  min-height: 100vh;
+  background-color: #0b131f;
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: var(--sup-text);
+}
+
+.sup-app-container {
+  width: 100%;
+  max-width: 480px;
+  background-color: var(--sup-bg);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.3);
+}
+
+/* Page container with proper 16px padding on left and right */
+.sup-page-container {
+  padding: 14px 16px 20px 16px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Header */
+.sup-header {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background-color: var(--sup-header-bg);
+  border-bottom: 1px solid var(--sup-border);
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sup-header-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sup-header-logo {
+  height: 34px;
+  width: auto;
+  border-radius: 6px;
+}
+
+.sup-header-title {
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: var(--sup-primary);
+  line-height: 1.2;
+}
+
+.sup-header-role-badge {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  background: var(--sup-primary-light);
+  color: var(--sup-primary);
+  padding: 2px 7px;
+  border-radius: 12px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sup-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sup-icon-btn {
+  background: none;
+  border: 1px solid var(--sup-border);
+  border-radius: 50%;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--sup-text);
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.sup-icon-btn:hover {
+  background-color: var(--sup-primary-light);
+  color: var(--sup-primary);
+  border-color: var(--sup-primary);
+}
+
+.sup-notif-badge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  background-color: var(--sup-danger);
+  color: #fff;
+  border-radius: 10px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 1px 5px;
+  line-height: 1;
+}
+
+/* Card */
+.sup-card {
+  background-color: var(--sup-card-bg);
+  border: 1px solid var(--sup-border);
+  border-radius: 14px;
+  padding: 16px;
+  margin-bottom: 14px;
+  box-shadow: var(--sup-shadow);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.sup-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.sup-card-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--sup-text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Operational Workspace Hero Card */
+.sup-hero-card {
+  background: linear-gradient(135deg, #042f2e 0%, #0f766e 70%, #115e59 100%);
+  color: #ffffff;
+  border-radius: 16px;
+  padding: 18px;
+  margin-bottom: 14px;
+  box-shadow: 0 10px 25px -5px rgba(15, 118, 110, 0.35);
+  position: relative;
+  overflow: hidden;
+}
+
+.sup-hero-card::after {
+  content: '';
+  position: absolute;
+  top: -20px;
+  right: -20px;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  pointer-events: none;
+}
+
+/* Metric Pill Badges */
+.sup-metric-card {
+  background: var(--sup-card-bg);
+  border: 1px solid var(--sup-border);
+  border-radius: 14px;
+  padding: 14px;
+  box-shadow: var(--sup-shadow);
+  flex: 1;
+}
+
+/* Buttons */
+.sup-btn {
+  background: var(--sup-primary);
+  color: #ffffff;
+  border: none;
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-size: 0.92rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  width: 100%;
+  transition: background 0.15s ease, transform 0.05s;
+  box-sizing: border-box;
+}
+
+.sup-btn:hover {
+  background: var(--sup-primary-hover);
+}
+
+.sup-btn:active {
+  transform: scale(0.98);
+}
+
+.sup-btn.secondary {
+  background: transparent;
+  color: var(--sup-primary);
+  border: 1px solid var(--sup-primary);
+}
+
+.sup-btn.secondary:hover {
+  background: var(--sup-primary-light);
+}
+
+.sup-btn.sm {
+  padding: 6px 12px;
+  font-size: 0.82rem;
+  border-radius: 8px;
+}
+
+/* Inputs */
+.sup-input-group {
+  margin-bottom: 14px;
+}
+
+.sup-label {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--sup-text-muted);
+  margin-bottom: 6px;
+}
+
+.sup-input,
+.sup-select,
+.sup-textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--sup-border);
+  border-radius: 10px;
+  font-size: 0.92rem;
+  color: var(--sup-text);
+  background: var(--sup-card-bg);
+  box-sizing: border-box;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.sup-input:focus,
+.sup-select:focus,
+.sup-textarea:focus {
+  border-color: var(--sup-primary);
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.15);
+}
+
+/* Bottom Navigation */
+.sup-bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 480px;
+  background: var(--sup-nav-bg);
+  border-top: 1px solid var(--sup-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  padding: 6px 4px 8px;
+  z-index: 50;
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.05);
+  box-sizing: border-box;
+}
+
+.sup-nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  color: var(--sup-text-muted);
+  text-decoration: none;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 8px;
+  transition: all 0.15s ease;
+  flex: 1;
+}
+
+.sup-nav-item.active {
+  color: var(--sup-primary);
+}
+
+/* Quick Action Grid */
+.sup-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.sup-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.sup-action-card {
+  background: var(--sup-card-bg);
+  border: 1px solid var(--sup-border);
+  border-radius: 14px;
+  padding: 14px 10px;
+  text-align: center;
+  text-decoration: none;
+  color: var(--sup-text);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  box-shadow: var(--sup-shadow);
+  transition: all 0.15s ease;
+}
+
+.sup-action-card:hover {
+  border-color: var(--sup-primary);
+  transform: translateY(-2px);
+}
+
+.sup-action-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--sup-primary-light);
+  color: var(--sup-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

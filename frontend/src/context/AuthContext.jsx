@@ -17,7 +17,7 @@ export function AuthProvider({ children }) {
   const { pathname } = useLocation();
 
   useEffect(() => {
-    if (pathname.startsWith('/employee')) {
+    if (pathname.startsWith('/employee') || pathname.startsWith('/supervisor')) {
       setLoading(false);
       return;
     }

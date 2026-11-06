@@ -28,6 +28,7 @@ import superAdminRoutes from './routes/superAdminRoutes.js';
 import dashboardRoutes from './routes/dashboardRoutes.js';
 import bankAccountOptionsRoutes from './routes/bankAccountOptionsRoutes.js';
 import employeeAppRoutes from './modules/employee/employeeAppRoutes.js';
+import supervisorAppRoutes from './modules/supervisor/supervisorAppRoutes.js';
 
 const app = express();
 
@@ -83,6 +84,7 @@ app.use('/api', hrExtraRoutes);
 app.use('/api', superAdminRoutes);
 app.use('/api', dashboardRoutes);
 app.use('/api/employee', employeeAppRoutes);
+app.use('/api/supervisor', supervisorAppRoutes);
 
 app.use((_req, res) => res.status(404).json({ message: 'Not found' }));
 

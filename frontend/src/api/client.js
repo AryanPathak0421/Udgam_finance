@@ -36,7 +36,7 @@ async function request(path, { method = 'GET', body, headers = {}, retryCount = 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     // An expired session on a protected call sends the user back to login.
-    if (res.status === 401 && !path.startsWith('/auth/') && !path.startsWith('/employee/')) {
+    if (res.status === 401 && !path.startsWith('/auth/') && !path.startsWith('/employee/') && !path.startsWith('/supervisor/')) {
       window.dispatchEvent(new Event('auth:expired'));
     }
     const fallbackMsg = (res.status >= 502 && res.status <= 504)
@@ -578,6 +578,34 @@ export const api = {
     sellStockProduct: (data) => request('/employee/stock/sell', { method: 'POST', body: data }),
     tasks: () => request('/employee/tasks'),
     updateTask: (id, data) => request(`/employee/tasks/${id}`, { method: 'PATCH', body: data }),
+    holidays: (params) => request(`/employee/holidays${qs(params)}`),
+  },
+  supervisorApp: {
+    lookup: (identifier) => request('/supervisor/auth/lookup', { method: 'POST', body: { identifier } }),
+    createMpin: (data) => request('/supervisor/auth/create-mpin', { method: 'POST', body: data }),
+    login: (data) => request('/supervisor/auth/login', { method: 'POST', body: data }),
+    forgotMpinSendOtp: (identifier) => request('/supervisor/auth/forgot-mpin/send-otp', { method: 'POST', body: { identifier } }),
+    forgotMpinVerify: (data) => request('/supervisor/auth/forgot-mpin/reset', { method: 'POST', body: data }),
+    profile: () => request('/supervisor/profile'),
+    dashboard: () => request('/supervisor/dashboard'),
+    todayDue: (params) => request(`/supervisor/today-due${qs(params)}`),
+    collectionPaid: (params) => request(`/supervisor/collection-paid${qs(params)}`),
+    newMemberReport: (params) => request(`/supervisor/new-member-report${qs(params)}`),
+    npaOverview: () => request('/supervisor/npa-overview'),
+    staffAttendance: () => request('/supervisor/staff-attendance'),
+    salarySlips: () => request('/supervisor/salary-slips'),
+    sendMemberOtp: (mobile) => request('/employee/members/send-otp', { method: 'POST', body: { mobile } }),
+    verifyMemberOtp: (data) => request('/employee/members/verify-otp', { method: 'POST', body: data }),
+    registerMember: (data, token) => request('/employee/members/register', { method: 'POST', body: data, headers: token ? { 'x-verified-phone-token': token } : {} }),
+    calculateLoan: (data) => request('/employee/calculator', { method: 'POST', body: data }),
+    calculateEmi: (data) => request('/employee/calculator', { method: 'POST', body: data }),
+    emiGroups: (params) => request(`/employee/emi/groups${qs(params)}`),
+    groupEmiMembers: (groupCode, params) => request(`/employee/emi/groups/${encodeURIComponent(groupCode)}/members${qs(params)}`),
+    collectBulkEmi: (data) => request('/employee/emi/collect-bulk', { method: 'POST', body: data }),
+    recoverNpa: (data) => request('/employee/npa/recover', { method: 'POST', body: data }),
+    centerVisits: () => request('/employee/center-visits'),
+    recordCenterVisit: (data) => request('/employee/center-visits', { method: 'POST', body: data }),
+    reports: (params) => request(`/employee/reports${qs(params)}`),
     holidays: (params) => request(`/employee/holidays${qs(params)}`),
   },
 };
