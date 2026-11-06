@@ -13,6 +13,7 @@ import {
   getSupervisorCollectionPaid,
   getSupervisorNewMemberReport,
   getSupervisorNpaOverview,
+  recoverNpaLoan,
   getSupervisorStaffAttendance,
   getSupervisorSalarySlips,
 } from './supervisorAppController.js';
@@ -33,7 +34,9 @@ router.get('/today-due', requireAuth, h(getSupervisorTodayDue));
 router.get('/collection-paid', requireAuth, h(getSupervisorCollectionPaid));
 router.get('/new-member-report', requireAuth, h(getSupervisorNewMemberReport));
 router.get('/npa-overview', requireAuth, h(getSupervisorNpaOverview));
+router.post('/npa/recover', requireAuth, h(recoverNpaLoan));
 router.get('/staff-attendance', requireAuth, h(getSupervisorStaffAttendance));
 router.get('/salary-slips', requireAuth, h(getSupervisorSalarySlips));
 
 export default router;
+

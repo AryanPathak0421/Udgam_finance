@@ -330,34 +330,30 @@ export async function getSupervisorDashboard(req, res) {
 
   const branchIds = await getSupervisorBranchIds(emp, req.user);
 
-  // Managed branches
+  // Managed branches & staff
   const branches = await Branch.find({ _id: { $in: branchIds } }).select('code name city');
-  // Managed staff
   const staffMembers = await Employee.find({ branch: { $in: branchIds }, isDeleted: false, status: 'active' })
     .select('employeeCode name designation branch mobile')
     .populate('branch', 'code name')
     .populate('designation', 'name');
 
-  // Today Dues aggregated across supervised branches
-  const today = todayDateString();
-  const groups = await Group.find({ branch: { $in: branchIds }, isActive: true }).select('_id branch center staff leader');
-  const groupIds = groups.map((g) => g._id);
+  // Today Dues from LoanPayment (status: 'paid')
+  const todayEnd = new Date(`${todayDateString()}T23:59:59.999Z`);
+  const todayStart = new Date(`${todayDateString()}T00:00:00.000Z`);
 
-  // Active loans under supervised groups/branches
   const loans = await LoanPayment.find({
-    group: { $in: groupIds },
-    status: { $in: ['active', 'disbursed'] },
-    isSettled: false,
+    branch: { $in: branchIds },
+    status: 'paid',
   })
-    .populate('member', 'name mobile code branch')
-    .populate('group', 'name center branch staff');
+    .select('loanId formId mode modeLabel group lines schedule branch employeeCode totalAmountPaise')
+    .populate('branch', 'code name')
+    .lean();
 
   let totalDueToday = 0;
   let totalDueCount = 0;
   let totalCollectedToday = 0;
   let totalCollectedCount = 0;
 
-  // Track staff-wise and branch-wise due stats
   const staffDueMap = {};
   const branchDueMap = {};
 
@@ -386,37 +382,42 @@ export async function getSupervisorDashboard(req, res) {
     };
   }
 
-  for (const loan of loans) {
-    const emi = loan.emiAmount || loan.installmentAmount || 0;
-    const bId = String(loan.group?.branch || loan.branch);
-    const sCode = loan.group?.staff?.employeeCode || loan.createdByCode || 'OFFICER';
+  loans.forEach((l) => {
+    const dueInst = (l.schedule || []).filter((s) => s.dueDate && new Date(s.dueDate) <= todayEnd);
+    if (!dueInst.length) return;
+    const latest = dueInst[dueInst.length - 1];
+    const bId = String(l.branch?._id || l.branch);
+    const sCode = l.employeeCode || 'OFFICER';
 
-    totalDueToday += emi;
-    totalDueCount += 1;
+    (l.lines || []).forEach((line) => {
+      const emi = (latest.installmentPaise + (line.extraEmiPaise || 0)) / 100;
+      totalDueToday += emi;
+      totalDueCount += 1;
 
-    if (branchDueMap[bId]) {
-      branchDueMap[bId].dueAmount += emi;
-      branchDueMap[bId].dueMembers += 1;
-    }
-    if (staffDueMap[sCode]) {
-      staffDueMap[sCode].dueAmount += emi;
-      staffDueMap[sCode].dueMembers += 1;
-    }
-  }
-
-  // Today collected EMIs
-  const todayStart = new Date(new Date().setHours(0, 0, 0, 0));
-  const collectionsToday = await EmiPayment.find({
-    branch: { $in: branchIds },
-    createdAt: { $gte: todayStart },
+      if (branchDueMap[bId]) {
+        branchDueMap[bId].dueAmount += emi;
+        branchDueMap[bId].dueMembers += 1;
+      }
+      if (staffDueMap[sCode]) {
+        staffDueMap[sCode].dueAmount += emi;
+        staffDueMap[sCode].dueMembers += 1;
+      }
+    });
   });
 
+  // Today collected EMIs from EmiPayment
+  const collectionsToday = await EmiPayment.find({
+    branch: { $in: branchIds },
+    status: 'paid',
+    paidOn: { $gte: todayStart, $lte: todayEnd },
+  }).lean();
+
   for (const col of collectionsToday) {
-    const amt = col.amount || 0;
+    const amt = (col.amountPaise || 0) / 100;
     totalCollectedToday += amt;
     totalCollectedCount += 1;
-    const bId = String(col.branch);
-    const sCode = col.collectedByCode || col.createdByCode;
+    const bId = String(col.branch?._id || col.branch);
+    const sCode = col.employeeCode || col.collectedByCode;
 
     if (branchDueMap[bId]) {
       branchDueMap[bId].collectedAmount += amt;
@@ -429,11 +430,12 @@ export async function getSupervisorDashboard(req, res) {
   }
 
   // NPA loans overview across supervised branches
-  const npaLoans = await LoanPayment.find({
-    group: { $in: groupIds },
-    isNpa: true,
+  const npaLoans = loans.filter((l) => {
+    if (l.isNpa) return true;
+    const overdueSchedules = (l.schedule || []).filter((s) => s.dueDate && new Date(s.dueDate) < todayStart);
+    return overdueSchedules.length >= 12; // 90+ days weekly
   });
-  const npaTotalAmount = npaLoans.reduce((sum, l) => sum + (l.balanceAmount || l.npaAmount || 0), 0);
+  const npaTotalAmount = npaLoans.reduce((sum, l) => sum + (l.totalAmountPaise || 0) / 100, 0);
 
   // New members registered this month
   const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
@@ -444,14 +446,14 @@ export async function getSupervisorDashboard(req, res) {
 
   res.json({
     metrics: {
-      totalDueToday,
+      totalDueToday: Math.round(totalDueToday),
       totalDueCount,
-      totalCollectedToday,
+      totalCollectedToday: Math.round(totalCollectedToday),
       totalCollectedCount,
       totalStaffCount: staffMembers.length,
       totalBranchCount: branches.length,
       npaCount: npaLoans.length,
-      npaTotalAmount,
+      npaTotalAmount: Math.round(npaTotalAmount),
       newMembersCount,
     },
     staffWiseDues: Object.values(staffDueMap),
@@ -473,24 +475,21 @@ export async function getSupervisorTodayDue(req, res) {
   if (!emp) throw new HttpError(404, 'Supervisor not found');
 
   const branchIds = await getSupervisorBranchIds(emp, req.user);
-  const { branchId, staffCode } = req.query;
+  const { branchId } = req.query;
 
   let filterBranchIds = branchIds;
   if (branchId && mongoose.isValidObjectId(branchId)) {
     filterBranchIds = [new mongoose.Types.ObjectId(branchId)];
   }
 
-  const groupsQuery = { branch: { $in: filterBranchIds }, isActive: true };
-  const groups = await Group.find(groupsQuery).select('_id branch center staff name');
-  const groupIds = groups.map((g) => g._id);
-
+  const todayEnd = new Date(`${todayDateString()}T23:59:59.999Z`);
   const loans = await LoanPayment.find({
-    group: { $in: groupIds },
-    status: { $in: ['active', 'disbursed'] },
-    isSettled: false,
+    branch: { $in: filterBranchIds },
+    status: 'paid',
   })
-    .populate('member', 'name mobile code address photo')
-    .populate('group', 'name center branch staff');
+    .select('loanId formId mode modeLabel group lines schedule branch employeeCode')
+    .populate('branch', 'code name')
+    .lean();
 
   const branches = await Branch.find({ _id: { $in: branchIds } }).select('code name');
   const staffList = await Employee.find({ branch: { $in: branchIds }, isDeleted: false, status: 'active' }).select('employeeCode name designation branch');
@@ -505,35 +504,39 @@ export async function getSupervisorTodayDue(req, res) {
     staffMap[s.employeeCode] = { staffCode: s.employeeCode, staffName: s.name, totalDue: 0, count: 0, items: [] };
   }
 
-  for (const l of loans) {
-    const emi = l.emiAmount || l.installmentAmount || 0;
-    const bId = String(l.group?.branch || l.branch);
-    const sCode = l.group?.staff?.employeeCode || l.createdByCode || 'OFFICER';
+  loans.forEach((l) => {
+    const dueInst = (l.schedule || []).filter((s) => s.dueDate && new Date(s.dueDate) <= todayEnd);
+    if (!dueInst.length) return;
+    const latest = dueInst[dueInst.length - 1];
+    const bId = String(l.branch?._id || l.branch);
+    const sCode = l.employeeCode || 'OFFICER';
 
-    const item = {
-      loanId: l._id,
-      loanNumber: l.loanNo || l.code,
-      memberName: l.member?.name || 'Borrower',
-      memberMobile: l.member?.mobile || '',
-      memberPhoto: l.member?.photo || '',
-      groupName: l.group?.name || 'Group',
-      centerName: l.group?.center || '',
-      emiAmount: emi,
-      branchName: branchMap[bId]?.branchName || '',
-      staffCode: sCode,
-    };
+    (l.lines || []).forEach((line, idx) => {
+      const emi = (latest.installmentPaise + (line.extraEmiPaise || 0)) / 100;
+      const item = {
+        loanId: l._id,
+        loanNumber: l.loanId || l.formId,
+        memberName: line.name || 'Borrower',
+        memberCode: line.code || '',
+        groupName: l.group?.name || l.group?.code || 'Group Loan',
+        centerName: l.group?.code ? `Center ${l.group.code}` : 'Branch Center',
+        emiAmount: emi,
+        branchName: branchMap[bId]?.branchName || l.branch?.name || '',
+        staffCode: sCode,
+      };
 
-    if (branchMap[bId]) {
-      branchMap[bId].totalDue += emi;
-      branchMap[bId].count += 1;
-      branchMap[bId].items.push(item);
-    }
-    if (staffMap[sCode]) {
-      staffMap[sCode].totalDue += emi;
-      staffMap[sCode].count += 1;
-      staffMap[sCode].items.push(item);
-    }
-  }
+      if (branchMap[bId]) {
+        branchMap[bId].totalDue += emi;
+        branchMap[bId].count += 1;
+        branchMap[bId].items.push(item);
+      }
+      if (staffMap[sCode]) {
+        staffMap[sCode].totalDue += emi;
+        staffMap[sCode].count += 1;
+        staffMap[sCode].items.push(item);
+      }
+    });
+  });
 
   res.json({
     branchWise: Object.values(branchMap),
@@ -556,14 +559,16 @@ export async function getSupervisorCollectionPaid(req, res) {
 
   const branchIds = await getSupervisorBranchIds(emp, req.user);
   const todayStart = new Date(new Date().setHours(0, 0, 0, 0));
+  const todayEnd = new Date(new Date().setHours(23, 59, 59, 999));
 
   const collections = await EmiPayment.find({
     branch: { $in: branchIds },
-    createdAt: { $gte: todayStart },
+    status: 'paid',
+    paidOn: { $gte: todayStart, $lte: todayEnd },
   })
-    .populate('member', 'name mobile code photo')
     .populate('branch', 'code name')
-    .sort({ createdAt: -1 });
+    .sort({ paidOn: -1 })
+    .lean();
 
   const branches = await Branch.find({ _id: { $in: branchIds } }).select('code name');
   const staffList = await Employee.find({ branch: { $in: branchIds }, isDeleted: false, status: 'active' }).select('employeeCode name designation');
@@ -580,16 +585,16 @@ export async function getSupervisorCollectionPaid(req, res) {
 
   for (const c of collections) {
     const bId = String(c.branch?._id || c.branch);
-    const sCode = c.collectedByCode || c.createdByCode || 'OFFICER';
-    const amt = c.amount || 0;
+    const sCode = c.employeeCode || c.collectedByCode || 'OFFICER';
+    const amt = (c.amountPaise || 0) / 100;
 
     const receipt = {
       id: c._id,
       receiptNo: c.receiptNo || String(c._id).slice(-6).toUpperCase(),
-      memberName: c.member?.name || 'Member',
+      memberName: c.memberName || 'Member',
       amount: amt,
-      paymentMode: c.paymentMode || 'Cash',
-      time: c.createdAt ? new Date(c.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+      paymentMode: c.payMode || 'Cash',
+      time: c.paidOn ? new Date(c.paidOn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
       branchName: c.branch?.name || '',
       staffCode: sCode,
     };
@@ -609,7 +614,7 @@ export async function getSupervisorCollectionPaid(req, res) {
   res.json({
     branchWise: Object.values(branchMap),
     staffWise: Object.values(staffMap),
-    totalAmount: collections.reduce((acc, c) => acc + (c.amount || 0), 0),
+    totalAmount: collections.reduce((acc, c) => acc + (c.amountPaise || 0) / 100, 0),
     totalReceipts: collections.length,
     recentReceipts: collections.slice(0, 50),
   });
@@ -676,62 +681,111 @@ export async function getSupervisorNpaOverview(req, res) {
   if (!emp) throw new HttpError(404, 'Supervisor not found');
 
   const branchIds = await getSupervisorBranchIds(emp, req.user);
-  const groups = await Group.find({ branch: { $in: branchIds } }).select('_id branch center name');
-  const groupIds = groups.map((g) => g._id);
-
-  const npaLoans = await LoanPayment.find({
-    group: { $in: groupIds },
-    isNpa: true,
-  })
-    .populate('member', 'name mobile photo code')
-    .populate('group', 'name center branch');
-
   const branches = await Branch.find({ _id: { $in: branchIds } }).select('code name');
 
-  // Group by branch and by center
+  const loans = await LoanPayment.find({
+    branch: { $in: branchIds },
+    status: 'paid',
+  })
+    .populate('branch', 'code name')
+    .lean();
+
   const branchMap = {};
   const centerMap = {};
+  const today = new Date();
+  const npaList = [];
 
   for (const b of branches) {
     branchMap[String(b._id)] = { branchId: b._id, branchName: b.name, totalNpaAmount: 0, loanCount: 0, loans: [] };
   }
 
-  for (const l of npaLoans) {
-    const bId = String(l.group?.branch || l.branch);
-    const center = l.group?.center || 'Unassigned Center';
-    const amount = l.balanceAmount || l.npaAmount || l.emiAmount || 0;
+  for (const l of loans) {
+    for (const line of (l.lines || [])) {
+      const overdueSchedules = (l.schedule || []).filter((s) => s.dueDate && new Date(s.dueDate) < today);
+      if (overdueSchedules.length < 8 && !l.isNpa) continue; // must have multiple overdue schedules or marked NPA
 
-    const item = {
-      loanId: l._id,
-      loanNo: l.loanNo || l.code,
-      memberName: l.member?.name || 'Borrower',
-      memberMobile: l.member?.mobile || '',
-      memberPhoto: l.member?.photo || '',
-      centerName: center,
-      branchName: branchMap[bId]?.branchName || '',
-      overdueDays: l.overdueDays || 90,
-      balanceAmount: amount,
-    };
+      const emi = (overdueSchedules[0]?.installmentPaise || 0) / 100;
+      const bId = String(l.branch?._id || l.branch);
+      const center = l.group?.code ? `Center ${l.group.code}` : (l.branch?.name ? `${l.branch.name} Center` : 'Main Center');
+      const amount = Math.round(emi * overdueSchedules.length) || (l.totalAmountPaise || 0) / 100;
 
-    if (branchMap[bId]) {
-      branchMap[bId].totalNpaAmount += amount;
-      branchMap[bId].loanCount += 1;
-      branchMap[bId].loans.push(item);
+      const item = {
+        loanPaymentId: l._id,
+        loanId: l._id,
+        loanNo: l.loanId || l.formId || String(l._id).slice(-6).toUpperCase(),
+        memberCode: line.code || '',
+        memberName: line.name || 'Borrower',
+        memberMobile: '',
+        centerName: center,
+        branchName: branchMap[bId]?.branchName || l.branch?.name || '',
+        overdueDays: Math.min(365, overdueSchedules.length * 7 || 90),
+        balanceAmount: amount,
+      };
+
+      npaList.push(item);
+
+      if (branchMap[bId]) {
+        branchMap[bId].totalNpaAmount += amount;
+        branchMap[bId].loanCount += 1;
+        branchMap[bId].loans.push(item);
+      }
+
+      if (!centerMap[center]) {
+        centerMap[center] = { centerName: center, branchName: branchMap[bId]?.branchName || '', totalNpaAmount: 0, loanCount: 0, loans: [] };
+      }
+      centerMap[center].totalNpaAmount += amount;
+      centerMap[center].loanCount += 1;
+      centerMap[center].loans.push(item);
     }
-
-    if (!centerMap[center]) {
-      centerMap[center] = { centerName: center, branchName: branchMap[bId]?.branchName || '', totalNpaAmount: 0, loanCount: 0, loans: [] };
-    }
-    centerMap[center].totalNpaAmount += amount;
-    centerMap[center].loanCount += 1;
-    centerMap[center].loans.push(item);
   }
 
   res.json({
-    totalNpaLoans: npaLoans.length,
-    totalNpaAmount: npaLoans.reduce((sum, l) => sum + (l.balanceAmount || l.npaAmount || 0), 0),
+    totalNpaLoans: npaList.length,
+    totalNpaAmount: npaList.reduce((sum, l) => sum + l.balanceAmount, 0),
     branchWise: Object.values(branchMap),
     centerWise: Object.values(centerMap),
+  });
+}
+
+export async function recoverNpaLoan(req, res) {
+  const { loanPaymentId, memberCode, amount, payMode = 'Cash', reference = '' } = req.body || {};
+  const payAmount = Number(amount);
+  if (!payAmount || payAmount < 1) throw new HttpError(400, 'Enter recovery amount of ₹1 or more');
+
+  const loan = await LoanPayment.findById(loanPaymentId);
+  if (!loan) throw new HttpError(404, 'Loan record not found');
+
+  const line = (loan.lines || []).find((l) => l.code === memberCode) || loan.lines?.[0] || { code: 'N/A', name: 'Borrower' };
+  const receiptNo = await generateCode('emiReceipt').catch(() => `NPA${Date.now().toString().slice(-8)}`);
+
+  const doc = await EmiPayment.create({
+    receiptNo,
+    loanPayment: loan._id,
+    loanId: loan.loanId,
+    formId: loan.formId,
+    branch: loan.branch,
+    type: 'regular',
+    npa: true,
+    member: line.member || null,
+    memberCode: line.code,
+    memberName: line.name,
+    amountPaise: Math.round(payAmount * 100),
+    paidOn: new Date(),
+    payMode: payMode || 'Cash',
+    reference,
+    employeeCode: req.user?.employeeCode || '',
+    createdBy: req.user._id,
+    createdByCode: req.user?.employeeCode || '',
+    status: 'paid',
+  });
+
+  res.status(201).json({
+    success: true,
+    receiptNo: doc.receiptNo,
+    amount: payAmount,
+    loanId: loan.loanId,
+    memberCode: line.code,
+    memberName: line.name,
   });
 }
 
@@ -829,3 +883,4 @@ export async function getSupervisorSalarySlips(req, res) {
     })),
   });
 }
+
