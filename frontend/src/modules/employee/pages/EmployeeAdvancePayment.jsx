@@ -32,8 +32,11 @@ export default function EmployeeAdvancePayment() {
     try {
       const res = await api.employeeApp.trackLoan(loanQuery.trim());
       setLoanData(res);
-      // Pre-fill suggested advance with 1 EMI (up to remaining balance)
-      if (res.loan?.scheduleCount > 0 && res.schedule?.[0]?.installmentAmount) {
+      const isSettledOrZero = res.loan?.isSettled || Number(res.loan?.balance || 0) <= 0 || res.loan?.status === 'closed';
+      if (isSettledOrZero) {
+        setError(`Notice: Loan ${res.loan?.loanId} is Auto-Settled / Fully Paid (Balance ₹0). Advance payment is disabled for this loan.`);
+        setAdvanceAmount('');
+      } else if (res.loan?.scheduleCount > 0 && res.schedule?.[0]?.installmentAmount) {
         const emi = Number(res.schedule[0].installmentAmount);
         const bal = Number(res.loan?.balance || 0);
         setAdvanceAmount(String(bal > 0 ? Math.min(emi, bal) : 0));
@@ -201,13 +204,24 @@ export default function EmployeeAdvancePayment() {
             </div>
           </div>
 
-          {/* Advance Deposit Form */}
-          <div className="emp-card">
-            <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: '0 0 14px 0', color: 'var(--emp-text)' }}>
-              Enter Advance Amount to Deposit
-            </h3>
+          {/* Advance Deposit Form or Auto-Settled Notice */}
+          {loanData.loan?.isSettled || Number(loanData.loan?.balance || 0) <= 0 || loanData.loan?.status === 'closed' ? (
+            <div className="emp-card" style={{ background: '#fef3c7', border: '2px solid #f59e0b', padding: '18px 16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#92400e', fontWeight: 800, fontSize: '1.05rem' }}>
+                <Icon name="shieldcheck" size={24} style={{ color: '#d97706' }} />
+                <span>Loan Settled / Balance is ₹0</span>
+              </div>
+              <p style={{ margin: '8px 0 0 0', fontSize: '0.85rem', color: '#b45309', lineHeight: 1.5 }}>
+                This loan account has been <strong>{loanData.loan?.settlementKind ? `Auto-Settled (${loanData.loan.settlementKind.toUpperCase()})` : 'fully paid & closed'}</strong>. The remaining balance is ₹0. Advance payment cannot be accepted.
+              </p>
+            </div>
+          ) : (
+            <div className="emp-card">
+              <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: '0 0 14px 0', color: 'var(--emp-text)' }}>
+                Enter Advance Amount to Deposit
+              </h3>
 
-            <form onSubmit={handleSubmitAdvance} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <form onSubmit={handleSubmitAdvance} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div>
                 <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 6 }}>
                   Advance Deposit Amount (₹) *
@@ -311,24 +325,19 @@ export default function EmployeeAdvancePayment() {
                 </div>
               )}
 
-              {loanData.loan?.balance <= 0 ? (
-                <div style={{ background: '#fef3c7', color: '#92400e', padding: '12px 14px', borderRadius: 8, fontSize: '0.85rem', fontWeight: 700 }}>
-                  ✓ This loan is fully paid and settled. No further advance payment can be credited.
-                </div>
-              ) : (
-                <button
-                  type="submit"
-                  className="emp-btn-primary"
-                  style={{ padding: '14px', fontSize: '1rem', fontWeight: 800, marginTop: 4 }}
-                  disabled={submitting || !advanceAmount || Number(advanceAmount) <= 0 || Number(advanceAmount) > Number(loanData.loan?.balance || 0)}
-                >
-                  {submitting ? 'Crediting Advance... Please wait' : `Confirm & Credit Advance (₹${Number(advanceAmount || 0).toLocaleString('en-IN')})`}
-                </button>
-              )}
+              <button
+                type="submit"
+                className="emp-btn-primary"
+                style={{ padding: '14px', fontSize: '1rem', fontWeight: 800, marginTop: 4 }}
+                disabled={submitting || !advanceAmount || Number(advanceAmount) <= 0 || Number(advanceAmount) > Number(loanData.loan?.balance || 0)}
+              >
+                {submitting ? 'Crediting Advance... Please wait' : `Confirm & Credit Advance (₹${Number(advanceAmount || 0).toLocaleString('en-IN')})`}
+              </button>
             </form>
           </div>
-        </>
-      )}
+        )}
+      </>
+    )}
 
       {/* Dynamic Company UPI QR Code Modal */}
       {qrModal && (

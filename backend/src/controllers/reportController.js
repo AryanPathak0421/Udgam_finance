@@ -217,7 +217,7 @@ const REPORTS = {
     const asOf = parseDateOnly(asString(req.query.date)) || startOfToday();
     const q = asString(req.query.q).toLowerCase();
     const staff = asString(req.query.staff).trim().toUpperCase();
-    const rows = (await scanBorrowers(req, asOf, (r) => (r.outstanding > 0 && r.daysPastEnd >= 1 && borrowerMatch(q)(r) && (!staff || String(r.staff || '').toUpperCase().includes(staff)) ? r : null))).sort((a, b) => a.branch.localeCompare(b.branch) || b.daysPastEnd - a.daysPastEnd);
+    const rows = (await scanBorrowers(req, asOf, (r) => (r.outstanding > 0 && (r.daysPastEnd >= 1 || r.overdueDays >= 90) && borrowerMatch(q)(r) && (!staff || String(r.staff || '').toUpperCase().includes(staff)) ? r : null))).sort((a, b) => a.branch.localeCompare(b.branch) || b.daysPastEnd - a.daysPastEnd || b.overdueDays - a.overdueDays);
     // the last NPA payment of each borrower, so that the admin can revert it
     const last = await EmiPayment.find({ npa: true, status: 'paid', loanPayment: { $in: rows.map((r) => r.loanPaymentId) } }).sort({ createdAt: -1 }).select('loanPayment memberCode receiptNo amountPaise paidOn employeeCode').lean();
     const lastBy = new Map();
@@ -333,7 +333,7 @@ const REPORTS = {
     return { rows, summary: { members: rows.length } };
   },
 };
-const isNpa = (r) => r.outstanding > 0 && r.daysPastEnd >= 1;
+const isNpa = (r) => r.outstanding > 0 && (r.daysPastEnd >= 1 || r.overdueDays >= 90);
 const staffNames = async (codes) => {
   const [users, emps] = await Promise.all([
     User.find({}).select('employeeCode name username email').lean(),

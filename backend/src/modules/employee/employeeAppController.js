@@ -17,6 +17,7 @@ import { EmiPayment } from '../../models/EmiPayment.js';
 import { AppEmiCollection } from '../../models/AppEmiCollection.js';
 import { LoanRequisition } from '../../models/LoanRequisition.js';
 import { LoanScheme } from '../../models/LoanScheme.js';
+import { LoanSettlement } from '../../models/LoanSettlement.js';
 import { Group } from '../../models/Group.js';
 import { Task, Complaint, Leave, Resignation, EmployeeChange, TargetTask } from '../../models/HrExtra.js';
 import { SecurityWithdrawal } from '../../models/SecurityWithdrawal.js';
@@ -601,8 +602,17 @@ export async function sendMemberOtp(req, res) {
   if (!/^\d{10}$/.test(mobile)) throw new HttpError(400, 'Enter a valid 10-digit mobile number');
 
   const { otp, challengeId } = await issueOtp(`mem_reg_${mobile}`, { ttlSec: 300 });
-  await sendSms(mobile, `Your Udgam Member Registration verification OTP is ${otp}. Valid for 5 minutes.`);
-  res.json({ challengeId, mobile, message: 'OTP sent to mobile' });
+  try {
+    await sendSms({ to: mobile, text: `Your Udgam Member Registration verification OTP is ${otp}. Valid for 5 minutes.` });
+  } catch (err) {
+    console.warn('[sendMemberOtp] SMS dispatch error:', err.message);
+  }
+  res.json({
+    challengeId,
+    mobile,
+    devOtp: (!smsConfigured() || process.env.NODE_ENV !== 'production') ? otp : undefined,
+    message: 'OTP sent to mobile',
+  });
 }
 
 export async function verifyMemberOtp(req, res) {
@@ -654,6 +664,10 @@ export async function registerMember(req, res) {
   const defaultPhoto = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 
   try {
+    const kycKeys = ['memberPhoto', 'signaturePhoto', 'aadhaarPhoto', 'aadhaarBackPhoto'];
+    if (b.panPhoto) kycKeys.push('panPhoto');
+    if (b.guarantorName && b.guarantorPhoto) kycKeys.push('guarantor.photo');
+
     const member = await Member.create({
       code: memberCode,
       formId,
@@ -681,12 +695,15 @@ export async function registerMember(req, res) {
       memberPhoto: b.memberPhoto || defaultPhoto,
       signaturePhoto: b.signaturePhoto || defaultPhoto,
       aadhaarPhoto: b.aadhaarPhoto || defaultPhoto,
+      aadhaarBackPhoto: b.aadhaarBackPhoto || b.aadhaarPhoto || defaultPhoto,
       panPhoto: b.panPhoto || '',
+      kycKeys,
       guarantor: b.guarantorName ? {
         name: cleanStr(b.guarantorName),
         relation: cleanStr(b.guarantorRelation) || 'Spouse',
         mobile: cleanStr(b.guarantorMobile) || mobile,
         aadhaar: cleanStr(b.guarantorAadhaar) || '123456789012',
+        jointPhoto: b.jointPhoto || b.guarantorJointPhoto || '',
         photo: b.guarantorPhoto || b.memberPhoto || defaultPhoto,
         signature: b.guarantorSignature || b.signaturePhoto || defaultPhoto,
         aadhaarPhoto: b.guarantorAadhaarPhoto || b.aadhaarPhoto || defaultPhoto,
@@ -704,6 +721,7 @@ export async function registerMember(req, res) {
         source: 'app',
         status: 'pending',
       },
+      kycPending: true,
       createdBy: req.user._id,
       updatedBy: req.user._id,
     });
@@ -777,21 +795,24 @@ export async function getMemberKyc(req, res) {
 
   const docStatus = (key, hasFile) => {
     const d = (m.kycDocs || []).find((x) => x.key === key || x.field === key);
-    if (d?.status === 'rejected') return { status: 'rejected', reason: d.reason || 'Document rejected by approver' };
+    if (d?.status === 'rejected') return { status: 'rejected', reason: d.reason || 'Document rejected by reviewer' };
     if (d?.status === 'approved') return { status: 'approved', reason: '' };
-    return { status: hasFile ? 'approved' : 'pending', reason: '' };
+    if (!hasFile) return { status: 'missing', reason: 'Document missing — please upload' };
+    return { status: m.joiningApproval?.status === 'approved' ? 'approved' : 'pending', reason: '' };
   };
 
   const photoDoc = docStatus('memberPhoto', Boolean(m.memberPhoto));
   const signDoc = docStatus('signaturePhoto', Boolean(m.signaturePhoto));
-  const aadhaarDoc = docStatus('aadhaarPhoto', Boolean(m.aadhaarPhoto));
+  const aadhaarFrontDoc = docStatus('aadhaarPhoto', Boolean(m.aadhaarPhoto));
+  const aadhaarBackDoc = docStatus('aadhaarBackPhoto', Boolean(m.aadhaarBackPhoto));
   const panDoc = docStatus('panPhoto', Boolean(m.panPhoto));
 
   const documents = [
-    { type: 'photo', name: 'Member Photo', status: photoDoc.status, rejectReason: photoDoc.reason, uploadedAt: m.createdAt },
-    { type: 'signature', name: 'Member Signature', status: signDoc.status, rejectReason: signDoc.reason, uploadedAt: m.createdAt },
-    { type: 'aadhaar', name: 'Aadhaar Card', status: aadhaarDoc.status, rejectReason: aadhaarDoc.reason, uploadedAt: m.createdAt },
-    { type: 'pan', name: 'PAN Card', status: panDoc.status, rejectReason: panDoc.reason, uploadedAt: m.createdAt },
+    { type: 'photo', field: 'memberPhoto', name: 'Member Photo', status: photoDoc.status, rejectReason: photoDoc.reason, uploadedAt: m.memberPhoto ? m.createdAt : null, image: m.memberPhoto || null },
+    { type: 'signature', field: 'signaturePhoto', name: 'Member Signature', status: signDoc.status, rejectReason: signDoc.reason, uploadedAt: m.signaturePhoto ? m.createdAt : null, image: m.signaturePhoto || null },
+    { type: 'aadhaar', field: 'aadhaarPhoto', name: 'Aadhaar Card (Front)', status: aadhaarFrontDoc.status, rejectReason: aadhaarFrontDoc.reason, uploadedAt: m.aadhaarPhoto ? m.createdAt : null, image: m.aadhaarPhoto || null },
+    { type: 'aadhaarBack', field: 'aadhaarBackPhoto', name: 'Aadhaar Card (Back)', status: aadhaarBackDoc.status, rejectReason: aadhaarBackDoc.reason, uploadedAt: m.aadhaarBackPhoto ? m.createdAt : null, image: m.aadhaarBackPhoto || null },
+    { type: 'pan', field: 'panPhoto', name: 'PAN Card Photo', status: panDoc.status, rejectReason: panDoc.reason, uploadedAt: m.panPhoto ? m.createdAt : null, image: m.panPhoto || null },
   ];
 
   res.json({
@@ -806,11 +827,13 @@ export async function getMemberKyc(req, res) {
       aadhaarVerified: Boolean(m.aadhaarVerifiedAt || m.aadhaarMatched),
       branch: m.branch?.name || '',
       branchName: m.branch?.name || '',
+      joiningStatus: m.joiningApproval?.status || 'approved',
       documents,
       docs: {
         photo: photoDoc,
         signature: signDoc,
-        aadhaar: aadhaarDoc,
+        aadhaar: aadhaarFrontDoc,
+        aadhaarBack: aadhaarBackDoc,
         pan: panDoc,
       },
     },
@@ -828,24 +851,119 @@ export async function reuploadMemberKycDoc(req, res) {
   });
   if (!m) throw new HttpError(404, 'Member not found');
 
-  const mappedField = docField === 'photo' ? 'memberPhoto'
-    : docField === 'signature' ? 'signaturePhoto'
-    : docField === 'aadhaar' ? 'aadhaarPhoto'
-    : docField === 'pan' ? 'panPhoto'
+  const mappedField = docField === 'photo' || docField === 'memberPhoto' ? 'memberPhoto'
+    : docField === 'signature' || docField === 'signaturePhoto' ? 'signaturePhoto'
+    : docField === 'aadhaar' || docField === 'aadhaarPhoto' ? 'aadhaarPhoto'
+    : docField === 'aadhaarBack' || docField === 'aadhaarBackPhoto' ? 'aadhaarBackPhoto'
+    : docField === 'pan' || docField === 'panPhoto' ? 'panPhoto'
     : docField;
 
   m[mappedField] = fileData;
-  if (Array.isArray(m.kycDocs)) {
-    m.kycDocs = m.kycDocs.filter((d) => d.key !== mappedField && d.field !== mappedField);
-    m.kycDocs.push({
-      key: mappedField,
-      status: 'pending',
-      resubmittedAt: new Date(),
-    });
-  }
+  if (!Array.isArray(m.kycDocs)) m.kycDocs = [];
+  m.kycDocs = m.kycDocs.filter((d) => d.key !== mappedField && d.field !== mappedField);
+  m.kycDocs.push({
+    key: mappedField,
+    field: mappedField,
+    status: 'pending',
+    resubmittedAt: new Date(),
+  });
+
+  if (!Array.isArray(m.kycKeys)) m.kycKeys = [];
+  if (!m.kycKeys.includes(mappedField)) m.kycKeys.push(mappedField);
+
   m.kycPending = true;
+  m.kycRejected = false;
   await m.save();
-  res.json({ status: 'ok', message: 'Document re-uploaded for verification' });
+  res.json({ status: 'ok', message: `Document (${mappedField}) uploaded/updated for verification` });
+}
+
+export async function rejectMemberKycDoc(req, res) {
+  const docField = req.body?.docField || req.body?.docType;
+  const reason = cleanStr(req.body?.reason) || 'Document illegible or rejected by reviewer';
+  const q = cleanStr(req.params.id);
+  const m = await Member.findOne({
+    $or: [{ _id: mongoose.isValidObjectId(q) ? q : null }, { code: q.toUpperCase() }],
+  });
+  if (!m) throw new HttpError(404, 'Member not found');
+
+  const mappedField = docField === 'photo' || docField === 'memberPhoto' ? 'memberPhoto'
+    : docField === 'signature' || docField === 'signaturePhoto' ? 'signaturePhoto'
+    : docField === 'aadhaar' || docField === 'aadhaarPhoto' ? 'aadhaarPhoto'
+    : docField === 'aadhaarBack' || docField === 'aadhaarBackPhoto' ? 'aadhaarBackPhoto'
+    : docField === 'pan' || docField === 'panPhoto' ? 'panPhoto'
+    : docField;
+
+  if (!Array.isArray(m.kycDocs)) m.kycDocs = [];
+  m.kycDocs = m.kycDocs.filter((d) => d.key !== mappedField && d.field !== mappedField);
+  m.kycDocs.push({
+    key: mappedField,
+    field: mappedField,
+    status: 'rejected',
+    reason,
+    rejectedAt: new Date(),
+  });
+  m.kycRejected = true;
+  await m.save();
+  res.json({ status: 'ok', message: `Document (${mappedField}) rejected. Ready for re-upload.` });
+}
+
+export async function sendMemberPhoneChangeOtp(req, res) {
+  const q = cleanStr(req.params.id);
+  const newMobile = cleanStr(req.body?.newMobile).replace(/\D/g, '').slice(-10);
+  if (!/^\d{10}$/.test(newMobile)) throw new HttpError(400, 'Enter a valid 10-digit mobile number');
+
+  const m = await Member.findOne({
+    $or: [{ _id: mongoose.isValidObjectId(q) ? q : null }, { code: q.toUpperCase() }],
+  });
+  if (!m) throw new HttpError(404, 'Member not found');
+
+  const { otp, challengeId } = await issueOtp(`phone_change_${m._id}_${newMobile}`, { ttlSec: 300 });
+  try {
+    await sendSms({ to: newMobile, text: `Udgam Microfinance: OTP ${otp} to update your registered mobile number. Valid for 5 minutes.` });
+  } catch (err) {
+    console.warn('[sendMemberPhoneChangeOtp] SMS dispatch error:', err.message);
+  }
+
+  res.json({
+    challengeId,
+    newMobile,
+    devOtp: (!smsConfigured() || process.env.NODE_ENV !== 'production') ? otp : undefined,
+    message: 'OTP sent to new mobile number',
+  });
+}
+
+export async function verifyMemberPhoneChange(req, res) {
+  const q = cleanStr(req.params.id);
+  const { challengeId, otp, newMobile } = req.body || {};
+  const cleanPhone = cleanStr(newMobile).replace(/\D/g, '').slice(-10);
+
+  const m = await Member.findOne({
+    $or: [{ _id: mongoose.isValidObjectId(q) ? q : null }, { code: q.toUpperCase() }],
+  });
+  if (!m) throw new HttpError(404, 'Member not found');
+
+  const challenge = await consumeChallenge(challengeId, otp);
+  if (!challenge || challenge.key !== `phone_change_${m._id}_${cleanPhone}`) {
+    throw new HttpError(400, 'Invalid or expired OTP');
+  }
+
+  const oldMobile = m.mobile;
+  m.mobile = cleanPhone;
+  m.mobileVerifiedAt = new Date();
+  await m.save();
+
+  await audit(req, {
+    action: 'member.updatePhoneWithOtp',
+    entity: 'Member',
+    entityId: m._id,
+    after: { oldMobile, newMobile: cleanPhone },
+  });
+
+  res.json({
+    success: true,
+    mobile: cleanPhone,
+    message: `Mobile number updated to ${cleanPhone} and verified successfully`,
+  });
 }
 
 // -----------------------------------------------------------------------------
@@ -1224,6 +1342,15 @@ export async function trackLoanHistory(req, res) {
   const totalAmountPaise = loan.totalAmountPaise || loan.amountPaise || 0;
   const balancePaise = Math.max(0, totalAmountPaise - totalCollectedPaise);
 
+  // Check if loan has an active settlement (Auto Settled / Settled)
+  const settlement = await LoanSettlement.findOne({
+    loanPayment: loan._id,
+    status: 'active',
+  }).lean();
+
+  const isAutoSettled = Boolean(settlement);
+  const isClosed = isAutoSettled || balancePaise <= 0 || loan.status === 'closed';
+
   const scheduleWithStatus = (loan.schedule || []).map((s) => {
     const isPaid = totalCollectedPaise >= (s.installmentPaise || 0) * s.no;
     const isOverdue = !isPaid && s.dueDate && new Date(s.dueDate) < new Date();
@@ -1250,7 +1377,9 @@ export async function trackLoanHistory(req, res) {
       totalAmount: totalAmountPaise / 100,
       totalCollected: totalCollectedPaise / 100,
       balance: balancePaise / 100,
-      status: balancePaise <= 0 ? 'closed' : 'active',
+      status: isClosed ? 'closed' : 'active',
+      isSettled: isAutoSettled || balancePaise <= 0,
+      settlementKind: settlement?.kind || (balancePaise <= 0 ? 'fully_paid' : ''),
       scheduleCount: loan.schedule?.length || 0,
     },
     schedule: scheduleWithStatus,
@@ -1815,13 +1944,22 @@ export async function advancePayment(req, res) {
 
   const payAmountPaise = Math.round(payAmount * 100);
 
-  // 1. Check existing payments and remaining balance to prevent balance going negative
+  // 1. Check existing settlement and remaining balance to prevent balance going negative or paying settled loans
+  const settlement = await LoanSettlement.findOne({
+    loanPayment: loan._id,
+    status: 'active',
+  }).lean();
+
+  if (settlement) {
+    throw new HttpError(400, `Loan ${loan.loanId} is Auto-Settled (${settlement.kind}). No advance payment can be credited.`);
+  }
+
   const existingPayments = await EmiPayment.find({ loanPayment: loan._id, status: 'paid' }).lean();
   const totalPaidPaise = existingPayments.reduce((acc, p) => acc + (p.amountPaise || 0), 0);
   const totalLoanPaise = line.amountPaise || loan.totalAmountPaise || loan.amountPaise || 0;
   const remainingBalancePaise = Math.max(0, totalLoanPaise - totalPaidPaise);
 
-  if (remainingBalancePaise <= 0) {
+  if (remainingBalancePaise <= 0 || loan.status === 'closed') {
     throw new HttpError(400, `Loan ${loan.loanId} has already been fully paid and closed. Remaining balance is ₹0.`);
   }
 
@@ -2020,6 +2158,26 @@ export async function recoverNpaLoan(req, res) {
     createdByCode: req.user?.employeeCode || '',
     status: 'paid',
   });
+
+  // Also record in AppEmiCollection so NPA recovery appears in System/Admin Approval section
+  await AppEmiCollection.create({
+    loanPayment: loan._id,
+    loanId: loan.loanId || loan.formId,
+    branch: loan.branch?._id || loan.branch,
+    memberCode: line.code,
+    memberName: line.name,
+    group: loan.group?.code ? `${loan.group.code} — ${loan.group.name}` : '',
+    amountPaise: Math.round(payAmount * 100),
+    collectedOn: new Date(),
+    type: 'regular',
+    npa: true,
+    payMode: ['cash', 'bank', 'upi', 'cheque'].includes(payMode) ? payMode : 'cash',
+    reference: reference || '',
+    collectedBy: req.user._id,
+    collectedByCode: req.user?.employeeCode || '',
+    status: 'pending',
+    receiptNo: doc.receiptNo,
+  }).catch(() => {});
 
   res.status(201).json({
     success: true,

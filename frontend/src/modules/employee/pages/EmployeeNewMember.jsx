@@ -47,11 +47,20 @@ export default function EmployeeNewMember() {
     bankName: '',
     ifsc: '',
     accountNumber: '',
+    // 5 Standard Documents
     memberPhoto: '',
+    signaturePhoto: '',
     aadhaarPhoto: '',
     aadhaarBackPhoto: '',
     panPhoto: '',
-    signaturePhoto: '',
+    // Guarantor Details (Optional)
+    hasGuarantor: false,
+    guarantorName: '',
+    guarantorRelation: 'Spouse',
+    guarantorMobile: '',
+    guarantorAadhaar: '',
+    guarantorPhoto: '',
+    guarantorJointPhoto: '',
   });
 
   useEffect(() => {
@@ -113,7 +122,7 @@ export default function EmployeeNewMember() {
         challengeId,
       });
       setVerifiedToken(res.verifiedToken);
-      setForm((f) => ({ ...f, mobile: phone.trim() }));
+      setForm((f) => ({ ...f, mobile: phone.trim(), guarantorMobile: phone.trim() }));
       setStep(3);
     } catch (err) {
       setStepError(err.message || 'Invalid OTP');
@@ -182,7 +191,16 @@ export default function EmployeeNewMember() {
     setSubmitting(true);
     setFormError('');
     try {
-      const res = await api.employeeApp.registerMember(form, verifiedToken);
+      const payload = {
+        ...form,
+        guarantorName: form.hasGuarantor ? form.guarantorName : '',
+        guarantorRelation: form.hasGuarantor ? form.guarantorRelation : '',
+        guarantorMobile: form.hasGuarantor ? form.guarantorMobile : '',
+        guarantorAadhaar: form.hasGuarantor ? form.guarantorAadhaar : '',
+        guarantorPhoto: form.hasGuarantor ? form.guarantorPhoto : '',
+        jointPhoto: form.hasGuarantor ? form.guarantorJointPhoto : '',
+      };
+      const res = await api.employeeApp.registerMember(payload, verifiedToken);
       setRegistrationSuccess(res);
     } catch (err) {
       setFormError(err.message || 'Registration failed');
@@ -369,7 +387,7 @@ export default function EmployeeNewMember() {
                 </div>
               </div>
               <div style={{ fontSize: '0.75rem', color: '#047857', textAlign: 'right', maxWidth: 160 }}>
-                Locked by OTP verification. (Only admin can change).
+                Verified by OTP.
               </div>
             </div>
           </div>
@@ -660,43 +678,158 @@ export default function EmployeeNewMember() {
             </div>
           </div>
 
-          {/* Section: Document Uploads */}
+          {/* Section: Guarantor Details (Optional) */}
+          <div className="emp-card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, color: 'var(--emp-text)' }}>
+                4. Guarantor Details (Optional)
+              </h3>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.85rem', cursor: 'pointer', fontWeight: 600 }}>
+                <input
+                  type="checkbox"
+                  checked={form.hasGuarantor}
+                  onChange={(e) => setForm({ ...form, hasGuarantor: e.target.checked })}
+                />
+                Add Guarantor
+              </label>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', margin: '0 0 10px 0' }}>
+              Note: If details or phone number are the same as member, guarantor is optional. Joint photo is optional.
+            </p>
+
+            {form.hasGuarantor && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingTop: 10, borderTop: '1px solid var(--emp-border)' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                      Guarantor Name
+                    </label>
+                    <input
+                      type="text"
+                      className="emp-input"
+                      placeholder="Enter name"
+                      value={form.guarantorName}
+                      onChange={(e) => setForm({ ...form, guarantorName: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                      Relationship
+                    </label>
+                    <select
+                      className="emp-input"
+                      value={form.guarantorRelation}
+                      onChange={(e) => setForm({ ...form, guarantorRelation: e.target.value })}
+                    >
+                      <option value="Spouse">Spouse</option>
+                      <option value="Father">Father</option>
+                      <option value="Mother">Mother</option>
+                      <option value="Brother">Brother</option>
+                      <option value="Sister">Sister</option>
+                      <option value="Son">Son</option>
+                      <option value="Daughter">Daughter</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                      Guarantor Mobile (Same allowed)
+                    </label>
+                    <input
+                      type="tel"
+                      className="emp-input"
+                      maxLength="10"
+                      placeholder="10 digits"
+                      value={form.guarantorMobile}
+                      onChange={(e) => setForm({ ...form, guarantorMobile: e.target.value.replace(/\D/g, '') })}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                      Guarantor Aadhaar (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      className="emp-input"
+                      maxLength="12"
+                      placeholder="12 digits"
+                      value={form.guarantorAadhaar}
+                      onChange={(e) => setForm({ ...form, guarantorAadhaar: e.target.value.replace(/\D/g, '') })}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div>
+                    <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                      Guarantor Photo (Optional)
+                    </label>
+                    <input type="file" accept="image/*" onChange={handleFile('guarantorPhoto')} style={{ fontSize: '0.75rem', width: '100%' }} />
+                    {form.guarantorPhoto && <img src={form.guarantorPhoto} alt="Guarantor" style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 4, marginTop: 4 }} />}
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                      Joint Photo with Member (Optional)
+                    </label>
+                    <input type="file" accept="image/*" onChange={handleFile('guarantorJointPhoto')} style={{ fontSize: '0.75rem', width: '100%' }} />
+                    {form.guarantorJointPhoto && <img src={form.guarantorJointPhoto} alt="Joint" style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 4, marginTop: 4 }} />}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Section: Standard 5 Document Uploads */}
           <div className="emp-card">
             <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: '0 0 12px 0', color: 'var(--emp-text)' }}>
-              4. Photos & Documents
+              5. Standard Documents (5 Photos)
             </h3>
+            <p style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', margin: '0 0 10px 0' }}>
+              Standard documents required for KYC approval:
+            </p>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div>
                 <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
-                  Member Photo
+                  1) Member Photo *
                 </label>
                 <input type="file" accept="image/*" onChange={handleFile('memberPhoto')} style={{ fontSize: '0.8rem', width: '100%' }} />
-                {form.memberPhoto && <img src={form.memberPhoto} alt="preview" style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 6, marginTop: 4 }} />}
+                {form.memberPhoto && <img src={form.memberPhoto} alt="Member preview" style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 6, marginTop: 4 }} />}
               </div>
 
               <div>
                 <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
-                  Aadhaar Front
+                  2) Aadhaar Front *
                 </label>
                 <input type="file" accept="image/*" onChange={handleFile('aadhaarPhoto')} style={{ fontSize: '0.8rem', width: '100%' }} />
-                {form.aadhaarPhoto && <img src={form.aadhaarPhoto} alt="preview" style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 6, marginTop: 4 }} />}
+                {form.aadhaarPhoto && <img src={form.aadhaarPhoto} alt="Aadhaar Front preview" style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 6, marginTop: 4 }} />}
               </div>
 
               <div>
                 <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
-                  Aadhaar Back
+                  3) Aadhaar Back *
                 </label>
                 <input type="file" accept="image/*" onChange={handleFile('aadhaarBackPhoto')} style={{ fontSize: '0.8rem', width: '100%' }} />
-                {form.aadhaarBackPhoto && <img src={form.aadhaarBackPhoto} alt="preview" style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 6, marginTop: 4 }} />}
+                {form.aadhaarBackPhoto && <img src={form.aadhaarBackPhoto} alt="Aadhaar Back preview" style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 6, marginTop: 4 }} />}
               </div>
 
               <div>
                 <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
-                  PAN Card / Signature
+                  4) PAN Card Photo (Optional)
                 </label>
                 <input type="file" accept="image/*" onChange={handleFile('panPhoto')} style={{ fontSize: '0.8rem', width: '100%' }} />
-                {form.panPhoto && <img src={form.panPhoto} alt="preview" style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 6, marginTop: 4 }} />}
+                {form.panPhoto && <img src={form.panPhoto} alt="PAN preview" style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 6, marginTop: 4 }} />}
+              </div>
+
+              <div style={{ gridColumn: 'span 2' }}>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                  5) Member Signature Photo *
+                </label>
+                <input type="file" accept="image/*" onChange={handleFile('signaturePhoto')} style={{ fontSize: '0.8rem', width: '100%' }} />
+                {form.signaturePhoto && <img src={form.signaturePhoto} alt="Signature preview" style={{ width: 120, height: 50, objectFit: 'contain', border: '1px solid var(--emp-border)', borderRadius: 6, marginTop: 4, background: '#fff' }} />}
               </div>
             </div>
           </div>
@@ -714,4 +847,3 @@ export default function EmployeeNewMember() {
     </div>
   );
 }
-

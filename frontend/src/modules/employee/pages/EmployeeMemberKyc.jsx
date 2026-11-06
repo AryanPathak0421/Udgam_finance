@@ -18,6 +18,23 @@ export default function EmployeeMemberKyc() {
   const [reuploadingDoc, setReuploadingDoc] = useState(null);
   const [reuploadBusy, setReuploadBusy] = useState(false);
 
+  // Reject doc modal/prompt state
+  const [rejectingDoc, setRejectingDoc] = useState(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [rejectBusy, setRejectBusy] = useState(false);
+
+  // Phone Change OTP state
+  const [showPhoneModal, setShowPhoneModal] = useState(false);
+  const [newMobile, setNewMobile] = useState('');
+  const [phoneStep, setPhoneStep] = useState(1); // 1: input phone, 2: enter otp
+  const [phoneOtp, setPhoneOtp] = useState('');
+  const [phoneDevOtp, setPhoneDevOtp] = useState('');
+  const [phoneBusy, setPhoneBusy] = useState(false);
+  const [phoneError, setPhoneError] = useState('');
+
+  // Image preview modal
+  const [previewImage, setPreviewImage] = useState(null);
+
   const fetchRecent = async () => {
     setLoadingRecent(true);
     try {
@@ -63,20 +80,90 @@ export default function EmployeeMemberKyc() {
     setSuccessMsg('');
     try {
       const fileData = await compressImage(file, { maxWidth: 1200, maxHeight: 1200, quality: 0.8 });
-      await api.employeeApp.reuploadDoc(member.id || member._id, {
+      await api.employeeApp.reuploadDoc(member.id || member._id || member.code, {
         docType,
         docField: docType,
         fileData,
       });
-      setSuccessMsg(`Document (${docType}) re-uploaded successfully! Status changed to Pending Review.`);
+      setSuccessMsg(`Document (${docType}) uploaded/updated successfully! Status set to Pending Review.`);
       setReuploadingDoc(null);
-      // Refresh kyc
       loadMemberKyc(member.code || member.id || member._id);
       fetchRecent();
     } catch (err) {
-      setError(err.message || 'Failed to re-upload document');
+      setError(err.message || 'Failed to upload document');
     } finally {
       setReuploadBusy(false);
+    }
+  };
+
+  const handleRejectDoc = async (e) => {
+    e?.preventDefault();
+    if (!rejectingDoc || !member) return;
+    setRejectBusy(true);
+    setError('');
+    try {
+      await api.employeeApp.rejectDoc(member.id || member._id || member.code, {
+        docType: rejectingDoc.type,
+        docField: rejectingDoc.field || rejectingDoc.type,
+        reason: rejectReason.trim() || 'Document illegible or rejected by reviewer',
+      });
+      setSuccessMsg(`Document (${rejectingDoc.name || rejectingDoc.type}) marked as Rejected. Re-upload is now enabled.`);
+      setRejectingDoc(null);
+      setRejectReason('');
+      loadMemberKyc(member.code || member.id || member._id);
+      fetchRecent();
+    } catch (err) {
+      setError(err.message || 'Failed to reject document');
+    } finally {
+      setRejectBusy(false);
+    }
+  };
+
+  const handleSendPhoneOtp = async (e) => {
+    e?.preventDefault();
+    if (!/^\d{10}$/.test(newMobile.trim())) {
+      setPhoneError('Please enter a valid 10-digit mobile number');
+      return;
+    }
+    setPhoneBusy(true);
+    setPhoneError('');
+    try {
+      const res = await api.employeeApp.sendPhoneChangeOtp(member.id || member._id || member.code, {
+        newMobile: newMobile.trim(),
+      });
+      if (res.devOtp) setPhoneDevOtp(res.devOtp);
+      setPhoneStep(2);
+    } catch (err) {
+      setPhoneError(err.message || 'Failed to send OTP to new number');
+    } finally {
+      setPhoneBusy(false);
+    }
+  };
+
+  const handleVerifyPhoneOtp = async (e) => {
+    e?.preventDefault();
+    if (!/^\d{6}$/.test(phoneOtp.trim())) {
+      setPhoneError('Enter the 6-digit OTP');
+      return;
+    }
+    setPhoneBusy(true);
+    setPhoneError('');
+    try {
+      await api.employeeApp.verifyPhoneChange(member.id || member._id || member.code, {
+        newMobile: newMobile.trim(),
+        otp: phoneOtp.trim(),
+      });
+      setSuccessMsg(`Mobile number successfully updated to +91 ${newMobile.trim()}!`);
+      setShowPhoneModal(false);
+      setPhoneStep(1);
+      setNewMobile('');
+      setPhoneOtp('');
+      loadMemberKyc(member.code || member.id || member._id);
+      fetchRecent();
+    } catch (err) {
+      setPhoneError(err.message || 'Invalid OTP');
+    } finally {
+      setPhoneBusy(false);
     }
   };
 
@@ -184,7 +271,7 @@ export default function EmployeeMemberKyc() {
               ← Back to Members
             </button>
             <span style={{ fontSize: '0.8rem', color: 'var(--emp-text-muted)' }}>
-              KYC Document Audit
+              KYC Document Audit & Verification
             </span>
           </div>
 
@@ -206,8 +293,8 @@ export default function EmployeeMemberKyc() {
                   overflow: 'hidden',
                 }}
               >
-                {member.photo ? (
-                  <img src={member.photo} alt={member.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                {member.photo || member.memberPhoto ? (
+                  <img src={member.photo || member.memberPhoto} alt={member.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                 ) : (
                   member.name?.charAt(0) || 'M'
                 )}
@@ -233,7 +320,7 @@ export default function EmployeeMemberKyc() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--emp-border)' }}>
               <div>
                 <div style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)' }}>Mobile Number</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
                   <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{member.mobile}</span>
                   {member.mobileVerified ? (
                     <span className="emp-verified-badge" style={{ fontSize: '0.75rem', padding: '2px 8px', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
@@ -243,21 +330,29 @@ export default function EmployeeMemberKyc() {
                     <span className="emp-badge emp-badge-warning" style={{ fontSize: '0.75rem' }}>Unverified</span>
                   )}
                 </div>
-                <div style={{ fontSize: '0.7rem', color: 'var(--emp-text-muted)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
-                  {member.mobileVerified ? (
-                    <>
-                      <Icon name="lock" size={11} /> Locked (Admin only edit)
-                    </>
-                  ) : (
-                    'Verification pending'
-                  )}
+                <div style={{ marginTop: 6 }}>
+                  <button
+                    type="button"
+                    className="emp-btn-secondary"
+                    style={{ fontSize: '0.72rem', padding: '3px 8px', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                    onClick={() => {
+                      setPhoneStep(1);
+                      setNewMobile('');
+                      setPhoneOtp('');
+                      setPhoneError('');
+                      setPhoneDevOtp('');
+                      setShowPhoneModal(true);
+                    }}
+                  >
+                    <Icon name="phone" size={12} /> Change Number (OTP)
+                  </button>
                 </div>
               </div>
 
               <div>
                 <div style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)' }}>Aadhaar Number</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
-                  <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{member.aadhaar ? `•••• •••• ${member.aadhaar.slice(-4)}` : 'N/A'}</span>
+                  <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{member.aadhaar ? `•••• •••• ${String(member.aadhaar).slice(-4)}` : 'N/A'}</span>
                   {member.aadhaarVerified ? (
                     <span className="emp-verified-badge" style={{ fontSize: '0.75rem', padding: '2px 8px', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                       <Icon name="checkcircle" size={12} /> Verified
@@ -265,6 +360,9 @@ export default function EmployeeMemberKyc() {
                   ) : (
                     <span className="emp-badge emp-badge-warning" style={{ fontSize: '0.75rem' }}>Pending</span>
                   )}
+                </div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--emp-text-muted)', marginTop: 4 }}>
+                  Status: <strong>{member.joiningApproval?.status || (member.kycRejected ? 'Rejected' : member.kycPending ? 'Pending Review' : 'Active')}</strong>
                 </div>
               </div>
             </div>
@@ -274,21 +372,20 @@ export default function EmployeeMemberKyc() {
           <div className="emp-card">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, color: 'var(--emp-text)' }}>
-                KYC Documents Status
+                KYC Documents (5 Standard Docs)
               </h3>
-              <div
-                style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
-                title="Documents pending review for over 7 days are subject to automatic rejection."
-              >
-                <Icon name="help" size={13} />
-                <span>7-Day Policy</span>
-              </div>
+              <span style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)' }}>
+                Upload enabled for missing/unverified/approved
+              </span>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {member.documents?.map((doc) => {
                 const isRejected = doc.status === 'rejected';
                 const isApproved = doc.status === 'approved';
+                const isMissing = doc.status === 'missing' || !doc.image;
+                const isPending = !isApproved && !isRejected && !isMissing;
+                const docFieldKey = doc.field || doc.type;
 
                 return (
                   <div
@@ -297,66 +394,137 @@ export default function EmployeeMemberKyc() {
                       border: '1px solid var(--emp-border)',
                       borderRadius: 10,
                       padding: 12,
-                      background: isRejected ? '#fef2f2' : isApproved ? '#f0fdf4' : 'var(--emp-card-bg)',
+                      background: isRejected ? '#fef2f2' : isApproved ? '#f0fdf4' : isMissing ? '#fffbeb' : 'var(--emp-card-bg)',
                     }}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div>
-                        <div style={{ fontWeight: 700, fontSize: '0.9rem', textTransform: 'capitalize' }}>
-                          {doc.name || doc.type.replace(/_/g, ' ')}
-                        </div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
-                          Uploaded: {doc.uploadedAt ? new Date(doc.uploadedAt).toLocaleDateString() : 'N/A'}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+                      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                        {doc.image ? (
+                          <img
+                            src={doc.image}
+                            alt={doc.name}
+                            onClick={() => setPreviewImage(doc.image)}
+                            style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--emp-border)', cursor: 'pointer' }}
+                            title="Click to view full photo"
+                          />
+                        ) : (
+                          <div
+                            style={{
+                              width: 48,
+                              height: 48,
+                              borderRadius: 6,
+                              background: '#e2e8f0',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: '0.7rem',
+                              color: '#64748b',
+                              textAlign: 'center',
+                            }}
+                          >
+                            No Doc
+                          </div>
+                        )}
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--emp-text)' }}>
+                            {doc.name || doc.type}
+                          </div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
+                            {doc.uploadedAt ? `Uploaded: ${new Date(doc.uploadedAt).toLocaleDateString()}` : 'Not yet uploaded'}
+                          </div>
                         </div>
                       </div>
 
-                      <div>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
                         {isApproved && (
-                          <span className="emp-badge emp-badge-success" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                            <Icon name="checkcircle" size={12} /> Approved
+                          <span className="emp-badge emp-badge-success" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.72rem' }}>
+                            <Icon name="checkcircle" size={11} /> Approved
                           </span>
                         )}
                         {isRejected && (
-                          <span className="emp-badge emp-badge-danger" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                            <Icon name="cross" size={12} /> Rejected
+                          <span className="emp-badge emp-badge-danger" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.72rem' }}>
+                            <Icon name="cross" size={11} /> Rejected
                           </span>
                         )}
-                        {!isApproved && !isRejected && (
-                          <span className="emp-badge emp-badge-warning" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                            <Icon name="clock" size={12} /> Pending
+                        {isMissing && (
+                          <span className="emp-badge emp-badge-warning" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.72rem' }}>
+                            <Icon name="alerttriangle" size={11} /> Missing
+                          </span>
+                        )}
+                        {isPending && (
+                          <span className="emp-badge emp-badge-warning" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.72rem' }}>
+                            <Icon name="clock" size={11} /> Pending
                           </span>
                         )}
                       </div>
                     </div>
 
-                    {/* Rejection reason & Re-upload action */}
+                    {/* Rejection reason banner */}
                     {isRejected && (
-                      <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px dashed #fca5a5' }}>
-                        <div style={{ fontSize: '0.78rem', color: '#991b1b', marginBottom: 8 }}>
-                          <strong>Reason:</strong> {doc.rejectReason || 'Document illegible or mismatched details.'}
-                        </div>
-
-                        <div>
-                          <input
-                            type="file"
-                            id={`file-${doc.type}`}
-                            accept="image/*,.pdf"
-                            style={{ display: 'none' }}
-                            onChange={(e) => handleReupload(doc.type, e.target.files?.[0])}
-                          />
-                          <button
-                            type="button"
-                            className="emp-btn-primary"
-                            style={{ padding: '6px 14px', fontSize: '0.8rem', background: '#dc2626', display: 'inline-flex', alignItems: 'center', gap: 6 }}
-                            onClick={() => document.getElementById(`file-${doc.type}`).click()}
-                            disabled={reuploadBusy}
-                          >
-                            <Icon name="upload" size={13} />
-                            {reuploadBusy ? 'Uploading...' : 'Re-Upload Document'}
-                          </button>
-                        </div>
+                      <div style={{ marginTop: 8, padding: '6px 10px', background: '#fee2e2', borderRadius: 6, fontSize: '0.78rem', color: '#991b1b' }}>
+                        <strong>Rejection Reason:</strong> {doc.rejectReason || 'Document illegible or mismatched details.'}
                       </div>
                     )}
+
+                    {/* Action buttons: Reject KYC Doc & Upload / Re-Upload */}
+                    <div style={{ display: 'flex', gap: 8, marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--emp-border)', flexWrap: 'wrap' }}>
+                      <input
+                        type="file"
+                        id={`file-${doc.type}`}
+                        accept="image/*,.pdf"
+                        style={{ display: 'none' }}
+                        onChange={(e) => handleReupload(docFieldKey, e.target.files?.[0])}
+                      />
+
+                      {/* Upload / Re-Upload button: Available if missing, rejected, unverified OTP, or even approved */}
+                      <button
+                        type="button"
+                        className={isRejected ? 'emp-btn-primary' : 'emp-btn-secondary'}
+                        style={{
+                          padding: '6px 12px',
+                          fontSize: '0.78rem',
+                          background: isRejected ? '#dc2626' : undefined,
+                          color: isRejected ? '#fff' : undefined,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                        }}
+                        onClick={() => document.getElementById(`file-${doc.type}`).click()}
+                        disabled={reuploadBusy}
+                      >
+                        <Icon name="upload" size={13} />
+                        {reuploadBusy
+                          ? 'Uploading...'
+                          : isRejected
+                          ? 'Re-Upload Document'
+                          : isMissing
+                          ? 'Upload Missing Doc'
+                          : 'Update / Re-Upload Doc'}
+                      </button>
+
+                      {/* Reject Document button: allows employee/admin to mark rejected and request re-upload */}
+                      {!isRejected && (
+                        <button
+                          type="button"
+                          className="emp-btn-secondary"
+                          style={{
+                            padding: '6px 12px',
+                            fontSize: '0.78rem',
+                            color: '#dc2626',
+                            borderColor: '#fca5a5',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 6,
+                          }}
+                          onClick={() => {
+                            setRejectingDoc(doc);
+                            setRejectReason('');
+                          }}
+                        >
+                          <Icon name="cross" size={12} /> Reject KYC
+                        </button>
+                      )}
+                    </div>
                   </div>
                 );
               })}
@@ -364,7 +532,182 @@ export default function EmployeeMemberKyc() {
           </div>
         </>
       )}
+
+      {/* Reject Doc Reason Modal */}
+      {rejectingDoc && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div style={{ background: '#fff', borderRadius: 12, padding: 20, maxWidth: 420, width: '100%', boxShadow: '0 8px 30px rgba(0,0,0,0.2)' }}>
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 800, margin: '0 0 8px 0', color: '#991b1b', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Icon name="alerttriangle" size={20} /> Reject {rejectingDoc.name || rejectingDoc.type}
+            </h3>
+            <p style={{ fontSize: '0.85rem', color: 'var(--emp-text-muted)', margin: '0 0 14px 0' }}>
+              Rejecting this document will notify the member and enable the re-upload option.
+            </p>
+
+            <form onSubmit={handleRejectDoc} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600, display: 'block', marginBottom: 4 }}>
+                  Reason for Rejection *
+                </label>
+                <textarea
+                  className="emp-input"
+                  rows="3"
+                  placeholder="e.g. Photo blur, Name mismatch, Expired document..."
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                <button
+                  type="button"
+                  className="emp-btn-secondary"
+                  style={{ flex: 1 }}
+                  onClick={() => { setRejectingDoc(null); setRejectReason(''); }}
+                  disabled={rejectBusy}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="emp-btn-primary"
+                  style={{ flex: 1, background: '#dc2626' }}
+                  disabled={rejectBusy || !rejectReason.trim()}
+                >
+                  {rejectBusy ? 'Rejecting...' : 'Confirm Reject'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Mobile Number Change OTP Modal */}
+      {showPhoneModal && member && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div style={{ background: '#fff', borderRadius: 12, padding: 20, maxWidth: 420, width: '100%', boxShadow: '0 8px 30px rgba(0,0,0,0.2)' }}>
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 800, margin: '0 0 8px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Icon name="phone" size={18} style={{ color: 'var(--emp-primary)' }} /> Change Mobile Number (OTP)
+            </h3>
+            <p style={{ fontSize: '0.85rem', color: 'var(--emp-text-muted)', margin: '0 0 14px 0' }}>
+              Current Number: <strong>+91 {member.mobile}</strong>
+            </p>
+
+            {phoneError && (
+              <div style={{ background: '#fee2e2', color: '#991b1b', padding: '8px 12px', borderRadius: 6, fontSize: '0.82rem', marginBottom: 12 }}>
+                {phoneError}
+              </div>
+            )}
+
+            {phoneDevOtp && (
+              <div style={{ background: '#fef3c7', color: '#92400e', padding: '8px 12px', borderRadius: 6, fontSize: '0.82rem', marginBottom: 12, border: '1px dashed #f59e0b' }}>
+                Dev OTP: <strong>{phoneDevOtp}</strong>
+              </div>
+            )}
+
+            {phoneStep === 1 ? (
+              <form onSubmit={handleSendPhoneOtp} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 600, display: 'block', marginBottom: 4 }}>
+                    New Mobile Number (10 Digits) *
+                  </label>
+                  <div style={{ position: 'relative' }}>
+                    <span style={{ position: 'absolute', left: 10, top: 9, fontSize: '0.9rem', color: 'var(--emp-text-muted)', fontWeight: 600 }}>+91</span>
+                    <input
+                      type="tel"
+                      className="emp-input"
+                      style={{ paddingLeft: 46 }}
+                      placeholder="9876543210"
+                      maxLength="10"
+                      value={newMobile}
+                      onChange={(e) => setNewMobile(e.target.value.replace(/\D/g, ''))}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                  <button
+                    type="button"
+                    className="emp-btn-secondary"
+                    style={{ flex: 1 }}
+                    onClick={() => setShowPhoneModal(false)}
+                    disabled={phoneBusy}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="emp-btn-primary"
+                    style={{ flex: 1 }}
+                    disabled={phoneBusy || newMobile.length !== 10}
+                  >
+                    {phoneBusy ? 'Sending OTP...' : 'Send OTP'}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <form onSubmit={handleVerifyPhoneOtp} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 600, display: 'block', marginBottom: 4 }}>
+                    Enter 6-Digit OTP sent to +91 {newMobile}
+                  </label>
+                  <input
+                    type="text"
+                    className="emp-input"
+                    style={{ textAlign: 'center', fontSize: '1.2rem', letterSpacing: '4px', fontWeight: 700 }}
+                    maxLength="6"
+                    placeholder="••••••"
+                    value={phoneOtp}
+                    onChange={(e) => setPhoneOtp(e.target.value.replace(/\D/g, ''))}
+                    required
+                  />
+                </div>
+
+                <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                  <button
+                    type="button"
+                    className="emp-btn-secondary"
+                    style={{ flex: 1 }}
+                    onClick={() => setPhoneStep(1)}
+                    disabled={phoneBusy}
+                  >
+                    Back
+                  </button>
+                  <button
+                    type="submit"
+                    className="emp-btn-primary"
+                    style={{ flex: 1 }}
+                    disabled={phoneBusy || phoneOtp.length !== 6}
+                  >
+                    {phoneBusy ? 'Verifying...' : 'Verify & Update'}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Image Preview Modal */}
+      {previewImage && (
+        <div
+          onClick={() => setPreviewImage(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+        >
+          <div style={{ position: 'relative', maxWidth: '90vw', maxHeight: '90vh' }}>
+            <img src={previewImage} alt="Document Preview" style={{ maxWidth: '100%', maxHeight: '85vh', objectFit: 'contain', borderRadius: 8 }} />
+            <button
+              type="button"
+              onClick={() => setPreviewImage(null)}
+              style={{ position: 'absolute', top: -36, right: 0, background: 'transparent', border: 'none', color: '#fff', fontSize: '1.2rem', cursor: 'pointer' }}
+            >
+              ✕ Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-

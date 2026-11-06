@@ -847,8 +847,13 @@ const partyState = (docs, who) => {
   };
 };
 
-const kycSummary = (m, keys = m.kycKeys || []) => {
-  const docs = docStates(m, keys);
+const kycSummary = (m, keys) => {
+  const effectiveKeys = (Array.isArray(keys) && keys.length)
+    ? keys
+    : (Array.isArray(m.kycKeys) && m.kycKeys.length)
+      ? m.kycKeys
+      : ['memberPhoto', 'signaturePhoto', 'aadhaarPhoto', 'aadhaarBackPhoto', ...(m.panPhoto ? ['panPhoto'] : [])];
+  const docs = docStates(m, effectiveKeys);
   const count = (st) => docs.filter((d) => d.status === st).length;
   const parties = {
     member: partyState(docs, 'Member'),

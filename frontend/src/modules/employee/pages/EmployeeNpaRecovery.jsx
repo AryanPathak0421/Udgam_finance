@@ -9,6 +9,8 @@ export default function EmployeeNpaRecovery() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [message, setMessage] = useState({ text: '', type: '' });
+  const [searchQuery, setSearchQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('all');
 
   // Pay Now Modal State
   const [activeNpa, setActiveNpa] = useState(null);
@@ -100,6 +102,22 @@ export default function EmployeeNpaRecovery() {
     }
   };
 
+  // Filter NPA loans by search and category
+  const filteredNpa = npaLoans.filter((item) => {
+    if (categoryFilter !== 'all' && (item.npaCategory || '').toLowerCase() !== categoryFilter.toLowerCase()) {
+      return false;
+    }
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase().trim();
+    return (
+      (item.memberName || '').toLowerCase().includes(q) ||
+      (item.memberCode || '').toLowerCase().includes(q) ||
+      (item.loanId || '').toLowerCase().includes(q) ||
+      (item.groupName || '').toLowerCase().includes(q) ||
+      String(item.phone || '').includes(q)
+    );
+  });
+
   return (
     <div className="emp-page-container">
       {/* Header Card */}
@@ -111,12 +129,75 @@ export default function EmployeeNpaRecovery() {
               <span>NPA Recovery Management</span>
             </h2>
             <p style={{ fontSize: '0.8rem', color: 'var(--emp-text-muted)', margin: '4px 0 0 0' }}>
-              Overdue defaulted loans (DPD &gt; 90). Collect recovery via Cash or Online Company QR.
+              Overdue defaulted loans (DPD &gt; 90). Fast lookup & recovery collection.
             </p>
           </div>
           <span className="emp-badge emp-badge-danger" style={{ fontWeight: 800 }}>
-            {npaLoans.length} NPA
+            {npaLoans.length} Total NPA
           </span>
+        </div>
+
+        {/* Search Option Bar */}
+        <div style={{ marginTop: 14 }}>
+          <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+            <span style={{ position: 'absolute', left: 12, color: 'var(--emp-text-muted)' }}>
+              <Icon name="search" size={16} />
+            </span>
+            <input
+              type="text"
+              className="emp-input"
+              placeholder="Search by borrower name, code, loan A/c, or phone..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{ paddingLeft: 38, width: '100%', fontSize: '0.88rem' }}
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                style={{
+                  position: 'absolute',
+                  right: 12,
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--emp-text-muted)',
+                  cursor: 'pointer',
+                  fontWeight: 800,
+                }}
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Category Filter Chips */}
+        <div style={{ display: 'flex', gap: 6, marginTop: 10, overflowX: 'auto', paddingBottom: 2 }}>
+          {[
+            { id: 'all', label: `All (${npaLoans.length})` },
+            { id: 'sub-standard', label: `Sub-Standard (${npaLoans.filter((x) => (x.npaCategory || '').toLowerCase() === 'sub-standard').length})` },
+            { id: 'doubtful', label: `Doubtful (${npaLoans.filter((x) => (x.npaCategory || '').toLowerCase() === 'doubtful').length})` },
+            { id: 'loss', label: `Loss (${npaLoans.filter((x) => (x.npaCategory || '').toLowerCase() === 'loss').length})` },
+          ].map((cat) => (
+            <button
+              key={cat.id}
+              type="button"
+              onClick={() => setCategoryFilter(cat.id)}
+              style={{
+                padding: '4px 10px',
+                borderRadius: 20,
+                fontSize: '0.74rem',
+                fontWeight: 700,
+                border: categoryFilter === cat.id ? '2px solid #b91c1c' : '1px solid var(--emp-border)',
+                background: categoryFilter === cat.id ? '#fee2e2' : 'var(--emp-card-bg)',
+                color: categoryFilter === cat.id ? '#991b1b' : 'var(--emp-text)',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {cat.label}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -144,15 +225,19 @@ export default function EmployeeNpaRecovery() {
         <div style={{ background: '#fee2e2', color: '#991b1b', padding: '12px', borderRadius: 8, fontSize: '0.85rem' }}>
           {error}
         </div>
-      ) : npaLoans.length === 0 ? (
+      ) : filteredNpa.length === 0 ? (
         <div className="emp-card" style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--emp-text-muted)' }}>
           <div style={{ color: 'var(--emp-success)', marginBottom: 8 }}><Icon name="shieldcheck" size={40} /></div>
-          <div style={{ fontWeight: 700, fontSize: '1rem', color: '#059669' }}>Zero NPA in your portfolio!</div>
-          <div style={{ fontSize: '0.8rem', marginTop: 4 }}>All loan dues and repayments are currently on track.</div>
+          <div style={{ fontWeight: 700, fontSize: '1rem', color: '#059669' }}>
+            {npaLoans.length === 0 ? 'Zero NPA in your portfolio!' : 'No NPA loans match your search'}
+          </div>
+          <div style={{ fontSize: '0.8rem', marginTop: 4 }}>
+            {searchQuery ? 'Try clearing the search query or category filter.' : 'All loan dues and repayments are currently on track.'}
+          </div>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {npaLoans.map((item) => (
+          {filteredNpa.map((item) => (
             <div key={`${item.loanId}-${item.memberCode}`} className="emp-card" style={{ margin: 0, border: '1px solid #fca5a5' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
