@@ -36,6 +36,8 @@ import {
   getBorrowerSavings,
   requestSavingsWithdrawal,
   getEmployeeReports,
+  getStaffGroups,
+  getStaffRecentMembers,
   markFirstMeetingAttendance,
   getSalarySlips,
   getAttendanceHistory,
@@ -79,8 +81,10 @@ router.get('/collections/due', requireAuth, h(getTodayDueList));
 router.post('/members/send-otp', requireAuth, h(sendMemberOtp));
 router.post('/members/verify-otp', requireAuth, h(verifyMemberOtp));
 router.post('/members/register', requireAuth, h(registerMember));
+router.get('/members/recent', requireAuth, h(getStaffRecentMembers));
 router.get('/members/:id/kyc', requireAuth, h(getMemberKyc));
 router.post('/members/:id/kyc/reupload', requireAuth, h(reuploadMemberKycDoc));
+router.get('/groups', requireAuth, h(getStaffGroups));
 
 // Guarantor Change
 router.post('/members/guarantor-change', requireAuth, h(requestGuarantorChange));

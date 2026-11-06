@@ -16,6 +16,11 @@ export default function EmployeeLoanRequisition() {
   const [activeTab, setActiveTab] = useState('new'); // 'new' | 'list'
   const [loanType, setLoanType] = useState('group');
 
+  // Groups for Group Loan
+  const [groups, setGroups] = useState([]);
+  const [loadingGroups, setLoadingGroups] = useState(false);
+  const [selectedGroup, setSelectedGroup] = useState(null);
+
   // Search Member
   const [memberQuery, setMemberQuery] = useState('');
   const [memberLoading, setMemberLoading] = useState(false);
@@ -30,13 +35,16 @@ export default function EmployeeLoanRequisition() {
   // Form Fields
   const [form, setForm] = useState({
     amount: '30000',
-    mode: 'monthly',
-    term: '12',
-    rate: '18',
-    purpose: '',
-    // Business specific
+    mode: 'weekly',
+    term: '52',
+    rate: '24',
+    purpose: 'Business / Income Generation',
+    // Business specific (software aligned)
     businessName: '',
-    businessType: '',
+    businessType: 'Retail / General Store',
+    vintageYears: '2',
+    monthlyTurnover: '50000',
+    shopAddress: '',
     shopPhoto: '',
     staffWithShopPhoto: '',
     // Product specific
@@ -52,7 +60,7 @@ export default function EmployeeLoanRequisition() {
   const [requisitions, setRequisitions] = useState([]);
   const [listLoading, setListLoading] = useState(false);
 
-  // Load branches & schemes
+  // Load branches, schemes, and staff groups
   useEffect(() => {
     api.branches.options()
       .then((res) => {
@@ -72,12 +80,23 @@ export default function EmployeeLoanRequisition() {
           setForm((f) => ({
             ...f,
             amount: String(s.amountMin || 30000),
-            rate: String(s.roiMin || 18),
-            mode: s.modes?.[0]?.value || 'monthly',
+            rate: String(s.roiMin || 24),
+            mode: s.modes?.[0]?.value || 'weekly',
           }));
         }
       })
       .catch(() => {});
+
+    setLoadingGroups(true);
+    api.employeeApp.groups()
+      .then((res) => {
+        setGroups(res.groups || []);
+        if (res.groups && res.groups.length > 0) {
+          setSelectedGroup(res.groups[0]);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoadingGroups(false));
   }, []);
 
   const fetchRequisitions = async () => {
@@ -106,7 +125,16 @@ export default function EmployeeLoanRequisition() {
     setSelectedMember(null);
     try {
       const res = await api.employeeApp.memberSynopsis(memberQuery.trim());
-      setSelectedMember(res);
+      const m = res.member || res;
+      setSelectedMember({
+        id: m.id || m._id,
+        code: m.code,
+        name: m.name,
+        mobile: m.mobile,
+        mobileVerified: m.isMobileVerified || m.mobileVerified,
+        branchName: m.branch?.name || m.branchName,
+        groupName: m.groupName,
+      });
     } catch (err) {
       setError(err.message || 'Member not found');
     } finally {
@@ -140,7 +168,7 @@ export default function EmployeeLoanRequisition() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!selectedMember) return setError('Please search and select a member first');
+    if (!selectedMember) return setError('Please select or search a borrower member first');
     if (!form.amount || Number(form.amount) <= 0) return setError('Please enter a valid loan amount');
 
     setSubmitting(true);
@@ -149,18 +177,30 @@ export default function EmployeeLoanRequisition() {
     try {
       const payload = {
         memberId: selectedMember.id || selectedMember._id,
+        borrowerName: selectedMember.name,
+        borrowerCode: selectedMember.code,
+        borrowerMobile: selectedMember.mobile,
         loanType,
+        kind: loanType === 'business_msme' ? 'business' : loanType,
+        groupCode: selectedGroup?.code,
+        groupName: selectedGroup?.name,
         branch: selectedBranch,
         schemeId: selectedScheme,
+        schemeName: schemes.find((s) => s.id === selectedScheme)?.name || 'Standard Loan Scheme',
         amount: Number(form.amount),
         mode: form.mode,
         term: Number(form.term),
         rate: Number(form.rate),
         purpose: form.purpose,
+        // Business specific
         businessName: form.businessName,
         businessType: form.businessType,
+        vintageYears: Number(form.vintageYears || 1),
+        monthlyTurnover: Number(form.monthlyTurnover || 0),
+        shopAddress: form.shopAddress,
         shopPhoto: form.shopPhoto,
         staffWithShopPhoto: form.staffWithShopPhoto,
+        // Product specific
         productName: form.productName,
         productQty: Number(form.productQty || 1),
       };
@@ -245,30 +285,110 @@ export default function EmployeeLoanRequisition() {
             </div>
           </div>
 
-          {/* Member Search Card */}
+          {/* Step 1: Member / Group Selection */}
           <div className="emp-card">
             <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: '0 0 10px 0', color: 'var(--emp-text)' }}>
               1. Select Borrower Member
             </h3>
 
+            {/* When Group Loan is selected, show Group Selector and its Members */}
+            {loanType === 'group' && (
+              <div style={{ marginBottom: 14, paddingBottom: 14, borderBottom: '1px solid var(--emp-border)' }}>
+                <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                  Assigned Group *
+                </label>
+                {loadingGroups ? (
+                  <div style={{ fontSize: '0.82rem', color: 'var(--emp-text-muted)', padding: '6px 0' }}>Loading assigned groups...</div>
+                ) : groups.length === 0 ? (
+                  <div style={{ fontSize: '0.82rem', color: 'var(--emp-danger)', padding: '6px 0' }}>
+                    No assigned groups found for your account. You can search any member below.
+                  </div>
+                ) : (
+                  <select
+                    className="emp-input"
+                    value={selectedGroup?.code || ''}
+                    onChange={(e) => {
+                      const g = groups.find((x) => x.code === e.target.value);
+                      setSelectedGroup(g || null);
+                      setSelectedMember(null);
+                    }}
+                  >
+                    <option value="">-- Choose Assigned Group --</option>
+                    {groups.map((g) => (
+                      <option key={g.code} value={g.code}>
+                        {g.code} - {g.name} ({g.meetingType}, {g.members?.length || 0} members)
+                      </option>
+                    ))}
+                  </select>
+                )}
+
+                {/* Group Member Chips */}
+                {selectedGroup && selectedGroup.members && selectedGroup.members.length > 0 && (
+                  <div style={{ marginTop: 10 }}>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', marginBottom: 6 }}>
+                      Tap a member from {selectedGroup.name} to select:
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {selectedGroup.members.map((m) => {
+                        const isChosen = selectedMember?.code === m.code;
+                        return (
+                          <button
+                            key={m.code}
+                            type="button"
+                            onClick={() => {
+                              setSelectedMember({
+                                id: m.id,
+                                code: m.code,
+                                name: m.name,
+                                mobile: m.mobile,
+                                branchName: selectedGroup.branchName,
+                                groupName: selectedGroup.name,
+                              });
+                            }}
+                            style={{
+                              padding: '6px 10px',
+                              borderRadius: 6,
+                              fontSize: '0.78rem',
+                              fontWeight: isChosen ? 700 : 500,
+                              border: isChosen ? '2px solid var(--emp-primary)' : '1px solid var(--emp-border)',
+                              background: isChosen ? 'var(--emp-primary)' : 'var(--emp-card-bg)',
+                              color: isChosen ? '#fff' : 'var(--emp-text)',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            {m.name} ({m.code})
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {!selectedMember ? (
-              <form onSubmit={handleSearchMember} style={{ display: 'flex', gap: 10 }}>
-                <input
-                  type="text"
-                  className="emp-input"
-                  placeholder="Enter Member Code, Phone, or Aadhaar..."
-                  value={memberQuery}
-                  onChange={(e) => setMemberQuery(e.target.value)}
-                  style={{ flex: 1 }}
-                />
-                <button type="submit" className="emp-btn-primary" style={{ padding: '0 16px' }} disabled={memberLoading}>
-                  {memberLoading ? '...' : 'Search'}
-                </button>
-              </form>
+              <div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', marginBottom: 6 }}>
+                  {loanType === 'group' ? 'Or search member by Code, Mobile, or Aadhaar:' : 'Search member by Code, Mobile, or Aadhaar:'}
+                </div>
+                <form onSubmit={handleSearchMember} style={{ display: 'flex', gap: 10 }}>
+                  <input
+                    type="text"
+                    className="emp-input"
+                    placeholder="Enter Member Code, Phone, or Aadhaar..."
+                    value={memberQuery}
+                    onChange={(e) => setMemberQuery(e.target.value)}
+                    style={{ flex: 1 }}
+                  />
+                  <button type="submit" className="emp-btn-primary" style={{ padding: '0 16px' }} disabled={memberLoading}>
+                    {memberLoading ? '...' : 'Search'}
+                  </button>
+                </form>
+              </div>
             ) : (
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--emp-card-bg)', border: '1px solid var(--emp-border)', padding: 12, borderRadius: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(37, 99, 235, 0.04)', border: '1px solid var(--emp-primary)', padding: 12, borderRadius: 8 }}>
                 <div>
-                  <div style={{ fontWeight: 700, fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ fontWeight: 700, fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: 6, color: 'var(--emp-text)' }}>
                     {selectedMember.name}
                     {selectedMember.mobileVerified && <span className="emp-verified-badge">✓</span>}
                   </div>
@@ -276,7 +396,7 @@ export default function EmployeeLoanRequisition() {
                     Code: <strong>{selectedMember.code}</strong> • Mobile: {selectedMember.mobile}
                   </div>
                   <div style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)', marginTop: 1 }}>
-                    Branch: {selectedMember.branchName || (typeof selectedMember.branch === 'object' ? (selectedMember.branch?.name || selectedMember.branch?.code) : selectedMember.branch)} • Group: {selectedMember.groupName || 'Individual'}
+                    Branch: {selectedMember.branchName || 'Assigned'} {selectedMember.groupName ? `• Group: ${selectedMember.groupName}` : ''}
                   </div>
                 </div>
                 <button
@@ -312,7 +432,7 @@ export default function EmployeeLoanRequisition() {
                     >
                       {schemes.map((s) => (
                         <option key={s.id} value={s.id}>
-                          {s.name} ({s.calculationType}, {s.roiMin}%)
+                          {s.name} ({s.calculationType || 'Flat'}, {s.roiMin}%)
                         </option>
                       ))}
                     </select>
@@ -377,7 +497,7 @@ export default function EmployeeLoanRequisition() {
                     <input
                       type="text"
                       className="emp-input"
-                      placeholder="e.g. Livestock, Grocery store inventory, Sewing machine"
+                      placeholder="e.g. Livestock, Grocery store inventory, Working capital"
                       value={form.purpose}
                       onChange={(e) => setForm({ ...form, purpose: e.target.value })}
                     />
@@ -385,12 +505,12 @@ export default function EmployeeLoanRequisition() {
                 </div>
               </div>
 
-              {/* Conditional: Business / MSME Loan Specific Section */}
+              {/* Conditional: Business / MSME Loan Specific Section (Matched with Software) */}
               {loanType === 'business_msme' && (
                 <div className="emp-card">
                   <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: '0 0 12px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
                     <Icon name="building" size={18} style={{ color: 'var(--emp-primary)' }} />
-                    <span>Business &amp; Shop Verification</span>
+                    <span>Business &amp; Enterprise Verification (Software Aligned)</span>
                   </h3>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -401,11 +521,73 @@ export default function EmployeeLoanRequisition() {
                       <input
                         type="text"
                         className="emp-input"
-                        placeholder="e.g. Sharma Kirana Store"
+                        placeholder="e.g. Sharma Kirana & General Store"
                         value={form.businessName}
                         onChange={(e) => setForm({ ...form, businessName: e.target.value })}
                         required
                       />
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                      <div>
+                        <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                          Nature of Business
+                        </label>
+                        <select
+                          className="emp-input"
+                          value={form.businessType}
+                          onChange={(e) => setForm({ ...form, businessType: e.target.value })}
+                        >
+                          <option value="Retail / General Store">Retail / General Store</option>
+                          <option value="Dairy / Animal Husbandry">Dairy / Animal Husbandry</option>
+                          <option value="Garments / Tailoring">Garments / Tailoring</option>
+                          <option value="Manufacturing / Handicraft">Manufacturing / Handicraft</option>
+                          <option value="Service / Repair">Service / Repair</option>
+                          <option value="Wholesale / Trading">Wholesale / Trading</option>
+                          <option value="Other">Other Enterprise</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                          Years in Business (Vintage)
+                        </label>
+                        <input
+                          type="number"
+                          className="emp-input"
+                          placeholder="e.g. 3"
+                          value={form.vintageYears}
+                          onChange={(e) => setForm({ ...form, vintageYears: e.target.value })}
+                          min="0"
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                      <div>
+                        <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                          Monthly Sales / Turnover (₹)
+                        </label>
+                        <input
+                          type="number"
+                          className="emp-input"
+                          placeholder="e.g. 60000"
+                          value={form.monthlyTurnover}
+                          onChange={(e) => setForm({ ...form, monthlyTurnover: e.target.value })}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                          Shop / Work Address
+                        </label>
+                        <input
+                          type="text"
+                          className="emp-input"
+                          placeholder="e.g. Main Market, Ward 4"
+                          value={form.shopAddress}
+                          onChange={(e) => setForm({ ...form, shopAddress: e.target.value })}
+                        />
+                      </div>
                     </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
@@ -478,6 +660,7 @@ export default function EmployeeLoanRequisition() {
         </>
       )}
 
+      {/* Recent Requisitions List (Fixed to display Form ID, borrower details, amount and status) */}
       {activeTab === 'list' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {listLoading ? (
@@ -491,26 +674,39 @@ export default function EmployeeLoanRequisition() {
             </div>
           ) : (
             requisitions.map((r) => (
-              <div key={r.id || r._id} className="emp-card">
+              <div key={r.id || r._id} className="emp-card" style={{ padding: '14px 16px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div>
-                    <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>{r.memberName}</div>
-                    <div style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
-                      Code: {r.memberCode} • Type: <strong style={{ textTransform: 'capitalize' }}>{r.loanType?.replace(/_/g, ' ')}</strong>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--emp-text)' }}>
+                        {r.borrowerName || r.borrower?.name || 'Borrower'}
+                      </span>
+                      <span className="emp-badge emp-badge-info" style={{ fontSize: '0.7rem' }}>
+                        {r.formId || 'REQ'}
+                      </span>
                     </div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
-                      Req Date: {new Date(r.createdAt).toLocaleDateString()}
+                    <div style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', marginTop: 3 }}>
+                      Code: <strong>{r.borrowerCode || r.borrower?.code || 'N/A'}</strong> • Type:{' '}
+                      <strong style={{ textTransform: 'capitalize' }}>{(r.loanType || r.kind || 'Loan').replace(/_/g, ' ')}</strong>
+                    </div>
+                    {r.groupName && (
+                      <div style={{ fontSize: '0.75rem', color: 'var(--emp-primary)', marginTop: 2, fontWeight: 600 }}>
+                        Group: {r.groupName} ({r.groupCode})
+                      </div>
+                    )}
+                    <div style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
+                      Scheme: {r.schemeName} • {r.term} {r.mode} • Date: {r.createdAt ? new Date(r.createdAt).toLocaleDateString() : 'N/A'}
                     </div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontWeight: 800, fontSize: '1.05rem', color: 'var(--emp-primary)' }}>
+                    <div style={{ fontWeight: 800, fontSize: '1.1rem', color: 'var(--emp-primary)' }}>
                       ₹{Number(r.amount || 0).toLocaleString('en-IN')}
                     </div>
                     <span
                       className={`emp-badge ${
                         r.status === 'approved' ? 'emp-badge-success' : r.status === 'rejected' ? 'emp-badge-danger' : 'emp-badge-warning'
                       }`}
-                      style={{ marginTop: 4 }}
+                      style={{ marginTop: 6, display: 'inline-block', textTransform: 'capitalize' }}
                     >
                       {r.status || 'Pending'}
                     </span>

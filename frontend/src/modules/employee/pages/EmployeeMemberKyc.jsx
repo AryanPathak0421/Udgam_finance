@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '../../../api/client.js';
 import { useEmployeeApp } from '../EmployeeAppContext.jsx';
 import { compressImage } from '../../../utils/image.js';
@@ -11,26 +11,49 @@ export default function EmployeeMemberKyc() {
   const [member, setMember] = useState(null);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+  const [recentMembers, setRecentMembers] = useState([]);
+  const [loadingRecent, setLoadingRecent] = useState(false);
 
   // Re-upload state
   const [reuploadingDoc, setReuploadingDoc] = useState(null);
   const [reuploadBusy, setReuploadBusy] = useState(false);
 
-  const handleSearch = async (e) => {
-    e?.preventDefault();
-    if (!query.trim()) return;
+  const fetchRecent = async () => {
+    setLoadingRecent(true);
+    try {
+      const res = await api.employeeApp.recentMembers();
+      setRecentMembers(res.items || []);
+    } catch {
+      setRecentMembers([]);
+    } finally {
+      setLoadingRecent(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchRecent();
+  }, []);
+
+  const loadMemberKyc = async (codeOrId) => {
+    const q = String(codeOrId || '').trim();
+    if (!q) return;
     setLoading(true);
     setError('');
     setSuccessMsg('');
     try {
-      const data = await api.employeeApp.memberKyc(query.trim());
-      setMember(data);
+      const data = await api.employeeApp.memberKyc(q);
+      setMember(data.member || data);
     } catch (err) {
       setError(err.message || 'Member KYC not found');
       setMember(null);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSearch = (e) => {
+    e?.preventDefault();
+    loadMemberKyc(query);
   };
 
   const handleReupload = async (docType, file) => {
@@ -42,12 +65,14 @@ export default function EmployeeMemberKyc() {
       const fileData = await compressImage(file, { maxWidth: 1200, maxHeight: 1200, quality: 0.8 });
       await api.employeeApp.reuploadDoc(member.id || member._id, {
         docType,
+        docField: docType,
         fileData,
       });
       setSuccessMsg(`Document (${docType}) re-uploaded successfully! Status changed to Pending Review.`);
       setReuploadingDoc(null);
       // Refresh kyc
-      handleSearch();
+      loadMemberKyc(member.code || member.id || member._id);
+      fetchRecent();
     } catch (err) {
       setError(err.message || 'Failed to re-upload document');
     } finally {
@@ -78,19 +103,91 @@ export default function EmployeeMemberKyc() {
       </div>
 
       {error && (
-        <div style={{ background: '#fee2e2', color: '#991b1b', padding: '12px 14px', borderRadius: 8, fontSize: '0.85rem' }}>
+        <div style={{ background: '#fee2e2', color: '#991b1b', padding: '12px 14px', borderRadius: 8, fontSize: '0.85rem', marginBottom: 12 }}>
           {error}
         </div>
       )}
 
       {successMsg && (
-        <div style={{ background: '#dcfce7', color: '#166534', padding: '12px 14px', borderRadius: 8, fontSize: '0.85rem' }}>
+        <div style={{ background: '#dcfce7', color: '#166534', padding: '12px 14px', borderRadius: 8, fontSize: '0.85rem', marginBottom: 12 }}>
           {successMsg}
+        </div>
+      )}
+
+      {/* When no member selected, show list of recently registered members */}
+      {!member && (
+        <div className="emp-card">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <h3 style={{ fontSize: '0.95rem', fontWeight: 700, margin: 0, color: 'var(--emp-text)' }}>
+              Recent Members ({recentMembers.length})
+            </h3>
+            <span style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)' }}>Tap to view KYC status</span>
+          </div>
+
+          {loadingRecent ? (
+            <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--emp-text-muted)' }}>Loading members...</div>
+          ) : recentMembers.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--emp-text-muted)', fontSize: '0.85rem' }}>
+              No members registered yet. Search above to check any member.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {recentMembers.map((m) => (
+                <div
+                  key={m.id || m.code}
+                  onClick={() => {
+                    setQuery(m.code);
+                    loadMemberKyc(m.code);
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '10px 12px',
+                    borderRadius: 8,
+                    border: '1px solid var(--emp-border)',
+                    cursor: 'pointer',
+                    background: 'var(--emp-card-bg)',
+                  }}
+                >
+                  <div>
+                    <strong style={{ fontSize: '0.9rem', color: 'var(--emp-text)', display: 'block' }}>{m.name}</strong>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)' }}>
+                      Code: {m.code} • {m.mobile}
+                    </span>
+                  </div>
+                  <div>
+                    {m.kycRejected ? (
+                      <span className="emp-badge emp-badge-danger" style={{ fontSize: '0.72rem' }}>Rejected</span>
+                    ) : m.kycPending ? (
+                      <span className="emp-badge emp-badge-warning" style={{ fontSize: '0.72rem' }}>Pending</span>
+                    ) : (
+                      <span className="emp-badge emp-badge-success" style={{ fontSize: '0.72rem' }}>Verified</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
       {member && (
         <>
+          <div style={{ marginBottom: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <button
+              type="button"
+              className="emp-btn-secondary"
+              style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+              onClick={() => { setMember(null); setQuery(''); }}
+            >
+              ← Back to Members
+            </button>
+            <span style={{ fontSize: '0.8rem', color: 'var(--emp-text-muted)' }}>
+              KYC Document Audit
+            </span>
+          </div>
+
           {/* Member Profile Overview Card */}
           <div className="emp-card">
             <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>

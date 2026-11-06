@@ -11,15 +11,16 @@ const LOAN_TYPES = [
 ];
 
 const MODES = [
-  { id: 'daily', label: 'Daily' },
+  { id: 'all', label: 'All Modes' },
   { id: 'weekly', label: 'Weekly' },
   { id: 'monthly', label: 'Monthly' },
+  { id: 'daily', label: 'Daily' },
 ];
 
 export default function EmployeeEmiPayment() {
   const { t } = useEmployeeApp();
   const [loanType, setLoanType] = useState('group');
-  const [mode, setMode] = useState('daily');
+  const [mode, setMode] = useState('all');
   const today = new Date().toISOString().split('T')[0];
   const [date, setDate] = useState(today);
 
@@ -233,6 +234,8 @@ export default function EmployeeEmiPayment() {
             onClick={() => {
               setLoanType(lt.id);
               setActiveGroup(null);
+              setCollectionMap({});
+              setMessage({ text: '', type: '' });
             }}
           >
             {lt.label}

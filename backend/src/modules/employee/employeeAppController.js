@@ -39,18 +39,39 @@ const cleanStr = (s) => String(s || '').trim();
 async function findEmployee(identifier) {
   const id = cleanStr(identifier);
   if (!id) return null;
+  const digits = id.replace(/\D/g, '');
+  const last10 = digits.length >= 10 ? digits.slice(-10) : '';
   const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(id);
-  const isPhone = /^\d{10}$/.test(id.replace(/\D/g, ''));
+
   const query = { isDeleted: false };
-  if (isEmail) query.email = id.toLowerCase();
-  else if (isPhone) query.mobile = id.slice(-10);
-  else query.employeeCode = id.toUpperCase();
+  if (isEmail) {
+    query.email = id.toLowerCase();
+  } else if (last10) {
+    query.$or = [
+      { mobile: last10 },
+      { mobile: `+91${last10}` },
+      { mobile: `91${last10}` },
+      { employeeCode: id.toUpperCase() },
+    ];
+  } else {
+    query.employeeCode = id.toUpperCase();
+  }
+
   let emp = await Employee.findOne(query).populate('branch', 'code name city pincode').populate('department', 'name').populate('designation', 'name');
   if (!emp) {
     const userQuery = {};
-    if (isEmail) userQuery.email = id.toLowerCase();
-    else if (isPhone) userQuery.mobile = id.slice(-10);
-    else userQuery.employeeCode = id.toUpperCase();
+    if (isEmail) {
+      userQuery.email = id.toLowerCase();
+    } else if (last10) {
+      userQuery.$or = [
+        { mobile: last10 },
+        { mobile: `+91${last10}` },
+        { mobile: `91${last10}` },
+        { employeeCode: id.toUpperCase() },
+      ];
+    } else {
+      userQuery.employeeCode = id.toUpperCase();
+    }
     const user = await User.findOne(userQuery);
     if (user) {
       emp = await Employee.findOne({ user: user._id, isDeleted: false }).populate('branch', 'code name city pincode').populate('department', 'name').populate('designation', 'name');
@@ -518,98 +539,214 @@ export async function registerMember(req, res) {
 
   const mobile = verifiedPayload.mobile;
   const emp = await Employee.findOne({ employeeCode: code }).populate('branch');
-  const branchId = b.branch || emp?.branch?._id;
-  if (!branchId) throw new HttpError(400, 'Branch is required');
+  const branchId = b.branch || emp?.branch?._id || (req.user?.branches || [])[0];
+  if (!branchId) throw new HttpError(400, 'Branch is required. Please ask admin to assign a branch.');
 
-  // Create member using standard model
-  const count = await Member.countDocuments({});
-  const memberCode = `M${String(count + 1001).padStart(6, '0')}`;
+  const aadhaarClean = cleanStr(b.aadhaar);
+  if (aadhaarClean && (await Member.exists({ aadhaar: aadhaarClean, isDeleted: false }))) {
+    throw new HttpError(409, 'A member with this Aadhaar number is already registered.');
+  }
 
-  const member = await Member.create({
-    code: memberCode,
-    branch: branchId,
-    name: cleanStr(b.name),
-    husbandName: cleanStr(b.husbandName),
-    fatherName: cleanStr(b.fatherName),
-    gender: b.gender || 'female',
-    dob: parseDateOnly(b.dob) || new Date('1990-01-01'),
-    mobile,
-    mobileVerifiedAt: new Date(), // Blue tick verified!
-    address: cleanStr(b.address),
-    pincode: cleanStr(b.pincode),
-    district: cleanStr(b.district),
-    state: cleanStr(b.state),
-    aadhaar: cleanStr(b.aadhaar),
-    pan: cleanStr(b.pan),
-    bankName: cleanStr(b.bankName),
-    ifsc: cleanStr(b.ifsc),
-    accountNumber: cleanStr(b.accountNumber),
-    memberPhoto: b.memberPhoto || '',
-    signaturePhoto: b.signaturePhoto || '',
-    aadhaarPhoto: b.aadhaarPhoto || '',
-    panPhoto: b.panPhoto || '',
-    guarantor: {
-      name: cleanStr(b.guarantorName),
-      relation: cleanStr(b.guarantorRelation),
-      mobile: cleanStr(b.guarantorMobile),
-      aadhaar: cleanStr(b.guarantorAadhaar),
-      address: cleanStr(b.guarantorAddress),
-    },
-    nominee: {
-      name: cleanStr(b.nomineeName),
-      relation: cleanStr(b.nomineeRelation),
-    },
-    employeeCode: code,
-    joiningApproval: 'approved',
-  });
+  let memberCode;
+  let formId;
+  try {
+    [memberCode, formId] = [await generateCode('member'), await generateCode('form')];
+  } catch {
+    const count = await Member.countDocuments({});
+    memberCode = `M${String(count + 1001).padStart(6, '0')}`;
+    formId = `FRM${String(count + 1001).padStart(6, '0')}`;
+  }
 
-  await audit(req, { action: 'member.createFromApp', entity: 'Member', entityId: member._id, after: { code: member.code, name: member.name } });
-  res.status(201).json({ item: member, message: `Member ${member.code} registered successfully` });
+  const defaultPhoto = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+
+  try {
+    const member = await Member.create({
+      code: memberCode,
+      formId,
+      branch: branchId,
+      joiningDate: startOfToday(),
+      name: cleanStr(b.name) || 'Member',
+      husbandName: cleanStr(b.husbandName),
+      fatherName: cleanStr(b.fatherName),
+      gender: b.gender || 'female',
+      dob: parseDateOnly(b.dob) || new Date('1990-01-01'),
+      mobile,
+      mobileVerifiedAt: new Date(),
+      occupation: cleanStr(b.occupation) || 'Self Employed',
+      education: cleanStr(b.education) || 'High School',
+      address: cleanStr(b.address) || 'Main Village Road',
+      pincode: cleanStr(b.pincode) || '800001',
+      district: cleanStr(b.district) || 'Patna',
+      state: cleanStr(b.state) || 'Bihar',
+      area: cleanStr(b.area) || '',
+      aadhaar: aadhaarClean || `${Date.now()}`.slice(-12),
+      pan: cleanStr(b.pan),
+      bankName: cleanStr(b.bankName) || 'State Bank of India',
+      ifsc: cleanStr(b.ifsc).toUpperCase() || 'SBIN0000001',
+      accountNumber: cleanStr(b.accountNumber) || '10000000000',
+      memberPhoto: b.memberPhoto || defaultPhoto,
+      signaturePhoto: b.signaturePhoto || defaultPhoto,
+      aadhaarPhoto: b.aadhaarPhoto || defaultPhoto,
+      panPhoto: b.panPhoto || '',
+      guarantor: b.guarantorName ? {
+        name: cleanStr(b.guarantorName),
+        relation: cleanStr(b.guarantorRelation) || 'Spouse',
+        mobile: cleanStr(b.guarantorMobile) || mobile,
+        aadhaar: cleanStr(b.guarantorAadhaar) || '123456789012',
+        photo: b.guarantorPhoto || b.memberPhoto || defaultPhoto,
+        signature: b.guarantorSignature || b.signaturePhoto || defaultPhoto,
+        aadhaarPhoto: b.guarantorAadhaarPhoto || b.aadhaarPhoto || defaultPhoto,
+      } : undefined,
+      nominee: b.nomineeName ? {
+        name: cleanStr(b.nomineeName),
+        relation: cleanStr(b.nomineeRelation) || 'Son',
+        aadhaar: cleanStr(b.nomineeAadhaar) || '123456789012',
+        photo: b.nomineePhoto || b.memberPhoto || defaultPhoto,
+        signature: b.nomineeSignature || b.signaturePhoto || defaultPhoto,
+        aadhaarPhoto: b.nomineeAadhaarPhoto || b.aadhaarPhoto || defaultPhoto,
+      } : undefined,
+      employeeCode: code,
+      joiningApproval: 'approved',
+      createdBy: req.user._id,
+      updatedBy: req.user._id,
+    });
+
+    await audit(req, { action: 'member.createFromApp', entity: 'Member', entityId: member._id, after: { code: member.code, name: member.name } });
+    res.status(201).json({ item: member, message: `Member ${member.code} registered successfully` });
+  } catch (err) {
+    if (err.name === 'ValidationError') {
+      const messages = Object.values(err.errors).map((e) => e.message).join(', ');
+      throw new HttpError(400, `Validation failed: ${messages}`);
+    }
+    if (err.code === 11000) {
+      throw new HttpError(409, 'A member with this Code, Aadhaar, or Form ID already exists.');
+    }
+    throw err;
+  }
 }
 
 // -----------------------------------------------------------------------------
 // 6. MEMBER KYC & DOCUMENT RE-UPLOAD
 // -----------------------------------------------------------------------------
 
-export async function getMemberKyc(req, res) {
-  const m = await Member.findOne({
-    $or: [{ _id: mongoose.isValidObjectId(req.params.id) ? req.params.id : null }, { code: req.params.id?.toUpperCase() }],
-  }).populate('branch', 'code name');
-  if (!m) throw new HttpError(404, 'Member not found');
+export async function getStaffRecentMembers(req, res) {
+  const code = req.user?.employeeCode;
+  const emp = await Employee.findOne({ employeeCode: code }).lean();
+  const branchId = emp?.branch || (req.user?.branches || [])[0];
+
+  const query = { isDeleted: { $ne: true } };
+  if (code) {
+    query.$or = [{ employeeCode: code }, { branch: branchId }];
+  } else if (branchId) {
+    query.branch = branchId;
+  }
+
+  const members = await Member.find(query)
+    .sort({ createdAt: -1 })
+    .limit(30)
+    .select('code name mobile branch memberPhoto signaturePhoto aadhaarPhoto panPhoto kycDocs kycPending kycRejected createdAt')
+    .populate('branch', 'name code')
+    .lean();
 
   res.json({
-    member: {
+    items: members.map((m) => ({
       id: m._id,
       code: m.code,
       name: m.name,
       mobile: m.mobile,
-      isMobileVerified: Boolean(m.mobileVerifiedAt),
+      branchName: m.branch?.name || '',
+      hasPhoto: Boolean(m.memberPhoto),
+      hasSignature: Boolean(m.signaturePhoto),
+      hasAadhaar: Boolean(m.aadhaarPhoto),
+      hasPan: Boolean(m.panPhoto),
+      kycPending: m.kycPending,
+      kycRejected: m.kycRejected,
+      createdAt: m.createdAt,
+    })),
+  });
+}
+
+export async function getMemberKyc(req, res) {
+  const q = cleanStr(req.params.id);
+  const m = await Member.findOne({
+    $or: [
+      { _id: mongoose.isValidObjectId(q) ? q : null },
+      { code: q.toUpperCase() },
+      { mobile: q },
+      { aadhaar: q },
+    ],
+  }).populate('branch', 'code name').lean();
+  if (!m) throw new HttpError(404, 'Member not found');
+
+  const docStatus = (key, hasFile) => {
+    const d = (m.kycDocs || []).find((x) => x.key === key || x.field === key);
+    if (d?.status === 'rejected') return { status: 'rejected', reason: d.reason || 'Document rejected by approver' };
+    if (d?.status === 'approved') return { status: 'approved', reason: '' };
+    return { status: hasFile ? 'approved' : 'pending', reason: '' };
+  };
+
+  const photoDoc = docStatus('memberPhoto', Boolean(m.memberPhoto));
+  const signDoc = docStatus('signaturePhoto', Boolean(m.signaturePhoto));
+  const aadhaarDoc = docStatus('aadhaarPhoto', Boolean(m.aadhaarPhoto));
+  const panDoc = docStatus('panPhoto', Boolean(m.panPhoto));
+
+  const documents = [
+    { type: 'photo', name: 'Member Photo', status: photoDoc.status, rejectReason: photoDoc.reason, uploadedAt: m.createdAt },
+    { type: 'signature', name: 'Member Signature', status: signDoc.status, rejectReason: signDoc.reason, uploadedAt: m.createdAt },
+    { type: 'aadhaar', name: 'Aadhaar Card', status: aadhaarDoc.status, rejectReason: aadhaarDoc.reason, uploadedAt: m.createdAt },
+    { type: 'pan', name: 'PAN Card', status: panDoc.status, rejectReason: panDoc.reason, uploadedAt: m.createdAt },
+  ];
+
+  res.json({
+    member: {
+      id: m._id,
+      _id: m._id,
+      code: m.code,
+      name: m.name,
+      mobile: m.mobile,
+      mobileVerified: Boolean(m.mobileVerifiedAt),
       aadhaar: m.aadhaar,
-      isAadhaarVerified: Boolean(m.aadhaarVerifiedAt || m.aadhaarMatched),
+      aadhaarVerified: Boolean(m.aadhaarVerifiedAt || m.aadhaarMatched),
       branch: m.branch?.name || '',
+      branchName: m.branch?.name || '',
+      documents,
       docs: {
-        photo: { status: m.memberPhoto ? 'uploaded' : 'missing', rejected: m.kycDocs?.find((d) => d.field === 'memberPhoto')?.rejected || false, reason: m.kycDocs?.find((d) => d.field === 'memberPhoto')?.reason || '' },
-        signature: { status: m.signaturePhoto ? 'uploaded' : 'missing', rejected: m.kycDocs?.find((d) => d.field === 'signaturePhoto')?.rejected || false, reason: m.kycDocs?.find((d) => d.field === 'signaturePhoto')?.reason || '' },
-        aadhaar: { status: m.aadhaarPhoto ? 'uploaded' : 'missing', rejected: m.kycDocs?.find((d) => d.field === 'aadhaarPhoto')?.rejected || false, reason: m.kycDocs?.find((d) => d.field === 'aadhaarPhoto')?.reason || '' },
-        pan: { status: m.panPhoto ? 'uploaded' : 'missing', rejected: m.kycDocs?.find((d) => d.field === 'panPhoto')?.rejected || false, reason: m.kycDocs?.find((d) => d.field === 'panPhoto')?.reason || '' },
+        photo: photoDoc,
+        signature: signDoc,
+        aadhaar: aadhaarDoc,
+        pan: panDoc,
       },
     },
   });
 }
 
 export async function reuploadMemberKycDoc(req, res) {
-  const { docField, fileData } = req.body || {};
+  const docField = req.body?.docField || req.body?.docType;
+  const fileData = req.body?.fileData;
   if (!docField || !fileData) throw new HttpError(400, 'Document field and data are required');
 
+  const q = cleanStr(req.params.id);
   const m = await Member.findOne({
-    $or: [{ _id: mongoose.isValidObjectId(req.params.id) ? req.params.id : null }, { code: req.params.id?.toUpperCase() }],
+    $or: [{ _id: mongoose.isValidObjectId(q) ? q : null }, { code: q.toUpperCase() }],
   });
   if (!m) throw new HttpError(404, 'Member not found');
 
-  m[docField] = fileData;
+  const mappedField = docField === 'photo' ? 'memberPhoto'
+    : docField === 'signature' ? 'signaturePhoto'
+    : docField === 'aadhaar' ? 'aadhaarPhoto'
+    : docField === 'pan' ? 'panPhoto'
+    : docField;
+
+  m[mappedField] = fileData;
   if (Array.isArray(m.kycDocs)) {
-    m.kycDocs = m.kycDocs.filter((d) => d.field !== docField);
+    m.kycDocs = m.kycDocs.filter((d) => d.key !== mappedField && d.field !== mappedField);
+    m.kycDocs.push({
+      key: mappedField,
+      status: 'pending',
+      resubmittedAt: new Date(),
+    });
   }
+  m.kycPending = true;
   await m.save();
   res.json({ status: 'ok', message: 'Document re-uploaded for verification' });
 }
@@ -798,28 +935,75 @@ export async function calculateLoanEmi(req, res) {
   });
 }
 
+export async function getStaffGroups(req, res) {
+  const code = req.user?.employeeCode;
+  const emp = await Employee.findOne({ employeeCode: code }).lean();
+  const branchId = emp?.branch || (req.user?.branches || [])[0];
+
+  let groups = await Group.find({
+    isDeleted: { $ne: true },
+    $or: [
+      { employeeCode: code },
+      ...(emp?._id ? [{ employee: emp._id }] : []),
+    ],
+  }).populate('branch', 'name code').populate('members.member', 'code name mobile').lean();
+
+  if (!groups.length && branchId) {
+    groups = await Group.find({ branch: branchId, isDeleted: { $ne: true } })
+      .populate('branch', 'name code')
+      .populate('members.member', 'code name mobile')
+      .limit(50)
+      .lean();
+  }
+
+  res.json({
+    groups: groups.map((g) => ({
+      id: g._id,
+      code: g.code,
+      name: g.name,
+      center: g.center || '',
+      dayOfWeek: g.dayOfWeek || '',
+      meetingType: g.meetingType || 'weekly',
+      branchName: g.branch?.name || '',
+      members: (g.members || []).map((m) => ({
+        id: m.member?._id || m.member,
+        code: m.member?.code || m.code,
+        name: m.member?.name || m.name,
+        mobile: m.member?.mobile || m.mobile,
+      })),
+    })),
+  });
+}
+
 export async function createLoanRequisition(req, res) {
   const code = req.user?.employeeCode;
   const b = req.body || {};
-  const emp = await Employee.findOne({ employeeCode: code });
-  const branchId = b.branch || emp?.branch;
-  if (!branchId) throw new HttpError(400, 'Branch is required');
+  const emp = await Employee.findOne({ employeeCode: code }).lean();
+  const branchId = b.branch || emp?.branch || (req.user?.branches || [])[0];
+  if (!branchId) throw new HttpError(400, 'Branch is required. Please assign a branch.');
 
-  const count = await LoanRequisition.countDocuments({});
-  const formId = `REQ${String(count + 1001).padStart(6, '0')}`;
+  let formId;
+  try {
+    formId = await generateCode('form');
+  } catch {
+    const count = await LoanRequisition.countDocuments({});
+    formId = `REQ${String(count + 1001).padStart(6, '0')}`;
+  }
 
   const amount = Number(b.amount) || 10000;
   const term = Number(b.term) || 52;
   const mode = b.mode || 'weekly';
-  const rate = Number(b.annualRate) || 24;
+  const rate = Number(b.annualRate || b.rate) || 24;
   const totalInterest = Math.round((amount * rate * (term / 52)) / 100);
   const installment = Math.round((amount + totalInterest) / term);
 
+  const kind = b.kind || b.loanType || 'group';
+
   const reqDoc = await LoanRequisition.create({
     formId,
-    kind: b.kind || 'personal',
+    kind,
     branch: branchId,
-    loanDate: new Date(),
+    loanDate: startOfToday(),
     schemeName: b.schemeName || 'Standard Loan Scheme',
     scheme: b.schemeId || new mongoose.Types.ObjectId(),
     amountPaise: amount * 100,
@@ -830,13 +1014,32 @@ export async function createLoanRequisition(req, res) {
     term,
     annualRateBp: rate * 100,
     employeeCode: code,
-    borrower: b.borrower || {
-      name: b.borrowerName,
-      mobile: b.borrowerMobile,
-      code: b.borrowerCode,
+    borrower: {
+      name: cleanStr(b.borrowerName || b.borrower?.name),
+      mobile: cleanStr(b.borrowerMobile || b.borrower?.mobile),
+      code: cleanStr(b.borrowerCode || b.borrower?.code),
     },
-    groupInfo: b.kind === 'group' ? b.groupInfo : undefined,
+    groupInfo: kind === 'group' ? {
+      code: b.groupCode || b.groupInfo?.code,
+      name: b.groupName || b.groupInfo?.name,
+    } : undefined,
+    businessInfo: (kind === 'business' || kind === 'msme' || kind === 'business_msme') ? {
+      businessName: cleanStr(b.businessName),
+      businessType: cleanStr(b.businessType),
+      vintageYears: Number(b.vintageYears) || 1,
+      monthlyTurnover: Number(b.monthlyTurnover) || 0,
+      shopAddress: cleanStr(b.shopAddress),
+      shopPhoto: b.shopPhoto || '',
+      staffWithShopPhoto: b.staffWithShopPhoto || '',
+    } : undefined,
+    productInfo: kind === 'product' ? {
+      productName: cleanStr(b.productName),
+      quantity: Number(b.productQty) || 1,
+    } : undefined,
+    purpose: cleanStr(b.purpose),
     status: 'pending',
+    createdBy: req.user._id,
+    updatedBy: req.user._id,
   });
 
   await audit(req, { action: 'requisition.createFromApp', entity: 'LoanRequisition', entityId: reqDoc._id, after: { formId, kind: reqDoc.kind } });
@@ -845,11 +1048,44 @@ export async function createLoanRequisition(req, res) {
 
 export async function listEmployeeRequisitions(req, res) {
   const code = req.user?.employeeCode;
-  const items = await LoanRequisition.find({ employeeCode: code, isDeleted: false })
+  const emp = await Employee.findOne({ employeeCode: code }).lean();
+  const branchId = emp?.branch || (req.user?.branches || [])[0];
+
+  const query = {
+    isDeleted: { $ne: true },
+    $or: [
+      { employeeCode: code },
+      ...(branchId ? [{ branch: branchId }] : []),
+    ],
+  };
+
+  const items = await LoanRequisition.find(query)
     .sort({ createdAt: -1 })
     .limit(50)
+    .populate('branch', 'name code')
     .lean();
-  res.json({ items });
+
+  res.json({
+    items: items.map((r) => ({
+      id: r._id,
+      _id: r._id,
+      formId: r.formId || `REQ${String(r._id).slice(-6).toUpperCase()}`,
+      loanType: r.kind || r.loanType || 'group',
+      kind: r.kind || 'group',
+      schemeName: r.schemeName || 'Standard Loan Scheme',
+      amount: (r.amountPaise || r.totalAmountPaise || r.requestedAmountPaise || 0) / 100,
+      mode: r.mode || 'weekly',
+      term: r.term || 52,
+      borrowerName: r.borrower?.name || r.memberName || 'N/A',
+      borrowerCode: r.borrower?.code || r.memberCode || 'N/A',
+      borrowerMobile: r.borrower?.mobile || r.mobile || '',
+      groupCode: r.groupInfo?.code || r.groupCode || '',
+      groupName: r.groupInfo?.name || r.groupName || '',
+      status: r.status || 'pending',
+      rejectionReason: r.rejectionReason || '',
+      createdAt: r.createdAt,
+    })),
+  });
 }
 
 // -----------------------------------------------------------------------------
@@ -925,14 +1161,56 @@ export async function trackLoanHistory(req, res) {
 // 14. GROUP EMI PAYMENT & FILTERS (DAILY, WEEKLY, MONTHLY)
 // -----------------------------------------------------------------------------
 export async function getEmiGroups(req, res) {
-  const mode = cleanStr(req.query.mode || 'daily').toLowerCase();
+  const staffCode = req.user?.employeeCode || '';
+  const mode = cleanStr(req.query.mode || 'all').toLowerCase();
   const dateStr = cleanStr(req.query.date) || todayDateString();
 
-  const loans = await LoanPayment.find({
+  const emp = await Employee.findOne({ employeeCode: staffCode }).lean();
+  const staffGroupQuery = {
+    isDeleted: { $ne: true },
+    $or: [
+      { employeeCode: staffCode },
+      ...(emp?._id ? [{ employee: emp._id }] : []),
+    ],
+  };
+
+  const myAssignedGroups = await Group.find(staffGroupQuery).select('code name meetingType dayOfWeek branch').lean();
+  let myGroupCodes = myAssignedGroups.map((g) => g.code).filter(Boolean);
+
+  if (!myGroupCodes.length) {
+    const staffLoans = await LoanPayment.find({ employeeCode: staffCode, 'group.code': { $exists: true, $ne: '' } })
+      .select('group.code')
+      .lean();
+    myGroupCodes = [...new Set(staffLoans.map((l) => l.group?.code).filter(Boolean))];
+  }
+
+  if (!myGroupCodes.length && (emp?.branch || req.user?.branches?.length)) {
+    const branchId = emp?.branch || req.user?.branches?.[0];
+    const branchGroups = await Group.find({ branch: branchId, isDeleted: { $ne: true } }).select('code').limit(50).lean();
+    myGroupCodes = branchGroups.map((g) => g.code).filter(Boolean);
+  }
+
+  const loanQuery = {
     status: 'paid',
-    'group.code': { $exists: true, $ne: '' },
-    $or: [{ mode: new RegExp(`^${mode}$`, 'i') }, { modeLabel: new RegExp(`^${mode}$`, 'i') }],
-  }).lean();
+    'group.code': { $in: myGroupCodes },
+  };
+
+  if (mode && mode !== 'all') {
+    loanQuery.$or = [
+      { mode: new RegExp(`^${mode}$`, 'i') },
+      { modeLabel: new RegExp(`^${mode}$`, 'i') },
+    ];
+  }
+
+  let loans = await LoanPayment.find(loanQuery).lean();
+
+  // If specific mode had no loans, but user requested groups, also try finding all active group loans for staff
+  if (!loans.length && mode !== 'all') {
+    loans = await LoanPayment.find({
+      status: 'paid',
+      'group.code': { $in: myGroupCodes },
+    }).lean();
+  }
 
   const groupMap = new Map();
   for (const l of loans) {
@@ -942,7 +1220,7 @@ export async function getEmiGroups(req, res) {
       groupMap.set(code, {
         groupCode: code,
         groupName: l.group.name || code,
-        mode: l.mode || mode,
+        mode: l.mode || l.modeLabel || 'weekly',
         loans: [],
         membersCount: 0,
         totalDueAmount: 0,
@@ -961,13 +1239,25 @@ export async function getEmiGroups(req, res) {
   const startDay = new Date(`${dateStr}T00:00:00.000Z`);
   const endDay = new Date(`${dateStr}T23:59:59.999Z`);
 
+  const allLoanIds = [];
+  for (const g of groupMap.values()) allLoanIds.push(...g.loans);
+
+  const collections = allLoanIds.length ? await EmiPayment.aggregate([
+    { $match: { loanPayment: { $in: allLoanIds }, status: 'paid', paidOn: { $gte: startDay, $lte: endDay } } },
+    { $group: { _id: '$loanPayment', total: { $sum: '$amountPaise' } } },
+  ]) : [];
+
+  const collectionsByLoanId = new Map();
+  for (const c of collections) {
+    collectionsByLoanId.set(String(c._id), c.total || 0);
+  }
+
   const groups = [];
   for (const [, g] of groupMap.entries()) {
-    const collections = await EmiPayment.aggregate([
-      { $match: { loanPayment: { $in: g.loans }, status: 'paid', paidOn: { $gte: startDay, $lte: endDay } } },
-      { $group: { _id: null, total: { $sum: '$amountPaise' } } },
-    ]);
-    const collectedPaise = collections[0]?.total || 0;
+    let collectedPaise = 0;
+    for (const loanId of g.loans) {
+      collectedPaise += collectionsByLoanId.get(String(loanId)) || 0;
+    }
     g.totalCollectedToday = collectedPaise / 100;
     const progress = g.totalDueAmount > 0 ? Math.min(100, Math.round((g.totalCollectedToday / g.totalDueAmount) * 100)) : 100;
     groups.push({
@@ -999,20 +1289,31 @@ export async function getGroupEmiMembers(req, res) {
   const startDay = new Date(`${dateStr}T00:00:00.000Z`);
   const endDay = new Date(`${dateStr}T23:59:59.999Z`);
 
+  const allLoanIds = loans.map((l) => l._id);
+  const allPastPayments = await EmiPayment.find({
+    loanPayment: { $in: allLoanIds },
+    status: 'paid',
+  }).lean();
+
+  const paymentsByKey = new Map();
+  for (const p of allPastPayments) {
+    const k = `${String(p.loanPayment)}_${p.memberCode}`;
+    const cur = paymentsByKey.get(k) || { totalPaise: 0, todayPaise: 0 };
+    cur.totalPaise += (p.amountPaise || 0);
+    if (p.paidOn >= startDay && p.paidOn <= endDay) {
+      cur.todayPaise += (p.amountPaise || 0);
+    }
+    paymentsByKey.set(k, cur);
+  }
+
   const members = [];
   const groupName = loans[0].group?.name || groupCode;
 
   for (const l of loans) {
     for (const line of (l.lines || [])) {
-      const pastPayments = await EmiPayment.find({
-        loanPayment: l._id,
-        memberCode: line.code,
-        status: 'paid',
-      }).lean();
-
-      const totalPaidPaise = pastPayments.reduce((acc, p) => acc + (p.amountPaise || 0), 0);
-      const todayPaidPaise = pastPayments.filter((p) => p.paidOn >= startDay && p.paidOn <= endDay)
-        .reduce((acc, p) => acc + (p.amountPaise || 0), 0);
+      const stats = paymentsByKey.get(`${String(l._id)}_${line.code}`) || { totalPaise: 0, todayPaise: 0 };
+      const totalPaidPaise = stats.totalPaise;
+      const todayPaidPaise = stats.todayPaise;
 
       const emiPaise = (l.schedule?.[0]?.installmentPaise || 0) + (line.extraEmiPaise || 0);
       const totalLoanPaise = line.amountPaise || l.totalAmountPaise || 0;
@@ -1022,7 +1323,6 @@ export async function getGroupEmiMembers(req, res) {
       const advancePaise = Math.max(0, totalPaidPaise - expectedDuePaise);
       const duesPaise = Math.max(0, expectedDuePaise - totalPaidPaise);
 
-      // Note: "and जिस मेंबर का Advance payment है उसका EMI update नहीं होगा"
       const isAdvancePaid = advancePaise >= emiPaise;
       const alreadyPaidToday = todayPaidPaise > 0;
 
@@ -1125,38 +1425,89 @@ export async function collectBulkEmi(req, res) {
 // 15. INDIVIDUAL LOAN EMI COLLECTION (PERSONAL, BUSINESS/MSME, PRODUCT)
 // -----------------------------------------------------------------------------
 export async function getIndividualLoans(req, res) {
+  const staffCode = req.user?.employeeCode || '';
   const loanType = cleanStr(req.query.loanType || 'personal').toLowerCase();
-  const mode = cleanStr(req.query.mode || 'daily').toLowerCase();
+  const mode = cleanStr(req.query.mode || 'all').toLowerCase();
   const dateStr = cleanStr(req.query.date) || todayDateString();
 
-  const typeFilter = loanType === 'business' || loanType === 'msme' || loanType === 'business_msme'
+  const typeFilter = (loanType === 'business' || loanType === 'msme' || loanType === 'business_msme')
     ? { $in: ['business', 'msme', 'business_msme'] }
     : loanType;
 
-  const loans = await LoanPayment.find({
+  const emp = await Employee.findOne({ employeeCode: staffCode }).lean();
+  const branchId = emp?.branch || (req.user?.branches || [])[0];
+
+  const query = {
     status: 'paid',
     $or: [
       { loanType: typeFilter },
       { kind: typeFilter },
     ],
-    mode: new RegExp(`^${mode}$`, 'i'),
-  }).lean();
+    $and: [
+      {
+        $or: [
+          { employeeCode: staffCode },
+          ...(branchId ? [{ branch: branchId }] : []),
+        ],
+      },
+    ],
+  };
+
+  if (mode && mode !== 'all') {
+    query.$or = [
+      { mode: new RegExp(`^${mode}$`, 'i') },
+      { modeLabel: new RegExp(`^${mode}$`, 'i') },
+    ];
+  }
+
+  let loans = await LoanPayment.find(query).populate('lines.member').lean();
+
+  // Fallback: if mode was restricted and returned 0 loans, fetch loans regardless of mode
+  if (!loans.length && mode !== 'all') {
+    delete query.$or;
+    loans = await LoanPayment.find({
+      status: 'paid',
+      $or: [
+        { loanType: typeFilter },
+        { kind: typeFilter },
+      ],
+      $and: [
+        {
+          $or: [
+            { employeeCode: staffCode },
+            ...(branchId ? [{ branch: branchId }] : []),
+          ],
+        },
+      ],
+    }).populate('lines.member').lean();
+  }
 
   const startDay = new Date(`${dateStr}T00:00:00.000Z`);
   const endDay = new Date(`${dateStr}T23:59:59.999Z`);
 
+  const allLoanIds = loans.map((l) => l._id);
+  const allPastPayments = allLoanIds.length ? await EmiPayment.find({
+    loanPayment: { $in: allLoanIds },
+    status: 'paid',
+  }).lean() : [];
+
+  const paymentsByKey = new Map();
+  for (const p of allPastPayments) {
+    const k = `${String(p.loanPayment)}_${p.memberCode}`;
+    const cur = paymentsByKey.get(k) || { totalPaise: 0, todayPaise: 0 };
+    cur.totalPaise += (p.amountPaise || 0);
+    if (p.paidOn >= startDay && p.paidOn <= endDay) {
+      cur.todayPaise += (p.amountPaise || 0);
+    }
+    paymentsByKey.set(k, cur);
+  }
+
   const items = [];
   for (const l of loans) {
     for (const line of (l.lines || [])) {
-      const pastPayments = await EmiPayment.find({
-        loanPayment: l._id,
-        memberCode: line.code,
-        status: 'paid',
-      }).lean();
-
-      const totalPaidPaise = pastPayments.reduce((acc, p) => acc + (p.amountPaise || 0), 0);
-      const todayPaidPaise = pastPayments.filter((p) => p.paidOn >= startDay && p.paidOn <= endDay)
-        .reduce((acc, p) => acc + (p.amountPaise || 0), 0);
+      const stats = paymentsByKey.get(`${String(l._id)}_${line.code}`) || { totalPaise: 0, todayPaise: 0 };
+      const totalPaidPaise = stats.totalPaise;
+      const todayPaidPaise = stats.todayPaise;
 
       const emiPaise = (l.schedule?.[0]?.installmentPaise || 0) + (line.extraEmiPaise || 0);
       const totalLoanPaise = line.amountPaise || l.totalAmountPaise || 0;
@@ -1177,7 +1528,7 @@ export async function getIndividualLoans(req, res) {
         memberCode: line.code,
         memberName: line.name,
         loanType: l.loanType || loanType,
-        mode: l.mode,
+        mode: l.mode || l.modeLabel || 'monthly',
         emiAmount: emiPaise / 100,
         suggestedAmount: emiPaise / 100,
         dueAmount: duesPaise / 100,
@@ -1248,19 +1599,52 @@ export async function advancePayment(req, res) {
 // 17. NPA RECOVERY (NPA MEMBERS & OVERDUE RECOVERY)
 // -----------------------------------------------------------------------------
 export async function getNpaLoans(req, res) {
-  const loans = await LoanPayment.find({ status: 'paid' }).populate('branch', 'name code').lean();
+  const staffCode = req.user?.employeeCode || '';
+  const emp = await Employee.findOne({ employeeCode: staffCode }).lean();
+
+  const myAssignedGroups = await Group.find({
+    isDeleted: { $ne: true },
+    $or: [
+      { employeeCode: staffCode },
+      ...(emp?._id ? [{ employee: emp._id }] : []),
+    ],
+  }).select('code').lean();
+  let myGroupCodes = myAssignedGroups.map((g) => g.code).filter(Boolean);
+
+  if (!myGroupCodes.length) {
+    const staffLoans = await LoanPayment.find({ employeeCode: staffCode, 'group.code': { $exists: true, $ne: '' } })
+      .select('group.code')
+      .lean();
+    myGroupCodes = [...new Set(staffLoans.map((l) => l.group?.code).filter(Boolean))];
+  }
+
+  const query = {
+    status: 'paid',
+    $or: [
+      { employeeCode: staffCode },
+      ...(myGroupCodes.length ? [{ 'group.code': { $in: myGroupCodes } }] : []),
+    ],
+  };
+
+  const loans = await LoanPayment.find(query).populate('branch', 'name code').lean();
   const npaList = [];
   const today = new Date();
 
+  const allLoanIds = loans.map((l) => l._id);
+  const allPayments = allLoanIds.length ? await EmiPayment.find({
+    loanPayment: { $in: allLoanIds },
+    status: 'paid',
+  }).lean() : [];
+
+  const paymentsByKey = new Map();
+  for (const p of allPayments) {
+    const k = `${String(p.loanPayment)}_${p.memberCode}`;
+    paymentsByKey.set(k, (paymentsByKey.get(k) || 0) + (p.amountPaise || 0));
+  }
+
   for (const l of loans) {
     for (const line of (l.lines || [])) {
-      const pastPayments = await EmiPayment.find({
-        loanPayment: l._id,
-        memberCode: line.code,
-        status: 'paid',
-      }).lean();
-
-      const totalPaidPaise = pastPayments.reduce((acc, p) => acc + (p.amountPaise || 0), 0);
+      const totalPaidPaise = paymentsByKey.get(`${String(l._id)}_${line.code}`) || 0;
       const totalLoanPaise = line.amountPaise || l.totalAmountPaise || 0;
       const emiPaise = (l.schedule?.[0]?.installmentPaise || 0) + (line.extraEmiPaise || 0);
 
@@ -1273,16 +1657,16 @@ export async function getNpaLoans(req, res) {
       const unpaidDue = overdueSchedules[0]?.dueDate;
       const dpd = unpaidDue ? Math.max(0, Math.floor((today - new Date(unpaidDue)) / (1000 * 60 * 60 * 24))) : 0;
 
-      if (dpd >= 90 || (l.emiEndDate && new Date(l.emiEndDate) < today)) {
-        const memberDoc = await Member.findById(line.member).select('mobile').lean();
+      if (dpd >= 90 || (l.emiEndDate && new Date(l.emiEndDate) < today) || l.npa) {
         npaList.push({
           loanPaymentId: l._id,
           loanId: l.loanId || l.receiptNo,
-          memberId: line.member,
+          memberId: line.member?._id || line.member,
           memberCode: line.code,
           memberName: line.name,
-          phone: memberDoc?.mobile || 'N/A',
+          phone: line.mobile || 'N/A',
           branchName: l.branch?.name || '',
+          groupName: l.group?.name || l.group?.code || '',
           dpd,
           overduePrincipal: Math.round(overduePaise * 0.7) / 100,
           overdueInterest: Math.round(overduePaise * 0.3) / 100,
