@@ -44,7 +44,7 @@ function EmployeeAppRoutes() {
     );
   }
 
-  const isAuthPage = location.pathname.includes('/login') || location.pathname.includes('/register');
+  const isAuthPage = location.pathname.includes('/login') || location.pathname.includes('/register') || location.pathname.includes('/create-mpin');
 
   return (
     <div className="emp-app-shell">
@@ -58,6 +58,8 @@ function EmployeeAppRoutes() {
           <Routes>
             <Route path="login" element={empUser ? <Navigate to="/employee" replace /> : <EmployeeLogin />} />
             <Route path="register" element={<EmployeeRegistration />} />
+            <Route path="register-mpin" element={<EmployeeRegistration />} />
+            <Route path="create-mpin" element={<EmployeeRegistration />} />
 
             {/* Authenticated routes */}
             <Route path="" element={empUser ? <EmployeeHome /> : <Navigate to="/employee/login" replace />} />

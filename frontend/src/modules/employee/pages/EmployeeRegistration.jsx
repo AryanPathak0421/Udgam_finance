@@ -58,7 +58,7 @@ export default function EmployeeRegistration() {
         <img src="/logo.png" alt="Udgam" style={{ height: 40, borderRadius: 8, marginBottom: 8 }} />
         <h2 style={{ margin: 0, fontSize: '1.3rem', fontWeight: 800 }}>Create Employee mPIN</h2>
         <p style={{ margin: '4px 0 0', color: 'var(--emp-text-muted)', fontSize: '0.85rem' }}>
-          Verify your staff account and set a secure 4 to 6 digit mPIN
+          Verify your staff account and set a secure 4-digit mPIN
         </p>
       </div>
 
