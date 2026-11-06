@@ -19,6 +19,14 @@ import SupervisorCenterVisits from './pages/SupervisorCenterVisits.jsx';
 import SupervisorReports from './pages/SupervisorReports.jsx';
 import SupervisorStaffAttendance from './pages/SupervisorStaffAttendance.jsx';
 import SupervisorSalarySlips from './pages/SupervisorSalarySlips.jsx';
+import SupervisorAttendance from './pages/SupervisorAttendance.jsx';
+import SupervisorLeaveApproval from './pages/SupervisorLeaveApproval.jsx';
+import SupervisorComplaints from './pages/SupervisorComplaints.jsx';
+import SupervisorResignation from './pages/SupervisorResignation.jsx';
+import SupervisorBranchTransferReport from './pages/SupervisorBranchTransferReport.jsx';
+import SupervisorProductSaleReport from './pages/SupervisorProductSaleReport.jsx';
+import SupervisorStaffRating from './pages/SupervisorStaffRating.jsx';
+import SupervisorStaffRequisition from './pages/SupervisorStaffRequisition.jsx';
 
 import './supervisor.css';
 
@@ -57,6 +65,16 @@ function SupervisorAppRoutes() {
             <Route path="center-visits" element={supUser ? <SupervisorCenterVisits /> : <Navigate to="/supervisor/login" replace />} />
             <Route path="reports" element={supUser ? <SupervisorReports /> : <Navigate to="/supervisor/login" replace />} />
             <Route path="salary-slips" element={supUser ? <SupervisorSalarySlips /> : <Navigate to="/supervisor/login" replace />} />
+            
+            {/* Sheet 2 Specific Routes (Items 20 to 30) */}
+            <Route path="attendance-records" element={supUser ? <SupervisorAttendance /> : <Navigate to="/supervisor/login" replace />} />
+            <Route path="leaves" element={supUser ? <SupervisorLeaveApproval /> : <Navigate to="/supervisor/login" replace />} />
+            <Route path="complaints" element={supUser ? <SupervisorComplaints /> : <Navigate to="/supervisor/login" replace />} />
+            <Route path="resignation" element={supUser ? <SupervisorResignation /> : <Navigate to="/supervisor/login" replace />} />
+            <Route path="branch-transfers" element={supUser ? <SupervisorBranchTransferReport /> : <Navigate to="/supervisor/login" replace />} />
+            <Route path="product-sales" element={supUser ? <SupervisorProductSaleReport /> : <Navigate to="/supervisor/login" replace />} />
+            <Route path="staff-rating" element={supUser ? <SupervisorStaffRating /> : <Navigate to="/supervisor/login" replace />} />
+            <Route path="staff-requisition" element={supUser ? <SupervisorStaffRequisition /> : <Navigate to="/supervisor/login" replace />} />
 
             {/* Fallback */}
             <Route path="*" element={<Navigate to="/supervisor" replace />} />
@@ -76,4 +94,3 @@ export default function SupervisorApp() {
     </SupervisorAppProvider>
   );
 }
-

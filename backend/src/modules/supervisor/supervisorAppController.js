@@ -5,6 +5,7 @@ import {
   CenterVisit,
   CgtVisit,
   FirstMeetingAttendance,
+  ProductSaleOrder,
 } from '../employee/employeeAppModel.js';
 import { Employee, Department, Designation, Attendance, Salary } from '../../models/Hr.js';
 import { User } from '../../models/User.js';
@@ -13,7 +14,7 @@ import { Member } from '../../models/Member.js';
 import { LoanPayment } from '../../models/LoanPayment.js';
 import { EmiPayment } from '../../models/EmiPayment.js';
 import { Group } from '../../models/Group.js';
-import { Task, Complaint, Leave, Resignation } from '../../models/HrExtra.js';
+import { Task, Complaint, Leave, Resignation, Requirement, EmployeeChange } from '../../models/HrExtra.js';
 import { Holiday } from '../../models/SuperAdmin.js';
 import { Company } from '../../models/Company.js';
 import { BankAccount } from '../../models/BankAccount.js';
@@ -882,5 +883,404 @@ export async function getSupervisorSalarySlips(req, res) {
       paymentDate: s.paymentDate || s.createdAt,
     })),
   });
+}
+
+// -----------------------------------------------------------------------------
+// 10. ATTENDANCE: PERSONAL & TEAM-WISE (Items 20, 21)
+// -----------------------------------------------------------------------------
+
+export async function getPersonalAttendance(req, res) {
+  const code = req.user?.employeeCode;
+  const emp = await Employee.findOne({ employeeCode: code, isDeleted: false });
+  if (!emp) throw new HttpError(404, 'Supervisor not found');
+
+  const history = await Attendance.find({ employee: emp._id }).sort({ date: -1 }).limit(90);
+  res.json({
+    attendance: history.map((a) => ({
+      id: a._id,
+      date: a.date ? a.date.toISOString().slice(0, 10) : '',
+      status: a.status || 'present',
+      checkInTime: a.checkInTime || '',
+      checkOutTime: a.checkOutTime || '',
+    })),
+  });
+}
+
+export async function getTeamAttendance(req, res) {
+  const code = req.user?.employeeCode;
+  const emp = await Employee.findOne({ employeeCode: code, isDeleted: false });
+  if (!emp) throw new HttpError(404, 'Supervisor not found');
+
+  const branchIds = await getSupervisorBranchIds(emp, req.user);
+  const { date } = req.query;
+  const targetDate = date ? new Date(date) : new Date();
+  const startOfDay = new Date(targetDate.setHours(0, 0, 0, 0));
+  const endOfDay = new Date(targetDate.setHours(23, 59, 59, 999));
+
+  const staffList = await Employee.find({ branch: { $in: branchIds }, isDeleted: false, status: 'active' })
+    .populate('branch', 'code name')
+    .populate('designation', 'name');
+
+  const attendances = await Attendance.find({
+    employee: { $in: staffList.map((s) => s._id) },
+    date: { $gte: startOfDay, $lte: endOfDay },
+  });
+
+  const attMap = new Map();
+  attendances.forEach((a) => attMap.set(String(a.employee), a));
+
+  res.json({
+    date: startOfDay.toISOString().slice(0, 10),
+    records: staffList.map((s) => {
+      const att = attMap.get(String(s._id));
+      return {
+        id: s._id,
+        code: s.employeeCode,
+        name: s.name,
+        designation: s.designation?.name || 'Staff',
+        branchName: s.branch?.name || '',
+        status: att?.status || 'Not Marked',
+        checkIn: att?.checkInTime || '—',
+      };
+    }),
+  });
+}
+
+// -----------------------------------------------------------------------------
+// 11. TEAM-WISE CENTER VISIT REQUESTS / LOGS (Item 22)
+// -----------------------------------------------------------------------------
+
+export async function getTeamCenterVisits(req, res) {
+  const code = req.user?.employeeCode;
+  const emp = await Employee.findOne({ employeeCode: code, isDeleted: false });
+  if (!emp) throw new HttpError(404, 'Supervisor not found');
+
+  const branchIds = await getSupervisorBranchIds(emp, req.user);
+  const visits = await CenterVisit.find({ branch: { $in: branchIds } })
+    .populate('branch', 'code name')
+    .sort({ createdAt: -1 })
+    .limit(100);
+
+  res.json({ visits });
+}
+
+// -----------------------------------------------------------------------------
+// 12. LEAVE APPROVAL WITH REJECT DATE & PERMISSION (Item 23)
+// -----------------------------------------------------------------------------
+
+export async function getStaffLeaves(req, res) {
+  const code = req.user?.employeeCode;
+  const emp = await Employee.findOne({ employeeCode: code, isDeleted: false });
+  if (!emp) throw new HttpError(404, 'Supervisor not found');
+
+  const branchIds = await getSupervisorBranchIds(emp, req.user);
+  const leaves = await Leave.find({ branch: { $in: branchIds } })
+    .populate('employee', 'name employeeCode mobile designation photo')
+    .populate('branch', 'code name')
+    .sort({ createdAt: -1 });
+
+  res.json({ leaves });
+}
+
+export async function decideStaffLeave(req, res) {
+  const code = req.user?.employeeCode;
+  const { id } = req.params;
+  const { action, rejectReason, remark } = req.body || {};
+
+  if (!['approved', 'rejected'].includes(action)) {
+    throw new HttpError(400, "Action must be 'approved' or 'rejected'");
+  }
+
+  const leave = await Leave.findById(id);
+  if (!leave) throw new HttpError(404, 'Leave request not found');
+
+  leave.status = action;
+  leave.decidedByCode = code;
+  leave.decidedAt = new Date();
+
+  if (action === 'rejected') {
+    leave.rejectReason = rejectReason || remark || 'Rejected by Supervisor';
+  } else {
+    leave.decisionRemark = remark || 'Approved by Supervisor';
+  }
+
+  await leave.save();
+  res.json({
+    status: 'ok',
+    message: `Leave request has been ${action} successfully.`,
+    leave,
+  });
+}
+
+// -----------------------------------------------------------------------------
+// 13. COMPLAINTS: SUBMIT & BRANCH/EMPLOYEE REPORT (Item 24)
+// -----------------------------------------------------------------------------
+
+export async function submitSupervisorComplaint(req, res) {
+  const code = req.user?.employeeCode;
+  const { branchId, category = 'other', description, callerName, callerMobile } = req.body || {};
+
+  if (!description) throw new HttpError(400, 'Complaint description is required');
+
+  const complaintNo = await generateCode('complaint').catch(() => `CMP${Date.now().toString().slice(-6)}`);
+  const doc = await Complaint.create({
+    complaintNo,
+    date: new Date(),
+    branch: branchId || req.user?.branchId,
+    callerName: callerName || req.user?.name || 'Supervisor',
+    callerMobile: callerMobile || req.user?.mobile || '',
+    category,
+    description,
+    enteredByCode: code,
+    status: 'open',
+  });
+
+  res.status(201).json({ status: 'ok', message: 'Complaint submitted successfully', complaint: doc });
+}
+
+export async function getComplaintsReport(req, res) {
+  const code = req.user?.employeeCode;
+  const emp = await Employee.findOne({ employeeCode: code, isDeleted: false });
+  if (!emp) throw new HttpError(404, 'Supervisor not found');
+
+  const branchIds = await getSupervisorBranchIds(emp, req.user);
+  const complaints = await Complaint.find({ branch: { $in: branchIds } })
+    .populate('branch', 'code name')
+    .sort({ createdAt: -1 });
+
+  res.json({ complaints });
+}
+
+// -----------------------------------------------------------------------------
+// 14. RESIGNATION: SUBMIT & STAFF REPORT (Item 25)
+// -----------------------------------------------------------------------------
+
+export async function submitSupervisorResignation(req, res) {
+  const code = req.user?.employeeCode;
+  const emp = await Employee.findOne({ employeeCode: code, isDeleted: false });
+  if (!emp) throw new HttpError(404, 'Supervisor not found');
+
+  const { lastWorkingDate, reason } = req.body || {};
+  if (!lastWorkingDate || !reason) throw new HttpError(400, 'Last working date and reason are required');
+
+  const doc = await Resignation.create({
+    employee: emp._id,
+    employeeCode: emp.employeeCode,
+    employeeName: emp.name,
+    branch: emp.branch,
+    appliedOn: new Date(),
+    lastWorkingDate: new Date(lastWorkingDate),
+    reason,
+    appliedByCode: code,
+    status: 'pending',
+  });
+
+  res.status(201).json({ status: 'ok', message: 'Resignation submitted successfully', resignation: doc });
+}
+
+export async function getResignationsReport(req, res) {
+  const code = req.user?.employeeCode;
+  const emp = await Employee.findOne({ employeeCode: code, isDeleted: false });
+  if (!emp) throw new HttpError(404, 'Supervisor not found');
+
+  const branchIds = await getSupervisorBranchIds(emp, req.user);
+  const resignations = await Resignation.find({ branch: { $in: branchIds } })
+    .populate('employee', 'name employeeCode designation mobile photo')
+    .populate('branch', 'code name')
+    .sort({ createdAt: -1 });
+
+  res.json({ resignations });
+}
+
+// -----------------------------------------------------------------------------
+// 15. REPORT BRANCH TRANSFER REQUEST (Item 26)
+// -----------------------------------------------------------------------------
+
+export async function getBranchTransferReport(req, res) {
+  const code = req.user?.employeeCode;
+  const emp = await Employee.findOne({ employeeCode: code, isDeleted: false });
+  if (!emp) throw new HttpError(404, 'Supervisor not found');
+
+  const branchIds = await getSupervisorBranchIds(emp, req.user);
+  const transfers = await EmployeeChange.find({
+    kind: 'transfer',
+    $or: [{ fromBranch: { $in: branchIds } }, { toBranch: { $in: branchIds } }],
+  })
+    .populate('employee', 'name employeeCode designation mobile')
+    .populate('fromBranch', 'code name')
+    .populate('toBranch', 'code name')
+    .sort({ createdAt: -1 });
+
+  res.json({ transfers });
+}
+
+// -----------------------------------------------------------------------------
+// 16. REPORT PRODUCT SELL (Item 27)
+// -----------------------------------------------------------------------------
+
+export async function getProductSalesReport(req, res) {
+  const code = req.user?.employeeCode;
+  const emp = await Employee.findOne({ employeeCode: code, isDeleted: false });
+  if (!emp) throw new HttpError(404, 'Supervisor not found');
+
+  const branchIds = await getSupervisorBranchIds(emp, req.user);
+  const sales = await ProductSaleOrder.find({ branch: { $in: branchIds } })
+    .populate('branch', 'code name')
+    .sort({ createdAt: -1 });
+
+  const totalAmount = sales.reduce((acc, s) => acc + (s.totalAmount || 0), 0);
+  const totalUnits = sales.reduce((acc, s) => acc + (s.quantity || 0), 0);
+
+  res.json({
+    summary: { totalAmount, totalUnits, totalOrders: sales.length },
+    sales,
+  });
+}
+
+// -----------------------------------------------------------------------------
+// 17. STAFF RATING (Item 28 - Admin and Staff ko show hoga)
+// -----------------------------------------------------------------------------
+
+export async function rateStaffMember(req, res) {
+  const supervisorCode = req.user?.employeeCode;
+  const targetCode = cleanStr(req.body?.targetEmployeeCode).toUpperCase();
+  const stars = Number(req.body?.stars);
+  const review = cleanStr(req.body?.review);
+
+  if (!stars || stars < 1 || stars > 5) throw new HttpError(400, 'Rating must be between 1 and 5 stars');
+  const targetEmp = await Employee.findOne({ employeeCode: targetCode, isDeleted: false });
+  if (!targetEmp) throw new HttpError(404, 'Employee not found');
+
+  let mpinDoc = await EmployeeMpin.findOne({ employeeCode: targetCode });
+  if (!mpinDoc) {
+    mpinDoc = await EmployeeMpin.create({
+      employeeCode: targetCode,
+      mpinHash: await EmployeeMpin.hashMpin('1234'),
+    });
+  }
+
+  const supervisor = await Employee.findOne({ employeeCode: supervisorCode });
+  mpinDoc.ratings.unshift({
+    stars,
+    review,
+    supervisorCode,
+    supervisorName: supervisor?.name || supervisorCode,
+    date: new Date(),
+  });
+
+  const total = mpinDoc.ratings.reduce((sum, r) => sum + r.stars, 0);
+  mpinDoc.averageRating = Math.round((total / mpinDoc.ratings.length) * 10) / 10;
+  await mpinDoc.save();
+
+  // Also save averageRating on targetEmp model for Admin HR visibility
+  targetEmp.averageRating = mpinDoc.averageRating;
+  await targetEmp.save();
+
+  res.json({
+    status: 'ok',
+    message: `Rating of ${stars} stars submitted for ${targetEmp.name}!`,
+    averageRating: mpinDoc.averageRating,
+  });
+}
+
+export async function getStaffRatingsList(req, res) {
+  const code = req.user?.employeeCode;
+  const emp = await Employee.findOne({ employeeCode: code, isDeleted: false });
+  if (!emp) throw new HttpError(404, 'Supervisor not found');
+
+  const branchIds = await getSupervisorBranchIds(emp, req.user);
+  const staff = await Employee.find({ branch: { $in: branchIds }, isDeleted: false, status: 'active' })
+    .populate('branch', 'code name')
+    .populate('designation', 'name');
+
+  const mpins = await EmployeeMpin.find({ employeeCode: { $in: staff.map((s) => s.employeeCode) } });
+  const mpinMap = new Map();
+  mpins.forEach((m) => mpinMap.set(m.employeeCode, m));
+
+  res.json({
+    staff: staff.map((s) => {
+      const doc = mpinMap.get(s.employeeCode);
+      return {
+        id: s._id,
+        code: s.employeeCode,
+        name: s.name,
+        designation: s.designation?.name || 'Field Officer',
+        branchName: s.branch?.name || '',
+        photo: s.photo || '',
+        averageRating: doc?.averageRating || 5,
+        ratings: doc?.ratings || [],
+      };
+    }),
+  });
+}
+
+// -----------------------------------------------------------------------------
+// 18. CENTER VISIT REPORT WITH AUTO LOCATION & PHOTO (Item 29)
+// -----------------------------------------------------------------------------
+
+export async function recordSupervisorCenterVisit(req, res) {
+  const code = req.user?.employeeCode;
+  const { centerName, groupName, contactName, contactNumber, image, location, notes } = req.body || {};
+
+  if (!centerName) throw new HttpError(400, 'Center name is required');
+
+  const emp = await Employee.findOne({ employeeCode: code });
+  const visit = await CenterVisit.create({
+    employeeCode: code,
+    employeeName: emp?.name || 'Supervisor',
+    branch: emp?.branch || req.user?.branchId,
+    centerName,
+    contactName: contactName || groupName || 'Center Group',
+    contactNumber: contactNumber || '—',
+    image: image || '',
+    location: location || { lat: 0, lng: 0, address: 'Captured via App GPS' },
+    visitDate: new Date(),
+    notes: notes || '',
+  });
+
+  res.status(201).json({ status: 'ok', message: 'Center visit report submitted successfully!', visit });
+}
+
+// -----------------------------------------------------------------------------
+// 19. EMPLOYEE REQUISITION (Item 30 - Branch name, designation, count, reason, experience)
+// -----------------------------------------------------------------------------
+
+export async function submitStaffRequisition(req, res) {
+  const code = req.user?.employeeCode;
+  const { branchId, designation, count, reason, experience } = req.body || {};
+
+  if (!branchId) throw new HttpError(400, 'Branch is required');
+  if (!count || Number(count) < 1) throw new HttpError(400, 'Please enter number of employees needed');
+  if (!reason) throw new HttpError(400, 'Reason for hiring is required');
+
+  const reqNo = await generateCode('requirement').catch(() => `REQ${Date.now().toString().slice(-6)}`);
+  const doc = await Requirement.create({
+    reqNo,
+    branch: branchId,
+    count: Number(count),
+    reason: `${reason}${experience ? ` (Experience Required: ${experience})` : ''}`,
+    expectedTime: experience || 'Immediate',
+    requestedByCode: code,
+    status: 'pending',
+  });
+
+  res.status(201).json({
+    status: 'ok',
+    message: 'Employee requisition submitted to Admin/HR successfully!',
+    requisition: doc,
+  });
+}
+
+export async function listStaffRequisitions(req, res) {
+  const code = req.user?.employeeCode;
+  const emp = await Employee.findOne({ employeeCode: code, isDeleted: false });
+  if (!emp) throw new HttpError(404, 'Supervisor not found');
+
+  const branchIds = await getSupervisorBranchIds(emp, req.user);
+  const requisitions = await Requirement.find({ branch: { $in: branchIds } })
+    .populate('branch', 'code name city')
+    .sort({ createdAt: -1 });
+
+  res.json({ requisitions });
 }
 
