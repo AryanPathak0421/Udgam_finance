@@ -23,8 +23,10 @@ export default function EmployeeCenterVisits() {
 
   // CGT Visit state
   const [cgtVisits, setCgtVisits] = useState([]);
+  const [surveyedCenters, setSurveyedCenters] = useState([]);
+  const [selectedCenterDropdown, setSelectedCenterDropdown] = useState('');
   const [loadingCgt, setLoadingCgt] = useState(false);
-  const [cgtModal, setCgtModal] = useState(null); // { centerName, day }
+  const [cgtModal, setCgtModal] = useState(null); // { centerName, day, date }
   const [cgtPhoto, setCgtPhoto] = useState('');
   const [cgtSubmitting, setCgtSubmitting] = useState(false);
 
@@ -86,6 +88,7 @@ export default function EmployeeCenterVisits() {
     try {
       const res = await api.employeeApp.cgtVisits();
       setCgtVisits(res.items || []);
+      setSurveyedCenters(res.centers || []);
     } catch (err) {
       console.error(err);
     } finally {
@@ -116,7 +119,7 @@ export default function EmployeeCenterVisits() {
         centerName: cgtModal.centerName,
         day: cgtModal.day,
         photo: cgtPhoto,
-        date: new Date(),
+        date: cgtModal.date || new Date().toISOString().slice(0, 10),
       });
       setCgtModal(null);
       setCgtPhoto('');
@@ -234,9 +237,9 @@ export default function EmployeeCenterVisits() {
 
             <div>
               <label style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
-                Center Meeting Photo
+                Center Meeting Photo (Camera Only)
               </label>
-              <input type="file" accept="image/*" onChange={handleImageUpload} style={{ fontSize: '0.8rem', width: '100%' }} />
+              <input type="file" accept="image/*" capture="environment" onChange={handleImageUpload} style={{ fontSize: '0.8rem', width: '100%' }} />
               {form.image && <img src={form.image} alt="preview" style={{ width: '100%', maxHeight: 180, objectFit: 'cover', borderRadius: 8, marginTop: 6 }} />}
             </div>
 
@@ -274,8 +277,33 @@ export default function EmployeeCenterVisits() {
               <span>CGT (Continuous Group Training)</span>
             </h3>
             <p style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', margin: 0 }}>
-              Click on Day 1, 2, or 3 date on any center to upload meeting photo and mark completion.
+              Select surveyed center from dropdown or click on Day 1, 2, 3 below to update date-wise camera photos.
             </p>
+          </div>
+
+          {/* Surveyed Centers Dropdown for CGT */}
+          <div className="emp-card" style={{ marginBottom: 12, background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
+            <label style={{ fontSize: '0.82rem', fontWeight: 800, color: '#166534', display: 'block', marginBottom: 4 }}>
+              Select Surveyed Center for CGT (from New Center Visits):
+            </label>
+            <select
+              className="emp-input"
+              value={selectedCenterDropdown}
+              onChange={(e) => {
+                const val = e.target.value;
+                setSelectedCenterDropdown(val);
+                if (val) {
+                  setCgtModal({ centerName: val, day: 1, date: new Date().toISOString().slice(0, 10) });
+                }
+              }}
+            >
+              <option value="">-- Choose Surveyed Center --</option>
+              {surveyedCenters.map((sc, idx) => (
+                <option key={idx} value={sc.centerName}>
+                  {sc.centerName} ({sc.contactName || 'Leader'})
+                </option>
+              ))}
+            </select>
           </div>
 
           {loadingCgt ? (
@@ -284,19 +312,9 @@ export default function EmployeeCenterVisits() {
             <div className="emp-card" style={{ textAlign: 'center', padding: '30px', color: 'var(--emp-text-muted)' }}>
               <div style={{ color: 'var(--emp-text-muted)', marginBottom: 8 }}><Icon name="book" size={36} /></div>
               <div style={{ fontWeight: 600 }}>No active CGT centers found</div>
-              <button
-                type="button"
-                className="emp-btn-primary"
-                style={{ marginTop: 12, padding: '8px 16px', fontSize: '0.85rem' }}
-                onClick={() => {
-                  const name = prompt('Enter new Center Name for CGT:');
-                  if (name) {
-                    setCgtModal({ centerName: name, day: 1 });
-                  }
-                }}
-              >
-                + Add CGT Center
-              </button>
+              <div style={{ fontSize: '0.8rem', color: 'var(--emp-text-muted)', marginTop: 4 }}>
+                Select a surveyed center from the dropdown above to start CGT.
+              </div>
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -316,12 +334,17 @@ export default function EmployeeCenterVisits() {
                     {[1, 2, 3].map((d) => {
                       const dayData = c[`day${d}`];
                       const hasPhoto = Boolean(dayData?.photo);
+                      const dayDate = dayData?.date ? new Date(dayData.date).toLocaleDateString() : '';
 
                       return (
                         <button
                           key={d}
                           type="button"
-                          onClick={() => setCgtModal({ centerName: c.centerName, day: d })}
+                          onClick={() => setCgtModal({
+                            centerName: c.centerName,
+                            day: d,
+                            date: dayData?.date ? new Date(dayData.date).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
+                          })}
                           style={{
                             padding: '10px 6px',
                             borderRadius: 8,
@@ -334,6 +357,11 @@ export default function EmployeeCenterVisits() {
                           <div style={{ fontWeight: 800, fontSize: '0.85rem', color: hasPhoto ? '#047857' : 'var(--emp-text)' }}>
                             Day {d} {hasPhoto ? '✓' : ''}
                           </div>
+                          {dayDate && (
+                            <div style={{ fontSize: '0.66rem', color: '#047857', marginTop: 2 }}>
+                              {dayDate}
+                            </div>
+                          )}
                           <div style={{ fontSize: '0.68rem', color: hasPhoto ? '#047857' : 'var(--emp-primary)', marginTop: 2 }}>
                             {hasPhoto ? 'Update Photo' : '+ Click to Add'}
                           </div>
@@ -352,13 +380,40 @@ export default function EmployeeCenterVisits() {
               <div className="emp-modal-sheet" onClick={(e) => e.stopPropagation()}>
                 <h3 style={{ fontSize: '1.1rem', fontWeight: 800, margin: '0 0 4px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
                   <Icon name="camera" size={18} style={{ color: 'var(--emp-primary)' }} />
-                  <span>CGT Day {cgtModal.day} Photo: {cgtModal.centerName}</span>
+                  <span>CGT Day {cgtModal.day} Update: {cgtModal.centerName}</span>
                 </h3>
                 <p style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', margin: '0 0 14px 0' }}>
-                  Upload a photo of the group training session for Day {cgtModal.day}.
+                  Select the visit date and capture live meeting photo via camera (Gallery disabled).
                 </p>
 
-                <input type="file" accept="image/*" onChange={handleCgtPhotoUpload} style={{ fontSize: '0.85rem', marginBottom: 12, width: '100%' }} />
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                    Day {cgtModal.day} Visit Date *
+                  </label>
+                  <input
+                    type="date"
+                    className="emp-input"
+                    value={cgtModal.date || new Date().toISOString().slice(0, 10)}
+                    onChange={(e) => setCgtModal((m) => ({ ...m, date: e.target.value }))}
+                    required
+                  />
+                </div>
+
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                    Day {cgtModal.day} Live Camera Photo *
+                  </label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    onChange={handleCgtPhotoUpload}
+                    style={{ fontSize: '0.85rem', width: '100%' }}
+                  />
+                  <div style={{ fontSize: '0.72rem', color: '#b91c1c', marginTop: 4, fontWeight: 600 }}>
+                    ⚠️ Camera capture only. Gallery selection option has been removed.
+                  </div>
+                </div>
 
                 {cgtPhoto && (
                   <div style={{ textAlign: 'center', marginBottom: 14 }}>

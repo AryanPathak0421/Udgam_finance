@@ -27,6 +27,7 @@ import { generateCode } from '../../services/codeSequence.js';
 import { issueOtp, takeVerified, consumeChallenge } from '../../services/otpChallenges.js';
 import { sendSms } from '../../services/sms.js';
 import { sendMail, mailConfigured } from '../../services/mailer.js';
+import { elBalance } from '../../services/earnedLeave.js';
 import { asString, parseDateOnly, HttpError, startOfToday, todayDateString } from '../../utils/http.js';
 import { audit } from '../../utils/audit.js';
 
@@ -2044,6 +2045,11 @@ export async function getEmployeeReports(req, res) {
 
   const totalNpaRecovered = npaPayments.reduce((sum, p) => sum + (p.amountPaise || 0), 0) / 100;
 
+  const centerSurveys = await CenterVisit.find({
+    employeeCode: code,
+    ...dateFilter,
+  }).sort({ visitDate: -1 }).limit(100).lean();
+
   const targetTasks = await TargetTask.find({
     status: 'active',
     'employees.code': code,
@@ -2057,6 +2063,7 @@ export async function getEmployeeReports(req, res) {
       approvalCount: approvals.length,
       totalNpaRecovered,
       npaRecoveryCount: npaPayments.length,
+      centerSurveyCount: centerSurveys.length,
     },
     disbursements: disbursements.map((d) => ({
       loanId: d.loanId || d.receiptNo,
@@ -2064,6 +2071,16 @@ export async function getEmployeeReports(req, res) {
       amount: (d.totalAmountPaise || d.amountPaise || 0) / 100,
       mode: d.mode,
       date: d.paidOn ? new Date(d.paidOn).toLocaleDateString() : 'N/A',
+    })),
+    centerSurveys: centerSurveys.map((c) => ({
+      id: c._id,
+      centerName: c.centerName,
+      contactName: c.contactName,
+      contactNumber: c.contactNumber,
+      location: c.location,
+      image: c.image || '',
+      date: c.visitDate ? new Date(c.visitDate).toLocaleDateString() : 'N/A',
+      notes: c.notes || '',
     })),
     requisitions: requisitions.map((r) => ({
       formId: r.formId,
@@ -2335,7 +2352,16 @@ export async function listCenterVisits(req, res) {
 export async function listCgtVisits(req, res) {
   const code = req.user?.employeeCode;
   const items = await CgtVisit.find({ employeeCode: code }).sort({ updatedAt: -1 }).limit(50).lean();
-  res.json({ items });
+  const surveyedCenters = await CenterVisit.find({ employeeCode: code }).sort({ visitDate: -1 }).limit(100).lean();
+  res.json({
+    items,
+    centers: surveyedCenters.map((c) => ({
+      centerName: c.centerName,
+      contactName: c.contactName,
+      contactNumber: c.contactNumber,
+      visitDate: c.visitDate,
+    })),
+  });
 }
 
 export async function updateCgtDayPhoto(req, res) {
@@ -2387,16 +2413,19 @@ export async function getLeaveOverview(req, res) {
   const leaves = await Leave.find({ employee: emp._id }).sort({ createdAt: -1 }).limit(30).lean();
 
   const approvedCasual = leaves.filter((l) => l.type === 'casual' && l.status === 'approved').reduce((s, l) => s + (l.days || 1), 0);
-  const approvedEarned = leaves.filter((l) => l.type === 'earned' && l.status === 'approved').reduce((s, l) => s + (l.days || 1), 0);
+  const realEl = await elBalance(emp);
 
   res.json({
     balances: {
       clTotal: 12,
       clUsed: approvedCasual,
       clBalance: Math.max(0, 12 - approvedCasual),
-      elTotal: 15,
-      elUsed: approvedEarned,
-      elBalance: Math.max(0, 15 - approvedEarned),
+      elTotal: (realEl.opening || 0) + (realEl.earned || 0),
+      elUsed: realEl.used || 0,
+      elBalance: realEl.available,
+      elOpening: realEl.opening || 0,
+      elEarned: realEl.earned || 0,
+      financialYear: realEl.financialYear,
     },
     leaves,
   });
@@ -2514,6 +2543,7 @@ export async function getResignationStatus(req, res) {
 export async function requestBranchTransfer(req, res) {
   const code = req.user?.employeeCode;
   const emp = await Employee.findOne({ employeeCode: code }).populate('branch');
+  if (!emp) throw new HttpError(404, 'Employee record not found');
   const { targetBranchId, reason } = req.body || {};
 
   if (!targetBranchId) throw new HttpError(400, 'Please select the target branch');
@@ -2521,8 +2551,7 @@ export async function requestBranchTransfer(req, res) {
   const targetBranch = await Branch.findById(targetBranchId);
   if (!targetBranch) throw new HttpError(404, 'Target branch not found');
 
-  const count = await EmployeeChange.countDocuments({});
-  const letterNo = `TRF${String(count + 1001).padStart(6, '0')}`;
+  const letterNo = `TRF${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 900 + 100)}`;
 
   const doc = await EmployeeChange.create({
     letterNo,
@@ -2549,7 +2578,11 @@ export async function requestBranchTransfer(req, res) {
 export async function listTransferRequests(req, res) {
   const code = req.user?.employeeCode;
   const items = await EmployeeChange.find({ employeeCode: code, kind: 'transfer' }).sort({ createdAt: -1 }).lean();
-  res.json({ items });
+  const branches = await Branch.find({ isActive: { $ne: false }, isDeleted: { $ne: true } })
+    .select('_id name code')
+    .sort({ name: 1 })
+    .lean();
+  res.json({ items, branches });
 }
 
 // -----------------------------------------------------------------------------
@@ -2626,8 +2659,22 @@ export async function sellStockProduct(req, res) {
 // -----------------------------------------------------------------------------
 export async function getMyTasks(req, res) {
   const code = req.user?.employeeCode;
-  const tasks = await Task.find({ assignedToCode: code }).sort({ dueDate: 1 }).lean();
-  res.json({ items: tasks });
+  const emp = await Employee.findOne({ employeeCode: code });
+  const orConditions = [{ assignedToCode: code }, { assignedToCode: code?.toUpperCase() }, { assignedToCode: code?.toLowerCase() }];
+  if (emp) orConditions.push({ assignedTo: emp._id });
+
+  const tasks = await Task.find({ $or: orConditions })
+    .populate('branch', 'name code')
+    .sort({ dueDate: 1, createdAt: -1 })
+    .lean();
+
+  res.json({
+    items: tasks.map((t) => ({
+      ...t,
+      id: t._id,
+      _id: t._id,
+    })),
+  });
 }
 
 export async function updateTaskStatus(req, res) {

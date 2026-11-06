@@ -18,7 +18,7 @@ export default function SupervisorProductSaleReport() {
       const res = await api.supervisorApp.productSalesReport();
       setReport(res || { summary: {}, sales: [] });
     } catch (err) {
-      setError(err.message || 'Failed to load product sales report');
+      setError(err.message || 'Failed to load product booking report');
     } finally {
       setLoading(false);
     }
@@ -29,9 +29,9 @@ export default function SupervisorProductSaleReport() {
   return (
     <div className="sup-page-container">
       <div style={{ marginBottom: 14 }}>
-        <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800 }}>Product Sales Report</h2>
+        <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800 }}>Product Booking Report</h2>
         <div style={{ fontSize: '0.8rem', color: 'var(--sup-text-muted)' }}>
-          Branch-wise Cross-Sell & Product Orders
+          Branch-wise Cross-Sell &amp; Product Bookings
         </div>
       </div>
 
@@ -45,7 +45,7 @@ export default function SupervisorProductSaleReport() {
       {/* KPI Summary Cards */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
         <div className="sup-metric-card" style={{ flex: 1, borderLeft: '4px solid var(--sup-success)' }}>
-          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--sup-text-muted)' }}>Total Sales</span>
+          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--sup-text-muted)' }}>Total Bookings</span>
           <div style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--sup-success)', marginTop: 4 }}>
             ₹{(summary.totalAmount || 0).toLocaleString('en-IN')}
           </div>
@@ -70,7 +70,7 @@ export default function SupervisorProductSaleReport() {
         </div>
       ) : sales.length === 0 ? (
         <div className="sup-card" style={{ textAlign: 'center', padding: '24px 0', color: 'var(--sup-text-muted)' }}>
-          No product sales recorded across your supervised branches
+          No product bookings recorded across your supervised branches
         </div>
       ) : (
         sales.map((s) => (

@@ -83,12 +83,12 @@ export default function EmployeeReports() {
         </div>
 
         <div className="emp-card" style={{ margin: 0, padding: 12, border: '1px solid var(--emp-border)' }}>
-          <div style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)' }}>Target Status</div>
+          <div style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)' }}>Center Surveys</div>
           <div style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--emp-primary)', marginTop: 2 }}>
-            Active
+            {summary.centerSurveyCount || 0}
           </div>
           <div style={{ fontSize: '0.7rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
-            View Target Tab
+            Surveyed Centers
           </div>
         </div>
       </div>
@@ -97,6 +97,7 @@ export default function EmployeeReports() {
       <div style={{ display: 'flex', overflowX: 'auto', gap: 6, marginBottom: 12, paddingBottom: 4 }}>
         {[
           { id: 'disbursements', label: 'Disbursements' },
+          { id: 'surveys', label: 'New Center Surveys' },
           { id: 'requisitions', label: 'Requisitions' },
           { id: 'approvals', label: 'Approvals' },
           { id: 'npa', label: 'NPA Recovery' },
@@ -154,7 +155,47 @@ export default function EmployeeReports() {
             )
           )}
 
-          {/* Tab 2: Requisitions */}
+          {/* Tab 2: New Center Surveys */}
+          {tab === 'surveys' && (
+            reportData.centerSurveys?.length === 0 ? (
+              <div className="emp-card" style={{ textAlign: 'center', padding: '24px', color: 'var(--emp-text-muted)' }}>
+                No center surveys recorded under your code for this period.
+              </div>
+            ) : (
+              reportData.centerSurveys.map((c, i) => (
+                <div key={i} className="emp-card" style={{ margin: 0, padding: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: '0.98rem', color: 'var(--emp-primary)' }}>{c.centerName}</div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--emp-text)', marginTop: 2 }}>
+                        Contact: <strong>{c.contactName}</strong> ({c.contactNumber})
+                      </div>
+                      <div style={{ fontSize: '0.74rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
+                        📍 {c.location?.address || (c.location?.lat ? `GPS: ${c.location.lat.toFixed(4)}, ${c.location.lng.toFixed(4)}` : 'Location not recorded')}
+                      </div>
+                      {c.notes && (
+                        <div style={{ fontSize: '0.74rem', color: 'var(--emp-text-muted)', marginTop: 4, background: '#f8fafc', padding: '4px 8px', borderRadius: 4 }}>
+                          Notes: {c.notes}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <span className="emp-badge emp-badge-info" style={{ fontSize: '0.68rem' }}>
+                        {c.date}
+                      </span>
+                    </div>
+                  </div>
+                  {c.image && (
+                    <div style={{ marginTop: 8 }}>
+                      <img src={c.image} alt={c.centerName} style={{ maxHeight: 120, maxWidth: '100%', borderRadius: 6, objectFit: 'cover' }} />
+                    </div>
+                  )}
+                </div>
+              ))
+            )
+          )}
+
+          {/* Tab 3: Requisitions */}
           {tab === 'requisitions' && (
             reportData.requisitions?.length === 0 ? (
               <div className="emp-card" style={{ textAlign: 'center', padding: '24px', color: 'var(--emp-text-muted)' }}>

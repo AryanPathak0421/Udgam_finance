@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../../../api/client.js';
 import Icon from '../../../components/Icon.jsx';
+import { downloadSalarySlipPdf } from '../../../utils/salarySlipPdf.js';
 
 export default function SupervisorSalarySlips() {
   const [slips, setSlips] = useState([]);
@@ -213,6 +214,27 @@ export default function SupervisorSalarySlips() {
                 <span>-₹{Number(activeSlip.deductions || activeSlip.absentDeduction || 0).toLocaleString('en-IN')}</span>
               </div>
             </div>
+          </div>
+
+          {/* Download Slip Button */}
+          <div style={{ marginTop: 16 }}>
+            <button
+              type="button"
+              className="sup-btn sup-btn-primary"
+              style={{
+                width: '100%',
+                padding: '11px 0',
+                fontSize: '0.92rem',
+                fontWeight: 700,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+              }}
+              onClick={() => downloadSalarySlipPdf(activeSlip)}
+            >
+              <Icon name="download" size={18} /> Download Supervisor Salary Slip (PDF)
+            </button>
           </div>
         </div>
       ) : null}

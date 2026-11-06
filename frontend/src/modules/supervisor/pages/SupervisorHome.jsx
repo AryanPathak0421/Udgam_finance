@@ -388,7 +388,7 @@ export default function SupervisorHome() {
           <div className="sup-action-icon" style={{ background: '#ecfdf5', color: '#047857' }}>
             <Icon name="chart" size={20} />
           </div>
-          <span style={{ fontSize: '0.76rem', fontWeight: 600 }}>Product Sales</span>
+          <span style={{ fontSize: '0.76rem', fontWeight: 600 }}>Product Booking</span>
         </Link>
 
         <Link to="/supervisor/new-member-report" className="sup-action-card">

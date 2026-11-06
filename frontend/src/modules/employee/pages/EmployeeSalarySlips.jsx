@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../../../api/client.js';
 import { useEmployeeApp } from '../EmployeeAppContext.jsx';
 import Icon from '../../../components/Icon.jsx';
+import { downloadSalarySlipPdf } from '../../../utils/salarySlipPdf.js';
 
 export default function EmployeeSalarySlips() {
   const { t } = useEmployeeApp();
@@ -210,6 +211,28 @@ export default function EmployeeSalarySlips() {
                   <span>-₹{Number(activeSlip.deductions || activeSlip.absentDeduction || 0).toLocaleString('en-IN')}</span>
                 </div>
               </div>
+            </div>
+
+            {/* Download PDF Action Button */}
+            <div style={{ marginTop: 16 }}>
+              <button
+                type="button"
+                className="emp-btn-primary"
+                style={{
+                  width: '100%',
+                  padding: '11px 0',
+                  fontSize: '0.92rem',
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                  background: '#0f766e',
+                }}
+                onClick={() => downloadSalarySlipPdf(activeSlip)}
+              >
+                <Icon name="download" size={18} /> Download Salary Slip (PDF)
+              </button>
             </div>
           </div>
         </>

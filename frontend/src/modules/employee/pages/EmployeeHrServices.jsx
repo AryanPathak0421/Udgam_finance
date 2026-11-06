@@ -34,8 +34,12 @@ export default function EmployeeHrServices() {
 
   // Load branches
   useEffect(() => {
-    api.branches.options()
-      .then((res) => setBranches(res.branches || []))
+    api.employeeApp.transferRequests()
+      .then((res) => {
+        if (res.branches && res.branches.length > 0) {
+          setBranches(res.branches);
+        }
+      })
       .catch(() => {});
   }, []);
 
@@ -74,6 +78,9 @@ export default function EmployeeHrServices() {
     try {
       const res = await api.employeeApp.transferRequests();
       setTransfers(res.items || []);
+      if (res.branches && res.branches.length > 0) {
+        setBranches(res.branches);
+      }
     } catch (err) {
       console.error(err);
     }
@@ -212,6 +219,9 @@ export default function EmployeeHrServices() {
                   <div style={{ fontSize: '0.72rem', color: '#1e40af' }}>Earned Leave (EL)</div>
                   <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#1e40af' }}>
                     {leaveData.balances.elBalance} <span style={{ fontSize: '0.75rem', fontWeight: 500 }}>/ {leaveData.balances.elTotal}</span>
+                  </div>
+                  <div style={{ fontSize: '0.68rem', color: '#1e40af', marginTop: 2 }}>
+                    Opening: {leaveData.balances.elOpening || 0} • Earned: {leaveData.balances.elEarned || 0} • Used: {leaveData.balances.elUsed || 0}
                   </div>
                 </div>
               </div>

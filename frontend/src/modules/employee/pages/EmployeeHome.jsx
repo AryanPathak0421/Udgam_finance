@@ -287,7 +287,7 @@ export default function EmployeeHome() {
           <div className="tile-icon" style={{ color: 'var(--emp-primary)' }}>
             <Icon name="product" size={22} />
           </div>
-          <div className="tile-title">Stock &amp; Sales</div>
+          <div className="tile-title">Product Booking</div>
         </div>
 
         <div className="emp-action-tile" onClick={() => navigate('/employee/tasks')}>

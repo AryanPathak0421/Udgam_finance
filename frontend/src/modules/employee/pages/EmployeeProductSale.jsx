@@ -59,7 +59,7 @@ export default function EmployeeProductSale() {
       setQuantity(1);
       fetchProducts();
     } catch (err) {
-      setError(err.message || 'Product sale failed');
+      setError(err.message || 'Product booking failed');
     } finally {
       setSubmitting(false);
     }
@@ -69,10 +69,10 @@ export default function EmployeeProductSale() {
     <div className="emp-page-container">
       <div className="emp-card">
         <h2 style={{ fontSize: '1.2rem', fontWeight: 800, margin: '0 0 6px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Icon name="product" size={20} style={{ color: 'var(--emp-primary)' }} /> Product Sale &amp; Booking
+          <Icon name="product" size={20} style={{ color: 'var(--emp-primary)' }} /> Product Booking
         </h2>
         <p style={{ fontSize: '0.8rem', color: 'var(--emp-text-muted)', margin: '0 0 14px 0' }}>
-          Sell consumer products, electronics, or solar goods from branch stock to members.
+          Book consumer products, electronics, or solar goods from branch stock for members.
         </p>
 
         {error && (
@@ -153,9 +153,9 @@ export default function EmployeeProductSale() {
               </select>
             </div>
 
-            {/* Total Sale Value Summary */}
+            {/* Total Booking Value Summary */}
             <div style={{ background: 'var(--emp-card-bg)', border: '1px solid var(--emp-border)', borderRadius: 8, padding: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '0.85rem', color: 'var(--emp-text-muted)' }}>Total Sale Amount:</span>
+              <span style={{ fontSize: '0.85rem', color: 'var(--emp-text-muted)' }}>Total Booking Amount:</span>
               <span style={{ fontSize: '1.25rem', fontWeight: 800, color: '#059669' }}>
                 ₹{Number(total).toLocaleString('en-IN')}
               </span>
@@ -168,7 +168,7 @@ export default function EmployeeProductSale() {
               disabled={submitting}
             >
               <Icon name="checkcircle" size={16} />
-              {submitting ? 'Processing Sale...' : 'Complete Product Sale'}
+              {submitting ? 'Processing Booking...' : 'Complete Product Booking'}
             </button>
           </form>
         )}
