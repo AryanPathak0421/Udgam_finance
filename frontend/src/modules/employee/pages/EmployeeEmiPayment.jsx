@@ -4,10 +4,42 @@ import { useEmployeeApp } from '../EmployeeAppContext.jsx';
 import Icon from '../../../components/Icon.jsx';
 
 const LOAN_TYPES = [
-  { id: 'group', label: 'Group Loan', icon: 'group' },
-  { id: 'personal', label: 'Personal Loan', icon: 'customer' },
-  { id: 'business_msme', label: 'Business / MSME', icon: 'building' },
-  { id: 'product', label: 'Product Loan', icon: 'product' },
+  {
+    id: 'group',
+    label: 'Group Loan',
+    icon: 'group',
+    color: '#059669',
+    gradient: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
+    borderColor: '#059669',
+    lightBg: '#ecfdf5',
+  },
+  {
+    id: 'personal',
+    label: 'Personal Loan',
+    icon: 'customer',
+    color: '#2563eb',
+    gradient: 'linear-gradient(135deg, #1d4ed8 0%, #3b82f6 100%)',
+    borderColor: '#2563eb',
+    lightBg: '#eff6ff',
+  },
+  {
+    id: 'business_msme',
+    label: 'Business / MSME',
+    icon: 'building',
+    color: '#7c3aed',
+    gradient: 'linear-gradient(135deg, #6d28d9 0%, #8b5cf6 100%)',
+    borderColor: '#7c3aed',
+    lightBg: '#f5f3ff',
+  },
+  {
+    id: 'product',
+    label: 'Product Loan',
+    icon: 'product',
+    color: '#d97706',
+    gradient: 'linear-gradient(135deg, #d97706 0%, #f59e0b 100%)',
+    borderColor: '#d97706',
+    lightBg: '#fffbeb',
+  },
 ];
 
 const MODES = [
@@ -23,6 +55,7 @@ export default function EmployeeEmiPayment() {
   const [mode, setMode] = useState('all');
   const today = new Date().toISOString().split('T')[0];
   const [date, setDate] = useState(today);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Group loan state
   const [groups, setGroups] = useState([]);
@@ -41,6 +74,10 @@ export default function EmployeeEmiPayment() {
   const [payMode, setPayMode] = useState('cash');
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState({ text: '', type: '' });
+
+  // Dynamic QR Code Modal
+  const [qrModal, setQrModal] = useState(null);
+  const [qrLoading, setQrLoading] = useState(false);
 
   // 1. Fetch Groups when loanType === 'group' or mode/date changes
   const fetchGroups = async () => {
@@ -62,6 +99,7 @@ export default function EmployeeEmiPayment() {
     setActiveGroup(group);
     setLoadingMembers(true);
     setMessage({ text: '', type: '' });
+    setSearchQuery('');
     try {
       const res = await api.employeeApp.groupEmiMembers(group.groupCode, { date });
       const members = res.members || [];
@@ -70,7 +108,6 @@ export default function EmployeeEmiPayment() {
       // Pre-fill collection map
       const initialMap = {};
       members.forEach((m) => {
-        // If member already has advance payment or paid today, do not auto-select
         const canCollect = !m.isAdvancePaid && !m.alreadyPaidToday;
         initialMap[m.memberCode] = {
           selected: canCollect,
@@ -129,7 +166,7 @@ export default function EmployeeEmiPayment() {
   const toggleSelect = (memberCode) => {
     setCollectionMap((prev) => {
       const current = prev[memberCode] || {};
-      if (current.isAdvancePaid) return prev; // Cannot select advance paid member
+      if (current.isAdvancePaid) return prev;
       return {
         ...prev,
         [memberCode]: {
@@ -172,6 +209,26 @@ export default function EmployeeEmiPayment() {
     .filter((v) => v.selected)
     .reduce((sum, v) => sum + (Number(v.amount) || 0), 0);
 
+  // Open Dynamic Company QR Modal
+  const handleOpenQr = async () => {
+    const amount = totalSelectedCollection > 0 ? totalSelectedCollection : 500;
+    setQrLoading(true);
+    try {
+      const res = await api.employeeApp.companyQr({
+        amount,
+        loanId: activeGroup?.groupCode || (loanType === 'group' ? 'GROUP-EMI' : 'LOAN-EMI'),
+        memberName: activeGroup?.groupName || `${loanType.toUpperCase()} Collection`,
+      });
+      setQrModal(res);
+      setPayMode('upi');
+    } catch (err) {
+      console.error('Failed to load company QR', err);
+      setMessage({ text: 'Unable to load company UPI QR code', type: 'error' });
+    } finally {
+      setQrLoading(false);
+    }
+  };
+
   // Submit Bulk EMI Collection (Save / Done)
   const handleSaveCollection = async () => {
     const itemsToPay = Object.entries(collectionMap)
@@ -199,7 +256,7 @@ export default function EmployeeEmiPayment() {
       });
 
       setMessage({
-        text: `Successfully collected ₹${res.totalCollected.toLocaleString('en-IN')} from ${res.collectedCount} member(s)!`,
+        text: `✓ Successfully collected ₹${res.totalCollected.toLocaleString('en-IN')} from ${res.collectedCount} member(s)!`,
         type: 'success',
       });
 
@@ -221,26 +278,66 @@ export default function EmployeeEmiPayment() {
     }
   };
 
+  // Filter groups by search query
+  const filteredGroups = groups.filter((g) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase().trim();
+    return (g.groupName || '').toLowerCase().includes(q) || (g.groupCode || '').toLowerCase().includes(q);
+  });
+
+  // Filter group members by search query
+  const filteredGroupMembers = groupMembers.filter((m) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase().trim();
+    return (m.memberName || '').toLowerCase().includes(q) || (m.memberCode || '').toLowerCase().includes(q) || (m.loanId || '').toLowerCase().includes(q);
+  });
+
+  // Filter individual loans by search query
+  const filteredIndividualLoans = individualLoans.filter((item) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase().trim();
+    return (item.memberName || '').toLowerCase().includes(q) || (item.memberCode || '').toLowerCase().includes(q) || (item.loanId || '').toLowerCase().includes(q);
+  });
+
   return (
     <div className="emp-page-container">
-      {/* 1. Loan Category Tabs */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 6, marginBottom: 12 }}>
-        {LOAN_TYPES.map((lt) => (
-          <button
-            key={lt.id}
-            type="button"
-            className={loanType === lt.id ? 'emp-btn-primary' : 'emp-btn-secondary'}
-            style={{ padding: '8px 6px', fontSize: '0.82rem', fontWeight: 700 }}
-            onClick={() => {
-              setLoanType(lt.id);
-              setActiveGroup(null);
-              setCollectionMap({});
-              setMessage({ text: '', type: '' });
-            }}
-          >
-            {lt.label}
-          </button>
-        ))}
+      {/* 1. Loan Category Tabs - Vibrant and Colorful */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginBottom: 12 }}>
+        {LOAN_TYPES.map((lt) => {
+          const isActive = loanType === lt.id;
+          return (
+            <button
+              key={lt.id}
+              type="button"
+              onClick={() => {
+                setLoanType(lt.id);
+                setActiveGroup(null);
+                setCollectionMap({});
+                setMessage({ text: '', type: '' });
+                setSearchQuery('');
+              }}
+              style={{
+                padding: '12px 10px',
+                borderRadius: 10,
+                border: isActive ? `2px solid ${lt.borderColor}` : '1px solid var(--emp-border)',
+                background: isActive ? lt.gradient : 'var(--emp-card-bg)',
+                color: isActive ? '#ffffff' : 'var(--emp-text)',
+                boxShadow: isActive ? `0 4px 14px ${lt.color}40` : '0 1px 3px rgba(0,0,0,0.05)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                fontWeight: 800,
+                fontSize: '0.88rem',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+              }}
+            >
+              <Icon name={lt.icon} size={18} style={{ color: isActive ? '#ffffff' : lt.color }} />
+              <span>{lt.label}</span>
+            </button>
+          );
+        })}
       </div>
 
       {/* 2. Frequency Filter Tabs (Daily, Weekly, Monthly) */}
@@ -265,10 +362,10 @@ export default function EmployeeEmiPayment() {
               }}
               style={{
                 flex: 1,
-                padding: '6px',
-                borderRadius: 6,
+                padding: '8px 4px',
+                borderRadius: 8,
                 fontWeight: 700,
-                fontSize: '0.8rem',
+                fontSize: '0.82rem',
                 border: mode === m.id ? '2px solid var(--emp-primary)' : '1px solid var(--emp-border)',
                 background: mode === m.id ? 'var(--emp-primary)' : 'var(--emp-card-bg)',
                 color: mode === m.id ? '#fff' : 'var(--emp-text)',
@@ -281,6 +378,44 @@ export default function EmployeeEmiPayment() {
         </div>
       </div>
 
+      {/* 3. Search Option Bar */}
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+          <span style={{ position: 'absolute', left: 12, color: 'var(--emp-text-muted)' }}>
+            <Icon name="search" size={16} />
+          </span>
+          <input
+            type="text"
+            className="emp-input"
+            placeholder={
+              loanType === 'group' && !activeGroup
+                ? 'Search group name or group code...'
+                : 'Search borrower name, code, or loan ID...'
+            }
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{ paddingLeft: 38, width: '100%', fontSize: '0.85rem' }}
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              style={{
+                position: 'absolute',
+                right: 12,
+                background: 'none',
+                border: 'none',
+                color: 'var(--emp-text-muted)',
+                cursor: 'pointer',
+                fontWeight: 800,
+              }}
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      </div>
+
       {message.text && (
         <div
           style={{
@@ -290,6 +425,7 @@ export default function EmployeeEmiPayment() {
             marginBottom: 12,
             background: message.type === 'success' ? '#dcfce7' : '#fee2e2',
             color: message.type === 'success' ? '#166534' : '#991b1b',
+            fontWeight: 600,
           }}
         >
           {message.text}
@@ -303,21 +439,22 @@ export default function EmployeeEmiPayment() {
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <h3 style={{ fontSize: '1rem', fontWeight: 800, margin: 0, color: 'var(--emp-text)' }}>
-              {mode.toUpperCase()} Groups ({groups.length})
+              {mode.toUpperCase()} Groups ({filteredGroups.length})
             </h3>
-            <span style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)' }}>Tap group to collect</span>
+            <span style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)' }}>Tap group card to collect</span>
           </div>
 
           {loadingGroups ? (
             <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--emp-text-muted)' }}>Loading groups...</div>
-          ) : groups.length === 0 ? (
+          ) : filteredGroups.length === 0 ? (
             <div className="emp-card" style={{ textAlign: 'center', padding: '30px 16px', color: 'var(--emp-text-muted)' }}>
               <div style={{ color: 'var(--emp-text-muted)', marginBottom: 8 }}><Icon name="group" size={40} /></div>
-              <div style={{ fontWeight: 600 }}>No {mode} groups found for this date</div>
+              <div style={{ fontWeight: 600 }}>No {mode} groups scheduled for this date</div>
+              {searchQuery && <div style={{ fontSize: '0.8rem', marginTop: 4 }}>Try clearing the search query</div>}
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {groups.map((g) => {
+              {filteredGroups.map((g) => {
                 const is100Percent = g.isCompleted || g.collectionProgressPercent >= 100;
 
                 return (
@@ -328,42 +465,87 @@ export default function EmployeeEmiPayment() {
                     style={{
                       margin: 0,
                       cursor: 'pointer',
-                      border: is100Percent ? '2px solid #10b981' : '1px solid var(--emp-border)',
-                      background: is100Percent ? '#f0fdf4' : 'var(--emp-card-bg)',
+                      border: is100Percent ? '2px solid #16a34a' : '1px solid var(--emp-border)',
+                      background: is100Percent ? '#dcfce7' : 'var(--emp-card-bg)',
+                      boxShadow: is100Percent ? '0 4px 14px rgba(22, 163, 74, 0.15)' : 'none',
+                      borderRadius: 12,
+                      padding: 14,
                     }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                       <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontWeight: 800, fontSize: '1rem', color: is100Percent ? '#047857' : 'var(--emp-text)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          <span style={{ fontWeight: 800, fontSize: '1.05rem', color: is100Percent ? '#15803d' : 'var(--emp-text)' }}>
                             {g.groupName}
                           </span>
-                          {is100Percent && <span className="emp-badge emp-badge-success">✓ 100% Complete</span>}
+                          {is100Percent && (
+                            <span style={{ background: '#16a34a', color: '#fff', padding: '2px 8px', borderRadius: 6, fontSize: '0.72rem', fontWeight: 800 }}>
+                              ✓ 100% Collection Complete
+                            </span>
+                          )}
                         </div>
-                        <div style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
-                          Code: <strong>{g.groupCode}</strong> • {g.membersCount} Members
+                        <div style={{ fontSize: '0.78rem', color: is100Percent ? '#166534' : 'var(--emp-text-muted)', marginTop: 2 }}>
+                          Code: <strong>{g.groupCode}</strong> • {g.membersCount} Members • {g.scheduledDay || 'Weekly'}
                         </div>
                       </div>
+
+                      {/* Dues in RED */}
                       <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontSize: '1.05rem', fontWeight: 800, color: is100Percent ? '#059669' : 'var(--emp-primary)' }}>
-                          ₹{Number(g.totalDueAmount).toLocaleString('en-IN')}
-                        </div>
-                        <div style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)' }}>Target Due</div>
+                        <span style={{
+                          display: 'inline-block',
+                          fontSize: '0.82rem',
+                          fontWeight: 800,
+                          color: '#dc2626',
+                          background: '#fee2e2',
+                          border: '1px solid #fecaca',
+                          padding: '2px 8px',
+                          borderRadius: 6,
+                        }}>
+                          Dues: {g.dueCount !== undefined ? g.dueCount : 0}
+                        </span>
                       </div>
                     </div>
 
-                    {/* Progress Bar (Green when 100%) */}
-                    <div style={{ marginTop: 10 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: 'var(--emp-text-muted)', marginBottom: 3 }}>
-                        <span>Collected: ₹{Number(g.totalCollectedToday).toLocaleString('en-IN')}</span>
-                        <strong style={{ color: is100Percent ? '#059669' : 'inherit' }}>{g.collectionProgressPercent}%</strong>
+                    {/* Total Group Collection vs Target */}
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: '1fr 1fr',
+                      gap: 8,
+                      marginTop: 10,
+                      padding: '8px 12px',
+                      background: is100Percent ? '#bbf7d0' : 'var(--emp-bg-subtle, #f8fafc)',
+                      borderRadius: 8,
+                    }}>
+                      <div>
+                        <div style={{ fontSize: '0.72rem', color: is100Percent ? '#166534' : 'var(--emp-text-muted)', fontWeight: 600 }}>
+                          Total Group Collection:
+                        </div>
+                        <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#15803d' }}>
+                          ₹{Number(g.totalCollectedToday || 0).toLocaleString('en-IN')}
+                        </div>
                       </div>
-                      <div style={{ height: 6, borderRadius: 3, background: 'var(--emp-border)', overflow: 'hidden' }}>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: '0.72rem', color: is100Percent ? '#166534' : 'var(--emp-text-muted)', fontWeight: 600 }}>
+                          Target Due:
+                        </div>
+                        <div style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--emp-text)' }}>
+                          ₹{Number(g.totalDueAmount || 0).toLocaleString('en-IN')}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Progress Bar */}
+                    <div style={{ marginTop: 10 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: is100Percent ? '#166534' : 'var(--emp-text-muted)', marginBottom: 3 }}>
+                        <span>Progress</span>
+                        <strong>{g.collectionProgressPercent}%</strong>
+                      </div>
+                      <div style={{ height: 6, borderRadius: 3, background: is100Percent ? '#86efac' : 'var(--emp-border)', overflow: 'hidden' }}>
                         <div
                           style={{
                             height: '100%',
                             width: `${g.collectionProgressPercent}%`,
-                            background: is100Percent ? '#10b981' : 'var(--emp-primary)',
+                            background: is100Percent ? '#16a34a' : 'var(--emp-primary)',
                             transition: 'width 0.3s ease',
                           }}
                         />
@@ -404,7 +586,7 @@ export default function EmployeeEmiPayment() {
             className="emp-card"
             style={{
               background: activeGroup.isCompleted ? '#f0fdf4' : 'var(--emp-card-bg)',
-              border: activeGroup.isCompleted ? '2px solid #10b981' : '1px solid var(--emp-border)',
+              border: activeGroup.isCompleted ? '2px solid #16a34a' : '1px solid var(--emp-border)',
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -417,7 +599,7 @@ export default function EmployeeEmiPayment() {
                 </div>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)' }}>Total Collection</div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)' }}>Selected Collection</div>
                 <div style={{ fontSize: '1.3rem', fontWeight: 800, color: '#059669' }}>
                   ₹{Number(totalSelectedCollection).toLocaleString('en-IN')}
                 </div>
@@ -434,15 +616,18 @@ export default function EmployeeEmiPayment() {
                 <label style={{ fontSize: '0.82rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
                   <input
                     type="checkbox"
-                    checked={groupMembers.length > 0 && groupMembers.filter((m) => !m.isAdvancePaid).every((m) => collectionMap[m.memberCode]?.selected)}
-                    onChange={(e) => handleSelectAll(e.target.checked, groupMembers)}
+                    checked={
+                      filteredGroupMembers.length > 0 &&
+                      filteredGroupMembers.filter((m) => !m.isAdvancePaid).every((m) => collectionMap[m.memberCode]?.selected)
+                    }
+                    onChange={(e) => handleSelectAll(e.target.checked, filteredGroupMembers)}
                   />
                   Select All Unpaid
                 </label>
-                <span style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)' }}>{groupMembers.length} Members</span>
+                <span style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)' }}>{filteredGroupMembers.length} Members</span>
               </div>
 
-              {groupMembers.map((m) => {
+              {filteredGroupMembers.map((m) => {
                 const itemState = collectionMap[m.memberCode] || { selected: false, amount: m.emiAmount };
                 const isAdvance = m.isAdvancePaid;
 
@@ -459,7 +644,6 @@ export default function EmployeeEmiPayment() {
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                      {/* Checkbox (Single Tick) */}
                       <input
                         type="checkbox"
                         checked={itemState.selected}
@@ -479,14 +663,13 @@ export default function EmployeeEmiPayment() {
                             </div>
                           </div>
 
-                          {/* Advance or Dues Status Badge */}
                           <div>
                             {isAdvance ? (
                               <span className="emp-badge emp-badge-warning" style={{ fontSize: '0.72rem' }}>
-                                Advance ₹{m.advanceAmount} (No EMI Update)
+                                Advance ₹{m.advanceAmount}
                               </span>
                             ) : m.dueAmount > 0 ? (
-                              <span className="emp-badge emp-badge-danger" style={{ fontSize: '0.72rem' }}>
+                              <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#dc2626', background: '#fee2e2', padding: '2px 8px', borderRadius: 6 }}>
                                 Due ₹{m.dueAmount}
                               </span>
                             ) : (
@@ -539,14 +722,29 @@ export default function EmployeeEmiPayment() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                   <div>
                     <div style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)' }}>Payment Mode:</div>
-                    <select
-                      value={payMode}
-                      onChange={(e) => setPayMode(e.target.value)}
-                      style={{ fontSize: '0.8rem', padding: '4px 8px', borderRadius: 6, border: '1px solid var(--emp-border)', marginTop: 2 }}
-                    >
-                      <option value="cash">Cash</option>
-                      <option value="upi">UPI / QR Code</option>
-                    </select>
+                    <div style={{ display: 'flex', gap: 6, marginTop: 2, alignItems: 'center' }}>
+                      <select
+                        value={payMode}
+                        onChange={(e) => {
+                          setPayMode(e.target.value);
+                          if (e.target.value === 'upi') handleOpenQr();
+                        }}
+                        style={{ fontSize: '0.8rem', padding: '4px 8px', borderRadius: 6, border: '1px solid var(--emp-border)' }}
+                      >
+                        <option value="cash">Cash</option>
+                        <option value="upi">UPI / QR Code</option>
+                      </select>
+                      {payMode === 'upi' && (
+                        <button
+                          type="button"
+                          className="emp-btn-primary"
+                          style={{ padding: '4px 8px', fontSize: '0.75rem', background: '#059669' }}
+                          onClick={handleOpenQr}
+                        >
+                          View QR
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   <div style={{ textAlign: 'right' }}>
@@ -579,17 +777,18 @@ export default function EmployeeEmiPayment() {
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <h3 style={{ fontSize: '1rem', fontWeight: 800, margin: 0, color: 'var(--emp-text)', textTransform: 'capitalize' }}>
-              {loanType.replace(/_/g, ' ')} Loans ({individualLoans.length})
+              {loanType.replace(/_/g, ' ')} Loans ({filteredIndividualLoans.length})
             </h3>
             <span style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)' }}>{mode.toUpperCase()}</span>
           </div>
 
           {loadingIndividual ? (
             <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--emp-text-muted)' }}>Loading loans...</div>
-          ) : individualLoans.length === 0 ? (
+          ) : filteredIndividualLoans.length === 0 ? (
             <div className="emp-card" style={{ textAlign: 'center', padding: '30px 16px', color: 'var(--emp-text-muted)' }}>
               <div style={{ color: 'var(--emp-text-muted)', marginBottom: 8 }}><Icon name="briefcase" size={40} /></div>
-              <div style={{ fontWeight: 600 }}>No {loanType} {mode} loans found for this date</div>
+              <div style={{ fontWeight: 600 }}>No {loanType} loans scheduled for this date</div>
+              {searchQuery && <div style={{ fontSize: '0.8rem', marginTop: 4 }}>Try clearing the search query</div>}
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -597,8 +796,11 @@ export default function EmployeeEmiPayment() {
                 <label style={{ fontSize: '0.82rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
                   <input
                     type="checkbox"
-                    checked={individualLoans.length > 0 && individualLoans.filter((m) => !m.isAdvancePaid).every((m) => collectionMap[m.memberCode]?.selected)}
-                    onChange={(e) => handleSelectAll(e.target.checked, individualLoans)}
+                    checked={
+                      filteredIndividualLoans.length > 0 &&
+                      filteredIndividualLoans.filter((m) => !m.isAdvancePaid).every((m) => collectionMap[m.memberCode]?.selected)
+                    }
+                    onChange={(e) => handleSelectAll(e.target.checked, filteredIndividualLoans)}
                   />
                   Select All Unpaid
                 </label>
@@ -607,7 +809,7 @@ export default function EmployeeEmiPayment() {
                 </span>
               </div>
 
-              {individualLoans.map((item) => {
+              {filteredIndividualLoans.map((item) => {
                 const itemState = collectionMap[item.memberCode] || { selected: false, amount: item.emiAmount };
                 const isAdvance = item.isAdvancePaid;
                 const isCompleted = item.isCompleted || item.alreadyPaidToday;
@@ -620,8 +822,9 @@ export default function EmployeeEmiPayment() {
                       margin: 0,
                       padding: 12,
                       opacity: isAdvance ? 0.75 : 1,
-                      background: isCompleted ? '#f0fdf4' : isAdvance ? '#fefce8' : itemState.selected ? 'rgba(37, 99, 235, 0.04)' : 'var(--emp-card-bg)',
-                      border: isCompleted ? '2px solid #10b981' : isAdvance ? '1px dashed #ca8a04' : itemState.selected ? '1px solid var(--emp-primary)' : '1px solid var(--emp-border)',
+                      background: isCompleted ? '#dcfce7' : isAdvance ? '#fefce8' : itemState.selected ? 'rgba(37, 99, 235, 0.04)' : 'var(--emp-card-bg)',
+                      border: isCompleted ? '2px solid #16a34a' : isAdvance ? '1px dashed #ca8a04' : itemState.selected ? '1px solid var(--emp-primary)' : '1px solid var(--emp-border)',
+                      borderRadius: 12,
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
@@ -636,7 +839,7 @@ export default function EmployeeEmiPayment() {
                       <div style={{ flex: 1 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                           <div>
-                            <div style={{ fontWeight: 700, fontSize: '0.92rem', color: 'var(--emp-text)' }}>
+                            <div style={{ fontWeight: 700, fontSize: '0.92rem', color: isCompleted ? '#15803d' : 'var(--emp-text)' }}>
                               {item.memberName}
                             </div>
                             <div style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)', marginTop: 1 }}>
@@ -646,7 +849,7 @@ export default function EmployeeEmiPayment() {
 
                           <div>
                             {isCompleted ? (
-                              <span className="emp-badge emp-badge-success" style={{ fontSize: '0.72rem' }}>
+                              <span style={{ background: '#16a34a', color: '#fff', padding: '2px 8px', borderRadius: 6, fontSize: '0.72rem', fontWeight: 800 }}>
                                 ✓ 100% Paid
                               </span>
                             ) : isAdvance ? (
@@ -654,7 +857,7 @@ export default function EmployeeEmiPayment() {
                                 Advance ₹{item.advanceAmount}
                               </span>
                             ) : (
-                              <span className="emp-badge emp-badge-danger" style={{ fontSize: '0.72rem' }}>
+                              <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#dc2626', background: '#fee2e2', padding: '2px 8px', borderRadius: 6 }}>
                                 Due ₹{item.dueAmount}
                               </span>
                             )}
@@ -703,14 +906,29 @@ export default function EmployeeEmiPayment() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                   <div>
                     <div style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)' }}>Payment Mode:</div>
-                    <select
-                      value={payMode}
-                      onChange={(e) => setPayMode(e.target.value)}
-                      style={{ fontSize: '0.8rem', padding: '4px 8px', borderRadius: 6, border: '1px solid var(--emp-border)', marginTop: 2 }}
-                    >
-                      <option value="cash">Cash</option>
-                      <option value="upi">UPI / QR Code</option>
-                    </select>
+                    <div style={{ display: 'flex', gap: 6, marginTop: 2, alignItems: 'center' }}>
+                      <select
+                        value={payMode}
+                        onChange={(e) => {
+                          setPayMode(e.target.value);
+                          if (e.target.value === 'upi') handleOpenQr();
+                        }}
+                        style={{ fontSize: '0.8rem', padding: '4px 8px', borderRadius: 6, border: '1px solid var(--emp-border)' }}
+                      >
+                        <option value="cash">Cash</option>
+                        <option value="upi">UPI / QR Code</option>
+                      </select>
+                      {payMode === 'upi' && (
+                        <button
+                          type="button"
+                          className="emp-btn-primary"
+                          style={{ padding: '4px 8px', fontSize: '0.75rem', background: '#059669' }}
+                          onClick={handleOpenQr}
+                        >
+                          View QR
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   <div style={{ textAlign: 'right' }}>
@@ -735,7 +953,46 @@ export default function EmployeeEmiPayment() {
           )}
         </div>
       )}
+
+      {/* Dynamic Company UPI QR Code Modal */}
+      {qrModal && (
+        <div className="emp-modal-overlay" onClick={() => setQrModal(null)}>
+          <div className="emp-modal-sheet" onClick={(e) => e.stopPropagation()} style={{ textAlign: 'center' }}>
+            <h3 style={{ fontSize: '1.15rem', fontWeight: 800, margin: '0 0 6px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+              <Icon name="qrcode" size={20} style={{ color: 'var(--emp-primary)' }} />
+              <span>Scan & Pay via Company UPI</span>
+            </h3>
+            <p style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', margin: '0 0 14px 0' }}>
+              Borrower pays directly to <strong>{qrModal.companyName}</strong> bank account.
+            </p>
+
+            <div style={{ display: 'inline-block', padding: 12, background: '#fff', borderRadius: 12, border: '2px solid var(--emp-border)', margin: '0 auto 12px auto' }}>
+              <img src={qrModal.qrImageUrl} alt="Company UPI QR" style={{ width: 220, height: 220, display: 'block' }} />
+            </div>
+
+            <div style={{ fontSize: '1.35rem', fontWeight: 800, color: '#059669', marginBottom: 4 }}>
+              ₹{Number(qrModal.amount).toLocaleString('en-IN')}
+            </div>
+            <div style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', marginBottom: 16 }}>
+              UPI ID: <strong>{qrModal.upiId}</strong>
+            </div>
+
+            <div style={{ background: '#fef3c7', padding: '10px 14px', borderRadius: 8, fontSize: '0.78rem', color: '#92400e', marginBottom: 16, textAlign: 'left', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Icon name="shieldcheck" size={16} />
+              <span><strong>Supported Apps:</strong> PhonePe, Google Pay, Paytm, BHIM, or any bank UPI app.</span>
+            </div>
+
+            <button
+              type="button"
+              className="emp-btn-primary"
+              style={{ width: '100%', padding: '12px', fontSize: '0.95rem' }}
+              onClick={() => setQrModal(null)}
+            >
+              Done Scanning
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-

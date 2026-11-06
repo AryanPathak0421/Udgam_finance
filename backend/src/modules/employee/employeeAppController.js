@@ -1275,6 +1275,13 @@ export async function getEmiGroups(req, res) {
   const mode = cleanStr(req.query.mode || 'all').toLowerCase();
   const dateStr = cleanStr(req.query.date) || todayDateString();
 
+  const targetDate = new Date(`${dateStr}T12:00:00.000Z`);
+  const jsDay = targetDate.getDay(); // 0: Sun, 1: Mon, 2: Tue, 3: Wed, 4: Thu, 5: Fri, 6: Sat
+  const isoDay = jsDay === 0 ? 7 : jsDay;
+  const dayOfMonth = targetDate.getDate();
+  const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  const targetDayName = dayNames[jsDay];
+
   const emp = await Employee.findOne({ employeeCode: staffCode }).lean();
   const staffGroupQuery = {
     isDeleted: { $ne: true },
@@ -1284,7 +1291,12 @@ export async function getEmiGroups(req, res) {
     ],
   };
 
-  const myAssignedGroups = await Group.find(staffGroupQuery).select('code name meetingType dayOfWeek branch').lean();
+  const myAssignedGroups = await Group.find(staffGroupQuery).select('code name meetingType dayOfWeek collectionDay branch').lean();
+  const groupDocMap = new Map();
+  for (const g of myAssignedGroups) {
+    if (g.code) groupDocMap.set(g.code, g);
+  }
+
   let myGroupCodes = myAssignedGroups.map((g) => g.code).filter(Boolean);
 
   if (!myGroupCodes.length) {
@@ -1296,7 +1308,10 @@ export async function getEmiGroups(req, res) {
 
   if (!myGroupCodes.length && (emp?.branch || req.user?.branches?.length)) {
     const branchId = emp?.branch || req.user?.branches?.[0];
-    const branchGroups = await Group.find({ branch: branchId, isDeleted: { $ne: true } }).select('code').limit(50).lean();
+    const branchGroups = await Group.find({ branch: branchId, isDeleted: { $ne: true } }).select('code name meetingType dayOfWeek collectionDay branch').limit(100).lean();
+    for (const g of branchGroups) {
+      if (g.code) groupDocMap.set(g.code, g);
+    }
     myGroupCodes = branchGroups.map((g) => g.code).filter(Boolean);
   }
 
@@ -1305,52 +1320,21 @@ export async function getEmiGroups(req, res) {
     'group.code': { $in: myGroupCodes },
   };
 
-  if (mode && mode !== 'all') {
-    loanQuery.$or = [
-      { mode: new RegExp(`^${mode}$`, 'i') },
-      { modeLabel: new RegExp(`^${mode}$`, 'i') },
-    ];
+  let allLoans = await LoanPayment.find(loanQuery).lean();
+
+  // Group loans by groupCode
+  const loansByGroupCode = new Map();
+  for (const l of allLoans) {
+    const c = l.group?.code;
+    if (!c) continue;
+    if (!loansByGroupCode.has(c)) loansByGroupCode.set(c, []);
+    loansByGroupCode.get(c).push(l);
   }
 
-  let loans = await LoanPayment.find(loanQuery).lean();
-
-  // If specific mode had no loans, but user requested groups, also try finding all active group loans for staff
-  if (!loans.length && mode !== 'all') {
-    loans = await LoanPayment.find({
-      status: 'paid',
-      'group.code': { $in: myGroupCodes },
-    }).lean();
-  }
-
-  const groupMap = new Map();
-  for (const l of loans) {
-    const code = l.group?.code;
-    if (!code) continue;
-    if (!groupMap.has(code)) {
-      groupMap.set(code, {
-        groupCode: code,
-        groupName: l.group.name || code,
-        mode: l.mode || l.modeLabel || 'weekly',
-        loans: [],
-        membersCount: 0,
-        totalDueAmount: 0,
-        totalCollectedToday: 0,
-      });
-    }
-    const g = groupMap.get(code);
-    g.loans.push(l._id);
-    g.membersCount += l.lines?.length || 1;
-    for (const line of (l.lines || [])) {
-      const emi = (l.schedule?.[0]?.installmentPaise || 0) + (line.extraEmiPaise || 0);
-      g.totalDueAmount += emi / 100;
-    }
-  }
-
+  // Pre-fetch collections for today
   const startDay = new Date(`${dateStr}T00:00:00.000Z`);
   const endDay = new Date(`${dateStr}T23:59:59.999Z`);
-
-  const allLoanIds = [];
-  for (const g of groupMap.values()) allLoanIds.push(...g.loans);
+  const allLoanIds = allLoans.map((l) => l._id);
 
   const collections = allLoanIds.length ? await EmiPayment.aggregate([
     { $match: { loanPayment: { $in: allLoanIds }, status: 'paid', paidOn: { $gte: startDay, $lte: endDay } } },
@@ -1362,27 +1346,152 @@ export async function getEmiGroups(req, res) {
     collectionsByLoanId.set(String(c._id), c.total || 0);
   }
 
-  const groups = [];
-  for (const [, g] of groupMap.entries()) {
-    let collectedPaise = 0;
-    for (const loanId of g.loans) {
-      collectedPaise += collectionsByLoanId.get(String(loanId)) || 0;
+  // Pre-fetch all past payments for dues calculation
+  const allPastPayments = allLoanIds.length ? await EmiPayment.find({
+    loanPayment: { $in: allLoanIds },
+    status: 'paid',
+  }).select('loanPayment memberCode amountPaise paidOn').lean() : [];
+
+  const paymentsByKey = new Map();
+  for (const p of allPastPayments) {
+    const k = `${String(p.loanPayment)}_${p.memberCode}`;
+    const cur = paymentsByKey.get(k) || { totalPaise: 0, todayPaise: 0 };
+    cur.totalPaise += (p.amountPaise || 0);
+    if (p.paidOn >= startDay && p.paidOn <= endDay) {
+      cur.todayPaise += (p.amountPaise || 0);
     }
-    g.totalCollectedToday = collectedPaise / 100;
-    const progress = g.totalDueAmount > 0 ? Math.min(100, Math.round((g.totalCollectedToday / g.totalDueAmount) * 100)) : 100;
+    paymentsByKey.set(k, cur);
+  }
+
+  const groups = [];
+
+  for (const code of myGroupCodes) {
+    const groupDoc = groupDocMap.get(code);
+    const groupLoans = loansByGroupCode.get(code) || [];
+    if (!groupLoans.length && !groupDoc) continue;
+
+    // Determine meeting frequency
+    let meetingType = (groupDoc?.meetingType || '').toLowerCase();
+    if (!meetingType && groupLoans.length) {
+      meetingType = (groupLoans[0].mode || groupLoans[0].modeLabel || 'weekly').toLowerCase();
+    }
+    if (!meetingType) meetingType = 'weekly';
+
+    // Strict Mode filter (Daily, Weekly, Monthly)
+    if (mode && mode !== 'all') {
+      if (meetingType !== mode) continue;
+    }
+
+    // Determine scheduled collection day & verify if group meets on targetDate
+    let isScheduled = false;
+    let scheduledDayLabel = '';
+
+    if (meetingType === 'daily') {
+      // Daily meets Mon-Sat (skip Sunday)
+      isScheduled = jsDay !== 0;
+      scheduledDayLabel = 'Daily';
+    } else if (meetingType === 'weekly') {
+      // Weekly MUST strictly match today's weekday!
+      // E.g., if today is Tuesday, show only Tuesday groups.
+      // Friday groups must NOT appear on Saturday or Tuesday!
+      let groupDayNum = null;
+      if (groupDoc?.collectionDay !== undefined && groupDoc?.collectionDay !== null) {
+        groupDayNum = Number(groupDoc.collectionDay);
+      } else if (groupDoc?.dayOfWeek) {
+        const dow = String(groupDoc.dayOfWeek).toLowerCase().trim();
+        const idx = dayNames.indexOf(dow);
+        if (idx >= 0) groupDayNum = idx === 0 ? 7 : idx;
+      }
+
+      // If not on group doc, check first loan schedule
+      if (groupDayNum === null && groupLoans.length > 0) {
+        for (const l of groupLoans) {
+          if (l.schedule?.[0]?.dueDate) {
+            const d = new Date(l.schedule[0].dueDate).getDay();
+            groupDayNum = d === 0 ? 7 : d;
+            break;
+          }
+        }
+      }
+
+      // Default to Tuesday (2) or matching if not defined
+      if (groupDayNum !== null) {
+        const matchesIso = groupDayNum === isoDay;
+        const matchesJs = groupDayNum === jsDay;
+        isScheduled = matchesIso || matchesJs;
+        const dayIdx = groupDayNum === 7 ? 0 : groupDayNum;
+        scheduledDayLabel = dayNames[dayIdx] ? dayNames[dayIdx].charAt(0).toUpperCase() + dayNames[dayIdx].slice(1) : 'Weekly';
+      } else {
+        // Fallback: check if any loan has an installment due on targetDate or matching weekday
+        isScheduled = groupLoans.some((l) => (l.schedule || []).some((s) => s.dueDate && new Date(s.dueDate).getDay() === jsDay));
+        scheduledDayLabel = targetDayName.charAt(0).toUpperCase() + targetDayName.slice(1);
+      }
+    } else if (meetingType === 'monthly') {
+      let groupMonthDay = null;
+      if (groupDoc?.collectionDay !== undefined && groupDoc?.collectionDay !== null) {
+        groupMonthDay = Number(groupDoc.collectionDay);
+      } else if (groupLoans.length > 0 && groupLoans[0].schedule?.[0]?.dueDate) {
+        groupMonthDay = new Date(groupLoans[0].schedule[0].dueDate).getDate();
+      }
+
+      if (groupMonthDay !== null) {
+        isScheduled = groupMonthDay === dayOfMonth;
+        scheduledDayLabel = `${groupMonthDay}th of month`;
+      } else {
+        isScheduled = groupLoans.some((l) => (l.schedule || []).some((s) => s.dueDate && new Date(s.dueDate).getDate() === dayOfMonth));
+        scheduledDayLabel = 'Monthly';
+      }
+    }
+
+    // If not scheduled for this date and not collecting today, skip
+    if (!isScheduled) continue;
+
+    // Calculate members, due amounts, collected amounts, and pending dues count
+    let totalDueAmount = 0;
+    let totalCollectedToday = 0;
+    let membersCount = 0;
+    let dueCount = 0;
+
+    for (const l of groupLoans) {
+      const loanCollectedToday = collectionsByLoanId.get(String(l._id)) || 0;
+      totalCollectedToday += loanCollectedToday / 100;
+      membersCount += (l.lines?.length || 1);
+
+      for (const line of (l.lines || [])) {
+        const emiPaise = (l.schedule?.[0]?.installmentPaise || 0) + (line.extraEmiPaise || 0);
+        totalDueAmount += emiPaise / 100;
+
+        const stats = paymentsByKey.get(`${String(l._id)}_${line.code}`) || { totalPaise: 0, todayPaise: 0 };
+        const dueSchedule = (l.schedule || []).filter((s) => s.dueDate && new Date(s.dueDate) <= new Date(dateStr));
+        const expectedDuePaise = dueSchedule.length * emiPaise;
+        const duesPaise = Math.max(0, expectedDuePaise - stats.totalPaise);
+        const alreadyPaidToday = stats.todayPaise > 0;
+        const isAdvancePaid = (stats.totalPaise - expectedDuePaise) >= emiPaise;
+
+        if (!alreadyPaidToday && !isAdvancePaid && (duesPaise > 0 || stats.todayPaise === 0)) {
+          dueCount++;
+        }
+      }
+    }
+
+    const progress = totalDueAmount > 0 ? Math.min(100, Math.round((totalCollectedToday / totalDueAmount) * 100)) : 100;
+    const isCompleted = (totalCollectedToday >= totalDueAmount && totalDueAmount > 0) || (membersCount > 0 && dueCount === 0 && totalCollectedToday > 0);
+
     groups.push({
-      groupCode: g.groupCode,
-      groupName: g.groupName,
-      mode: g.mode,
-      membersCount: g.membersCount,
-      totalDueAmount: g.totalDueAmount,
-      totalCollectedToday: g.totalCollectedToday,
+      groupCode: code,
+      groupName: groupDoc?.name || groupLoans[0]?.group?.name || code,
+      mode: meetingType,
+      scheduledDay: scheduledDayLabel,
+      membersCount,
+      dueCount,
+      totalDueAmount,
+      totalCollectedToday,
       collectionProgressPercent: progress,
-      isCompleted: progress >= 100,
+      isCompleted,
     });
   }
 
-  res.json({ mode, date: dateStr, groups });
+  res.json({ mode, date: dateStr, weekday: targetDayName, groups });
 }
 
 export async function getGroupEmiMembers(req, res) {
@@ -1559,6 +1668,10 @@ export async function getIndividualLoans(req, res) {
   const mode = cleanStr(req.query.mode || 'all').toLowerCase();
   const dateStr = cleanStr(req.query.date) || todayDateString();
 
+  const targetDate = new Date(`${dateStr}T12:00:00.000Z`);
+  const jsDay = targetDate.getDay(); // 0..6
+  const dayOfMonth = targetDate.getDate();
+
   const typeFilter = (loanType === 'business' || loanType === 'msme' || loanType === 'business_msme')
     ? { $in: ['business', 'msme', 'business_msme'] }
     : loanType;
@@ -1582,39 +1695,48 @@ export async function getIndividualLoans(req, res) {
     ],
   };
 
-  if (mode && mode !== 'all') {
-    query.$or = [
-      { mode: new RegExp(`^${mode}$`, 'i') },
-      { modeLabel: new RegExp(`^${mode}$`, 'i') },
-    ];
-  }
-
   let loans = await LoanPayment.find(query).populate('lines.member').lean();
 
-  // Fallback: if mode was restricted and returned 0 loans, fetch loans regardless of mode
-  if (!loans.length && mode !== 'all') {
-    delete query.$or;
-    loans = await LoanPayment.find({
-      status: 'paid',
-      $or: [
-        { loanType: typeFilter },
-        { kind: typeFilter },
-      ],
-      $and: [
-        {
-          $or: [
-            { employeeCode: staffCode },
-            ...(branchId ? [{ branch: branchId }] : []),
-          ],
-        },
-      ],
-    }).populate('lines.member').lean();
-  }
+  // Filter loans strictly according to mode & scheduled day
+  const filteredLoans = loans.filter((l) => {
+    const loanMode = (l.mode || l.modeLabel || 'monthly').toLowerCase();
+    if (mode && mode !== 'all' && loanMode !== mode) return false;
+
+    if (loanMode === 'daily') {
+      return jsDay !== 0; // Monday to Saturday
+    }
+
+    if (loanMode === 'weekly') {
+      // Must match target weekday: Friday loans must NEVER show on Saturday!
+      if (Array.isArray(l.schedule) && l.schedule.length > 0) {
+        for (const s of l.schedule) {
+          if (s.dueDate) {
+            const d = new Date(s.dueDate);
+            return d.getDay() === jsDay;
+          }
+        }
+      }
+      return false;
+    }
+
+    if (loanMode === 'monthly') {
+      if (Array.isArray(l.schedule) && l.schedule.length > 0) {
+        return l.schedule.some((s) => {
+          if (!s.dueDate) return false;
+          const d = new Date(s.dueDate);
+          return d.getDate() === dayOfMonth || d.toISOString().split('T')[0] === dateStr;
+        });
+      }
+      return false;
+    }
+
+    return true;
+  });
 
   const startDay = new Date(`${dateStr}T00:00:00.000Z`);
   const endDay = new Date(`${dateStr}T23:59:59.999Z`);
 
-  const allLoanIds = loans.map((l) => l._id);
+  const allLoanIds = filteredLoans.map((l) => l._id);
   const allPastPayments = allLoanIds.length ? await EmiPayment.find({
     loanPayment: { $in: allLoanIds },
     status: 'paid',
@@ -1632,7 +1754,7 @@ export async function getIndividualLoans(req, res) {
   }
 
   const items = [];
-  for (const l of loans) {
+  for (const l of filteredLoans) {
     for (const line of (l.lines || [])) {
       const stats = paymentsByKey.get(`${String(l._id)}_${line.code}`) || { totalPaise: 0, todayPaise: 0 };
       const totalPaidPaise = stats.totalPaise;
@@ -1691,6 +1813,42 @@ export async function advancePayment(req, res) {
   const line = (loan.lines || []).find((l) => (memberCode && l.code === memberCode)) || loan.lines?.[0];
   if (!line) throw new HttpError(404, 'Borrower line not found in this loan');
 
+  const payAmountPaise = Math.round(payAmount * 100);
+
+  // 1. Check existing payments and remaining balance to prevent balance going negative
+  const existingPayments = await EmiPayment.find({ loanPayment: loan._id, status: 'paid' }).lean();
+  const totalPaidPaise = existingPayments.reduce((acc, p) => acc + (p.amountPaise || 0), 0);
+  const totalLoanPaise = line.amountPaise || loan.totalAmountPaise || loan.amountPaise || 0;
+  const remainingBalancePaise = Math.max(0, totalLoanPaise - totalPaidPaise);
+
+  if (remainingBalancePaise <= 0) {
+    throw new HttpError(400, `Loan ${loan.loanId} has already been fully paid and closed. Remaining balance is ₹0.`);
+  }
+
+  if (payAmountPaise > remainingBalancePaise) {
+    throw new HttpError(400, `Advance payment of ₹${payAmount} exceeds remaining loan balance of ₹${remainingBalancePaise / 100}. Maximum payable is ₹${remainingBalancePaise / 100}.`);
+  }
+
+  // 2. Strict rapid double-tap / idempotency check (reject/return within 5 seconds)
+  const recentDuplicate = await EmiPayment.findOne({
+    loanPayment: loan._id,
+    memberCode: line.code,
+    amountPaise: payAmountPaise,
+    createdAt: { $gte: new Date(Date.now() - 5000) },
+  });
+
+  if (recentDuplicate) {
+    return res.status(200).json({
+      success: true,
+      receiptNo: recentDuplicate.receiptNo,
+      amount: payAmount,
+      loanId: loan.loanId,
+      memberCode: line.code,
+      memberName: line.name,
+      message: `Advance payment of ₹${payAmount} was already credited (Receipt: ${recentDuplicate.receiptNo})`,
+    });
+  }
+
   const receiptNo = await generateCode('emiReceipt').catch(() => `ADV${Date.now().toString().slice(-8)}`);
   const doc = await EmiPayment.create({
     receiptNo,
@@ -1703,7 +1861,7 @@ export async function advancePayment(req, res) {
     memberCode: line.code,
     memberName: line.name,
     group: loan.group?.code ? `${loan.group.code} — ${loan.group.name}` : '',
-    amountPaise: Math.round(payAmount * 100),
+    amountPaise: payAmountPaise,
     paidOn: new Date(),
     payMode,
     reference,
@@ -1712,6 +1870,25 @@ export async function advancePayment(req, res) {
     createdByCode: req.user?.employeeCode || '',
     status: 'paid',
   });
+
+  // Record in AppEmiCollection so it appears in Admin App Section Approval
+  await AppEmiCollection.create({
+    loanPayment: loan._id,
+    loanId: loan.loanId || loan.formId,
+    branch: loan.branch?._id || loan.branch,
+    memberCode: line.code,
+    memberName: line.name,
+    group: loan.group?.code ? `${loan.group.code} — ${loan.group.name}` : '',
+    amountPaise: payAmountPaise,
+    collectedOn: new Date(),
+    type: 'advance',
+    payMode: ['cash', 'bank', 'upi', 'cheque'].includes(payMode) ? payMode : 'cash',
+    reference: reference || '',
+    collectedBy: req.user._id,
+    collectedByCode: req.user?.employeeCode || '',
+    status: 'pending',
+    receiptNo: doc.receiptNo,
+  }).catch(() => {});
 
   res.status(201).json({
     success: true,

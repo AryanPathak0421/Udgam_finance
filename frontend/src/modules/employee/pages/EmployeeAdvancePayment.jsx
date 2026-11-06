@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { api } from '../../../api/client.js';
 import { useEmployeeApp } from '../EmployeeAppContext.jsx';
 import Icon from '../../../components/Icon.jsx';
@@ -16,6 +16,7 @@ export default function EmployeeAdvancePayment() {
   const [payMode, setPayMode] = useState('cash'); // 'cash' | 'upi'
   const [reference, setReference] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const isSubmittingRef = useRef(false);
 
   // Dynamic QR Code modal
   const [qrModal, setQrModal] = useState(null);
@@ -31,9 +32,11 @@ export default function EmployeeAdvancePayment() {
     try {
       const res = await api.employeeApp.trackLoan(loanQuery.trim());
       setLoanData(res);
-      // Pre-fill suggested advance with 1 EMI
+      // Pre-fill suggested advance with 1 EMI (up to remaining balance)
       if (res.loan?.scheduleCount > 0 && res.schedule?.[0]?.installmentAmount) {
-        setAdvanceAmount(String(res.schedule[0].installmentAmount));
+        const emi = Number(res.schedule[0].installmentAmount);
+        const bal = Number(res.loan?.balance || 0);
+        setAdvanceAmount(String(bal > 0 ? Math.min(emi, bal) : 0));
       }
     } catch (err) {
       setError(err.message || 'Loan record not found');
@@ -66,17 +69,32 @@ export default function EmployeeAdvancePayment() {
   };
 
   const handleSubmitAdvance = async (e) => {
-    e.preventDefault();
-    if (!loanData) return;
+    e?.preventDefault();
+    // Immediate synchronous lock to prevent multiple rapid taps
+    if (!loanData || isSubmittingRef.current || submitting) return;
+
+    const remainingBal = Number(loanData.loan?.balance || 0);
+    if (remainingBal <= 0) {
+      setError('This loan is already fully paid and closed. Balance is ₹0.');
+      return;
+    }
+
     const amount = Number(advanceAmount);
     if (!amount || amount < 1) {
       setError('Please enter an amount of ₹1 or more');
       return;
     }
 
+    if (amount > remainingBal) {
+      setError(`Advance amount (₹${amount.toLocaleString('en-IN')}) cannot exceed remaining balance of ₹${remainingBal.toLocaleString('en-IN')}`);
+      return;
+    }
+
+    isSubmittingRef.current = true;
     setSubmitting(true);
     setError('');
     setSuccess('');
+
     try {
       const borrower = loanData.loan?.borrowers?.[0];
       const res = await api.employeeApp.advancePayment({
@@ -97,6 +115,7 @@ export default function EmployeeAdvancePayment() {
       setError(err.message || 'Advance payment failed');
     } finally {
       setSubmitting(false);
+      isSubmittingRef.current = false;
     }
   };
 
@@ -292,14 +311,20 @@ export default function EmployeeAdvancePayment() {
                 </div>
               )}
 
-              <button
-                type="submit"
-                className="emp-btn-primary"
-                style={{ padding: '14px', fontSize: '1rem', fontWeight: 800, marginTop: 4 }}
-                disabled={submitting || !advanceAmount}
-              >
-                {submitting ? 'Crediting Advance...' : `Confirm & Credit Advance (₹${Number(advanceAmount || 0).toLocaleString('en-IN')})`}
-              </button>
+              {loanData.loan?.balance <= 0 ? (
+                <div style={{ background: '#fef3c7', color: '#92400e', padding: '12px 14px', borderRadius: 8, fontSize: '0.85rem', fontWeight: 700 }}>
+                  ✓ This loan is fully paid and settled. No further advance payment can be credited.
+                </div>
+              ) : (
+                <button
+                  type="submit"
+                  className="emp-btn-primary"
+                  style={{ padding: '14px', fontSize: '1rem', fontWeight: 800, marginTop: 4 }}
+                  disabled={submitting || !advanceAmount || Number(advanceAmount) <= 0 || Number(advanceAmount) > Number(loanData.loan?.balance || 0)}
+                >
+                  {submitting ? 'Crediting Advance... Please wait' : `Confirm & Credit Advance (₹${Number(advanceAmount || 0).toLocaleString('en-IN')})`}
+                </button>
+              )}
             </form>
           </div>
         </>
