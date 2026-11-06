@@ -5,6 +5,7 @@ import Icon from '../../../components/Icon.jsx';
 
 export default function EmployeeRegistration() {
   const navigate = useNavigate();
+  const [tab, setTab] = useState('phone'); // 'phone' | 'code' | 'email'
   const [identifier, setIdentifier] = useState('');
   const [foundEmp, setFoundEmp] = useState(null);
   const [mpin, setMpin] = useState('');
@@ -15,12 +16,35 @@ export default function EmployeeRegistration() {
 
   async function handleLookup(e) {
     e.preventDefault();
-    if (!identifier.trim()) return;
-    setBusy(true);
     setError('');
     setFoundEmp(null);
+
+    const val = identifier.trim();
+    if (!val) {
+      setError('Please enter your account details');
+      return;
+    }
+
+    if (tab === 'phone') {
+      if (!/^\d{10}$/.test(val)) {
+        setError('Please enter a valid 10-digit mobile number');
+        return;
+      }
+    } else if (tab === 'email') {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) {
+        setError('Please enter a valid email address');
+        return;
+      }
+    } else if (tab === 'code') {
+      if (val.length < 3) {
+        setError('Please enter a valid Employee Code');
+        return;
+      }
+    }
+
+    setBusy(true);
     try {
-      const r = await api.employeeApp.lookup(identifier.trim());
+      const r = await api.employeeApp.lookup(val);
       setFoundEmp(r);
     } catch (err) {
       setError(err.message || 'Employee not found');
@@ -31,8 +55,8 @@ export default function EmployeeRegistration() {
 
   async function handleCreateMpin(e) {
     e.preventDefault();
-    if (mpin.length !== 4) {
-      setError('mPIN must be exactly 4 digits');
+    if (!/^\d{4}$/.test(mpin)) {
+      setError('Secret mPIN must be exactly 4 numeric digits');
       return;
     }
     if (mpin !== confirmMpin) {
@@ -78,16 +102,88 @@ export default function EmployeeRegistration() {
 
       {!foundEmp ? (
         <div className="emp-card" style={{ borderTop: '4px solid var(--emp-primary)' }}>
+          {/* Tab selection */}
+          <div style={{ display: 'flex', borderBottom: '1px solid var(--emp-border)', marginBottom: 16 }}>
+            <button
+              type="button"
+              className="emp-btn secondary sm"
+              style={{
+                flex: 1,
+                borderBottom: tab === 'phone' ? '2px solid var(--emp-primary)' : 'none',
+                borderRadius: 0,
+                fontWeight: tab === 'phone' ? 700 : 500,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6
+              }}
+              onClick={() => { setTab('phone'); setIdentifier(''); setError(''); }}
+            >
+              <Icon name="phone" size={15} />
+              <span>Mobile</span>
+            </button>
+            <button
+              type="button"
+              className="emp-btn secondary sm"
+              style={{
+                flex: 1,
+                borderBottom: tab === 'code' ? '2px solid var(--emp-primary)' : 'none',
+                borderRadius: 0,
+                fontWeight: tab === 'code' ? 700 : 500,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6
+              }}
+              onClick={() => { setTab('code'); setIdentifier(''); setError(''); }}
+            >
+              <Icon name="hash" size={15} />
+              <span>Staff ID</span>
+            </button>
+            <button
+              type="button"
+              className="emp-btn secondary sm"
+              style={{
+                flex: 1,
+                borderBottom: tab === 'email' ? '2px solid var(--emp-primary)' : 'none',
+                borderRadius: 0,
+                fontWeight: tab === 'email' ? 700 : 500,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6
+              }}
+              onClick={() => { setTab('email'); setIdentifier(''); setError(''); }}
+            >
+              <Icon name="mail" size={15} />
+              <span>Email</span>
+            </button>
+          </div>
+
           <form onSubmit={handleLookup}>
             <div className="emp-input-group">
-              <label className="emp-label">Enter Employee Code, Mobile or Email</label>
+              <label className="emp-label">
+                {tab === 'phone' ? '10-digit Mobile Number' : tab === 'code' ? 'Employee Code (e.g. EMP001)' : 'Registered Email Address'}
+              </label>
               <input
+                type={tab === 'phone' ? 'tel' : tab === 'email' ? 'email' : 'text'}
+                inputMode={tab === 'phone' ? 'numeric' : undefined}
+                maxLength={tab === 'phone' ? 10 : tab === 'code' ? 20 : 60}
+                pattern={tab === 'phone' ? '[0-9]{10}' : undefined}
                 className="emp-input"
                 autoFocus
                 required
-                placeholder="e.g. EMP001 or 9876543210"
+                placeholder={tab === 'phone' ? '9876543210' : tab === 'code' ? 'EMP001' : 'staff@udgam.com'}
                 value={identifier}
-                onChange={(e) => setIdentifier(e.target.value)}
+                onChange={(e) => {
+                  if (tab === 'phone') {
+                    setIdentifier(e.target.value.replace(/\D/g, '').slice(0, 10));
+                  } else if (tab === 'code') {
+                    setIdentifier(e.target.value.toUpperCase().trim());
+                  } else {
+                    setIdentifier(e.target.value);
+                  }
+                }}
               />
             </div>
             <button type="submit" className="emp-btn" disabled={busy}>

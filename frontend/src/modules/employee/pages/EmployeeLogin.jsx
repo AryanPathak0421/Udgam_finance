@@ -266,13 +266,20 @@ export default function EmployeeLogin() {
             {step === 1 ? (
               <form onSubmit={handleSendForgotOtp}>
                 <div className="emp-input-group">
-                  <label className="emp-label">Enter Employee Code or Mobile</label>
+                  <label className="emp-label">Enter Employee Code or 10-digit Mobile</label>
                   <input
                     className="emp-input"
                     required
                     value={forgotId}
-                    onChange={(e) => setForgotId(e.target.value)}
-                    placeholder="e.g. EMP001 or Mobile"
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (/^\d+$/.test(val)) {
+                        setForgotId(val.replace(/\D/g, '').slice(0, 10));
+                      } else {
+                        setForgotId(val);
+                      }
+                    }}
+                    placeholder="e.g. 9876543210 or EMP001"
                   />
                 </div>
                 <button type="submit" className="emp-btn" disabled={forgotBusy}>
