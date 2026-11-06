@@ -54,13 +54,14 @@ export function periodsFor(month, frequency, fy, now = new Date()) {
 
 const KIND = {
   loan_disbursement: null,
+  employee: null,
   group_loan_disbursement: 'group',
   personal_loan_disbursement: 'personal',
   business_loan_disbursement: 'business',
   msme_loan_disbursement: 'msme',
 };
 const byEmployee = { _id: { code: '$employeeCode', branch: '$branch' } };
-const COUNTED = ['collection', 'new_group_opening', 'new_member_joining', 'product_sell', ...Object.keys(KIND)];
+const COUNTED = ['collection', 'new_group_opening', 'new_member_joining', 'product_sell', 'employee', ...Object.keys(KIND)];
 
 /**
  * [{ code, branch, count, amount }] for one commission type in one period (amount in paise). Loans, groups and members of the old system count on
@@ -143,10 +144,11 @@ function rulesFor(rules, user) {
   const own = rules.filter((r) => rank && r.rank === rank);
   const ownTypes = new Set(own.map((r) => r.commissionFor));
   const general = rules.filter((r) => !r.rank && !ownTypes.has(r.commissionFor));
-  if (own.length || general.length) return [...own, ...general];
+  const combined = [...own, ...general];
+  if (combined.length) return combined;
   // Old employees or staff without an explicit rank assigned:
-  // Fall back to rules for their own activity (scope === 'own') or all-rank rules so their commission generates
-  return rules.filter((r) => !r.rank || r.scope === 'own');
+  // Fall back to general rules, own activity rules, or legacy employee commission rules
+  return rules.filter((r) => !r.rank || r.scope === 'own' || r.commissionFor === 'employee');
 }
 
 /** What an employee achieved for a rule: his own activity, or that of his branches (a supervisor, those he supervises). */

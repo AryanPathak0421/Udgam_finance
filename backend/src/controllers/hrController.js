@@ -676,19 +676,9 @@ async function readEmployee(b) {
   d.previousCompany = d.hasExperience ? asString(b.previousCompany).slice(0, 100) : '';
   d.previousPost = d.hasExperience ? asString(b.previousPost).slice(0, 80) : '';
   const sb = [...new Set((Array.isArray(b.supervisedBranches) ? b.supervisedBranches : []).map(String).filter((x) => mongoose.isValidObjectId(x)))];
-  if (sb.length > 5) throw invalid({ supervisedBranches: 'A supervisor can supervise at most 5 branches' });
   if (sb.length) {
     const sBranches = await Branch.find({ _id: { $in: sb } }).select('code name city').lean();
     if (sBranches.length !== sb.length) throw invalid({ supervisedBranches: 'Select the branches from the list' });
-    if (d.branch) {
-      const homeBranch = await Branch.findById(d.branch).select('city').lean();
-      if (homeBranch?.city) {
-        const diffCity = sBranches.filter((br) => br.city && br.city.toLowerCase().trim() !== homeBranch.city.toLowerCase().trim());
-        if (diffCity.length) {
-          throw invalid({ supervisedBranches: `Supervisor can only supervise branches in the same city (${homeBranch.city}). Different city: ${diffCity.map((x) => x.name).join(', ')}` });
-        }
-      }
-    }
   }
   d.supervisedBranches = sb;
   const sup = asString(b.supervisor);
@@ -728,6 +718,9 @@ export async function createEmployee(req, res) {
     const e = await Employee.create({ ...d, user: user?._id, status: 'active', createdByCode: req.user.employeeCode || '' });
     await applyFormVerification(req, e);
     if (e.mobileVerifiedAt || e.emailVerifiedAt) await e.save();
+    const allBranches = [...new Set([e.branch, ...(e.supervisedBranches || [])].filter(Boolean))];
+    if (e.user) await User.updateOne({ _id: e.user }, { $set: { branches: allBranches } });
+    if (e.employeeCode) await User.updateMany({ employeeCode: e.employeeCode }, { $set: { branches: allBranches } });
     await e.populate(EMP_POPULATE);
     await audit(req, { action: 'employee.register', entity: 'Employee', entityId: e._id, after: { employeeCode: e.employeeCode, name: e.name } });
     res.status(201).json({ item: presentEmployee(e, req.user) });
@@ -748,6 +741,9 @@ export async function updateEmployee(req, res) {
   Object.assign(e, data);
   await applyFormVerification(req, e);
   await e.save();
+  const allBranches = [...new Set([e.branch, ...(e.supervisedBranches || [])].filter(Boolean))];
+  if (e.user) await User.updateOne({ _id: e.user }, { $set: { branches: allBranches } });
+  if (e.employeeCode) await User.updateMany({ employeeCode: e.employeeCode }, { $set: { branches: allBranches } });
   await e.populate(EMP_POPULATE);
   await audit(req, { action: 'employee.update', entity: 'Employee', entityId: e._id, after: { employeeCode: e.employeeCode, name: e.name } });
   res.json({ item: presentEmployee(e, req.user) });

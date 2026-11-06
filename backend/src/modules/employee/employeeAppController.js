@@ -14,6 +14,7 @@ import { Branch } from '../../models/Branch.js';
 import { Member } from '../../models/Member.js';
 import { LoanPayment } from '../../models/LoanPayment.js';
 import { EmiPayment } from '../../models/EmiPayment.js';
+import { AppEmiCollection } from '../../models/AppEmiCollection.js';
 import { LoanRequisition } from '../../models/LoanRequisition.js';
 import { LoanScheme } from '../../models/LoanScheme.js';
 import { Group } from '../../models/Group.js';
@@ -699,7 +700,10 @@ export async function registerMember(req, res) {
         aadhaarPhoto: b.nomineeAadhaarPhoto || b.aadhaarPhoto || defaultPhoto,
       } : undefined,
       employeeCode: code,
-      joiningApproval: 'approved',
+      joiningApproval: {
+        source: 'app',
+        status: 'pending',
+      },
       createdBy: req.user._id,
       updatedBy: req.user._id,
     });
@@ -1102,7 +1106,8 @@ export async function createLoanRequisition(req, res) {
   const totalInterest = Math.round((amount * rate * (term / 52)) / 100);
   const installment = Math.round((amount + totalInterest) / term);
 
-  const kind = b.kind || b.loanType || 'group';
+  let kind = b.kind || b.loanType || 'group';
+  if (kind === 'msme' || kind === 'business_msme') kind = 'business';
 
   const reqDoc = await LoanRequisition.create({
     formId,
@@ -1497,6 +1502,25 @@ export async function collectBulkEmi(req, res) {
         createdByCode: staffCode,
         status: 'paid',
       });
+
+      // Also record in AppEmiCollection so it appears in App Section -> Loan EMI Collection Approval
+      await AppEmiCollection.create({
+        loanPayment: p._id,
+        loanId: p.loanId || p.formId,
+        branch: p.branch?._id || p.branch,
+        memberCode: line.code,
+        memberName: line.name,
+        group: p.group?.code ? `${p.group.code} — ${p.group.name}` : '',
+        amountPaise: Math.round(amount * 100),
+        collectedOn: paidOn,
+        type: 'regular',
+        payMode: ['cash', 'bank', 'upi', 'cheque'].includes(it.payMode || payMode) ? (it.payMode || payMode) : 'cash',
+        reference: it.reference || reference || '',
+        collectedBy: req.user._id,
+        collectedByCode: staffCode,
+        status: 'pending',
+        receiptNo: doc.receiptNo,
+      }).catch(() => {});
 
       results.push({
         memberCode: line.code,

@@ -29,7 +29,7 @@ export async function overview(req, res) {
   const fy = await financialYearOf(month);
   const [leaderRule, employeeRules, leader, employee] = await Promise.all([
     fy ? Commission.countDocuments({ commissionFor: 'group_leader', isDeleted: false, isActive: true, financialYear: fy._id }) : 0,
-    fy ? Commission.countDocuments({ commissionFor: { $nin: ['group_leader', 'employee'] }, isDeleted: false, isActive: true, financialYear: fy._id }) : 0,
+    fy ? Commission.countDocuments({ commissionFor: { $ne: 'group_leader' }, isDeleted: false, isActive: true, financialYear: fy._id }) : 0,
     GroupLeaderCommission.find({ month, ...branchFilter(req.user) }).select('amountPaise status loans'),
     EmployeeCommission.find({ month }).select('amountPaise employeeCode'),
   ]);

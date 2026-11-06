@@ -57,8 +57,8 @@ export const LEGACY_COMMISSION_TYPE = {
   units: ['amount'],
 };
 
-export const SELECTABLE_TYPES = COMMISSION_TYPE_LIST.map((t) => t.key);
-export const ALL_TYPES = [...SELECTABLE_TYPES, LEGACY_COMMISSION_TYPE.key];
+export const SELECTABLE_TYPES = [...COMMISSION_TYPE_LIST.map((t) => t.key), LEGACY_COMMISSION_TYPE.key];
+export const ALL_TYPES = [...new Set([...SELECTABLE_TYPES, LEGACY_COMMISSION_TYPE.key])];
 
 export const typeMeta = (key) =>
   COMMISSION_TYPE_LIST.find((t) => t.key === key) || (key === LEGACY_COMMISSION_TYPE.key ? LEGACY_COMMISSION_TYPE : null);

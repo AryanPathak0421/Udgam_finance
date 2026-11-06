@@ -328,18 +328,14 @@ function EmployeeForm({ item, onClose, onSaved }) {
           <select id="ensup" value={f.supervisor} onChange={set('supervisor')}><option value="">No supervisor</option>{supList.map((x) => <option key={x.id} value={x.id}>{staffLabel(x)}{x.designation?.name ? ` · ${x.designation.name}` : ''}</option>)}</select>
         </FormField>
         <div className="span-2">
-          <strong>Branches under this employee (max 5)</strong> <span className="muted small">— tick up to 5 branches when the employee is a supervisor (only branches in the same city as home branch)</span>
+          <strong>Branches under this employee / supervisor</strong> <span className="muted small">— tick branches to assign under this employee or supervisor</span>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 16px', marginTop: 6 }}>
             {branches.map((b) => {
-              const homeBranch = branches.find((x) => x.id === f.branch);
-              const sameCity = !homeBranch?.city || !b.city || homeBranch.city.toLowerCase().trim() === b.city.toLowerCase().trim();
               const isChecked = f.supervisedBranches.includes(b.id);
-              const limitReached = !isChecked && f.supervisedBranches.length >= 5;
               return (
-                <label key={b.id} style={{ display: 'flex', gap: 6, alignItems: 'center', opacity: sameCity && !limitReached ? 1 : 0.45 }} title={!sameCity ? `Cannot supervise: branch is in ${b.city || 'another city'}, supervisor is in ${homeBranch?.city}` : limitReached ? 'A supervisor can supervise at most 5 branches' : ''}>
+                <label key={b.id} style={{ display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}>
                   <input
                     type="checkbox"
-                    disabled={!sameCity || limitReached}
                     checked={isChecked}
                     onChange={(e) => setF((x) => ({ ...x, supervisedBranches: e.target.checked ? [...x.supervisedBranches, b.id] : x.supervisedBranches.filter((i) => i !== b.id) }))}
                   /> {b.code} — {b.name} {b.city ? `(${b.city})` : ''}

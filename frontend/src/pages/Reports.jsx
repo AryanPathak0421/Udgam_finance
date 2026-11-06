@@ -120,7 +120,7 @@ const REPORTS = {
   'staff-npa-payment': { title: 'Staff wise NPA Payment Report', description: 'What every staff member collected on NPA loans (NPA payment), by the date it was received.', range: true, from: monthStart, noCall: true, staffFilter: true },
   'staff-disbursement': { title: 'Staff wise Disbursement Report', description: 'Loans paid out for every staff member, by the payment date.', range: true, from: monthStart, noCall: true },
   'group-wise-collection': { title: 'Group wise Collection Report', description: 'What every group paid in the dates: the members who paid, the receipts, the amount, who collected it and when last. The CDS Report shows the demand against the collection.', range: true, from: today, noCall: true },
-  'group-collection': { title: 'Group wise Collection & CDS Report', description: 'For every group: the EMI that fell due in the period (demand), what was collected and the share collected (Collection and Demand Statement).', range: true, from: monthStart, noCall: true },
+  'group-collection': { title: 'CDS Report (Collection & Demand Statement)', description: 'For every group: the EMI that fell due in the period (demand), what was collected and the share collected (Collection and Demand Statement).', range: true, from: monthStart, noCall: true },
 };
 
 /** "Call done": the borrower of the row was called. Shows who called last and when. */
@@ -318,6 +318,7 @@ export function ReportPage({ name }) {
   const [loanType, setLoanType] = useState('');
   const [weekday, setWeekday] = useState('');
   const [staff, setStaff] = useState('');
+  const [groupFilter, setGroupFilter] = useState('');
   const staffQ = useDebounce(staff, 350);
   const [staffList, setStaffList] = useState([]);
   useEffect(() => { if ((cfg.sheet || cfg.staffFilter) && branch) api.members.employees(branch).then((r) => setStaffList(r.items)).catch(() => setStaffList([])); else setStaffList([]); }, [branch]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -370,6 +371,15 @@ export function ReportPage({ name }) {
               {cfg.sheet && mode !== 'daily' && <select value={weekday} onChange={(e) => setWeekday(e.target.value)} aria-label="Day of the week"><option value="">All days</option>{[1, 2, 3, 4, 5, 6, 0].map((d) => <option key={d} value={d}>{dayName(d)}</option>)}</select>}
               <input type="search" list="sheetstaff" placeholder="Employee (code), optional" value={staff} onChange={(e) => setStaff(e.target.value)} aria-label="Employee" style={{ minWidth: 190 }} />
               <datalist id="sheetstaff">{staffList.map((s) => <option key={s.code} value={s.code}>{s.name}</option>)}</datalist>
+              {cfg.group && (
+                <select value={groupFilter} onChange={(e) => { setGroupFilter(e.target.value); setPage(1); }} aria-label="Group filter">
+                  <option value="">All Groups</option>
+                  {[...new Set(rows.map((r) => r.groupCode).filter(Boolean))].map((gc) => {
+                    const first = rows.find((r) => r.groupCode === gc);
+                    return <option key={gc} value={gc}>{gc} — {first?.groupName || 'Group'}</option>;
+                  })}
+                </select>
+              )}
             </>
           )}
           <input type="search" placeholder="Search" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search" style={{ minWidth: 180 }} />
@@ -395,15 +405,70 @@ export function ReportPage({ name }) {
               <table className="data-table">
                 <thead><tr>{cols.map(([l, , n]) => <th key={l} className={n ? 'num' : ''}>{l}</th>)}{callOn && <th>Number</th>}{callOn && <th className="no-print">Call</th>}{!cfg.noCall && <th className="no-print">View</th>}{cfg.npaPay && <th className="no-print">NPA payment</th>}</tr></thead>
                 <tbody>
-                  {view.map((r) => (
-                    <tr key={r.key}>
-                      {cols.map(([l, f, n]) => <td key={l} data-label={l} className={n ? 'num' : ''}>{f(r)}</td>)}
-                      {callOn && <td data-label="Number">{r.mobile || '—'}</td>}
-                      {callOn && <td data-label="Call" className="no-print"><CallButton report={name} row={r} date={callDate} onDone={done} /></td>}
-                      {!cfg.noCall && <td data-label="View" className="no-print"><button className="btn sm" onClick={() => setViewing(r)}>View</button></td>}
-                      {cfg.npaPay && <td data-label="NPA payment" className="no-print"><div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}><button className="btn sm primary" onClick={() => setPaying(r)}>NPA payment</button>{admin && r.lastNpa && <button className="btn sm danger-outline" title={`Last: ${r.lastNpa.receiptNo} · ${inr(r.lastNpa.amount)} on ${dmy(r.lastNpa.date)}`} onClick={() => setReverting(r)}>Revert</button>}</div>{r.lastNpa && <div className="muted small">Last {inr(r.lastNpa.amount)} · {dmy(r.lastNpa.date)}{r.lastNpa.staff ? ` · ${r.lastNpa.staff}` : ''}</div>}</td>}
-                    </tr>
-                  ))}
+                  {cfg.group ? (
+                    (() => {
+                      const displayRows = groupFilter ? rows.filter((r) => r.groupCode === groupFilter) : rows;
+                      const pagedDisplay = displayRows.slice((page - 1) * LIMIT, page * LIMIT);
+                      const groupsMap = new Map();
+                      pagedDisplay.forEach((r) => {
+                        const k = r.groupCode || 'No Group';
+                        if (!groupsMap.has(k)) groupsMap.set(k, []);
+                        groupsMap.get(k).push(r);
+                      });
+
+                      return [...groupsMap.entries()].map(([gCode, gRows]) => {
+                        const first = gRows[0] || {};
+                        const subDue = gRows.reduce((s, r) => s + (r.todayDue || 0), 0);
+                        const subRecv = gRows.reduce((s, r) => s + (r.todayReceive || 0), 0);
+                        const subOut = gRows.reduce((s, r) => s + (r.outstanding || 0), 0);
+                        const subEmi = gRows.reduce((s, r) => s + (r.emi || 0), 0);
+
+                        return (
+                          <Fragment key={gCode}>
+                            <tr style={{ background: '#dbe7ea', borderTop: '2px solid #264653' }}>
+                              <td colSpan={cols.length + 1} style={{ fontWeight: 800, padding: '7px 10px', fontSize: '0.88rem', color: '#164e63' }}>
+                                📁 Group {gCode} {first.groupName ? `— ${first.groupName}` : ''}
+                                {first.leader ? ` · Leader: ${first.leader}${first.leaderMobile ? ` (${first.leaderMobile})` : ''}` : ''}
+                                {first.branch ? ` · Branch: ${first.branch}` : ''}
+                                <span style={{ float: 'right', fontWeight: 600, fontSize: '0.8rem' }}>
+                                  {gRows.length} member{gRows.length === 1 ? '' : 's'}
+                                </span>
+                              </td>
+                            </tr>
+                            {gRows.map((r) => (
+                              <tr key={r.key}>
+                                {cols.map(([l, f, n]) => <td key={l} data-label={l} className={n ? 'num' : ''}>{f(r)}</td>)}
+                                {!cfg.noCall && <td data-label="View" className="no-print"><button className="btn sm" onClick={() => setViewing(r)}>View</button></td>}
+                              </tr>
+                            ))}
+                            <tr style={{ background: '#f8fafc', fontWeight: 800, borderBottom: '2px solid #cbd5e1' }}>
+                              <td colSpan={3} style={{ padding: '6px 10px', color: '#334155' }}>
+                                Group {gCode} Subtotal
+                              </td>
+                              <td colSpan={7} />
+                              <td className="num">{inr(subEmi)}</td>
+                              <td colSpan={4} />
+                              <td className="num" style={{ color: '#047857' }}>{inr(subDue)}</td>
+                              <td className="num">{subRecv ? inr(subRecv) : '—'}</td>
+                              <td colSpan={2} />
+                              <td className="num" style={{ color: '#b91c1c' }}>{inr(subOut)}</td>
+                              <td colSpan={Math.max(1, cols.length - 19)} />
+                            </tr>
+                          </Fragment>
+                        );
+                      });
+                    })()
+                  ) : (
+                    view.map((r) => (
+                      <tr key={r.key}>
+                        {cols.map(([l, f, n]) => <td key={l} data-label={l} className={n ? 'num' : ''}>{f(r)}</td>)}
+                        {callOn && <td data-label="Number">{r.mobile || '—'}</td>}
+                        {callOn && <td data-label="Call" className="no-print"><CallButton report={name} row={r} date={callDate} onDone={done} /></td>}
+                        {!cfg.noCall && <td data-label="View" className="no-print"><button className="btn sm" onClick={() => setViewing(r)}>View</button></td>}
+                        {cfg.npaPay && <td data-label="NPA payment" className="no-print"><div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}><button className="btn sm primary" onClick={() => setPaying(r)}>NPA payment</button>{admin && r.lastNpa && <button className="btn sm danger-outline" title={`Last: ${r.lastNpa.receiptNo} · ${inr(r.lastNpa.amount)} on ${dmy(r.lastNpa.date)}`} onClick={() => setReverting(r)}>Revert</button>}</div>{r.lastNpa && <div className="muted small">Last {inr(r.lastNpa.amount)} · {dmy(r.lastNpa.date)}{r.lastNpa.staff ? ` · ${r.lastNpa.staff}` : ''}</div>}</td>}
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>

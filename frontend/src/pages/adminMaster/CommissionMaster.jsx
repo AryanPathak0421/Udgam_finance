@@ -75,8 +75,9 @@ function makeHelpers(cfg) {
 }
 
 // Options grouped as in the commission list (Collection & recovery, Loan disbursement, …).
-function TypeOptions({ types, legacy, includeLegacy }) {
+function TypeOptions({ types, legacy }) {
   const groups = [...new Set(types.map((t) => t.group))];
+  const leg = legacy || { key: 'employee', label: 'Old Employee (Target-wise)' };
   return (
     <>
       {groups.map((g) => (
@@ -84,7 +85,9 @@ function TypeOptions({ types, legacy, includeLegacy }) {
           {types.filter((t) => t.group === g).map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
         </optgroup>
       ))}
-      {includeLegacy && <option value={legacy.key}>{legacy.label}</option>}
+      <optgroup label="Old / Legacy">
+        <option value={leg.key}>{leg.label || 'Old Employee (Target-wise)'}</option>
+      </optgroup>
     </>
   );
 }

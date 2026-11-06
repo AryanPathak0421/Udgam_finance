@@ -91,8 +91,13 @@ const presentMember = (m, user) => ({
 
 export async function listMemberApprovals(req, res) {
   const st = asString(req.query.status) || 'pending';
-  const filter = { isDeleted: false, 'joiningApproval.source': 'app', ...scope(req) };
-  if (['pending', 'approved', 'rejected'].includes(st)) filter['joiningApproval.status'] = st;
+  const filter = { isDeleted: false, ...scope(req) };
+  if (['pending', 'approved', 'rejected'].includes(st)) {
+    filter.$or = [
+      { 'joiningApproval.source': 'app', 'joiningApproval.status': st },
+      { 'joiningApproval.status': st },
+    ];
+  }
   const q = asString(req.query.q).toLowerCase();
   const rows = await Member.find(filter).sort({ createdAt: -1 }).limit(1000).select('code formId name mobile gender dob husbandName address pincode district state aadhaar branch joiningDate employeeCode joiningApproval').populate('branch', 'code name').lean();
   const items = rows.map((m) => presentMember(m, req.user)).filter((m) => !q || [m.code, m.name, m.formId].some((v) => String(v).toLowerCase().includes(q)));
@@ -101,9 +106,16 @@ export async function listMemberApprovals(req, res) {
 
 async function loadAppMember(req) {
   if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Member not found');
-  const m = await Member.findOne({ _id: req.params.id, isDeleted: false, 'joiningApproval.source': 'app', ...branchFilter(req.user) });
+  const m = await Member.findOne({
+    _id: req.params.id,
+    isDeleted: false,
+    $or: [{ 'joiningApproval.source': 'app' }, { employeeCode: { $exists: true, $ne: '' } }],
+    ...branchFilter(req.user),
+  });
   if (!m) throw new HttpError(404, 'Member not found');
-  if (m.joiningApproval.status !== 'pending') throw new HttpError(409, `This member is already ${m.joiningApproval.status}`);
+  if (m.joiningApproval?.status && m.joiningApproval.status !== 'pending') {
+    throw new HttpError(409, `This member is already ${m.joiningApproval.status}`);
+  }
   return m;
 }
 export async function approveMember(req, res) {
@@ -201,10 +213,16 @@ export async function approveEmi(req, res) {
   const line = p.lines.find((l) => l.code === c.memberCode);
   if (!line) throw new HttpError(409, 'The borrower is no longer on this loan');
   let doc;
-  try {
-    doc = await receive({ user: collector, ip: req.ip, headers: req.headers }, p, line, { amountPaise: c.amountPaise, type: c.type, paidOn: c.collectedOn, payMode: c.payMode, reference: c.reference, bankAccount: c.bankAccount, dueOnly: c.type !== 'advance' });
-  } catch (err) {
-    throw new HttpError(err.status || 409, `This collection cannot be received now: ${err.errors?.amount || err.message}. Reject it instead.`);
+  if (c.receiptNo) {
+    const existing = await EmiPayment.findOne({ receiptNo: c.receiptNo });
+    if (existing) doc = existing;
+  }
+  if (!doc) {
+    try {
+      doc = await receive({ user: collector, ip: req.ip, headers: req.headers }, p, line, { amountPaise: c.amountPaise, type: c.type, paidOn: c.collectedOn, payMode: c.payMode, reference: c.reference, bankAccount: c.bankAccount, dueOnly: c.type !== 'advance' });
+    } catch (err) {
+      throw new HttpError(err.status || 409, `This collection cannot be received now: ${err.errors?.amount || err.message}. Reject it instead.`);
+    }
   }
   c.status = 'approved';
   c.decidedByCode = req.user.employeeCode || '';
