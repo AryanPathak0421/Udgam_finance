@@ -1,5 +1,5 @@
 // Udgam Microfinance - PWA Service Worker
-const CACHE_NAME = 'udgam-staff-v1';
+const CACHE_NAME = 'udgam-staff-v2';
 const PRECACHE_URLS = [
   '/',
   '/index.html',

@@ -3,27 +3,46 @@
 // Only set VITE_API_BASE_URL to call an API on another domain directly.
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 
-async function request(path, { method = 'GET', body, headers = {} } = {}) {
+async function request(path, { method = 'GET', body, headers = {}, retryCount = 0 } = {}) {
   const token = typeof localStorage !== 'undefined' ? (localStorage.getItem('udgam_token') || localStorage.getItem('token')) : null;
   const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
 
-  const res = await fetch(`${API_BASE}/api${path}`, {
-    method,
-    credentials: 'include',
-    headers: {
-      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-      ...authHeaders,
-      ...headers,
-    },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  let res;
+  try {
+    res = await fetch(`${API_BASE}/api${path}`, {
+      method,
+      credentials: 'include',
+      headers: {
+        ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        ...authHeaders,
+        ...headers,
+      },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  } catch (netErr) {
+    if (retryCount < 1) {
+      await new Promise((r) => setTimeout(r, 2000));
+      return request(path, { method, body, headers, retryCount: retryCount + 1 });
+    }
+    throw new Error('Network connection error. Please check your internet connection.');
+  }
+
+  // Handle transient Render cold-start 502 / 503 / 504 errors with automatic retry
+  if ((res.status === 502 || res.status === 503 || res.status === 504) && retryCount < 2) {
+    await new Promise((r) => setTimeout(r, 2500));
+    return request(path, { method, body, headers, retryCount: retryCount + 1 });
+  }
+
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     // An expired session on a protected call sends the user back to login.
     if (res.status === 401 && !path.startsWith('/auth/') && !path.startsWith('/employee/')) {
       window.dispatchEvent(new Event('auth:expired'));
     }
-    const err = new Error(data.message || 'Something went wrong');
+    const fallbackMsg = (res.status >= 502 && res.status <= 504)
+      ? 'Backend server is starting up. Please wait a few seconds and try again.'
+      : 'Something went wrong';
+    const err = new Error(data.message || fallbackMsg);
     err.status = res.status;
     err.errors = data.errors || {};
     throw err;
