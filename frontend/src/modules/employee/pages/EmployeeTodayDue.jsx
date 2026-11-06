@@ -36,6 +36,9 @@ export default function EmployeeTodayDue() {
   const [submitting, setSubmitting] = useState(false);
   const [actionMessage, setActionMessage] = useState({ text: '', type: '' });
 
+  // Barcode / QR Modal
+  const [barcodeModal, setBarcodeModal] = useState(null);
+
   const fetchDues = async () => {
     setLoading(true);
     setError('');
@@ -86,27 +89,28 @@ export default function EmployeeTodayDue() {
     }
     setSubmitting(true);
     try {
-      if (api.employeeApp.advancePayment) {
+      if (api.employeeApp.collectTodayDue) {
+        await api.employeeApp.collectTodayDue({
+          loanPaymentId: collectModal.loanPaymentId,
+          loanId: collectModal.loanId,
+          memberCode: collectModal.memberCode,
+          memberName: collectModal.memberName,
+          amount: Number(collectAmount),
+          payMode: paymentMode,
+        });
+      } else if (api.employeeApp.advancePayment) {
         await api.employeeApp.advancePayment({
           loanId: collectModal.loanId,
           memberCode: collectModal.memberCode,
           amount: Number(collectAmount),
           payMode: paymentMode,
         });
-      } else if (api.emiCollection?.create) {
-        await api.emiCollection.create({
-          loanId: collectModal.loanId,
-          memberCode: collectModal.memberCode,
-          amount: Number(collectAmount),
-          paymentMode,
-          collectionDate: date,
-        });
       }
-      setActionMessage({ text: 'Payment collected successfully! Receipt generated.', type: 'success' });
+      setActionMessage({ text: 'Payment submitted for System/Admin EMI Approval!', type: 'success' });
       setTimeout(() => {
         setCollectModal(null);
         fetchDues();
-      }, 1000);
+      }, 1200);
     } catch (err) {
       setActionMessage({ text: err.message || 'Collection failed', type: 'error' });
     } finally {
@@ -259,19 +263,35 @@ export default function EmployeeTodayDue() {
                   <div style={{ fontWeight: 800, fontSize: '1.05rem', color: '#d97706' }}>
                     ₹{Number(d.dueAmount).toLocaleString('en-IN')}
                   </div>
-                  <button
-                    className="emp-btn-primary"
-                    style={{
-                      marginTop: 6,
-                      padding: '4px 12px',
-                      fontSize: '0.75rem',
-                      background: '#059669',
-                      border: 'none',
-                    }}
-                    onClick={() => handleOpenCollect(d)}
-                  >
-                    Collect
-                  </button>
+                  <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', marginTop: 6 }}>
+                    <button
+                      type="button"
+                      className="emp-btn-secondary"
+                      style={{
+                        padding: '4px 8px',
+                        fontSize: '0.72rem',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4,
+                      }}
+                      onClick={() => setBarcodeModal(d)}
+                      title="View Barcode / QR"
+                    >
+                      <span style={{ letterSpacing: '-1px', fontWeight: 800 }}>▌│█║</span> Barcode
+                    </button>
+                    <button
+                      className="emp-btn-primary"
+                      style={{
+                        padding: '4px 12px',
+                        fontSize: '0.75rem',
+                        background: '#059669',
+                        border: 'none',
+                      }}
+                      onClick={() => handleOpenCollect(d)}
+                    >
+                      Collect
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -375,6 +395,85 @@ export default function EmployeeTodayDue() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Barcode & QR Code Modal */}
+      {barcodeModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.6)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: 16,
+          }}
+          onClick={() => setBarcodeModal(null)}
+        >
+          <div
+            className="emp-card"
+            style={{ maxWidth: 380, width: '100%', margin: 0, padding: 20, textAlign: 'center' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800 }}>Loan Barcode & Details</h3>
+              <button
+                type="button"
+                onClick={() => setBarcodeModal(null)}
+                style={{ background: 'transparent', border: 'none', fontSize: '1.2rem', cursor: 'pointer' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Barcode representation */}
+            <div style={{ background: '#fff', padding: '16px 10px', borderRadius: 8, border: '1px solid var(--emp-border)', marginBottom: 14 }}>
+              <div style={{ fontSize: '2.4rem', letterSpacing: '4px', fontWeight: 900, fontFamily: 'monospace', color: '#111827', userSelect: 'all' }}>
+                ▌│█║▌║▌│█║▌
+              </div>
+              <div style={{ fontSize: '0.95rem', fontWeight: 800, letterSpacing: '2px', color: '#111827', marginTop: 4 }}>
+                {barcodeModal.loanId || barcodeModal.memberCode}
+              </div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)' }}>
+                Member: {barcodeModal.memberCode}
+              </div>
+            </div>
+
+            <div style={{ textAlign: 'left', fontSize: '0.82rem', background: '#f8fafc', padding: 12, borderRadius: 8, marginBottom: 16, lineHeight: 1.6 }}>
+              <div>Borrower: <strong>{barcodeModal.memberName}</strong></div>
+              <div>Group: <strong>{barcodeModal.groupName}</strong></div>
+              <div>Installment #{barcodeModal.installmentNo} • Due Date: {barcodeModal.dueDate}</div>
+              <div style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--emp-primary)', marginTop: 4 }}>
+                Amount Due: ₹{Number(barcodeModal.dueAmount).toLocaleString('en-IN')}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                type="button"
+                className="emp-btn-secondary"
+                style={{ flex: 1 }}
+                onClick={() => setBarcodeModal(null)}
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                className="emp-btn-primary"
+                style={{ flex: 1, background: '#059669' }}
+                onClick={() => {
+                  const it = barcodeModal;
+                  setBarcodeModal(null);
+                  handleOpenCollect(it);
+                }}
+              >
+                Collect ₹{Number(barcodeModal.dueAmount).toLocaleString('en-IN')}
+              </button>
+            </div>
           </div>
         </div>
       )}

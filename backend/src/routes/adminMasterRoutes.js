@@ -119,11 +119,11 @@ router.put('/vouchers/:id', ...adminOnly, h(updateVoucher));
 router.patch('/vouchers/:id/status', ...adminOnly, h(setVoucherStatus));
 router.delete('/vouchers/:id', ...adminOnly, h(deleteVoucher));
 
-router.get('/loan-calculator/options', ...adminOnly, getLoanCalculatorOptions);
-router.post('/loan-calculator', ...adminOnly, h(runLoanCalculator));
+router.get('/loan-calculator/options', requireAuth, getLoanCalculatorOptions);
+router.post('/loan-calculator', requireAuth, h(runLoanCalculator));
 
 router.get('/loan-schemes', ...adminOnly, h(listSchemes));
-router.get('/loan-schemes/options', ...adminOnly, h(schemeOptions));
+router.get('/loan-schemes/options', requireAuth, h(schemeOptions));
 router.post('/loan-schemes', ...adminOnly, h(createScheme));
 router.put('/loan-schemes/:id', ...adminOnly, h(updateScheme));
 router.patch('/loan-schemes/:id/status', ...adminOnly, h(setSchemeStatus));

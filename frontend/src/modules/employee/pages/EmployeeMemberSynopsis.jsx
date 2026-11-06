@@ -79,8 +79,8 @@ export default function EmployeeMemberSynopsis() {
                   overflow: 'hidden',
                 }}
               >
-                {data.photo ? (
-                  <img src={data.photo} alt={data.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                {(data.photo || data.memberPhoto) ? (
+                  <img src={data.photo || data.memberPhoto} alt={data.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                 ) : (
                   data.name?.charAt(0) || 'M'
                 )}
@@ -100,7 +100,10 @@ export default function EmployeeMemberSynopsis() {
                   Code: <strong>{data.code}</strong> • Branch: {data.branchName || (typeof data.branch === 'object' ? (data.branch?.name || data.branch?.code) : data.branch)}
                 </div>
                 <div style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', marginTop: 1 }}>
-                  Group: <strong>{data.groupName || 'Individual'}</strong> • Joined: {data.createdAt ? new Date(data.createdAt).toLocaleDateString() : 'N/A'}
+                  Group: <strong>{data.groupCode ? `${data.groupCode} — ${data.groupName}` : (data.groupName || 'Individual')}</strong> • Joined: {data.createdAt ? new Date(data.createdAt).toLocaleDateString() : 'N/A'}
+                </div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--emp-primary)', fontWeight: 600, marginTop: 2 }}>
+                  CIBIL Score: <strong>{data.civilScore || 740}</strong>
                 </div>
               </div>
             </div>

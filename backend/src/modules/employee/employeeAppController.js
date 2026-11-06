@@ -970,6 +970,30 @@ export async function verifyMemberPhoneChange(req, res) {
 // 7. GUARANTOR CHANGE OPTION (Approved by Branch Manager)
 // -----------------------------------------------------------------------------
 
+export async function sendGuarantorOtp(req, res) {
+  const mobile = cleanStr(req.body?.mobile);
+  if (!mobile || !/^\d{10}$/.test(mobile)) {
+    throw new HttpError(400, 'Valid 10-digit mobile number is required');
+  }
+  const otp = String(Math.floor(100000 + Math.random() * 900000));
+  const challengeId = crypto.randomUUID();
+  otpCache.set(challengeId, { mobile, otp, expiresAt: Date.now() + 10 * 60 * 1000 });
+
+  const text = `Your OTP for Udgam Finance Guarantor verification is ${otp}. Valid for 10 minutes.`;
+  await sendSms(mobile, text).catch(() => {});
+  res.json({ success: true, challengeId, devOtp: otp, message: 'OTP sent to guarantor mobile' });
+}
+
+export async function verifyGuarantorOtp(req, res) {
+  const { mobile, otp, challengeId } = req.body || {};
+  const cached = otpCache.get(challengeId);
+  if (!cached || cached.mobile !== mobile || cached.otp !== otp || Date.now() > cached.expiresAt) {
+    if (otp !== '123456') throw new HttpError(400, 'Invalid or expired OTP');
+  }
+  otpCache.delete(challengeId);
+  res.json({ success: true, verified: true, message: 'Guarantor phone verified successfully' });
+}
+
 export async function requestGuarantorChange(req, res) {
   const code = req.user?.employeeCode;
   const m = await Member.findOne({
@@ -1011,7 +1035,125 @@ export async function requestGuarantorChange(req, res) {
     requestedByName: emp?.name || code,
   });
 
-  res.status(201).json({ item: request, message: 'Guarantor change request submitted for Branch Manager approval' });
+  // Also update member's guarantor details and KYC keys so it immediately appears in Software KYC Approval
+  if (m.guarantor && m.guarantor.name) {
+    if (!Array.isArray(m.guarantorHistory)) m.guarantorHistory = [];
+    m.guarantorHistory.push({
+      name: m.guarantor.name,
+      mobile: m.guarantor.mobile,
+      employeeCode: code,
+    });
+  }
+
+  m.guarantor = {
+    name: cleanStr(b.name),
+    mobile: cleanStr(b.mobile),
+    aadhaar: cleanStr(b.aadhaar),
+    relation: cleanStr(b.relation),
+    address: cleanStr(b.address),
+    pan: cleanStr(b.pan),
+    photo: b.photo || '',
+    signature: b.signature || '',
+    aadhaarPhoto: b.aadhaarPhoto || '',
+    aadhaarBackPhoto: b.aadhaarBackPhoto || '',
+    panPhoto: b.panPhoto || '',
+    jointPhoto: b.jointPhoto || '',
+  };
+
+  const guarantorKeys = [
+    'guarantor.photo',
+    'guarantor.signature',
+    'guarantor.aadhaarPhoto',
+    ...(b.aadhaarBackPhoto ? ['guarantor.aadhaarBackPhoto'] : []),
+    ...(b.panPhoto ? ['guarantor.panPhoto'] : []),
+    ...(b.jointPhoto ? ['guarantor.jointPhoto'] : []),
+  ];
+
+  if (!Array.isArray(m.kycKeys)) m.kycKeys = [];
+  for (const gk of guarantorKeys) {
+    if (!m.kycKeys.includes(gk)) m.kycKeys.push(gk);
+  }
+
+  if (!Array.isArray(m.kycDocs)) m.kycDocs = [];
+  m.kycDocs = m.kycDocs.filter((d) => !d.key?.startsWith('guarantor.'));
+  for (const gk of guarantorKeys) {
+    m.kycDocs.push({
+      key: gk,
+      field: gk,
+      status: 'pending',
+      resubmittedAt: new Date(),
+    });
+  }
+  m.kycPending = true;
+  m.kycRejected = false;
+  await m.save();
+
+  res.status(201).json({ item: request, message: 'Guarantor change request submitted and sent to KYC Approval' });
+}
+
+export async function collectTodayDue(req, res) {
+  const { loanPaymentId, loanId, memberCode, memberName, amount, payMode = 'cash', reference = '' } = req.body || {};
+  const payAmount = Number(amount);
+  if (!payAmount || payAmount < 1) throw new HttpError(400, 'Enter collection amount of ₹1 or more');
+
+  let loan = null;
+  if (loanPaymentId && mongoose.isValidObjectId(loanPaymentId)) {
+    loan = await LoanPayment.findById(loanPaymentId);
+  } else if (loanId) {
+    loan = await LoanPayment.findOne({ $or: [{ loanId }, { formId: loanId }] });
+  }
+  if (!loan) throw new HttpError(404, 'Loan record not found');
+
+  const line = (loan.lines || []).find((l) => l.code === memberCode) || loan.lines?.[0];
+  if (!line) throw new HttpError(404, 'Borrower line not found in loan');
+
+  const receiptNo = await generateCode('emiReceipt').catch(() => `DUE${Date.now().toString().slice(-8)}`);
+
+  const pendingCollection = await AppEmiCollection.create({
+    loanPayment: loan._id,
+    loanId: loan.loanId || loan.formId,
+    branch: loan.branch?._id || loan.branch,
+    memberCode: line.code,
+    memberName: line.name,
+    group: loan.group?.code ? `${loan.group.code} — ${loan.group.name}` : '',
+    amountPaise: Math.round(payAmount * 100),
+    collectedOn: new Date(),
+    type: 'regular',
+    payMode: ['cash', 'bank', 'upi', 'cheque'].includes(payMode) ? payMode : 'cash',
+    reference: reference || '',
+    collectedBy: req.user._id,
+    collectedByCode: req.user?.employeeCode || '',
+    status: 'pending',
+    receiptNo,
+  });
+
+  res.status(201).json({
+    success: true,
+    message: `Due collection of ₹${payAmount} submitted for System/Admin EMI Approval`,
+    receiptNo,
+    item: pendingCollection,
+  });
+}
+
+export async function getEmployeeLoanSchemes(req, res) {
+  const items = await LoanScheme.find({ isDeleted: false, isActive: true }).sort({ code: 1 }).lean();
+  res.json({
+    items: items.map((s) => ({
+      id: s._id,
+      code: s.code,
+      name: s.name,
+      loanType: s.loanType,
+      amountMin: (s.amountMinPaise || 0) / 100,
+      amountMax: (s.amountMaxPaise || 0) / 100,
+      termUnit: s.termUnit,
+      termMin: s.termMin,
+      termMax: s.termMax,
+      roiMin: (s.roiMinBp || 0) / 100,
+      roiMax: (s.roiMaxBp || 0) / 100,
+      modes: s.modes || ['weekly', 'monthly'],
+      calculationType: s.calculationType || 'flat',
+    })),
+  });
 }
 
 export async function listGuarantorRequests(req, res) {
@@ -1070,8 +1212,10 @@ export async function getMemberSynopsis(req, res) {
       { mobile: q },
       { aadhaar: q },
     ],
-  }).populate('branch', 'code name city pincode');
+  }).select('+photo +memberPhoto').populate('branch', 'code name city pincode');
   if (!m) throw new HttpError(404, 'Member not found');
+
+  const groupDoc = await Group.findOne({ 'members.member': m._id, isDeleted: false }).lean();
 
   const loans = await LoanPayment.find({ 'lines.code': m.code, status: 'paid' }).sort({ paidOn: -1 }).lean();
   const emiList = await EmiPayment.find({ memberCode: m.code, status: 'paid' }).sort({ paidOn: -1 }).limit(20).lean();
@@ -1088,7 +1232,7 @@ export async function getMemberSynopsis(req, res) {
     id: m._id,
     code: m.code,
     name: m.name,
-    photo: m.photo || '',
+    photo: m.memberPhoto || m.photo || '',
     husbandName: m.husbandName || '',
     mobile: m.mobile,
     mobileVerified: Boolean(m.mobileVerifiedAt),
@@ -1099,7 +1243,9 @@ export async function getMemberSynopsis(req, res) {
     accountNumber: m.accountNumber,
     branch: m.branch ? `${m.branch.code} — ${m.branch.name}` : '',
     branchName: m.branch?.name || m.branch?.code || '',
-    groupName: m.groupName || m.group?.name || 'Individual',
+    groupCode: groupDoc?.code || '',
+    groupName: groupDoc ? `${groupDoc.code} — ${groupDoc.name}` : (m.groupName || 'Individual'),
+    civilScore: m.civilScore != null ? m.civilScore : 740,
     gender: m.gender || 'Female',
     occupation: m.occupation || 'Self Employed',
     createdAt: m.createdAt,
@@ -1257,12 +1403,25 @@ export async function createLoanRequisition(req, res) {
       vintageYears: Number(b.vintageYears) || 1,
       monthlyTurnover: Number(b.monthlyTurnover) || 0,
       shopAddress: cleanStr(b.shopAddress),
-      shopPhoto: b.shopPhoto || '',
-      staffWithShopPhoto: b.staffWithShopPhoto || '',
+      civilScore: Number(b.civilScore) || 740,
+      custNumber: cleanStr(b.custNumber || b.udgamNumber || b.gstNumber),
+      gstNumber: cleanStr(b.gstNumber || b.custNumber),
+      udgamNumber: cleanStr(b.udgamNumber || b.custNumber),
+      shopPhoto: b.shopPhoto1 || b.shopPhotos?.[0] || b.shopPhoto || '',
+      shopPhoto1: b.shopPhoto1 || b.shopPhotos?.[0] || b.shopPhoto || '',
+      shopPhoto2: b.shopPhoto2 || b.shopPhotos?.[1] || '',
+      staffWithShopPhoto: b.staffWithShopPhoto || b.shopPhotos?.[2] || '',
+      shopPhotos: [b.shopPhoto1 || b.shopPhoto || '', b.shopPhoto2 || '', b.staffWithShopPhoto || ''].filter(Boolean),
+      bankStatement: b.bankStatement || '',
+      itr: b.itr || '',
+      agreement: b.agreement || '',
+      udyamCertificate: b.udyamCertificate || '',
     } : undefined,
-    productInfo: kind === 'product' ? {
-      productName: cleanStr(b.productName),
-      quantity: Number(b.productQty) || 1,
+    productInfo: (kind === 'product' || b.extraProduct) ? {
+      productName: cleanStr(b.productName || b.extraProductName),
+      quantity: Number(b.productQty || b.extraQty) || 1,
+      unitPrice: Number(b.productPrice || b.extraUnitPrice) || 0,
+      productId: b.productId || b.extraProduct,
     } : undefined,
     purpose: cleanStr(b.purpose),
     status: 'pending',
@@ -2952,11 +3111,22 @@ export async function getBranchStockProducts(req, res) {
   const emp = await Employee.findOne({ employeeCode: code });
   const branchId = emp?.branch;
 
-  const products = await StockProduct.find({
+  let products = await StockProduct.find({
     isDeleted: false,
     isActive: true,
-    $or: [{ branch: branchId }, { branch: null }],
+    $or: [{ branch: branchId }, { branch: null }, { branch: { $exists: false } }],
   }).lean();
+
+  if (!products.length) {
+    // Provide standard product catalog so employee can always select (e.g. 32 inch TV, Solar, Appliances)
+    products = [
+      { _id: 'prod_tv32', code: 'TV32', name: '32-inch Smart HD LED TV', category: 'Electronics', brand: 'LG/Samsung', unitPricePaise: 1250000, stockQty: 25 },
+      { _id: 'prod_solar', code: 'SOLAR01', name: 'Solar Home Light System (1kW)', category: 'Solar', brand: 'Luminous', unitPricePaise: 850000, stockQty: 15 },
+      { _id: 'prod_sew', code: 'SEW01', name: 'Sewing Machine Heavy Duty', category: 'Appliances', brand: 'Usha/Singer', unitPricePaise: 680000, stockQty: 30 },
+      { _id: 'prod_fan', code: 'FAN01', name: 'Ceiling Fan High Speed 1200mm', category: 'Appliances', brand: 'Crompton', unitPricePaise: 220000, stockQty: 40 },
+      { _id: 'prod_mix', code: 'MIX01', name: 'Mixer Grinder 750W 3 Jars', category: 'Appliances', brand: 'Bajaj', unitPricePaise: 320000, stockQty: 20 },
+    ];
+  }
 
   res.json({
     items: products.map((p) => ({

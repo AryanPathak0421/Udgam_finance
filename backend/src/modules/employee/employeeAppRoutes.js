@@ -12,6 +12,7 @@ import {
   getDashboard,
   getCollectionHistory,
   getTodayDueList,
+  collectTodayDue,
   sendMemberOtp,
   verifyMemberOtp,
   registerMember,
@@ -20,10 +21,13 @@ import {
   rejectMemberKycDoc,
   sendMemberPhoneChangeOtp,
   verifyMemberPhoneChange,
+  sendGuarantorOtp,
+  verifyGuarantorOtp,
   requestGuarantorChange,
   listGuarantorRequests,
   decideGuarantorChange,
   getMemberSynopsis,
+  getEmployeeLoanSchemes,
   calculateLoanEmi,
   createLoanRequisition,
   listEmployeeRequisitions,
@@ -79,6 +83,7 @@ router.post('/profile/rate', requireAuth, h(rateEmployee));
 router.get('/dashboard', requireAuth, h(getDashboard));
 router.get('/collections/today', requireAuth, h(getCollectionHistory));
 router.get('/collections/due', requireAuth, h(getTodayDueList));
+router.post('/collections/due/collect', requireAuth, h(collectTodayDue));
 
 // Member Registration (Phone OTP first) & KYC
 router.post('/members/send-otp', requireAuth, h(sendMemberOtp));
@@ -92,7 +97,9 @@ router.post('/members/:id/phone/send-otp', requireAuth, h(sendMemberPhoneChangeO
 router.post('/members/:id/phone/verify-change', requireAuth, h(verifyMemberPhoneChange));
 router.get('/groups', requireAuth, h(getStaffGroups));
 
-// Guarantor Change
+// Guarantor Change & Verification
+router.post('/members/guarantor/send-otp', requireAuth, h(sendGuarantorOtp));
+router.post('/members/guarantor/verify-otp', requireAuth, h(verifyGuarantorOtp));
 router.post('/members/guarantor-change', requireAuth, h(requestGuarantorChange));
 router.get('/members/guarantor-requests', requireAuth, h(listGuarantorRequests));
 router.post('/members/guarantor-requests/:id/decide', requireAuth, h(decideGuarantorChange));
@@ -100,7 +107,8 @@ router.post('/members/guarantor-requests/:id/decide', requireAuth, h(decideGuara
 // Member Detail / Synopsis
 router.get('/members/synopsis/:query', requireAuth, h(getMemberSynopsis));
 
-// Loan Calculator & Requisitions
+// Loan Schemes, Calculator & Requisitions
+router.get('/loan-schemes', requireAuth, h(getEmployeeLoanSchemes));
 router.post('/calculator', requireAuth, h(calculateLoanEmi));
 router.post('/requisitions', requireAuth, h(createLoanRequisition));
 router.get('/requisitions', requireAuth, h(listEmployeeRequisitions));

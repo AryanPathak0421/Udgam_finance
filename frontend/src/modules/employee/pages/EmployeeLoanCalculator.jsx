@@ -64,29 +64,41 @@ export default function EmployeeLoanCalculator() {
 
   // Fetch active loan schemes
   useEffect(() => {
-    if (api.loanSchemes?.options) {
-      api.loanSchemes
-        .options()
-        .then((res) => {
-          const list = res.items || [];
-          setSchemes(list);
-          if (list.length > 0) {
-            handleSchemeSelect(list[0]);
-          }
-        })
-        .catch(() => {});
-    }
+    const loadSchemes = async () => {
+      try {
+        let list = [];
+        if (api.employeeApp?.loanSchemes) {
+          const res = await api.employeeApp.loanSchemes().catch(() => null);
+          if (res?.items?.length) list = res.items;
+        }
+        if (!list.length && api.loanSchemes?.options) {
+          const res = await api.loanSchemes.options().catch(() => null);
+          if (res?.items?.length) list = res.items;
+        }
+        setSchemes(list);
+        if (list.length > 0) {
+          handleSchemeSelect(list[0]);
+        }
+      } catch (e) {
+        setSchemes([]);
+      }
+    };
+    loadSchemes();
   }, []);
 
   const handleSchemeSelect = (scheme) => {
     if (!scheme) return;
     setSelectedSchemeId(scheme.id || scheme._id);
-    if (scheme.interestRate !== undefined) setRate(Number(scheme.interestRate));
-    if (scheme.term) setTerm(Number(scheme.term));
-    if (scheme.repaymentMode) setMode(scheme.repaymentMode.toLowerCase());
-    if (scheme.interestType) setCalculationType(scheme.interestType.toLowerCase());
-    if (scheme.minAmount && amount < scheme.minAmount) setAmount(scheme.minAmount);
-    else if (scheme.maxAmount && amount > scheme.maxAmount) setAmount(scheme.maxAmount);
+    const r = scheme.roiMin != null ? scheme.roiMin : (scheme.interestRate != null ? scheme.interestRate : 18);
+    setRate(Number(r));
+    const t = scheme.termMax || scheme.termMin || scheme.term || 12;
+    setTerm(Number(t));
+    const m = (Array.isArray(scheme.modes) && scheme.modes[0]?.value) || scheme.modes?.[0] || scheme.repaymentMode || 'monthly';
+    setMode(String(m).toLowerCase());
+    const cType = scheme.calculationType || scheme.interestType || 'flat';
+    setCalculationType(String(cType).toLowerCase());
+    const minAmt = scheme.amountMin || scheme.minAmount || 25000;
+    setAmount(minAmt);
   };
 
   const onSchemeChange = (e) => {
@@ -154,7 +166,7 @@ export default function EmployeeLoanCalculator() {
               <option value="">-- Choose Loan Scheme --</option>
               {schemes.map((s) => (
                 <option key={s.id || s._id} value={s.id || s._id}>
-                  {s.name} ({s.code || s.repaymentMode} • {s.interestRate}% {s.interestType})
+                  {s.name} ({s.code ? `${s.code} • ` : ''}{s.roiMin ?? s.interestRate ?? 18}% {s.calculationType || s.interestType || 'Flat'})
                 </option>
               ))}
             </select>

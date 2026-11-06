@@ -26,9 +26,10 @@ export default function EmployeeLoanRequisition() {
   const [memberLoading, setMemberLoading] = useState(false);
   const [selectedMember, setSelectedMember] = useState(null);
 
-  // Schemes & Branches
+  // Schemes & Branches & Products
   const [branches, setBranches] = useState([]);
   const [schemes, setSchemes] = useState([]);
+  const [stockProducts, setStockProducts] = useState([]);
   const [selectedBranch, setSelectedBranch] = useState('');
   const [selectedScheme, setSelectedScheme] = useState('');
 
@@ -39,16 +40,34 @@ export default function EmployeeLoanRequisition() {
     term: '52',
     rate: '24',
     purpose: 'Business / Income Generation',
+    // 25% Extra Product on Group Loan (Software matching)
+    hasExtraProduct: false,
+    extraProduct: '',
+    extraProductName: '',
+    extraUnitPrice: 0,
+    extraQty: '1',
     // Business specific (software aligned)
     businessName: '',
-    businessType: 'Retail / General Store',
+    civilScore: '740',
+    custNumber: '',
     vintageYears: '2',
     monthlyTurnover: '50000',
     shopAddress: '',
-    shopPhoto: '',
+    shopPhoto1: '',
+    shopPhoto2: '',
     staffWithShopPhoto: '',
+    bankStatement: '',
+    bankStatementName: '',
+    itr: '',
+    itrName: '',
+    agreement: '',
+    agreementName: '',
+    udyamCertificate: '',
+    udyamCertificateName: '',
     // Product specific
     productName: '',
+    productId: '',
+    productPrice: 0,
     productQty: '1',
   });
 
@@ -60,7 +79,7 @@ export default function EmployeeLoanRequisition() {
   const [requisitions, setRequisitions] = useState([]);
   const [listLoading, setListLoading] = useState(false);
 
-  // Load branches, schemes, and staff groups
+  // Load branches, schemes, stock products, and staff groups
   useEffect(() => {
     api.branches.options()
       .then((res) => {
@@ -71,21 +90,53 @@ export default function EmployeeLoanRequisition() {
       })
       .catch(() => {});
 
-    api.loanSchemes.options()
-      .then((res) => {
-        setSchemes(res.items || []);
-        if (res.items && res.items.length > 0) {
-          const s = res.items[0];
-          setSelectedScheme(s.id);
+    // Load active loan schemes
+    const loadSchemes = async () => {
+      try {
+        let list = [];
+        if (api.employeeApp?.loanSchemes) {
+          const res = await api.employeeApp.loanSchemes().catch(() => null);
+          if (res?.items?.length) list = res.items;
+        }
+        if (!list.length && api.loanSchemes?.options) {
+          const res = await api.loanSchemes.options().catch(() => null);
+          if (res?.items?.length) list = res.items;
+        }
+        setSchemes(list);
+        if (list.length > 0) {
+          const s = list[0];
+          setSelectedScheme(s.id || s._id);
+          const sMode = (Array.isArray(s.modes) && s.modes[0]?.value) || s.modes?.[0] || 'weekly';
+          const sTerm = s.termMax || s.termMin || (sMode === 'weekly' ? 52 : 12);
+          const sRate = s.roiMin != null ? s.roiMin : (s.roiMax != null ? s.roiMax : 24);
           setForm((f) => ({
             ...f,
             amount: String(s.amountMin || 30000),
-            rate: String(s.roiMin || 24),
-            mode: s.modes?.[0]?.value || 'weekly',
+            rate: String(sRate),
+            mode: sMode,
+            term: String(sTerm),
           }));
         }
-      })
-      .catch(() => {});
+      } catch (e) {
+        setSchemes([]);
+      }
+    };
+    loadSchemes();
+
+    // Load branch stock products (e.g. 32-inch TV, Solar, etc.)
+    const loadProducts = async () => {
+      try {
+        let list = [];
+        if (api.employeeApp?.stockProducts) {
+          const res = await api.employeeApp.stockProducts().catch(() => null);
+          if (res?.items?.length) list = res.items;
+        }
+        setStockProducts(list);
+      } catch (e) {
+        setStockProducts([]);
+      }
+    };
+    loadProducts();
 
     setLoadingGroups(true);
     api.employeeApp.groups()
@@ -134,7 +185,13 @@ export default function EmployeeLoanRequisition() {
         mobileVerified: m.isMobileVerified || m.mobileVerified,
         branchName: m.branch?.name || m.branchName,
         groupName: m.groupName,
+        civilScore: m.civilScore || 740,
       });
+      setForm((f) => ({
+        ...f,
+        civilScore: String(m.civilScore || 740),
+        custNumber: m.code || '',
+      }));
     } catch (err) {
       setError(err.message || 'Member not found');
     } finally {
@@ -144,32 +201,77 @@ export default function EmployeeLoanRequisition() {
 
   const handleSchemeChange = (schemeId) => {
     setSelectedScheme(schemeId);
-    const s = schemes.find((x) => x.id === schemeId);
+    const s = schemes.find((x) => (x.id || x._id) === schemeId);
     if (s) {
+      const sMode = (Array.isArray(s.modes) && s.modes[0]?.value) || s.modes?.[0] || form.mode || 'weekly';
+      const sTerm = s.termMax || s.termMin || (sMode === 'weekly' ? 52 : 12);
+      const sRate = s.roiMin != null ? s.roiMin : (s.roiMax != null ? s.roiMax : 24);
       setForm((f) => ({
         ...f,
-        amount: String(s.amountMin || f.amount),
-        rate: String(s.roiMin || f.rate),
-        mode: s.modes?.[0]?.value || f.mode,
+        amount: String(s.amountMin || f.amount || 30000),
+        rate: String(sRate),
+        mode: sMode,
+        term: String(sTerm),
       }));
     }
   };
 
-  const handleFile = (key) => async (e) => {
+  const handleProductChange = (prodId) => {
+    const p = stockProducts.find((x) => (x.id || x._id || x.code) === prodId);
+    if (p) {
+      const qty = Number(form.productQty) || 1;
+      setForm((f) => ({
+        ...f,
+        productId: p.id || p.code,
+        productName: p.name,
+        productPrice: p.unitPrice,
+        amount: String(p.unitPrice * qty),
+      }));
+    } else {
+      setForm((f) => ({ ...f, productId: '', productName: prodId }));
+    }
+  };
+
+  const handleExtraProductChange = (prodId) => {
+    const p = stockProducts.find((x) => (x.id || x._id || x.code) === prodId);
+    if (p) {
+      setForm((f) => ({
+        ...f,
+        extraProduct: p.id || p.code,
+        extraProductName: p.name,
+        extraUnitPrice: p.unitPrice,
+      }));
+    } else {
+      setForm((f) => ({ ...f, extraProduct: '', extraProductName: '', extraUnitPrice: 0 }));
+    }
+  };
+
+  const handleFile = (key, nameKey) => async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
       const b64 = await compressImage(file, { maxWidth: 1200, maxHeight: 1200, quality: 0.8 });
-      setForm((f) => ({ ...f, [key]: b64 }));
+      setForm((f) => ({
+        ...f,
+        [key]: b64,
+        ...(nameKey ? { [nameKey]: file.name } : {}),
+      }));
     } catch (err) {
-      alert('Failed to process image');
+      alert('Failed to process file');
     }
   };
+
+  const extraProductTotal = (form.extraUnitPrice || 0) * (Number(form.extraQty) || 1);
+  const extraProductMaxAllowed = Math.floor((Number(form.amount) || 0) * 0.25);
+  const extraProductExceeds = form.hasExtraProduct && extraProductTotal > extraProductMaxAllowed;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!selectedMember) return setError('Please select or search a borrower member first');
     if (!form.amount || Number(form.amount) <= 0) return setError('Please enter a valid loan amount');
+    if (extraProductExceeds) {
+      return setError(`Extra product value (₹${extraProductTotal}) cannot exceed 25% of loan amount (Max: ₹${extraProductMaxAllowed})`);
+    }
 
     setSubmitting(true);
     setError('');
@@ -186,22 +288,36 @@ export default function EmployeeLoanRequisition() {
         groupName: selectedGroup?.name,
         branch: selectedBranch,
         schemeId: selectedScheme,
-        schemeName: schemes.find((s) => s.id === selectedScheme)?.name || 'Standard Loan Scheme',
+        schemeName: schemes.find((s) => (s.id || s._id) === selectedScheme)?.name || 'Standard Loan Scheme',
         amount: Number(form.amount),
         mode: form.mode,
         term: Number(form.term),
         rate: Number(form.rate),
         purpose: form.purpose,
-        // Business specific
+        // 25% Extra Product
+        extraProduct: form.hasExtraProduct ? form.extraProduct : '',
+        extraProductName: form.hasExtraProduct ? form.extraProductName : '',
+        extraQty: form.hasExtraProduct ? Number(form.extraQty) || 1 : 0,
+        extraUnitPrice: form.hasExtraProduct ? form.extraUnitPrice : 0,
+        // Business / MSME specific
         businessName: form.businessName,
+        civilScore: Number(form.civilScore) || 740,
+        custNumber: form.custNumber,
         businessType: form.businessType,
         vintageYears: Number(form.vintageYears || 1),
         monthlyTurnover: Number(form.monthlyTurnover || 0),
         shopAddress: form.shopAddress,
-        shopPhoto: form.shopPhoto,
+        shopPhoto1: form.shopPhoto1,
+        shopPhoto2: form.shopPhoto2,
         staffWithShopPhoto: form.staffWithShopPhoto,
+        bankStatement: form.bankStatement,
+        itr: form.itr,
+        agreement: form.agreement,
+        udyamCertificate: form.udyamCertificate,
         // Product specific
+        productId: form.productId,
         productName: form.productName,
+        productPrice: form.productPrice,
         productQty: Number(form.productQty || 1),
       };
 
@@ -298,10 +414,10 @@ export default function EmployeeLoanRequisition() {
                   Assigned Group *
                 </label>
                 {loadingGroups ? (
-                  <div style={{ fontSize: '0.82rem', color: 'var(--emp-text-muted)', padding: '6px 0' }}>Loading assigned groups...</div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--emp-text-muted)' }}>Loading your groups...</div>
                 ) : groups.length === 0 ? (
-                  <div style={{ fontSize: '0.82rem', color: 'var(--emp-danger)', padding: '6px 0' }}>
-                    No assigned groups found for your account. You can search any member below.
+                  <div style={{ fontSize: '0.8rem', color: '#991b1b', background: '#fee2e2', padding: 8, borderRadius: 6 }}>
+                    No groups assigned to your staff code.
                   </div>
                 ) : (
                   <select
@@ -309,114 +425,64 @@ export default function EmployeeLoanRequisition() {
                     value={selectedGroup?.code || ''}
                     onChange={(e) => {
                       const g = groups.find((x) => x.code === e.target.value);
-                      setSelectedGroup(g || null);
-                      setSelectedMember(null);
+                      setSelectedGroup(g);
                     }}
                   >
-                    <option value="">-- Choose Assigned Group --</option>
                     {groups.map((g) => (
                       <option key={g.code} value={g.code}>
-                        {g.code} - {g.name} ({g.meetingType}, {g.members?.length || 0} members)
+                        {g.code} — {g.name} ({g.membersCount || 0} members)
                       </option>
                     ))}
                   </select>
                 )}
-
-                {/* Group Member Chips */}
-                {selectedGroup && selectedGroup.members && selectedGroup.members.length > 0 && (
-                  <div style={{ marginTop: 10 }}>
-                    <div style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', marginBottom: 6 }}>
-                      Tap a member from {selectedGroup.name} to select:
-                    </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                      {selectedGroup.members.map((m) => {
-                        const isChosen = selectedMember?.code === m.code;
-                        return (
-                          <button
-                            key={m.code}
-                            type="button"
-                            onClick={() => {
-                              setSelectedMember({
-                                id: m.id,
-                                code: m.code,
-                                name: m.name,
-                                mobile: m.mobile,
-                                branchName: selectedGroup.branchName,
-                                groupName: selectedGroup.name,
-                              });
-                            }}
-                            style={{
-                              padding: '6px 10px',
-                              borderRadius: 6,
-                              fontSize: '0.78rem',
-                              fontWeight: isChosen ? 700 : 500,
-                              border: isChosen ? '2px solid var(--emp-primary)' : '1px solid var(--emp-border)',
-                              background: isChosen ? 'var(--emp-primary)' : 'var(--emp-card-bg)',
-                              color: isChosen ? '#fff' : 'var(--emp-text)',
-                              cursor: 'pointer',
-                            }}
-                          >
-                            {m.name} ({m.code})
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
               </div>
             )}
 
-            {!selectedMember ? (
-              <div>
-                <div style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', marginBottom: 6 }}>
-                  {loanType === 'group' ? 'Or search member by Code, Mobile, or Aadhaar:' : 'Search member by Code, Mobile, or Aadhaar:'}
-                </div>
-                <form onSubmit={handleSearchMember} style={{ display: 'flex', gap: 10 }}>
-                  <input
-                    type="text"
-                    className="emp-input"
-                    placeholder="Enter Member Code, Phone, or Aadhaar..."
-                    value={memberQuery}
-                    onChange={(e) => setMemberQuery(e.target.value)}
-                    style={{ flex: 1 }}
-                  />
-                  <button type="submit" className="emp-btn-primary" style={{ padding: '0 16px' }} disabled={memberLoading}>
-                    {memberLoading ? '...' : 'Search'}
-                  </button>
-                </form>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(37, 99, 235, 0.04)', border: '1px solid var(--emp-primary)', padding: 12, borderRadius: 8 }}>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: 6, color: 'var(--emp-text)' }}>
-                    {selectedMember.name}
-                    {selectedMember.mobileVerified && <span className="emp-verified-badge">✓</span>}
-                  </div>
-                  <div style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
-                    Code: <strong>{selectedMember.code}</strong> • Mobile: {selectedMember.mobile}
-                  </div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)', marginTop: 1 }}>
-                    Branch: {selectedMember.branchName || 'Assigned'} {selectedMember.groupName ? `• Group: ${selectedMember.groupName}` : ''}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className="emp-btn-secondary"
-                  style={{ padding: '6px 12px', fontSize: '0.75rem' }}
-                  onClick={() => setSelectedMember(null)}
-                >
-                  Change
+            {/* Member Search input */}
+            <div>
+              <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                Search Borrower Member by Code / Phone / ID *
+              </label>
+              <form onSubmit={handleSearchMember} style={{ display: 'flex', gap: 8 }}>
+                <input
+                  type="text"
+                  className="emp-input"
+                  placeholder="e.g. M001001 or 9876543210..."
+                  value={memberQuery}
+                  onChange={(e) => setMemberQuery(e.target.value)}
+                  style={{ flex: 1 }}
+                />
+                <button type="submit" className="emp-btn-primary" style={{ padding: '0 16px' }} disabled={memberLoading}>
+                  {memberLoading ? '...' : 'Search'}
                 </button>
+              </form>
+            </div>
+
+            {/* Selected Member Preview Card */}
+            {selectedMember && (
+              <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: 12, marginTop: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <strong style={{ fontSize: '0.95rem', color: '#166534' }}>{selectedMember.name}</strong>
+                    <div style={{ fontSize: '0.78rem', color: '#15803d', marginTop: 2 }}>
+                      Code: {selectedMember.code} • Mobile: +91 {selectedMember.mobile}
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: '#166534', marginTop: 2 }}>
+                      Group: {selectedMember.groupName || 'Individual'} • CIBIL: <strong>{selectedMember.civilScore || 740}</strong>
+                    </div>
+                  </div>
+                  <span className="emp-verified-badge">✓ Selected</span>
+                </div>
               </div>
             )}
           </div>
 
-          {/* Loan Configuration Form */}
+          {/* Step 2: Loan Terms & Scheme Form */}
           {selectedMember && (
-            <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <form onSubmit={handleSubmit}>
               <div className="emp-card">
                 <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: '0 0 12px 0', color: 'var(--emp-text)' }}>
-                  2. Loan Terms & Details
+                  2. Loan Parameters & Scheme
                 </h3>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -430,9 +496,10 @@ export default function EmployeeLoanRequisition() {
                       onChange={(e) => handleSchemeChange(e.target.value)}
                       required
                     >
+                      <option value="">-- Select Active Scheme --</option>
                       {schemes.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.name} ({s.calculationType || 'Flat'}, {s.roiMin}%)
+                        <option key={s.id || s._id} value={s.id || s._id}>
+                          {s.name} ({s.code ? `${s.code} • ` : ''}{s.roiMin ?? s.roiMax ?? 24}%, {s.calculationType || 'Flat'})
                         </option>
                       ))}
                     </select>
@@ -453,7 +520,7 @@ export default function EmployeeLoanRequisition() {
                     </div>
                     <div>
                       <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
-                        Interest Rate (% p.a.)
+                        Interest Rate (% p.a.) *
                       </label>
                       <input
                         type="number"
@@ -468,7 +535,7 @@ export default function EmployeeLoanRequisition() {
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                     <div>
                       <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
-                        Repayment Mode
+                        Repayment Mode *
                       </label>
                       <select className="emp-input" value={form.mode} onChange={(e) => setForm({ ...form, mode: e.target.value })}>
                         <option value="weekly">Weekly</option>
@@ -478,7 +545,7 @@ export default function EmployeeLoanRequisition() {
                     </div>
                     <div>
                       <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
-                        Term ({form.mode === 'weekly' ? 'Weeks' : form.mode === 'daily' ? 'Days' : 'Months'})
+                        Term ({form.mode === 'weekly' ? 'Weeks' : form.mode === 'daily' ? 'Days' : 'Months'}) *
                       </label>
                       <input
                         type="number"
@@ -505,18 +572,83 @@ export default function EmployeeLoanRequisition() {
                 </div>
               </div>
 
-              {/* Conditional: Business / MSME Loan Specific Section (Matched with Software) */}
+              {/* 25% Extra Product on Group Loan (Software matching) */}
+              {loanType === 'group' && (
+                <div className="emp-card" style={{ background: '#fdf4ff', border: '1px solid #f0abfc' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <h3 style={{ fontSize: '0.95rem', fontWeight: 700, margin: 0, color: '#86198f', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      📦 Optional Cross-Sell Product (Up to 25%)
+                    </h3>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={form.hasExtraProduct}
+                        onChange={(e) => setForm({ ...form, hasExtraProduct: e.target.checked })}
+                      />
+                      Add Product
+                    </label>
+                  </div>
+                  <p style={{ fontSize: '0.78rem', color: '#a21caf', margin: '0 0 10px 0' }}>
+                    Max 25% of loan amount allowed: <strong>₹{extraProductMaxAllowed.toLocaleString('en-IN')}</strong>
+                  </p>
+
+                  {form.hasExtraProduct && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 8, borderTop: '1px dashed #e879f9' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10 }}>
+                        <div>
+                          <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: 4 }}>
+                            Select Product from Catalog *
+                          </label>
+                          <select
+                            className="emp-input"
+                            value={form.extraProduct}
+                            onChange={(e) => handleExtraProductChange(e.target.value)}
+                          >
+                            <option value="">-- Choose Product --</option>
+                            {stockProducts.map((p) => (
+                              <option key={p.id || p.code} value={p.id || p.code}>
+                                {p.name} (₹{p.unitPrice})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: 4 }}>
+                            Qty
+                          </label>
+                          <input
+                            type="number"
+                            className="emp-input"
+                            value={form.extraQty}
+                            min="1"
+                            onChange={(e) => setForm({ ...form, extraQty: e.target.value })}
+                          />
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', padding: '6px 10px', background: '#fae8ff', borderRadius: 6 }}>
+                        <span>Extra Product Total: <strong>₹{extraProductTotal.toLocaleString('en-IN')}</strong></span>
+                        <span style={{ color: extraProductExceeds ? '#dc2626' : '#16a34a', fontWeight: 700 }}>
+                          {extraProductExceeds ? '⚠️ Exceeds 25% limit!' : '✓ Within 25% limit'}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Business / MSME Loan Specific Section (Software Aligned) */}
               {loanType === 'business_msme' && (
                 <div className="emp-card">
                   <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: '0 0 12px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
                     <Icon name="building" size={18} style={{ color: 'var(--emp-primary)' }} />
-                    <span>Business &amp; Enterprise Verification (Software Aligned)</span>
+                    <span>Business / MSME Verification (Software Aligned)</span>
                   </h3>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                     <div>
                       <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
-                        Business / Enterprise Name *
+                        1) Business Name *
                       </label>
                       <input
                         type="text"
@@ -531,105 +663,130 @@ export default function EmployeeLoanRequisition() {
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                       <div>
                         <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
-                          Nature of Business
-                        </label>
-                        <select
-                          className="emp-input"
-                          value={form.businessType}
-                          onChange={(e) => setForm({ ...form, businessType: e.target.value })}
-                        >
-                          <option value="Retail / General Store">Retail / General Store</option>
-                          <option value="Dairy / Animal Husbandry">Dairy / Animal Husbandry</option>
-                          <option value="Garments / Tailoring">Garments / Tailoring</option>
-                          <option value="Manufacturing / Handicraft">Manufacturing / Handicraft</option>
-                          <option value="Service / Repair">Service / Repair</option>
-                          <option value="Wholesale / Trading">Wholesale / Trading</option>
-                          <option value="Other">Other Enterprise</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
-                          Years in Business (Vintage)
-                        </label>
-                        <input
-                          type="number"
-                          className="emp-input"
-                          placeholder="e.g. 3"
-                          value={form.vintageYears}
-                          onChange={(e) => setForm({ ...form, vintageYears: e.target.value })}
-                          min="0"
-                        />
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                      <div>
-                        <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
-                          Monthly Sales / Turnover (₹)
-                        </label>
-                        <input
-                          type="number"
-                          className="emp-input"
-                          placeholder="e.g. 60000"
-                          value={form.monthlyTurnover}
-                          onChange={(e) => setForm({ ...form, monthlyTurnover: e.target.value })}
-                        />
-                      </div>
-                      <div>
-                        <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
-                          Shop / Work Address
+                          2) CIBIL Score (Auto) *
                         </label>
                         <input
                           type="text"
                           className="emp-input"
-                          placeholder="e.g. Main Market, Ward 4"
-                          value={form.shopAddress}
-                          onChange={(e) => setForm({ ...form, shopAddress: e.target.value })}
+                          value={form.civilScore}
+                          readOnly
+                          style={{ background: '#f8fafc', fontWeight: 700 }}
                         />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                          3) Customer / Udgam / GST No.
+                        </label>
+                        <input
+                          type="text"
+                          className="emp-input"
+                          placeholder="Cust / GST / Udgam ID"
+                          value={form.custNumber}
+                          onChange={(e) => setForm({ ...form, custNumber: e.target.value })}
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                        Shop Address
+                      </label>
+                      <input
+                        type="text"
+                        className="emp-input"
+                        placeholder="Shop / Work location address"
+                        value={form.shopAddress}
+                        onChange={(e) => setForm({ ...form, shopAddress: e.target.value })}
+                      />
+                    </div>
+
+                    {/* 4) Shop Photos (1, 2, 3 Staff + Shop) */}
+                    <div>
+                      <label style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--emp-text)', display: 'block', marginBottom: 6 }}>
+                        4) Shop Photos (3 Photos: Shop 1, Shop 2, Staff + Shop) *
+                      </label>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                        <div style={{ border: '1px dashed var(--emp-border)', padding: 8, borderRadius: 6, textAlign: 'center' }}>
+                          <span style={{ fontSize: '0.72rem', fontWeight: 600, display: 'block', marginBottom: 4 }}>Shop Photo 1</span>
+                          <input type="file" accept="image/*" onChange={handleFile('shopPhoto1')} style={{ fontSize: '0.7rem', width: '100%' }} />
+                          {form.shopPhoto1 && <img src={form.shopPhoto1} alt="shop1" style={{ width: 50, height: 50, objectFit: 'cover', borderRadius: 4, marginTop: 4 }} />}
+                        </div>
+                        <div style={{ border: '1px dashed var(--emp-border)', padding: 8, borderRadius: 6, textAlign: 'center' }}>
+                          <span style={{ fontSize: '0.72rem', fontWeight: 600, display: 'block', marginBottom: 4 }}>Shop Photo 2</span>
+                          <input type="file" accept="image/*" onChange={handleFile('shopPhoto2')} style={{ fontSize: '0.7rem', width: '100%' }} />
+                          {form.shopPhoto2 && <img src={form.shopPhoto2} alt="shop2" style={{ width: 50, height: 50, objectFit: 'cover', borderRadius: 4, marginTop: 4 }} />}
+                        </div>
+                        <div style={{ border: '1px dashed var(--emp-border)', padding: 8, borderRadius: 6, textAlign: 'center' }}>
+                          <span style={{ fontSize: '0.72rem', fontWeight: 600, display: 'block', marginBottom: 4 }}>Staff + Shop</span>
+                          <input type="file" accept="image/*" onChange={handleFile('staffWithShopPhoto')} style={{ fontSize: '0.7rem', width: '100%' }} />
+                          {form.staffWithShopPhoto && <img src={form.staffWithShopPhoto} alt="staff shop" style={{ width: 50, height: 50, objectFit: 'cover', borderRadius: 4, marginTop: 4 }} />}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 5, 6, 7: Bank Statement, ITR, Agreement / Udyam */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                      <div>
+                        <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                          5) Bank Statement
+                        </label>
+                        <input type="file" accept="image/*,.pdf" onChange={handleFile('bankStatement', 'bankStatementName')} style={{ fontSize: '0.75rem', width: '100%' }} />
+                        {form.bankStatementName && <span style={{ fontSize: '0.7rem', color: '#16a34a' }}>✓ {form.bankStatementName}</span>}
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                          6) ITR Document
+                        </label>
+                        <input type="file" accept="image/*,.pdf" onChange={handleFile('itr', 'itrName')} style={{ fontSize: '0.75rem', width: '100%' }} />
+                        {form.itrName && <span style={{ fontSize: '0.7rem', color: '#16a34a' }}>✓ {form.itrName}</span>}
                       </div>
                     </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                       <div>
                         <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
-                          Shop / Work Photo
+                          7) Shop Business Agreement
                         </label>
-                        <input type="file" accept="image/*" onChange={handleFile('shopPhoto')} style={{ fontSize: '0.8rem', width: '100%' }} />
-                        {form.shopPhoto && <img src={form.shopPhoto} alt="shop" style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 6, marginTop: 4 }} />}
+                        <input type="file" accept="image/*,.pdf" onChange={handleFile('agreement', 'agreementName')} style={{ fontSize: '0.75rem', width: '100%' }} />
+                        {form.agreementName && <span style={{ fontSize: '0.7rem', color: '#16a34a' }}>✓ {form.agreementName}</span>}
                       </div>
                       <div>
                         <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
-                          Staff with Shop Photo
+                          Udyam Certificate
                         </label>
-                        <input type="file" accept="image/*" onChange={handleFile('staffWithShopPhoto')} style={{ fontSize: '0.8rem', width: '100%' }} />
-                        {form.staffWithShopPhoto && <img src={form.staffWithShopPhoto} alt="staff shop" style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 6, marginTop: 4 }} />}
+                        <input type="file" accept="image/*,.pdf" onChange={handleFile('udyamCertificate', 'udyamCertificateName')} style={{ fontSize: '0.75rem', width: '100%' }} />
+                        {form.udyamCertificateName && <span style={{ fontSize: '0.7rem', color: '#16a34a' }}>✓ {form.udyamCertificateName}</span>}
                       </div>
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* Conditional: Product Loan Specific Section */}
+              {/* Product Loan Specific Section */}
               {loanType === 'product' && (
                 <div className="emp-card">
                   <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: '0 0 12px 0', color: 'var(--emp-text)' }}>
-                    📦 Product Item Details
+                    📦 Product Item Details (Catalog Dropdown)
                   </h3>
 
                   <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10 }}>
                     <div>
                       <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
-                        Product Name / Model
+                        Product Name (Dropdown e.g. 32-inch TV) *
                       </label>
-                      <input
-                        type="text"
+                      <select
                         className="emp-input"
-                        placeholder="e.g. Solar Home Light 50W"
-                        value={form.productName}
-                        onChange={(e) => setForm({ ...form, productName: e.target.value })}
+                        value={form.productId || form.productName}
+                        onChange={(e) => handleProductChange(e.target.value)}
                         required
-                      />
+                      >
+                        <option value="">-- Select Product (e.g. 32-inch TV) --</option>
+                        {stockProducts.map((p) => (
+                          <option key={p.id || p.code} value={p.id || p.code}>
+                            {p.name} (₹{p.unitPrice})
+                          </option>
+                        ))}
+                      </select>
                     </div>
                     <div>
                       <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
@@ -639,7 +796,14 @@ export default function EmployeeLoanRequisition() {
                         type="number"
                         className="emp-input"
                         value={form.productQty}
-                        onChange={(e) => setForm({ ...form, productQty: e.target.value })}
+                        onChange={(e) => {
+                          const q = e.target.value;
+                          setForm((f) => ({
+                            ...f,
+                            productQty: q,
+                            amount: f.productPrice ? String(f.productPrice * (Number(q) || 1)) : f.amount,
+                          }));
+                        }}
                         min="1"
                       />
                     </div>
@@ -650,74 +814,85 @@ export default function EmployeeLoanRequisition() {
               <button
                 type="submit"
                 className="emp-btn-primary"
-                style={{ padding: '14px', fontSize: '1rem', fontWeight: 700, margin: '4px 0 24px 0' }}
+                style={{ width: '100%', padding: '14px 0', fontSize: '1rem', fontWeight: 700, margin: '6px 0 20px 0' }}
                 disabled={submitting}
               >
-                {submitting ? 'Submitting Requisition...' : 'Submit Requisition for Approval'}
+                {submitting ? 'Submitting Requisition...' : 'Submit Loan Requisition'}
               </button>
             </form>
           )}
         </>
       )}
 
-      {/* Recent Requisitions List (Fixed to display Form ID, borrower details, amount and status) */}
+      {/* Requisitions List Tab */}
       {activeTab === 'list' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div className="emp-card">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+            <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, color: 'var(--emp-text)' }}>
+              My Recent Requisitions ({requisitions.length})
+            </h3>
+            <button
+              type="button"
+              className="emp-btn-secondary"
+              style={{ padding: '4px 10px', fontSize: '0.75rem' }}
+              onClick={fetchRequisitions}
+              disabled={listLoading}
+            >
+              {listLoading ? '...' : 'Refresh'}
+            </button>
+          </div>
+
           {listLoading ? (
-            <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--emp-text-muted)' }}>
+            <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--emp-text-muted)' }}>
               Loading requisitions...
             </div>
           ) : requisitions.length === 0 ? (
-            <div className="emp-card" style={{ textAlign: 'center', padding: '30px 16px', color: 'var(--emp-text-muted)' }}>
-              <div style={{ fontSize: '2.5rem', marginBottom: 8 }}>📭</div>
-              <div style={{ fontWeight: 600 }}>No loan requisitions found</div>
+            <div style={{ textAlign: 'center', padding: '30px 16px', color: 'var(--emp-text-muted)' }}>
+              No loan requisitions created yet.
             </div>
           ) : (
-            requisitions.map((r) => (
-              <div key={r.id || r._id} className="emp-card" style={{ padding: '14px 16px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--emp-text)' }}>
-                        {r.borrowerName || r.borrower?.name || 'Borrower'}
-                      </span>
-                      <span className="emp-badge emp-badge-info" style={{ fontSize: '0.7rem' }}>
-                        {r.formId || 'REQ'}
-                      </span>
-                    </div>
-                    <div style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', marginTop: 3 }}>
-                      Code: <strong>{r.borrowerCode || r.borrower?.code || 'N/A'}</strong> • Type:{' '}
-                      <strong style={{ textTransform: 'capitalize' }}>{(r.loanType || r.kind || 'Loan').replace(/_/g, ' ')}</strong>
-                    </div>
-                    {r.groupName && (
-                      <div style={{ fontSize: '0.75rem', color: 'var(--emp-primary)', marginTop: 2, fontWeight: 600 }}>
-                        Group: {r.groupName} ({r.groupCode})
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {requisitions.map((r) => (
+                <div
+                  key={r.id || r._id}
+                  style={{
+                    border: '1px solid var(--emp-border)',
+                    borderRadius: 8,
+                    padding: 12,
+                    background: 'var(--emp-card-bg)',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div>
+                      <strong style={{ fontSize: '0.92rem', color: 'var(--emp-text)' }}>{r.borrowerName}</strong>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
+                        Form: <strong>{r.formId}</strong> • Type: <span style={{ textTransform: 'capitalize' }}>{r.loanType}</span>
                       </div>
-                    )}
-                    <div style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
-                      Scheme: {r.schemeName} • {r.term} {r.mode} • Date: {r.createdAt ? new Date(r.createdAt).toLocaleDateString() : 'N/A'}
+                      <div style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
+                        {r.schemeName} • {r.mode} ({r.term} installments)
+                      </div>
                     </div>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontWeight: 800, fontSize: '1.1rem', color: 'var(--emp-primary)' }}>
-                      ₹{Number(r.amount || 0).toLocaleString('en-IN')}
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--emp-primary)' }}>
+                        ₹{Number(r.amount).toLocaleString('en-IN')}
+                      </div>
+                      <div style={{ marginTop: 4 }}>
+                        {r.status === 'approved' ? (
+                          <span className="emp-badge emp-badge-success" style={{ fontSize: '0.7rem' }}>Approved</span>
+                        ) : r.status === 'rejected' ? (
+                          <span className="emp-badge emp-badge-danger" style={{ fontSize: '0.7rem' }}>Rejected</span>
+                        ) : (
+                          <span className="emp-badge emp-badge-warning" style={{ fontSize: '0.7rem' }}>Pending</span>
+                        )}
+                      </div>
                     </div>
-                    <span
-                      className={`emp-badge ${
-                        r.status === 'approved' ? 'emp-badge-success' : r.status === 'rejected' ? 'emp-badge-danger' : 'emp-badge-warning'
-                      }`}
-                      style={{ marginTop: 6, display: 'inline-block', textTransform: 'capitalize' }}
-                    >
-                      {r.status || 'Pending'}
-                    </span>
                   </div>
                 </div>
-              </div>
-            ))
+              ))}
+            </div>
           )}
         </div>
       )}
     </div>
   );
 }
-

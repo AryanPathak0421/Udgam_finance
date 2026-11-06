@@ -51,12 +51,23 @@ export default function EmployeeGuarantorChange() {
   const [address, setAddress] = useState('');
   const [reason, setReason] = useState('');
 
+  // OTP Verification for new guarantor
+  const [guarantorOtpVerified, setGuarantorOtpVerified] = useState(false);
+  const [sendingOtp, setSendingOtp] = useState(false);
+  const [verifyingOtp, setVerifyingOtp] = useState(false);
+  const [showOtpField, setShowOtpField] = useState(false);
+  const [guarantorOtp, setGuarantorOtp] = useState('');
+  const [guarantorChallengeId, setGuarantorChallengeId] = useState('');
+  const [guarantorDevOtp, setGuarantorDevOtp] = useState('');
+  const [otpError, setOtpError] = useState('');
+
   // Photos
   const [photo, setPhoto] = useState('');
   const [signature, setSignature] = useState('');
   const [aadhaarPhoto, setAadhaarPhoto] = useState('');
   const [aadhaarBackPhoto, setAadhaarBackPhoto] = useState('');
   const [panPhoto, setPanPhoto] = useState('');
+  const [jointPhoto, setJointPhoto] = useState('');
   const [uploadingDoc, setUploadingDoc] = useState('');
 
   const [submitting, setSubmitting] = useState(false);
@@ -70,6 +81,48 @@ export default function EmployeeGuarantorChange() {
   const aadhaarFrontRef = useRef(null);
   const aadhaarBackRef = useRef(null);
   const panInputRef = useRef(null);
+  const jointPhotoRef = useRef(null);
+
+  const handleSendGuarantorOtp = async () => {
+    if (!/^\d{10}$/.test(mobile.replace(/\D/g, ''))) {
+      setOtpError('Please enter a valid 10-digit mobile number first');
+      return;
+    }
+    setSendingOtp(true);
+    setOtpError('');
+    try {
+      const res = await api.employeeApp.sendGuarantorOtp({ mobile: mobile.replace(/\D/g, '').slice(-10) });
+      setGuarantorChallengeId(res.challengeId);
+      if (res.devOtp) setGuarantorDevOtp(res.devOtp);
+      setShowOtpField(true);
+    } catch (err) {
+      setOtpError(err.message || 'Failed to send OTP');
+    } finally {
+      setSendingOtp(false);
+    }
+  };
+
+  const handleVerifyGuarantorOtp = async () => {
+    if (!/^\d{6}$/.test(guarantorOtp.trim())) {
+      setOtpError('Enter 6-digit OTP');
+      return;
+    }
+    setVerifyingOtp(true);
+    setOtpError('');
+    try {
+      await api.employeeApp.verifyGuarantorOtp({
+        mobile: mobile.replace(/\D/g, '').slice(-10),
+        otp: guarantorOtp.trim(),
+        challengeId: guarantorChallengeId,
+      });
+      setGuarantorOtpVerified(true);
+      setShowOtpField(false);
+    } catch (err) {
+      setOtpError(err.message || 'Invalid OTP');
+    } finally {
+      setVerifyingOtp(false);
+    }
+  };
 
   const fetchRequests = async () => {
     setListLoading(true);
@@ -147,8 +200,9 @@ export default function EmployeeGuarantorChange() {
         aadhaarPhoto,
         aadhaarBackPhoto,
         panPhoto,
+        jointPhoto,
       });
-      setSuccess('Guarantor change request submitted for Branch Manager approval with all KYC documents!');
+      setSuccess('Guarantor change request submitted and sent to KYC Approval section!');
       setName('');
       setMobile('');
       setAadhaar('');
@@ -160,6 +214,8 @@ export default function EmployeeGuarantorChange() {
       setAadhaarPhoto('');
       setAadhaarBackPhoto('');
       setPanPhoto('');
+      setJointPhoto('');
+      setGuarantorOtpVerified(false);
       setMember(null);
       setQuery('');
       setTimeout(() => setTab('list'), 1500);
@@ -282,17 +338,65 @@ export default function EmployeeGuarantorChange() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
                   <div>
                     <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
-                      Mobile Number *
+                      Mobile Number * {guarantorOtpVerified && <span className="emp-verified-badge" style={{ fontSize: '0.65rem', marginLeft: 4 }}>✓ OTP Verified</span>}
                     </label>
-                    <input
-                      type="tel"
-                      className="emp-input"
-                      placeholder="10-digit phone"
-                      maxLength={10}
-                      value={mobile}
-                      onChange={(e) => setMobile(e.target.value)}
-                      required
-                    />
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <input
+                        type="tel"
+                        className="emp-input"
+                        placeholder="10-digit phone"
+                        maxLength={10}
+                        value={mobile}
+                        onChange={(e) => {
+                          setMobile(e.target.value.replace(/\D/g, ''));
+                          setGuarantorOtpVerified(false);
+                        }}
+                        required
+                        style={{ flex: 1 }}
+                      />
+                      {!guarantorOtpVerified && (
+                        <button
+                          type="button"
+                          className="emp-btn-secondary"
+                          style={{ padding: '4px 10px', fontSize: '0.72rem', whiteSpace: 'nowrap' }}
+                          onClick={handleSendGuarantorOtp}
+                          disabled={sendingOtp || mobile.length !== 10}
+                        >
+                          {sendingOtp ? 'Sending...' : 'Send OTP'}
+                        </button>
+                      )}
+                    </div>
+
+                    {showOtpField && !guarantorOtpVerified && (
+                      <div style={{ marginTop: 6, background: '#f8fafc', padding: 8, borderRadius: 6, border: '1px solid var(--emp-border)' }}>
+                        {guarantorDevOtp && (
+                          <div style={{ fontSize: '0.72rem', color: '#b45309', marginBottom: 4 }}>
+                            Dev OTP: <strong>{guarantorDevOtp}</strong>
+                          </div>
+                        )}
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <input
+                            type="text"
+                            className="emp-input"
+                            placeholder="6-digit OTP"
+                            maxLength={6}
+                            value={guarantorOtp}
+                            onChange={(e) => setGuarantorOtp(e.target.value.replace(/\D/g, ''))}
+                            style={{ flex: 1, textAlign: 'center', fontSize: '0.85rem', fontWeight: 700 }}
+                          />
+                          <button
+                            type="button"
+                            className="emp-btn-primary"
+                            style={{ padding: '4px 10px', fontSize: '0.72rem' }}
+                            onClick={handleVerifyGuarantorOtp}
+                            disabled={verifyingOtp || guarantorOtp.length !== 6}
+                          >
+                            {verifyingOtp ? 'Verifying...' : 'Verify'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {otpError && <div style={{ fontSize: '0.72rem', color: '#dc2626', marginTop: 4 }}>{otpError}</div>}
                   </div>
                   <div>
                     <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
@@ -377,6 +481,24 @@ export default function EmployeeGuarantorChange() {
                     <input ref={photoInputRef} type="file" accept="image/*" capture="user" style={{ display: 'none' }} onChange={(e) => handleFileUpload(e, setPhoto, 'Photo')} />
                   </div>
 
+                  {/* Member & Guarantor Joint Photo */}
+                  <div style={{ border: '1px dashed var(--emp-border)', padding: 10, borderRadius: 8, textAlign: 'center' }}>
+                    <div style={{ fontSize: '0.78rem', fontWeight: 700, marginBottom: 6 }}>Joint Photo (Member + Guarantor)</div>
+                    {jointPhoto ? (
+                      <div>
+                        <img src={jointPhoto} alt="Joint Photo" style={{ width: 70, height: 70, objectFit: 'cover', borderRadius: 6, marginBottom: 6 }} />
+                        <button type="button" className="emp-btn-secondary" style={{ padding: '2px 8px', fontSize: '0.7rem' }} onClick={() => jointPhotoRef.current?.click()}>
+                          Retake
+                        </button>
+                      </div>
+                    ) : (
+                      <button type="button" className="emp-btn-primary" style={{ fontSize: '0.75rem', padding: '6px 12px' }} onClick={() => jointPhotoRef.current?.click()}>
+                        👥 Upload Joint Photo
+                      </button>
+                    )}
+                    <input ref={jointPhotoRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleFileUpload(e, setJointPhoto, 'Joint Photo')} />
+                  </div>
+
                   {/* Guarantor Signature */}
                   <div style={{ border: '1px dashed var(--emp-border)', padding: 10, borderRadius: 8, textAlign: 'center' }}>
                     <div style={{ fontSize: '0.78rem', fontWeight: 700, marginBottom: 6 }}>Signature *</div>
@@ -429,6 +551,24 @@ export default function EmployeeGuarantorChange() {
                       </button>
                     )}
                     <input ref={aadhaarBackRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleFileUpload(e, setAadhaarBackPhoto, 'Aadhaar Back')} />
+                  </div>
+
+                  {/* PAN Card Photo */}
+                  <div style={{ border: '1px dashed var(--emp-border)', padding: 10, borderRadius: 8, textAlign: 'center' }}>
+                    <div style={{ fontSize: '0.78rem', fontWeight: 700, marginBottom: 6 }}>PAN Card Photo</div>
+                    {panPhoto ? (
+                      <div>
+                        <img src={panPhoto} alt="PAN Photo" style={{ width: 70, height: 70, objectFit: 'cover', borderRadius: 6, marginBottom: 6 }} />
+                        <button type="button" className="emp-btn-secondary" style={{ padding: '2px 8px', fontSize: '0.7rem' }} onClick={() => panInputRef.current?.click()}>
+                          Retake
+                        </button>
+                      </div>
+                    ) : (
+                      <button type="button" className="emp-btn-secondary" style={{ fontSize: '0.75rem', padding: '6px 12px' }} onClick={() => panInputRef.current?.click()}>
+                        💳 PAN Photo
+                      </button>
+                    )}
+                    <input ref={panInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleFileUpload(e, setPanPhoto, 'PAN Photo')} />
                   </div>
                 </div>
 
