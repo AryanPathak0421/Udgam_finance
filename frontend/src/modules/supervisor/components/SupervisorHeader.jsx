@@ -4,10 +4,32 @@ import { useSupApp } from '../SupervisorAppContext.jsx';
 import Icon from '../../../components/Icon.jsx';
 
 export default function SupervisorHeader() {
-  const { supUser, logout, lang, toggleLang, theme, toggleTheme, notifications, notifOpen, setNotifOpen, t } = useSupApp();
+  const {
+    supUser,
+    logout,
+    lang,
+    toggleLang,
+    theme,
+    toggleTheme,
+    notifications,
+    dismissNotification,
+    dismissAllNotifications,
+    notifOpen,
+    setNotifOpen,
+    t,
+  } = useSupApp();
   const navigate = useNavigate();
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
+  const unreadCount = notifications.length;
+
+  const handleNotificationClick = (n) => {
+    // Dismiss the notification ("dekhne ke baad jayega")
+    dismissNotification(n.id);
+    setNotifOpen(false);
+    if (n.link) {
+      navigate(n.link);
+    }
+  };
 
   return (
     <header className="sup-header">
@@ -48,7 +70,7 @@ export default function SupervisorHeader() {
           <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={15} />
         </button>
 
-        {/* Notifications */}
+        {/* Notifications (Sheet Point 2: "Notification aayega dekhne ke baad jayega") */}
         <div style={{ position: 'relative' }}>
           <button
             type="button"
@@ -64,33 +86,61 @@ export default function SupervisorHeader() {
             <div
               style={{
                 position: 'absolute',
-                top: '110%',
+                top: '115%',
                 right: 0,
-                width: 280,
+                width: 300,
+                maxHeight: 380,
+                overflowY: 'auto',
                 background: 'var(--sup-card-bg)',
                 border: '1px solid var(--sup-border)',
                 borderRadius: 12,
-                boxShadow: 'var(--sup-shadow)',
+                boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
                 padding: 12,
-                zIndex: 60,
+                zIndex: 100,
               }}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <strong style={{ fontSize: '0.85rem' }}>Notifications</strong>
-                <button
-                  type="button"
-                  style={{ background: 'none', border: 'none', fontSize: '0.75rem', color: 'var(--sup-primary)', cursor: 'pointer' }}
-                  onClick={() => setNotifOpen(false)}
-                >
-                  Close
-                </button>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, paddingBottom: 6, borderBottom: '1px solid var(--sup-border)' }}>
+                <strong style={{ fontSize: '0.88rem' }}>Live Alerts ({unreadCount})</strong>
+                {unreadCount > 0 && (
+                  <button
+                    type="button"
+                    style={{ background: 'none', border: 'none', fontSize: '0.72rem', color: 'var(--sup-primary)', cursor: 'pointer', fontWeight: 600 }}
+                    onClick={dismissAllNotifications}
+                  >
+                    Clear All
+                  </button>
+                )}
               </div>
-              {notifications.map((n) => (
-                <div key={n.id} style={{ padding: '6px 0', borderBottom: '1px solid var(--sup-border)', fontSize: '0.8rem' }}>
-                  <div style={{ fontWeight: 600 }}>{n.title}</div>
-                  <div style={{ fontSize: '0.7rem', color: 'var(--sup-text-muted)' }}>{n.time}</div>
+
+              {notifications.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '20px 0', fontSize: '0.78rem', color: 'var(--sup-text-muted)' }}>
+                  No pending alerts or notifications
                 </div>
-              ))}
+              ) : (
+                notifications.map((n) => (
+                  <div
+                    key={n.id}
+                    onClick={() => handleNotificationClick(n)}
+                    style={{
+                      padding: '8px 6px',
+                      borderBottom: '1px solid var(--sup-border)',
+                      fontSize: '0.8rem',
+                      cursor: 'pointer',
+                      borderRadius: 6,
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--sup-bg)')}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <strong style={{ fontSize: '0.82rem', color: 'var(--sup-text)' }}>{n.title}</strong>
+                      <span style={{ fontSize: '0.68rem', color: 'var(--sup-text-muted)' }}>{n.time}</span>
+                    </div>
+                    <div style={{ fontSize: '0.74rem', color: 'var(--sup-text-muted)', marginTop: 2 }}>
+                      {n.message}
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           )}
         </div>
@@ -107,4 +157,3 @@ export default function SupervisorHeader() {
     </header>
   );
 }
-

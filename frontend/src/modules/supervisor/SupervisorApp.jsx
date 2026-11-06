@@ -27,6 +27,8 @@ import SupervisorBranchTransferReport from './pages/SupervisorBranchTransferRepo
 import SupervisorProductSaleReport from './pages/SupervisorProductSaleReport.jsx';
 import SupervisorStaffRating from './pages/SupervisorStaffRating.jsx';
 import SupervisorStaffRequisition from './pages/SupervisorStaffRequisition.jsx';
+import SupervisorStaffList from './pages/SupervisorStaffList.jsx';
+import SupervisorTasks from './pages/SupervisorTasks.jsx';
 
 import './supervisor.css';
 
@@ -75,6 +77,10 @@ function SupervisorAppRoutes() {
             <Route path="product-sales" element={supUser ? <SupervisorProductSaleReport /> : <Navigate to="/supervisor/login" replace />} />
             <Route path="staff-rating" element={supUser ? <SupervisorStaffRating /> : <Navigate to="/supervisor/login" replace />} />
             <Route path="staff-requisition" element={supUser ? <SupervisorStaffRequisition /> : <Navigate to="/supervisor/login" replace />} />
+
+            {/* New Special Sheet Requirements */}
+            <Route path="team-staff" element={supUser ? <SupervisorStaffList /> : <Navigate to="/supervisor/login" replace />} />
+            <Route path="tasks" element={supUser ? <SupervisorTasks /> : <Navigate to="/supervisor/login" replace />} />
 
             {/* Fallback */}
             <Route path="*" element={<Navigate to="/supervisor" replace />} />

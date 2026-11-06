@@ -68,11 +68,45 @@ export function SupervisorAppProvider({ children }) {
 
   const [lang, setLang] = useState(() => localStorage.getItem('udgam_sup_lang') || 'hi');
   const [theme, setTheme] = useState(() => localStorage.getItem('udgam_sup_theme') || 'light');
-  const [notifications, setNotifications] = useState([
-    { id: 1, title: 'Welcome to Udgam Supervisor Portal', time: 'Just now', read: false },
-    { id: 2, title: 'Branch collection overview updated', time: 'Today', read: false },
-  ]);
+  const [notifications, setNotifications] = useState([]);
   const [notifOpen, setNotifOpen] = useState(false);
+
+  // Load and sync live notifications (Sheet Point 2: "Notification aayega dekhne ke baad jayega")
+  const loadNotifications = async () => {
+    if (!supUser) return;
+    try {
+      const res = await api.supervisorApp.notifications();
+      const dismissed = JSON.parse(localStorage.getItem('udgam_sup_dismissed_notifs') || '[]');
+      const active = (res.notifications || []).filter((n) => !dismissed.includes(n.id));
+      setNotifications(active);
+    } catch {
+      // ignore
+    }
+  };
+
+  useEffect(() => {
+    loadNotifications();
+    const timer = setInterval(loadNotifications, 30000); // 30s live poll
+    return () => clearInterval(timer);
+  }, [supUser]);
+
+  const dismissNotification = (id) => {
+    const dismissed = JSON.parse(localStorage.getItem('udgam_sup_dismissed_notifs') || '[]');
+    if (!dismissed.includes(id)) {
+      dismissed.push(id);
+      localStorage.setItem('udgam_sup_dismissed_notifs', JSON.stringify(dismissed));
+    }
+    // Remove from UI immediately ("dekhne ke baad jayega")
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+  };
+
+  const dismissAllNotifications = () => {
+    const allIds = notifications.map((n) => n.id);
+    const dismissed = JSON.parse(localStorage.getItem('udgam_sup_dismissed_notifs') || '[]');
+    const merged = Array.from(new Set([...dismissed, ...allIds]));
+    localStorage.setItem('udgam_sup_dismissed_notifs', JSON.stringify(merged));
+    setNotifications([]);
+  };
 
   useEffect(() => {
     localStorage.setItem('udgam_sup_lang', lang);
@@ -112,6 +146,9 @@ export function SupervisorAppProvider({ children }) {
         t,
         notifications,
         setNotifications,
+        dismissNotification,
+        dismissAllNotifications,
+        loadNotifications,
         notifOpen,
         setNotifOpen,
       }}
@@ -125,4 +162,3 @@ export function SupervisorAppProvider({ children }) {
 
 export const useSupApp = () => useContext(SupervisorAppContext);
 export const useSupervisorApp = useSupApp;
-

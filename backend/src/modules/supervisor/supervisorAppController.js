@@ -111,6 +111,26 @@ async function getSupervisorBranchIds(emp, user) {
   return branchIds.map((id) => new mongoose.Types.ObjectId(id));
 }
 
+// Get all employees attached to this supervisor by ID, employeeCode, email, or supervised branches
+async function getSupervisedEmployees(emp, user) {
+  const branchIds = await getSupervisorBranchIds(emp, user);
+  const conditions = [
+    { branch: { $in: branchIds } },
+    { supervisor: emp._id },
+  ];
+  if (emp.employeeCode) conditions.push({ supervisorCode: emp.employeeCode });
+  if (emp.email) conditions.push({ supervisorEmail: emp.email.toLowerCase() });
+
+  return await Employee.find({
+    $or: conditions,
+    isDeleted: false,
+    status: 'active',
+  })
+    .populate('branch', 'code name city')
+    .populate('designation', 'name')
+    .sort({ name: 1 });
+}
+
 // -----------------------------------------------------------------------------
 // 1. AUTHENTICATION & MPIN
 // -----------------------------------------------------------------------------
@@ -1282,5 +1302,316 @@ export async function listStaffRequisitions(req, res) {
     .sort({ createdAt: -1 });
 
   res.json({ requisitions });
+}
+
+// -----------------------------------------------------------------------------
+// 20. SUPERVISED STAFF LIST & FULL DOSSIER (Handwritten Sheet: Point 1)
+// "Employee ka All data supervisor pe show ho. Jiss Supervisor ka mail id ya
+// employee code jis jis employee k sath attached hoga wahi wahi employee ka All data"
+// -----------------------------------------------------------------------------
+
+export async function getSupervisedEmployeesList(req, res) {
+  const code = req.user?.employeeCode;
+  const emp = await Employee.findOne({ employeeCode: code, isDeleted: false });
+  if (!emp) throw new HttpError(404, 'Supervisor not found');
+
+  const staff = await getSupervisedEmployees(emp, req.user);
+  res.json({
+    total: staff.length,
+    staff: staff.map((s) => ({
+      id: s._id,
+      code: s.employeeCode,
+      name: s.name,
+      designation: s.designation?.name || 'Field Officer',
+      branch: s.branch ? { id: s.branch._id, code: s.branch.code, name: s.branch.name } : null,
+      mobile: s.mobile || '',
+      email: s.email || '',
+      photo: s.photo || '',
+      averageRating: s.averageRating || 5,
+      status: s.status,
+    })),
+  });
+}
+
+export async function getEmployeeFullDossier(req, res) {
+  const { id } = req.params;
+  const emp = await Employee.findById(id)
+    .populate('branch', 'code name city pincode')
+    .populate('department', 'name')
+    .populate('designation', 'name');
+  if (!emp) throw new HttpError(404, 'Employee record not found');
+
+  // 1. Recent Attendance (Last 30 records)
+  const attendance = await Attendance.find({ employee: emp._id })
+    .sort({ date: -1 })
+    .limit(30)
+    .lean();
+
+  // 2. Assigned Tasks (Pending and Completed)
+  const tasks = await Task.find({
+    $or: [{ assignedTo: emp._id }, { assignedToCode: emp.employeeCode }],
+  })
+    .sort({ dueDate: 1 })
+    .lean();
+
+  // 3. Center Visits
+  const visits = await CenterVisit.find({ employeeCode: emp.employeeCode })
+    .sort({ createdAt: -1 })
+    .limit(20)
+    .lean();
+
+  // 4. Leaves
+  const leaves = await Leave.find({
+    $or: [{ employee: emp._id }, { employeeCode: emp.employeeCode }],
+  })
+    .sort({ createdAt: -1 })
+    .limit(10)
+    .lean();
+
+  // 5. Ratings
+  const mpinDoc = await EmployeeMpin.findOne({ employeeCode: emp.employeeCode });
+
+  // 6. Today's collections
+  const todayStart = new Date(new Date().setHours(0, 0, 0, 0));
+  const todayEnd = new Date(new Date().setHours(23, 59, 59, 999));
+  const todayCollections = await EmiPayment.find({
+    $or: [{ employeeCode: emp.employeeCode }, { collectedByCode: emp.employeeCode }],
+    status: 'paid',
+    paidOn: { $gte: todayStart, $lte: todayEnd },
+  }).lean();
+
+  const totalCollectedToday = todayCollections.reduce((acc, c) => acc + (c.amountPaise || 0) / 100, 0);
+
+  res.json({
+    employee: {
+      id: emp._id,
+      code: emp.employeeCode,
+      name: emp.name,
+      designation: emp.designation?.name || 'Field Officer',
+      department: emp.department?.name || 'Operations',
+      branch: emp.branch ? `${emp.branch.code} — ${emp.branch.name}` : '',
+      mobile: emp.mobile || '',
+      email: emp.email || '',
+      joiningDate: emp.joiningDate ? emp.joiningDate.toISOString().slice(0, 10) : '',
+      photo: emp.photo || '',
+      averageRating: mpinDoc?.averageRating || emp.averageRating || 5,
+      ratings: mpinDoc?.ratings || [],
+    },
+    performance: {
+      todayCollectedAmount: Math.round(totalCollectedToday),
+      todayReceiptsCount: todayCollections.length,
+      pendingTasksCount: tasks.filter((t) => t.status === 'open' || t.status === 'in_progress').length,
+    },
+    attendance: attendance.map((a) => ({
+      id: a._id,
+      date: a.date ? a.date.toISOString().slice(0, 10) : '',
+      status: a.status || 'present',
+      checkInTime: a.checkInTime || '—',
+    })),
+    tasks,
+    visits,
+    leaves,
+  });
+}
+
+// -----------------------------------------------------------------------------
+// 21. SUPERVISOR LIVE NOTIFICATIONS (Handwritten Sheet: Point 2)
+// "Notification aayega dekhne ke baad jayega"
+// -----------------------------------------------------------------------------
+
+export async function getSupervisorNotifications(req, res) {
+  const code = req.user?.employeeCode;
+  const emp = await Employee.findOne({ employeeCode: code, isDeleted: false });
+  if (!emp) throw new HttpError(404, 'Supervisor not found');
+
+  const branchIds = await getSupervisorBranchIds(emp, req.user);
+  const staff = await getSupervisedEmployees(emp, req.user);
+  const staffIds = staff.map((s) => s._id);
+  const staffCodes = staff.map((s) => s.employeeCode);
+
+  const notifications = [];
+
+  // 1. Pending Leaves from supervised staff
+  const pendingLeaves = await Leave.find({
+    $or: [{ branch: { $in: branchIds } }, { employee: { $in: staffIds } }],
+    status: 'pending',
+  })
+    .populate('employee', 'name employeeCode')
+    .sort({ createdAt: -1 })
+    .limit(5);
+
+  pendingLeaves.forEach((l) => {
+    notifications.push({
+      id: `leave_${l._id}`,
+      type: 'leave',
+      title: 'Pending Leave Request',
+      message: `${l.employee?.name || l.employeeName || 'Staff'} has applied for ${l.type} leave (${l.days || 1} days)`,
+      link: '/supervisor/leaves',
+      time: l.createdAt ? new Date(l.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Today',
+      read: false,
+    });
+  });
+
+  // 2. Open Complaints
+  const openComplaints = await Complaint.find({
+    branch: { $in: branchIds },
+    status: 'open',
+  })
+    .sort({ createdAt: -1 })
+    .limit(5);
+
+  openComplaints.forEach((c) => {
+    notifications.push({
+      id: `complaint_${c._id}`,
+      type: 'complaint',
+      title: 'Branch Complaint Filed',
+      message: `${c.complaintNo}: ${c.category} - ${c.description?.slice(0, 45)}…`,
+      link: '/supervisor/complaints',
+      time: c.createdAt ? new Date(c.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Today',
+      read: false,
+    });
+  });
+
+  // 3. Pending Resignations
+  const pendingResignations = await Resignation.find({
+    $or: [{ branch: { $in: branchIds } }, { employee: { $in: staffIds } }],
+    status: 'pending',
+  })
+    .populate('employee', 'name')
+    .limit(3);
+
+  pendingResignations.forEach((r) => {
+    notifications.push({
+      id: `resign_${r._id}`,
+      type: 'resignation',
+      title: 'Resignation Application',
+      message: `${r.employee?.name || r.employeeName || 'Staff'} applied for resignation`,
+      link: '/supervisor/resignation',
+      time: r.appliedOn ? new Date(r.appliedOn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recent',
+      read: false,
+    });
+  });
+
+  // 4. Pending Tasks due
+  const pendingTasks = await Task.find({
+    $or: [{ assignedTo: { $in: staffIds } }, { assignedToCode: { $in: staffCodes } }],
+    status: { $in: ['open', 'in_progress'] },
+  })
+    .limit(5);
+
+  pendingTasks.forEach((t) => {
+    notifications.push({
+      id: `task_${t._id}`,
+      type: 'task',
+      title: 'Pending Staff Task',
+      message: `${t.assignedToName || t.assignedToCode}: ${t.title}`,
+      link: '/supervisor/tasks',
+      time: t.dueDate ? new Date(t.dueDate).toLocaleDateString() : 'Due Soon',
+      read: false,
+    });
+  });
+
+  res.json({
+    total: notifications.length,
+    notifications,
+  });
+}
+
+export async function dismissSupervisorNotification(req, res) {
+  // Returns success so client marks as read/dismissed in local cache and UI
+  res.json({ status: 'ok', message: 'Notification dismissed' });
+}
+
+// -----------------------------------------------------------------------------
+// 22. SUPERVISOR TASKS: PENDING & ASSIGNED (Handwritten Sheet: Point 3)
+// "Task show and Pending"
+// -----------------------------------------------------------------------------
+
+export async function getSupervisorTasks(req, res) {
+  const code = req.user?.employeeCode;
+  const emp = await Employee.findOne({ employeeCode: code, isDeleted: false });
+  if (!emp) throw new HttpError(404, 'Supervisor not found');
+
+  const branchIds = await getSupervisorBranchIds(emp, req.user);
+  const staff = await getSupervisedEmployees(emp, req.user);
+  const staffIds = staff.map((s) => s._id);
+  const staffCodes = staff.map((s) => s.employeeCode);
+
+  const tasks = await Task.find({
+    $or: [
+      { assignedTo: { $in: staffIds } },
+      { assignedToCode: { $in: staffCodes } },
+      { branch: { $in: branchIds } },
+      { createdByCode: code },
+    ],
+  })
+    .sort({ dueDate: 1, createdAt: -1 })
+    .lean();
+
+  const pendingTasks = tasks.filter((t) => t.status === 'open' || t.status === 'in_progress');
+  const completedTasks = tasks.filter((t) => t.status === 'completed');
+
+  res.json({
+    summary: {
+      totalTasks: tasks.length,
+      pendingCount: pendingTasks.length,
+      completedCount: completedTasks.length,
+    },
+    tasks,
+    pendingTasks,
+    completedTasks,
+    staff: staff.map((s) => ({ id: s._id, code: s.employeeCode, name: s.name, designation: s.designation?.name })),
+  });
+}
+
+export async function createSupervisorTask(req, res) {
+  const code = req.user?.employeeCode;
+  const { title, description, assignedToId, dueDate, priority = 'medium' } = req.body || {};
+
+  if (!title) throw new HttpError(400, 'Task title is required');
+  if (!assignedToId) throw new HttpError(400, 'Please select employee to assign task');
+
+  const assignedEmp = await Employee.findById(assignedToId).populate('branch');
+  if (!assignedEmp) throw new HttpError(404, 'Assigned staff member not found');
+
+  const task = await Task.create({
+    title: cleanStr(title),
+    description: cleanStr(description),
+    branch: assignedEmp.branch?._id || assignedEmp.branch,
+    assignedTo: assignedEmp._id,
+    assignedToCode: assignedEmp.employeeCode,
+    assignedToName: assignedEmp.name,
+    dueDate: dueDate ? new Date(dueDate) : new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
+    priority,
+    status: 'open',
+    createdByCode: code,
+  });
+
+  res.status(201).json({
+    status: 'ok',
+    message: `Task assigned to ${assignedEmp.name} successfully!`,
+    task,
+  });
+}
+
+export async function updateSupervisorTaskStatus(req, res) {
+  const code = req.user?.employeeCode;
+  const { id } = req.params;
+  const { status, remark } = req.body || {};
+
+  const task = await Task.findById(id);
+  if (!task) throw new HttpError(404, 'Task not found');
+
+  task.status = status;
+  if (!task.history) task.history = [];
+  task.history.push({
+    status,
+    remark: remark || `Updated by Supervisor ${code}`,
+    byCode: code,
+    at: new Date(),
+  });
+  await task.save();
+
+  res.json({ status: 'ok', message: `Task status updated to ${status}!`, task });
 }
 

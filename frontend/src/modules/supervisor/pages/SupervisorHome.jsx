@@ -73,10 +73,14 @@ export default function SupervisorHome() {
         </div>
 
         <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <span style={{ background: 'rgba(255, 255, 255, 0.2)', padding: '3px 9px', borderRadius: 12, fontSize: '0.74rem', fontWeight: 600 }}>
-            {metrics.totalStaffCount} Supervised Staff
-          </span>
-          <span style={{ background: 'rgba(255, 255, 255, 0.2)', padding: '3px 9px', borderRadius: 12, fontSize: '0.74rem', fontWeight: 600 }}>
+          <Link
+            to="/supervisor/team-staff"
+            style={{ textDecoration: 'none', color: '#fff', background: 'rgba(255, 255, 255, 0.2)', padding: '4px 10px', borderRadius: 12, fontSize: '0.74rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 }}
+          >
+            <Icon name="users" size={12} color="#fff" />
+            <span>{metrics.totalStaffCount} Attached Staff (View All Data →)</span>
+          </Link>
+          <span style={{ background: 'rgba(255, 255, 255, 0.2)', padding: '4px 10px', borderRadius: 12, fontSize: '0.74rem', fontWeight: 600 }}>
             {metrics.totalBranchCount} Branches
           </span>
         </div>
@@ -292,11 +296,25 @@ export default function SupervisorHome() {
         </Link>
       </div>
 
-      {/* SECTION 2: HR & STAFF SUPERVISION (Items 18, 20-23, 28, 30) */}
+      {/* SECTION 2: HR & STAFF SUPERVISION (Items 18, 20-23, 28, 30 & Sheet Points 1, 3) */}
       <div style={{ marginBottom: 8, fontWeight: 700, fontSize: '0.88rem', color: 'var(--sup-text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
         HR & Staff Supervision
       </div>
       <div className="sup-grid-3" style={{ marginBottom: 16 }}>
+        <Link to="/supervisor/team-staff" className="sup-action-card" style={{ border: '2px solid var(--sup-primary)' }}>
+          <div className="sup-action-icon" style={{ background: 'var(--sup-primary)', color: '#fff' }}>
+            <Icon name="users" size={20} />
+          </div>
+          <span style={{ fontSize: '0.76rem', fontWeight: 700, color: 'var(--sup-primary)' }}>Attached Staff</span>
+        </Link>
+
+        <Link to="/supervisor/tasks" className="sup-action-card">
+          <div className="sup-action-icon" style={{ background: '#fff1f2', color: '#e11d48' }}>
+            <Icon name="check" size={20} />
+          </div>
+          <span style={{ fontSize: '0.76rem', fontWeight: 600 }}>Team Tasks</span>
+        </Link>
+
         <Link to="/supervisor/attendance-records" className="sup-action-card">
           <div className="sup-action-icon" style={{ background: '#f5f3ff', color: '#7c3aed' }}>
             <Icon name="clock" size={20} />
@@ -320,7 +338,7 @@ export default function SupervisorHome() {
 
         <Link to="/supervisor/staff-requisition" className="sup-action-card">
           <div className="sup-action-icon" style={{ background: '#eff6ff', color: '#2563eb' }}>
-            <Icon name="users" size={20} />
+            <Icon name="userplus" size={20} />
           </div>
           <span style={{ fontSize: '0.76rem', fontWeight: 600 }}>Hiring Demand</span>
         </Link>
@@ -340,7 +358,7 @@ export default function SupervisorHome() {
         </Link>
       </div>
 
-      {/* SECTION 3: REPORTS & REQUESTS (Items 24, 25, 26, 27) */}
+      {/* SECTION 3: REPORTS & WORKFLOWS (Items 24, 25, 26, 27) */}
       <div style={{ marginBottom: 8, fontWeight: 700, fontSize: '0.88rem', color: 'var(--sup-text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
         Reports & Workflows
       </div>

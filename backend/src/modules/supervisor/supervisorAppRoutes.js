@@ -32,6 +32,13 @@ import {
   recordSupervisorCenterVisit,
   submitStaffRequisition,
   listStaffRequisitions,
+  getSupervisedEmployeesList,
+  getEmployeeFullDossier,
+  getSupervisorNotifications,
+  dismissSupervisorNotification,
+  getSupervisorTasks,
+  createSupervisorTask,
+  updateSupervisorTaskStatus,
 } from './supervisorAppController.js';
 
 const router = Router();
@@ -77,5 +84,18 @@ router.get('/staff/ratings', requireAuth, h(getStaffRatingsList));
 
 router.post('/staff-requisition', requireAuth, h(submitStaffRequisition));
 router.get('/staff-requisition', requireAuth, h(listStaffRequisitions));
+
+// Staff All Data & Dossier (Sheet Point 1)
+router.get('/staff', requireAuth, h(getSupervisedEmployeesList));
+router.get('/staff/:id/dossier', requireAuth, h(getEmployeeFullDossier));
+
+// Notifications (Sheet Point 2)
+router.get('/notifications', requireAuth, h(getSupervisorNotifications));
+router.post('/notifications/dismiss', requireAuth, h(dismissSupervisorNotification));
+
+// Tasks: Pending & Completed (Sheet Point 3)
+router.get('/tasks', requireAuth, h(getSupervisorTasks));
+router.post('/tasks', requireAuth, h(createSupervisorTask));
+router.patch('/tasks/:id', requireAuth, h(updateSupervisorTaskStatus));
 
 export default router;
