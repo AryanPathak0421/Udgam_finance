@@ -33,12 +33,24 @@ const cleanStr = (s) => String(s || '').trim();
 async function findSupervisor(identifier) {
   const id = cleanStr(identifier);
   if (!id) return null;
+  const digits = id.replace(/\D/g, '');
+  const last10 = digits.length >= 10 ? digits.slice(-10) : '';
   const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(id);
-  const isPhone = /^\d{10}$/.test(id.replace(/\D/g, ''));
+
   const query = { isDeleted: false };
-  if (isEmail) query.email = id.toLowerCase();
-  else if (isPhone) query.mobile = id.slice(-10);
-  else query.employeeCode = id.toUpperCase();
+  if (isEmail) {
+    query.email = id.toLowerCase();
+  } else if (last10) {
+    query.$or = [
+      { mobile: last10 },
+      { mobile: `+91${last10}` },
+      { mobile: `91${last10}` },
+      { mobile: new RegExp(`${last10}$`) },
+      { employeeCode: id.toUpperCase() },
+    ];
+  } else {
+    query.employeeCode = id.toUpperCase();
+  }
 
   let emp = await Employee.findOne(query)
     .populate('branch', 'code name city pincode')
@@ -48,9 +60,18 @@ async function findSupervisor(identifier) {
 
   if (!emp) {
     const userQuery = {};
-    if (isEmail) userQuery.email = id.toLowerCase();
-    else if (isPhone) userQuery.mobile = id.slice(-10);
-    else userQuery.employeeCode = id.toUpperCase();
+    if (isEmail) {
+      userQuery.email = id.toLowerCase();
+    } else if (last10) {
+      userQuery.$or = [
+        { mobile: last10 },
+        { mobile: `+91${last10}` },
+        { mobile: `91${last10}` },
+        { employeeCode: id.toUpperCase() },
+      ];
+    } else {
+      userQuery.employeeCode = id.toUpperCase();
+    }
     const user = await User.findOne(userQuery);
     if (user) {
       emp = await Employee.findOne({ user: user._id, isDeleted: false })
@@ -889,19 +910,61 @@ export async function getSupervisorSalarySlips(req, res) {
   const emp = await Employee.findOne({ employeeCode: code, isDeleted: false });
   if (!emp) throw new HttpError(404, 'Supervisor not found');
 
-  const slips = await Salary.find({ employee: emp._id }).sort({ year: -1, month: -1 });
-  res.json({
-    slips: slips.map((s) => ({
+  const query = { $or: [{ employee: emp._id }, { employeeCode: code }] };
+  const slips = await Salary.find(query).sort({ month: -1 }).lean();
+
+  const formatted = slips.map((s) => {
+    const basicLine = (s.lines || []).find((l) => l.key === 'basic');
+    const fuelLine = (s.lines || []).find((l) => l.key === 'fuel');
+    const leaveLine = (s.lines || []).find((l) => l.key === 'leave');
+    const pfLine = (s.lines || []).find((l) => l.key === 'pf');
+    const esiLine = (s.lines || []).find((l) => l.key === 'esi');
+    const advanceLine = (s.lines || []).find((l) => l.key === 'advance');
+    const secLine = (s.lines || []).find((l) => l.key === 'security');
+
+    const basic = (basicLine?.amountPaise || 0) / 100;
+    const fuel = (fuelLine?.amountPaise || 0) / 100;
+    const leaveDeduction = (leaveLine?.amountPaise || 0) / 100;
+    const grossSalary = (s.grossPaise || s.earnedPaise || (basic + fuel) * 100) / 100;
+    const totalEarnings = (s.totalEarningPaise || s.grossPaise || 0) / 100;
+    const totalDeductions = (s.totalDeductionPaise || 0) / 100;
+    const netSalary = (s.netPaise || (totalEarnings - totalDeductions)) / 100;
+
+    return {
       id: s._id,
       month: s.month,
-      year: s.year,
-      basicSalary: s.basicSalary || emp.monthlySalary || 0,
-      netSalary: s.netSalary || emp.monthlySalary || 0,
-      deductions: s.deductions || 0,
-      allowances: s.allowances || 0,
+      year: s.month ? s.month.slice(0, 4) : new Date().getFullYear(),
+      name: s.name || emp.name,
+      designation: s.designation || 'Supervisor',
+      branch: s.branchName || 'Area Office',
+      basicSalary: basic || grossSalary,
+      fuelAllowance: fuel,
+      absentDeduction: leaveDeduction,
+      pfDeduction: (pfLine?.amountPaise || 0) / 100,
+      esiDeduction: (esiLine?.amountPaise || 0) / 100,
+      advanceDeduction: (advanceLine?.amountPaise || 0) / 100,
+      securityDeduction: (secLine?.amountPaise || s.securityCutPaise || 0) / 100,
+      allowances: Math.max(0, totalEarnings - basic),
+      deductions: totalDeductions,
+      netSalary,
+      daysInMonth: s.daysInMonth || 30,
+      presentDays: s.presentDays || 0,
+      absentDays: s.absentDays || 0,
+      payableDays: s.payableDays ?? (s.presentDays || 30),
       status: s.status || 'Paid',
-      paymentDate: s.paymentDate || s.createdAt,
-    })),
+      paymentDate: s.paidOn || s.createdAt,
+      lines: (s.lines || []).map((l) => ({
+        key: l.key,
+        label: l.label,
+        side: l.side,
+        amount: (l.amountPaise || 0) / 100,
+      })),
+    };
+  });
+
+  res.json({
+    slips: formatted,
+    items: formatted,
   });
 }
 

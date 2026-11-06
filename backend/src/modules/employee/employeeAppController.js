@@ -35,6 +35,29 @@ const COOKIE_NAME = process.env.COOKIE_NAME || 'udgam_token';
 
 const cleanStr = (s) => String(s || '').trim();
 
+const nowIst = () => new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date()).replace(/^24:/, '00:');
+
+const metresBetween = (a, b, c, d) => {
+  const R = 6371000;
+  const rad = (x) => (x * Math.PI) / 180;
+  const h = Math.sin(rad(c - a) / 2) ** 2 + Math.cos(rad(a)) * Math.cos(rad(c)) * Math.sin(rad(d - b) / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+};
+
+const locationsOf = (e) => {
+  const list = (e.attendanceLocations || []).filter((l) => l && Number.isFinite(l.lat) && Number.isFinite(l.lng));
+  if (list.length) return list.map((l) => ({ name: l.name || '', lat: l.lat, lng: l.lng, radius: l.radius || 500 }));
+  const one = e.attendanceLocation;
+  return one?.lat !== undefined && one?.lat !== null ? [{ name: '', lat: one.lat, lng: one.lng, radius: one.radius || 500 }] : [];
+};
+
+const SECURITY_INTEREST_PERCENT = 10;
+function fullYears(from, to) {
+  let y = to.getUTCFullYear() - from.getUTCFullYear();
+  if (to.getUTCMonth() < from.getUTCMonth() || (to.getUTCMonth() === from.getUTCMonth() && to.getUTCDate() < from.getUTCDate())) y -= 1;
+  return Math.max(y, 0);
+}
+
 // Finds matching Employee record by code, mobile or email
 async function findEmployee(identifier) {
   const id = cleanStr(identifier);
@@ -51,6 +74,7 @@ async function findEmployee(identifier) {
       { mobile: last10 },
       { mobile: `+91${last10}` },
       { mobile: `91${last10}` },
+      { mobile: new RegExp(`${last10}$`) },
       { employeeCode: id.toUpperCase() },
     ];
   } else {
@@ -103,7 +127,8 @@ async function ensureUserForEmployee(emp) {
   let user = await User.findOne({ employeeCode: emp.employeeCode });
   if (!user && emp.email) user = await User.findOne({ email: emp.email.toLowerCase() });
   if (!user) {
-    const role = /manager/i.test(emp.designation?.name || '') ? 'branch_manager' : 'field_officer';
+    const desigName = emp.designation?.name || (typeof emp.designation === 'string' ? emp.designation : '');
+    const role = /manager/i.test(desigName) ? 'branch_manager' : 'field_officer';
     user = await User.create({
       name: emp.name,
       email: emp.email || `${emp.employeeCode.toLowerCase()}@udgam.local`,
@@ -128,18 +153,22 @@ async function ensureUserForEmployee(emp) {
 
 export async function lookupEmployee(req, res) {
   const identifier = req.body?.identifier || req.query?.identifier;
+  if (!identifier) throw new HttpError(400, 'Please enter Employee Code, Mobile or Email');
   const emp = await findEmployee(identifier);
   if (!emp) throw new HttpError(404, 'Employee record not found in system. Please contact Admin/HR to register you first.');
 
   const mpinRecord = await EmployeeMpin.findOne({ employeeCode: emp.employeeCode });
+  const desig = emp.designation?.name || (typeof emp.designation === 'string' ? emp.designation : 'Field Officer');
+  const dept = emp.department?.name || (typeof emp.department === 'string' ? emp.department : 'Operations');
+
   res.json({
     found: true,
     employeeCode: emp.employeeCode,
     name: emp.name,
     photo: emp.photo || '',
     branch: emp.branch ? { id: emp.branch._id, code: emp.branch.code, name: emp.branch.name } : null,
-    department: emp.department?.name || 'Operations',
-    designation: emp.designation?.name || 'Field Officer',
+    department: dept,
+    designation: desig,
     mobile: emp.mobile || '',
     email: emp.email || '',
     hasMpin: Boolean(mpinRecord?.mpinHash),
@@ -431,6 +460,7 @@ export async function getDashboard(req, res) {
 export async function getCollectionHistory(req, res) {
   const code = req.user?.employeeCode;
   const dateStr = asString(req.query.date) || todayDateString();
+  const categoryFilter = cleanStr(req.query.category).toLowerCase(); // all, group, personal, msme, product
   const from = new Date(`${dateStr}T00:00:00.000Z`);
   const to = new Date(`${dateStr}T23:59:59.999Z`);
 
@@ -439,62 +469,124 @@ export async function getCollectionHistory(req, res) {
     status: 'paid',
     paidOn: { $gte: from, $lte: to },
   })
+    .populate('loanPayment', 'loanType mode product group')
     .sort({ createdAt: -1 })
     .lean();
 
-  const totalAmount = list.reduce((s, x) => s + x.amountPaise, 0) / 100;
-  res.json({
-    date: dateStr,
-    totalAmount,
-    count: list.length,
-    items: list.map((e) => ({
+  const formattedItems = list.map((e) => {
+    let cat = 'group';
+    const lpType = String(e.loanPayment?.loanType || '').toLowerCase();
+    if (lpType === 'personal') cat = 'personal';
+    else if (lpType === 'msme' || lpType === 'business') cat = 'msme';
+    else if (lpType === 'product') cat = 'product';
+    else if (e.group) cat = 'group';
+    else cat = 'personal';
+
+    return {
       id: e._id,
       receiptNo: e.receiptNo,
       loanId: e.loanId || e.formId,
       memberCode: e.memberCode,
       memberName: e.memberName,
       group: e.group || '',
+      category: cat,
       amount: e.amountPaise / 100,
       payMode: e.payMode,
       time: e.createdAt ? new Date(e.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '',
-    })),
+    };
+  });
+
+  const summary = {
+    all: { count: formattedItems.length, amount: formattedItems.reduce((s, x) => s + x.amount, 0) },
+    group: { count: 0, amount: 0 },
+    personal: { count: 0, amount: 0 },
+    msme: { count: 0, amount: 0 },
+    product: { count: 0, amount: 0 },
+  };
+
+  formattedItems.forEach((it) => {
+    if (summary[it.category]) {
+      summary[it.category].count += 1;
+      summary[it.category].amount += it.amount;
+    }
+  });
+
+  const filteredItems = (!categoryFilter || categoryFilter === 'all')
+    ? formattedItems
+    : formattedItems.filter((it) => it.category === categoryFilter);
+
+  res.json({
+    date: dateStr,
+    totalAmount: summary.all.amount,
+    count: summary.all.count,
+    summary,
+    items: filteredItems,
   });
 }
 
 export async function getTodayDueList(req, res) {
   const code = req.user?.employeeCode;
   const dateStr = asString(req.query.date) || todayDateString();
+  const categoryFilter = cleanStr(req.query.category).toLowerCase();
   const asOf = new Date(`${dateStr}T23:59:59.999Z`);
 
   const loans = await LoanPayment.find({ employeeCode: code, status: 'paid' })
-    .select('loanId formId mode modeLabel group lines schedule')
+    .select('loanId formId mode modeLabel group lines schedule loanType')
     .lean();
 
   const dues = [];
   loans.forEach((l) => {
+    let cat = 'group';
+    const lpType = String(l.loanType || '').toLowerCase();
+    if (lpType === 'personal') cat = 'personal';
+    else if (lpType === 'msme' || lpType === 'business') cat = 'msme';
+    else if (lpType === 'product') cat = 'product';
+    else if (l.group?.name || l.group?.code) cat = 'group';
+    else cat = 'personal';
+
     const dueInst = (l.schedule || []).filter((s) => s.dueDate && new Date(s.dueDate) <= asOf);
     if (!dueInst.length) return;
     const latest = dueInst[dueInst.length - 1];
-    l.lines.forEach((line) => {
+    (l.lines || []).forEach((line) => {
       dues.push({
         loanId: l.loanId || l.formId,
         memberCode: line.code,
         memberName: line.name,
         groupName: l.group?.name || l.group?.code || 'Individual',
+        category: cat,
         installmentNo: latest.no,
         dueAmount: (latest.installmentPaise + (line.extraEmiPaise || 0)) / 100,
-        dueDate: latest.dueDate.toISOString().slice(0, 10),
+        dueDate: latest.dueDate ? latest.dueDate.toISOString().slice(0, 10) : dateStr,
         mode: l.modeLabel || l.mode || 'Weekly',
       });
     });
   });
 
-  const totalDue = dues.reduce((s, x) => s + x.dueAmount, 0);
+  const summary = {
+    all: { count: dues.length, amount: dues.reduce((s, x) => s + x.dueAmount, 0) },
+    group: { count: 0, amount: 0 },
+    personal: { count: 0, amount: 0 },
+    msme: { count: 0, amount: 0 },
+    product: { count: 0, amount: 0 },
+  };
+
+  dues.forEach((it) => {
+    if (summary[it.category]) {
+      summary[it.category].count += 1;
+      summary[it.category].amount += it.dueAmount;
+    }
+  });
+
+  const filteredDues = (!categoryFilter || categoryFilter === 'all')
+    ? dues
+    : dues.filter((it) => it.category === categoryFilter);
+
   res.json({
     date: dateStr,
-    totalDue,
-    count: dues.length,
-    items: dues,
+    totalDue: summary.all.amount,
+    count: summary.all.count,
+    summary,
+    items: filteredDues,
   });
 }
 
@@ -783,9 +875,13 @@ export async function requestGuarantorChange(req, res) {
       aadhaar: cleanStr(b.aadhaar),
       relation: cleanStr(b.relation),
       address: cleanStr(b.address),
+      pan: cleanStr(b.pan),
       photo: b.photo || '',
       signature: b.signature || '',
       aadhaarPhoto: b.aadhaarPhoto || '',
+      aadhaarBackPhoto: b.aadhaarBackPhoto || '',
+      panPhoto: b.panPhoto || '',
+      jointPhoto: b.jointPhoto || '',
     },
     reason: cleanStr(b.reason),
     requestedByCode: code,
@@ -858,45 +954,53 @@ export async function getMemberSynopsis(req, res) {
   const emiList = await EmiPayment.find({ memberCode: m.code, status: 'paid' }).sort({ paidOn: -1 }).limit(20).lean();
 
   let totalBorrowed = 0;
-  let totalOutstanding = 0;
   loans.forEach((l) => {
-    const line = l.lines.find((x) => x.code === m.code);
+    const line = l.lines?.find((x) => x.code === m.code);
     if (line) {
       totalBorrowed += (line.amountPaise || 0) / 100;
     }
   });
 
+  const memberData = {
+    id: m._id,
+    code: m.code,
+    name: m.name,
+    photo: m.photo || '',
+    husbandName: m.husbandName || '',
+    mobile: m.mobile,
+    mobileVerified: Boolean(m.mobileVerifiedAt),
+    address: [m.address, m.district, m.state, m.pincode].filter(Boolean).join(', '),
+    aadhaar: m.aadhaar,
+    pan: m.pan,
+    bankName: m.bankName,
+    accountNumber: m.accountNumber,
+    branch: m.branch ? `${m.branch.code} — ${m.branch.name}` : '',
+    branchName: m.branch?.name || m.branch?.code || '',
+    groupName: m.groupName || m.group?.name || 'Individual',
+    gender: m.gender || 'Female',
+    occupation: m.occupation || 'Self Employed',
+    createdAt: m.createdAt,
+    guarantor: m.guarantor,
+    totalBorrowed,
+    loansCount: loans.length,
+    loans: loans.map((l) => ({
+      loanId: l.loanId || l.formId,
+      kind: l.kind || l.loanType || 'Group Loan',
+      mode: l.modeLabel || l.mode || 'Weekly',
+      disbursedOn: l.paidOn ? l.paidOn.toISOString().slice(0, 10) : '',
+      amount: (l.totalAmountPaise || 0) / 100,
+    })),
+    recentEmis: emiList.map((e) => ({
+      receiptNo: e.receiptNo,
+      amount: e.amountPaise / 100,
+      paidOn: e.paidOn ? e.paidOn.toISOString().slice(0, 10) : '',
+      mode: e.payMode,
+    })),
+  };
+
   res.json({
-    member: {
-      id: m._id,
-      code: m.code,
-      name: m.name,
-      husbandName: m.husbandName || '',
-      mobile: m.mobile,
-      isMobileVerified: Boolean(m.mobileVerifiedAt),
-      address: [m.address, m.district, m.state, m.pincode].filter(Boolean).join(', '),
-      aadhaar: m.aadhaar,
-      pan: m.pan,
-      bankName: m.bankName,
-      accountNumber: m.accountNumber,
-      branch: m.branch ? `${m.branch.code} — ${m.branch.name}` : '',
-      guarantor: m.guarantor,
-      totalBorrowed,
-      loansCount: loans.length,
-      loans: loans.map((l) => ({
-        loanId: l.loanId || l.formId,
-        kind: l.kind || l.loanType,
-        mode: l.modeLabel || l.mode,
-        disbursedOn: l.paidOn ? l.paidOn.toISOString().slice(0, 10) : '',
-        amount: (l.totalAmountPaise || 0) / 100,
-      })),
-      recentEmis: emiList.map((e) => ({
-        receiptNo: e.receiptNo,
-        amount: e.amountPaise / 100,
-        paidOn: e.paidOn ? e.paidOn.toISOString().slice(0, 10) : '',
-        mode: e.payMode,
-      })),
-    },
+    member: memberData,
+    ...memberData,
   });
 }
 
@@ -1767,16 +1871,39 @@ export async function getBorrowerSavings(req, res) {
     'lines.member': member._id,
   }).lean();
 
+  const asOf = startOfToday();
   let totalDepositedPaise = 0;
+  let runningSecurityPaise = 0;
+  let closedSecurityPaise = 0;
+  let totalInterestPaise = 0;
+  let closedInterestPaise = 0;
   const deposits = [];
+
   for (const l of loans) {
     const line = l.lines?.find((x) => String(x.member) === String(member._id));
     if (line && line.securityPaise > 0) {
       totalDepositedPaise += line.securityPaise;
+      const years = fullYears(new Date(l.paidOn || l.createdAt), asOf);
+      const interest = Math.round((line.securityPaise * years * SECURITY_INTEREST_PERCENT) / 100);
+      totalInterestPaise += interest;
+
+      // Determine whether this loan is closed or running
+      const isClosed = l.status === 'closed' || l.settled || Boolean(line.isSettled);
+      if (isClosed) {
+        closedSecurityPaise += line.securityPaise;
+        closedInterestPaise += interest;
+      } else {
+        runningSecurityPaise += line.securityPaise;
+      }
+
       deposits.push({
-        loanId: l.loanId || l.receiptNo,
-        date: l.paidOn,
+        loanId: l.loanId || l.receiptNo || l.formId,
+        date: l.paidOn || l.createdAt,
         amount: line.securityPaise / 100,
+        years,
+        interest: interest / 100,
+        isClosed,
+        status: isClosed ? 'Closed (Eligible for Withdrawal)' : 'Running (Locked)',
       });
     }
   }
@@ -1786,7 +1913,9 @@ export async function getBorrowerSavings(req, res) {
   const pendingWithdrawals = withdrawals.filter((w) => w.status === 'pending');
   const withdrawnPaise = approvedWithdrawals.reduce((sum, w) => sum + (w.amountPaise || 0), 0);
   const pendingPaise = pendingWithdrawals.reduce((sum, w) => sum + (w.amountPaise || 0), 0);
-  const availablePaise = Math.max(0, totalDepositedPaise - withdrawnPaise - pendingPaise);
+
+  // ONLY closed loan security can be withdrawn! Running loan security is locked.
+  const withdrawablePaise = Math.max(0, closedSecurityPaise - withdrawnPaise - pendingPaise);
 
   res.json({
     member: {
@@ -1797,9 +1926,14 @@ export async function getBorrowerSavings(req, res) {
       branch: member.branch,
     },
     totalDeposited: totalDepositedPaise / 100,
+    runningSecurity: runningSecurityPaise / 100,
+    closedSecurity: closedSecurityPaise / 100,
+    interestEarned: totalInterestPaise / 100,
+    interestRate: SECURITY_INTEREST_PERCENT,
     totalWithdrawn: withdrawnPaise / 100,
     pendingWithdrawal: pendingPaise / 100,
-    availableBalance: availablePaise / 100,
+    availableBalance: withdrawablePaise / 100,
+    withdrawableAmount: withdrawablePaise / 100,
     deposits,
     withdrawals: withdrawals.map((w) => ({
       id: w._id,
@@ -1820,6 +1954,31 @@ export async function requestSavingsWithdrawal(req, res) {
 
   const payAmount = Number(amount);
   if (!payAmount || payAmount < 100) throw new HttpError(400, 'Minimum withdrawal request is ₹100');
+  const requestedPaise = Math.round(payAmount * 100);
+
+  // Validate that only security from closed loans is withdrawable
+  const loans = await LoanPayment.find({ status: 'paid', 'lines.member': member._id }).lean();
+  let closedSecurityPaise = 0;
+  for (const l of loans) {
+    const line = l.lines?.find((x) => String(x.member) === String(member._id));
+    if (line && line.securityPaise > 0) {
+      const isClosed = l.status === 'closed' || l.settled || Boolean(line.isSettled);
+      if (isClosed) {
+        closedSecurityPaise += line.securityPaise;
+      }
+    }
+  }
+
+  const existingWithdrawals = await SecurityWithdrawal.find({ member: member._id, status: { $in: ['pending', 'approved'] } });
+  const alreadyRequestedPaise = existingWithdrawals.reduce((sum, w) => sum + (w.amountPaise || 0), 0);
+  const withdrawablePaise = Math.max(0, closedSecurityPaise - alreadyRequestedPaise);
+
+  if (withdrawablePaise <= 0) {
+    throw new HttpError(400, 'Security for running loans cannot be withdrawn. Only security from closed loans is eligible for withdrawal.');
+  }
+  if (requestedPaise > withdrawablePaise) {
+    throw new HttpError(400, `Requested amount ₹${payAmount} exceeds withdrawable closed-loan security of ₹${withdrawablePaise / 100}. Running loan security is locked.`);
+  }
 
   const receiptNo = await generateCode('securityReceipt').catch(() => `SEC${Date.now().toString().slice(-8)}`);
   const doc = await SecurityWithdrawal.create({
@@ -1829,8 +1988,8 @@ export async function requestSavingsWithdrawal(req, res) {
     memberName: member.name,
     branch: member.branch,
     kind,
-    amountPaise: Math.round(payAmount * 100),
-    remark,
+    amountPaise: requestedPaise,
+    remark: cleanStr(remark),
     status: 'pending',
     requestedByCode: req.user?.employeeCode || '',
     createdBy: req.user._id,
@@ -1840,7 +1999,8 @@ export async function requestSavingsWithdrawal(req, res) {
     success: true,
     receiptNo: doc.receiptNo,
     amount: payAmount,
-    message: `Withdrawal request of ₹${payAmount} submitted for admin approval`,
+    message: 'Security withdrawal request submitted for approval',
+    item: doc,
   });
 }
 
@@ -1951,19 +2111,45 @@ export async function markFirstMeetingAttendance(req, res) {
 
   const today = startOfToday();
 
-  const meetingRecord = await FirstMeetingAttendance.findOneAndUpdate(
-    { employeeCode: code, date: today },
-    {
-      employeeCode: code,
-      employeeName: emp.name,
-      branch: emp.branch,
-      date: today,
-      photo,
-      location,
-      status: 'present',
-    },
-    { upsert: true, new: true }
-  );
+  // 1. Prevent duplicate attendance punch in 1 day
+  const existingMeeting = await FirstMeetingAttendance.findOne({ employeeCode: code, date: today });
+  const existingAtt = await Attendance.findOne({ employee: emp._id, date: today });
+  if (existingMeeting || (existingAtt && existingAtt.firstActivity)) {
+    throw new HttpError(400, 'Attendance for today is already marked. Only 1 attendance punch per day is permitted.');
+  }
+
+  // 2. Validate time window if set for this employee
+  if (emp.attendanceTime?.from && emp.attendanceTime?.to) {
+    const now = nowIst();
+    if (now < emp.attendanceTime.from || now > emp.attendanceTime.to) {
+      throw new HttpError(422, `Attendance can only be marked between ${emp.attendanceTime.from} and ${emp.attendanceTime.to} (current time is ${now}).`);
+    }
+  }
+
+  // 3. Validate geofence location radius if locations are configured
+  const places = locationsOf(emp);
+  if (places.length) {
+    const lat = Number(location?.lat);
+    const lng = Number(location?.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      throw new HttpError(422, 'GPS location coordinates are required for attendance verification.');
+    }
+    const measured = places.map((p) => ({ ...p, distance: Math.round(metresBetween(p.lat, p.lng, lat, lng)) })).sort((a, b) => a.distance - b.distance);
+    const nearest = measured[0];
+    if (measured.every((p) => p.distance > (p.radius || 500))) {
+      throw new HttpError(422, `You are ${nearest.distance}m away from ${nearest.name || 'attendance location'}. Attendance is allowed within ${nearest.radius || 500}m.`);
+    }
+  }
+
+  const meetingRecord = await FirstMeetingAttendance.create({
+    employeeCode: code,
+    employeeName: emp.name,
+    branch: emp.branch,
+    date: today,
+    photo,
+    location,
+    status: 'present',
+  });
 
   await Attendance.findOneAndUpdate(
     { employee: emp._id, date: today },
@@ -1975,6 +2161,7 @@ export async function markFirstMeetingAttendance(req, res) {
       lat: location?.lat,
       lng: location?.lng,
       firstActivity: new Date(),
+      lastActivity: new Date(),
       remark: 'First meeting marked with photo in app',
     },
     { upsert: true }
@@ -1992,25 +2179,63 @@ export async function markFirstMeetingAttendance(req, res) {
 // -----------------------------------------------------------------------------
 export async function getSalarySlips(req, res) {
   const code = req.user?.employeeCode;
-  const slips = await Salary.find({ employeeCode: code })
+  const emp = await Employee.findOne({ employeeCode: code });
+  const query = { $or: [{ employeeCode: code }] };
+  if (emp?._id) query.$or.push({ employee: emp._id });
+
+  const slips = await Salary.find(query)
     .sort({ month: -1 })
     .lean();
 
   res.json({
-    items: slips.map((s) => ({
-      id: s._id,
-      month: s.month,
-      name: s.name,
-      designation: s.designation,
-      branch: s.branchName,
-      basicSalary: (s.basicPaise || 0) / 100,
-      allowances: (s.allowancesPaise || 0) / 100,
-      deductions: (s.deductionsPaise || 0) / 100,
-      netSalary: (s.netSalaryPaise || 0) / 100,
-      paidDays: s.paidDays || 30,
-      status: s.status,
-      paidOn: s.paidOn,
-    })),
+    items: slips.map((s) => {
+      const basicLine = (s.lines || []).find((l) => l.key === 'basic');
+      const fuelLine = (s.lines || []).find((l) => l.key === 'fuel');
+      const leaveLine = (s.lines || []).find((l) => l.key === 'leave');
+      const pfLine = (s.lines || []).find((l) => l.key === 'pf');
+      const esiLine = (s.lines || []).find((l) => l.key === 'esi');
+      const advanceLine = (s.lines || []).find((l) => l.key === 'advance');
+      const secLine = (s.lines || []).find((l) => l.key === 'security');
+
+      const basic = (basicLine?.amountPaise || 0) / 100;
+      const fuel = (fuelLine?.amountPaise || 0) / 100;
+      const leaveDeduction = (leaveLine?.amountPaise || 0) / 100;
+      const grossSalary = (s.grossPaise || s.earnedPaise || (basic + fuel) * 100) / 100;
+      const totalEarnings = (s.totalEarningPaise || s.grossPaise || 0) / 100;
+      const totalDeductions = (s.totalDeductionPaise || 0) / 100;
+      const netSalary = (s.netPaise || (totalEarnings - totalDeductions)) / 100;
+
+      return {
+        id: s._id,
+        month: s.month,
+        name: s.name || emp?.name || code,
+        designation: s.designation || emp?.designation?.name || 'Field Officer',
+        branch: s.branchName || 'Head Office',
+        grossSalary,
+        basicSalary: basic || grossSalary,
+        fuelAllowance: fuel,
+        absentDeduction: leaveDeduction,
+        pfDeduction: (pfLine?.amountPaise || 0) / 100,
+        esiDeduction: (esiLine?.amountPaise || 0) / 100,
+        advanceDeduction: (advanceLine?.amountPaise || 0) / 100,
+        securityDeduction: (secLine?.amountPaise || s.securityCutPaise || 0) / 100,
+        allowances: Math.max(0, totalEarnings - basic),
+        deductions: totalDeductions,
+        netSalary,
+        daysInMonth: s.daysInMonth || 30,
+        presentDays: s.presentDays || 0,
+        absentDays: s.absentDays || 0,
+        payableDays: s.payableDays ?? (s.presentDays || 30),
+        status: s.status || 'generated',
+        paidOn: s.paidOn,
+        lines: (s.lines || []).map((l) => ({
+          key: l.key,
+          label: l.label,
+          side: l.side,
+          amount: (l.amountPaise || 0) / 100,
+        })),
+      };
+    }),
   });
 }
 

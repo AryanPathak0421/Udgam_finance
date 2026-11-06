@@ -3,15 +3,32 @@ import { api } from '../../../api/client.js';
 import { useEmployeeApp } from '../EmployeeAppContext.jsx';
 import Icon from '../../../components/Icon.jsx';
 
+const DUE_CATEGORIES = [
+  { id: 'all', label: 'All Dues' },
+  { id: 'group', label: 'Group Loans' },
+  { id: 'personal', label: 'Personal Loans' },
+  { id: 'msme', label: 'MSME Loans' },
+  { id: 'product', label: 'Product Loans' },
+];
+
 export default function EmployeeTodayDue() {
   const { t } = useEmployeeApp();
   const today = new Date().toISOString().split('T')[0];
   const [date, setDate] = useState(today);
+  const [selectedCategory, setSelectedCategory] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const [dues, setDues] = useState([]);
+  const [summary, setSummary] = useState({
+    all: { count: 0, amount: 0 },
+    group: { count: 0, amount: 0 },
+    personal: { count: 0, amount: 0 },
+    msme: { count: 0, amount: 0 },
+    product: { count: 0, amount: 0 },
+  });
   const [totalDue, setTotalDue] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  
+
   // Quick Collect Modal
   const [collectModal, setCollectModal] = useState(null);
   const [collectAmount, setCollectAmount] = useState('');
@@ -19,13 +36,19 @@ export default function EmployeeTodayDue() {
   const [submitting, setSubmitting] = useState(false);
   const [actionMessage, setActionMessage] = useState({ text: '', type: '' });
 
-  const fetchDues = async (selectedDate) => {
+  const fetchDues = async () => {
     setLoading(true);
     setError('');
     try {
-      const data = await api.employeeApp.todayDueList(selectedDate);
+      const data = await api.employeeApp.todayDueList({
+        date,
+        category: selectedCategory,
+      });
       setDues(data.items || []);
       setTotalDue(data.totalDue || 0);
+      if (data.summary) {
+        setSummary(data.summary);
+      }
     } catch (err) {
       setError(err.message || 'Failed to fetch due collection list');
     } finally {
@@ -34,8 +57,19 @@ export default function EmployeeTodayDue() {
   };
 
   useEffect(() => {
-    fetchDues(date);
-  }, [date]);
+    fetchDues();
+  }, [date, selectedCategory]);
+
+  const filteredItems = dues.filter((item) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      (item.memberName || '').toLowerCase().includes(q) ||
+      (item.memberCode || '').toLowerCase().includes(q) ||
+      (item.loanId || '').toLowerCase().includes(q) ||
+      (item.groupName || '').toLowerCase().includes(q)
+    );
+  });
 
   const handleOpenCollect = (item) => {
     setCollectModal(item);
@@ -52,11 +86,17 @@ export default function EmployeeTodayDue() {
     }
     setSubmitting(true);
     try {
-      // Record payment via software EMI collection API or employee collection
-      if (api.emiCollection && api.emiCollection.create) {
+      if (api.employeeApp.advancePayment) {
+        await api.employeeApp.advancePayment({
+          loanId: collectModal.loanId,
+          memberCode: collectModal.memberCode,
+          amount: Number(collectAmount),
+          payMode: paymentMode,
+        });
+      } else if (api.emiCollection?.create) {
         await api.emiCollection.create({
           loanId: collectModal.loanId,
-          memberId: collectModal.memberId,
+          memberCode: collectModal.memberCode,
           amount: Number(collectAmount),
           paymentMode,
           collectionDate: date,
@@ -65,8 +105,8 @@ export default function EmployeeTodayDue() {
       setActionMessage({ text: 'Payment collected successfully! Receipt generated.', type: 'success' });
       setTimeout(() => {
         setCollectModal(null);
-        fetchDues(date);
-      }, 1200);
+        fetchDues();
+      }, 1000);
     } catch (err) {
       setActionMessage({ text: err.message || 'Collection failed', type: 'error' });
     } finally {
@@ -82,10 +122,10 @@ export default function EmployeeTodayDue() {
           <h2 style={{ fontSize: '1.15rem', fontWeight: 700, margin: 0, color: 'var(--emp-text)' }}>
             ⏰ {t('todayDue')}
           </h2>
-          <span className="emp-badge emp-badge-warning">{dues.length} Due</span>
+          <span className="emp-badge emp-badge-warning">{filteredItems.length} Due</span>
         </div>
 
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
           <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)' }}>Date:</label>
           <input
             type="date"
@@ -95,22 +135,78 @@ export default function EmployeeTodayDue() {
             style={{ flex: 1 }}
           />
         </div>
+
+        {/* Search Bar */}
+        <div style={{ position: 'relative' }}>
+          <input
+            type="text"
+            className="emp-input"
+            placeholder="Search by Member, Code, Loan ID, or Group..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{ paddingLeft: 34 }}
+          />
+          <div style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--emp-text-muted)' }}>
+            <Icon name="search" size={16} />
+          </div>
+        </div>
+
+        {/* Category Tabs */}
+        <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4, marginTop: 12 }}>
+          {DUE_CATEGORIES.map((cat) => {
+            const count = summary[cat.id]?.count ?? 0;
+            const isSelected = selectedCategory === cat.id;
+            return (
+              <button
+                key={cat.id}
+                onClick={() => setSelectedCategory(cat.id)}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: 20,
+                  fontSize: '0.78rem',
+                  fontWeight: 600,
+                  border: isSelected ? '1px solid #d97706' : '1px solid var(--emp-border)',
+                  background: isSelected ? '#d97706' : '#f8fafc',
+                  color: isSelected ? '#fff' : 'var(--emp-text)',
+                  whiteSpace: 'nowrap',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+              >
+                <span>{cat.label}</span>
+                <span
+                  style={{
+                    background: isSelected ? 'rgba(255,255,255,0.25)' : '#e2e8f0',
+                    color: isSelected ? '#fff' : '#475569',
+                    padding: '1px 6px',
+                    borderRadius: 10,
+                    fontSize: '0.7rem',
+                  }}
+                >
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Due Summary */}
       <div className="emp-card" style={{ background: 'linear-gradient(135deg, #d97706, #f59e0b)', color: '#fff' }}>
         <div style={{ fontSize: '0.8rem', opacity: 0.9, textTransform: 'uppercase' }}>
-          Total Expected Due ({date})
+          {selectedCategory === 'all' ? 'Total Demand Due' : `${DUE_CATEGORIES.find((c) => c.id === selectedCategory)?.label} Demand`} ({date})
         </div>
         <div style={{ fontSize: '1.8rem', fontWeight: 800, marginTop: 4 }}>
-          ₹{Number(totalDue).toLocaleString('en-IN')}
+          ₹{(summary[selectedCategory]?.amount ?? totalDue).toLocaleString('en-IN')}
         </div>
         <div style={{ fontSize: '0.8rem', opacity: 0.85, marginTop: 4 }}>
-          Pending from {dues.length} installments
+          {summary[selectedCategory]?.count ?? filteredItems.length} installments due
         </div>
       </div>
 
-      {/* Dues List */}
+      {/* List */}
       {loading ? (
         <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--emp-text-muted)' }}>
           Loading due installments...
@@ -119,45 +215,62 @@ export default function EmployeeTodayDue() {
         <div style={{ background: '#fee2e2', color: '#991b1b', padding: '12px', borderRadius: 8, fontSize: '0.85rem' }}>
           {error}
         </div>
-      ) : dues.length === 0 ? (
+      ) : filteredItems.length === 0 ? (
         <div className="emp-card" style={{ textAlign: 'center', padding: '30px 16px', color: 'var(--emp-text-muted)' }}>
-          <div style={{ color: 'var(--emp-success)', marginBottom: 8 }}><Icon name="checkcircle" size={40} /></div>
-          <div style={{ fontWeight: 600 }}>All dues are clear for this date!</div>
-          <div style={{ fontSize: '0.8rem', marginTop: 4 }}>No pending installments remaining.</div>
+          <div style={{ fontSize: '2rem', marginBottom: 8 }}>🎉</div>
+          <div style={{ fontWeight: 600 }}>No dues pending for this category/date</div>
+          <div style={{ fontSize: '0.8rem', marginTop: 4 }}>All scheduled installments are collected.</div>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {dues.map((d) => (
-            <div key={d.id || d._id} className="emp-card" style={{ margin: 0 }}>
+          {filteredItems.map((d, idx) => (
+            <div key={d.loanId + '-' + d.memberCode + '-' + idx} className="emp-card" style={{ margin: 0 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--emp-text)' }}>
-                    {d.memberName}
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--emp-text)' }}>
+                      {d.memberName}
+                    </div>
+                    {d.category && (
+                      <span
+                        style={{
+                          fontSize: '0.68rem',
+                          padding: '2px 8px',
+                          borderRadius: 12,
+                          fontWeight: 700,
+                          textTransform: 'uppercase',
+                          background: d.category === 'group' ? '#e0f2fe' : d.category === 'personal' ? '#fef3c7' : d.category === 'msme' ? '#dcfce7' : '#f3e8ff',
+                          color: d.category === 'group' ? '#0369a1' : d.category === 'personal' ? '#b45309' : d.category === 'msme' ? '#15803d' : '#7e22ce',
+                        }}
+                      >
+                        {d.category}
+                      </span>
+                    )}
                   </div>
                   <div style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
-                    Code: <strong>{d.memberCode}</strong> | Group: <strong>{d.groupName || 'General'}</strong>
+                    Code: <strong>{d.memberCode}</strong> | Group: <strong>{d.groupName}</strong>
                   </div>
-                  {d.phone && (
-                    <div style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
-                      <Icon name="phone" size={13} />
-                      <a href={`tel:${d.phone}`} style={{ color: 'var(--emp-primary)', textDecoration: 'none', fontWeight: 600 }}>{d.phone}</a>
-                    </div>
-                  )}
-                  <div style={{ fontSize: '0.75rem', color: '#dc2626', marginTop: 3, fontWeight: 600 }}>
-                    Installment #{d.installmentNo || 1} • Due: {d.dueDate}
+                  <div style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
+                    Inst #{d.installmentNo} • Due: {d.dueDate} • Mode: {d.mode}
                   </div>
                 </div>
+
                 <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#dc2626' }}>
-                    ₹{Number(d.dueAmount || d.installmentAmount || 0).toLocaleString('en-IN')}
+                  <div style={{ fontWeight: 800, fontSize: '1.05rem', color: '#d97706' }}>
+                    ₹{Number(d.dueAmount).toLocaleString('en-IN')}
                   </div>
                   <button
-                    type="button"
                     className="emp-btn-primary"
-                    style={{ marginTop: 8, padding: '6px 14px', fontSize: '0.8rem' }}
+                    style={{
+                      marginTop: 6,
+                      padding: '4px 12px',
+                      fontSize: '0.75rem',
+                      background: '#059669',
+                      border: 'none',
+                    }}
                     onClick={() => handleOpenCollect(d)}
                   >
-                    Collect EMI
+                    Collect
                   </button>
                 </div>
               </div>
@@ -168,32 +281,54 @@ export default function EmployeeTodayDue() {
 
       {/* Collect Modal */}
       {collectModal && (
-        <div className="emp-modal-overlay" onClick={() => setCollectModal(null)}>
-          <div className="emp-modal-sheet" onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: '0 0 12px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Icon name="cash" size={18} style={{ color: 'var(--emp-primary)' }} />
-              <span>Collect EMI: {collectModal.memberName}</span>
-            </h3>
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: 16,
+          }}
+        >
+          <div className="emp-card" style={{ maxWidth: 400, width: '100%', margin: 0, padding: 20 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700 }}>Collect EMI</h3>
+              <button
+                onClick={() => setCollectModal(null)}
+                style={{ background: 'transparent', border: 'none', fontSize: '1.2rem', cursor: 'pointer' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: 8, marginBottom: 14, fontSize: '0.82rem' }}>
+              <div><strong>Borrower:</strong> {collectModal.memberName} ({collectModal.memberCode})</div>
+              <div><strong>Loan ID:</strong> {collectModal.loanId}</div>
+              <div><strong>Standard Due:</strong> ₹{collectModal.dueAmount}</div>
+            </div>
 
             {actionMessage.text && (
               <div
                 style={{
-                  padding: '10px 14px',
-                  borderRadius: 8,
-                  fontSize: '0.85rem',
+                  padding: '8px 12px',
+                  borderRadius: 6,
+                  fontSize: '0.82rem',
                   marginBottom: 12,
                   background: actionMessage.type === 'success' ? '#dcfce7' : '#fee2e2',
-                  color: actionMessage.type === 'success' ? '#166534' : '#991b1b',
+                  color: actionMessage.type === 'success' ? '#15803d' : '#991b1b',
                 }}
               >
                 {actionMessage.text}
               </div>
             )}
 
-            <form onSubmit={handleCollectSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div>
-                <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
-                  Collection Amount (₹)
+            <form onSubmit={handleCollectSubmit}>
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                  Amount to Collect (₹):
                 </label>
                 <input
                   type="number"
@@ -201,26 +336,32 @@ export default function EmployeeTodayDue() {
                   value={collectAmount}
                   onChange={(e) => setCollectAmount(e.target.value)}
                   required
+                  min="1"
                 />
               </div>
 
-              <div>
-                <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
-                  Payment Mode
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                  Payment Mode:
                 </label>
-                <select className="emp-input" value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)}>
+                <select
+                  className="emp-input"
+                  value={paymentMode}
+                  onChange={(e) => setPaymentMode(e.target.value)}
+                >
                   <option value="cash">Cash</option>
-                  <option value="upi">UPI / QR Code</option>
-                  <option value="bank_transfer">Bank Transfer / NEFT</option>
+                  <option value="upi">UPI / Online</option>
+                  <option value="bank">Bank Transfer</option>
                 </select>
               </div>
 
-              <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
+              <div style={{ display: 'flex', gap: 10 }}>
                 <button
                   type="button"
                   className="emp-btn-secondary"
-                  style={{ flex: 1 }}
                   onClick={() => setCollectModal(null)}
+                  style={{ flex: 1 }}
+                  disabled={submitting}
                 >
                   Cancel
                 </button>
@@ -230,7 +371,7 @@ export default function EmployeeTodayDue() {
                   style={{ flex: 1 }}
                   disabled={submitting}
                 >
-                  {submitting ? 'Collecting...' : 'Confirm Collect'}
+                  {submitting ? 'Collecting...' : 'Confirm Payment'}
                 </button>
               </div>
             </form>
@@ -240,4 +381,3 @@ export default function EmployeeTodayDue() {
     </div>
   );
 }
-

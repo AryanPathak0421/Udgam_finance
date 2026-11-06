@@ -42,8 +42,12 @@ export default function EmployeeBorrowerSavings() {
       setError('Minimum withdrawal request is ₹100');
       return;
     }
+    if (data.availableBalance <= 0) {
+      setError('Security of running loans is locked. Only security from closed loans is withdrawable.');
+      return;
+    }
     if (amount > data.availableBalance) {
-      setError(`Cannot request more than available balance (₹${data.availableBalance})`);
+      setError(`Cannot request more than withdrawable closed-loan balance (₹${data.availableBalance})`);
       return;
     }
 
@@ -79,7 +83,7 @@ export default function EmployeeBorrowerSavings() {
           <span>Borrower Savings &amp; Security Deposits</span>
         </h2>
         <p style={{ fontSize: '0.82rem', color: 'var(--emp-text-muted)', margin: '0 0 14px 0' }}>
-          Search member ID to view deposit &amp; withdrawal history, and submit a withdrawal request.
+          Search member code to view deposits, 10% annual interest earned, running security lock status, and submit withdrawal requests for closed loans.
         </p>
 
         <form onSubmit={handleSearch} style={{ display: 'flex', gap: 10 }}>
@@ -123,28 +127,39 @@ export default function EmployeeBorrowerSavings() {
                 </div>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <span className="emp-badge emp-badge-success">Savings Active</span>
+                <span className="emp-badge emp-badge-success">Savings Account</span>
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--emp-border)', fontSize: '0.8rem' }}>
-              <div>
-                <span style={{ color: 'var(--emp-text-muted)' }}>Total Deposit</span>
-                <div style={{ fontWeight: 800, fontSize: '1rem', color: '#059669' }}>
-                  ₹{Number(data.totalDeposited).toLocaleString('en-IN')}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--emp-border)', fontSize: '0.8rem' }}>
+              <div style={{ background: '#f8fafc', padding: 10, borderRadius: 8 }}>
+                <span style={{ color: 'var(--emp-text-muted)', fontSize: '0.75rem' }}>Total Security Deposited</span>
+                <div style={{ fontWeight: 800, fontSize: '1.1rem', color: '#059669', marginTop: 2 }}>
+                  ₹{Number(data.totalDeposited || 0).toLocaleString('en-IN')}
                 </div>
               </div>
-              <div>
-                <span style={{ color: 'var(--emp-text-muted)' }}>Withdrawn</span>
-                <div style={{ fontWeight: 800, fontSize: '1rem', color: '#dc2626' }}>
-                  ₹{Number(data.totalWithdrawn).toLocaleString('en-IN')}
+              <div style={{ background: '#eff6ff', padding: 10, borderRadius: 8 }}>
+                <span style={{ color: '#1d4ed8', fontSize: '0.75rem', fontWeight: 600 }}>Interest Earned (10% p.a.)</span>
+                <div style={{ fontWeight: 800, fontSize: '1.1rem', color: '#1d4ed8', marginTop: 2 }}>
+                  +₹{Number(data.interestEarned || 0).toLocaleString('en-IN')}
                 </div>
               </div>
-              <div>
-                <span style={{ color: 'var(--emp-text-muted)' }}>Available Balance</span>
-                <div style={{ fontWeight: 800, fontSize: '1.05rem', color: 'var(--emp-primary)' }}>
-                  ₹{Number(data.availableBalance).toLocaleString('en-IN')}
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 10, fontSize: '0.8rem' }}>
+              <div style={{ background: '#fef2f2', padding: 10, borderRadius: 8, border: '1px dashed #fca5a5' }}>
+                <span style={{ color: '#b91c1c', fontSize: '0.75rem', fontWeight: 600 }}>Running Loan Security (Locked)</span>
+                <div style={{ fontWeight: 800, fontSize: '1.05rem', color: '#b91c1c', marginTop: 2 }}>
+                  ₹{Number(data.runningSecurity || 0).toLocaleString('en-IN')}
                 </div>
+                <div style={{ fontSize: '0.68rem', color: '#7f1d1d', marginTop: 2 }}>Non-withdrawable until loan closure</div>
+              </div>
+              <div style={{ background: '#f0fdf4', padding: 10, borderRadius: 8, border: '1px solid #86efac' }}>
+                <span style={{ color: '#15803d', fontSize: '0.75rem', fontWeight: 600 }}>Closed Loan Security (Withdrawable)</span>
+                <div style={{ fontWeight: 800, fontSize: '1.1rem', color: '#15803d', marginTop: 2 }}>
+                  ₹{Number(data.availableBalance || 0).toLocaleString('en-IN')}
+                </div>
+                <div style={{ fontSize: '0.68rem', color: '#166534', marginTop: 2 }}>Eligible for cash withdrawal</div>
               </div>
             </div>
           </div>
@@ -152,106 +167,94 @@ export default function EmployeeBorrowerSavings() {
           {/* Request Withdrawal Form */}
           <div className="emp-card">
             <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: '0 0 12px 0', color: 'var(--emp-text)' }}>
-              Submit Savings Withdrawal Request
+              Submit Security Withdrawal Request
             </h3>
 
-            <form onSubmit={handleRequestWithdrawal} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            {data.availableBalance <= 0 ? (
+              <div style={{ background: '#fef3c7', color: '#92400e', padding: '12px', borderRadius: 8, fontSize: '0.82rem' }}>
+                ⚠️ <strong>No withdrawable balance available.</strong> Security deposit from active running loans cannot be withdrawn until the loan account is fully closed.
+              </div>
+            ) : (
+              <form onSubmit={handleRequestWithdrawal} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div>
+                    <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                      Withdrawal Amount (₹) *
+                    </label>
+                    <input
+                      type="number"
+                      className="emp-input"
+                      placeholder={`Max ₹${data.availableBalance}`}
+                      value={withdrawAmount}
+                      onChange={(e) => setWithdrawAmount(e.target.value)}
+                      max={data.availableBalance}
+                      min="100"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                      Type
+                    </label>
+                    <select className="emp-input" value={kind} onChange={(e) => setKind(e.target.value)}>
+                      <option value="withdraw">Cash Return (Withdraw)</option>
+                      <option value="adjust">Adjust against Loan EMI</option>
+                    </select>
+                  </div>
+                </div>
+
                 <div>
                   <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
-                    Withdrawal Amount (₹) *
+                    Reason / Remark
                   </label>
                   <input
-                    type="number"
+                    type="text"
                     className="emp-input"
-                    placeholder="Min ₹100"
-                    value={withdrawAmount}
-                    onChange={(e) => setWithdrawAmount(e.target.value)}
-                    max={data.availableBalance}
-                    required
+                    placeholder="e.g. Loan closed, settlement refund"
+                    value={remark}
+                    onChange={(e) => setRemark(e.target.value)}
                   />
                 </div>
-                <div>
-                  <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
-                    Type
-                  </label>
-                  <select className="emp-input" value={kind} onChange={(e) => setKind(e.target.value)}>
-                    <option value="withdraw">Cash Return (Withdraw)</option>
-                    <option value="adjust">Adjust against Loan EMI</option>
-                  </select>
-                </div>
-              </div>
 
-              <div>
-                <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
-                  Reason / Remark
-                </label>
-                <input
-                  type="text"
-                  className="emp-input"
-                  placeholder="e.g. Loan closed, emergency withdrawal"
-                  value={remark}
-                  onChange={(e) => setRemark(e.target.value)}
-                />
-              </div>
-
-              <button
-                type="submit"
-                className="emp-btn-primary"
-                style={{ padding: '12px', fontSize: '0.95rem', fontWeight: 700, marginTop: 4 }}
-                disabled={submitting || !withdrawAmount || data.availableBalance <= 0}
-              >
-                {submitting ? 'Submitting Request...' : `Submit Withdrawal Request (₹${withdrawAmount || 0})`}
-              </button>
-            </form>
+                <button
+                  type="submit"
+                  className="emp-btn-primary"
+                  style={{ width: '100%', padding: '12px 0', fontSize: '0.95rem' }}
+                  disabled={submitting}
+                >
+                  {submitting ? 'Submitting Request...' : 'Submit Withdrawal Request'}
+                </button>
+              </form>
+            )}
           </div>
 
-          {/* History Lists */}
-          <div className="emp-card">
-            <h4 style={{ fontSize: '0.95rem', fontWeight: 700, margin: '0 0 10px 0', color: 'var(--emp-text)' }}>
-              Deposit &amp; Withdrawal History
-            </h4>
-
-            {data.withdrawals?.length > 0 && (
-              <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--emp-text-muted)', marginBottom: 6 }}>
-                  Withdrawal Requests ({data.withdrawals.length}):
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {data.withdrawals.map((w) => (
-                    <div key={w.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px', border: '1px solid var(--emp-border)', borderRadius: 6, fontSize: '0.8rem' }}>
-                      <div>
-                        <strong>{w.receiptNo}</strong> • {w.kind} • {w.remark || 'No remark'}
-                      </div>
-                      <div style={{ textAlign: 'right' }}>
-                        <span style={{ fontWeight: 700, color: '#dc2626' }}>-₹{w.amount}</span>{' '}
-                        <span className={`emp-badge ${w.status === 'approved' ? 'emp-badge-success' : w.status === 'rejected' ? 'emp-badge-danger' : 'emp-badge-warning'}`}>
-                          {w.status}
-                        </span>
-                      </div>
+          {/* Deposit Breakdown */}
+          {data.deposits && data.deposits.length > 0 && (
+            <div className="emp-card">
+              <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: '0 0 10px 0', color: 'var(--emp-text)' }}>
+                Security Deposits per Loan ({data.deposits.length})
+              </h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {data.deposits.map((d, idx) => (
+                  <div key={idx} style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: 8, fontSize: '0.82rem', border: '1px solid var(--emp-border)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontWeight: 700 }}>Loan {d.loanId}</span>
+                      <span className={`emp-badge ${d.isClosed ? 'emp-badge-success' : 'emp-badge-warning'}`}>
+                        {d.status}
+                      </span>
                     </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div>
-              <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--emp-text-muted)', marginBottom: 6 }}>
-                Security Deposits from Loans ({data.deposits?.length || 0}):
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {data.deposits?.map((d, i) => (
-                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px', border: '1px solid var(--emp-border)', borderRadius: 6, fontSize: '0.8rem' }}>
-                    <div>Loan: <strong>{d.loanId}</strong> • {d.date ? new Date(d.date).toLocaleDateString() : 'N/A'}</div>
-                    <div style={{ fontWeight: 700, color: '#059669' }}>+₹{d.amount}</div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, color: 'var(--emp-text-muted)' }}>
+                      <span>Security: <strong>₹{d.amount}</strong></span>
+                      <span>Years: <strong>{d.years} yrs</strong></span>
+                      <span>Interest: <strong style={{ color: '#1d4ed8' }}>+₹{d.interest}</strong></span>
+                    </div>
                   </div>
                 ))}
               </div>
             </div>
-          </div>
+          )}
         </>
       )}
     </div>
   );
 }
-

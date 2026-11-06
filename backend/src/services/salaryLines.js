@@ -139,7 +139,13 @@ export function buildLines(emp, ratio, variable, priorSecurity, kept = new Map()
     commission: generalCommission, loanIncentive: variable?.loanIncentive || 0, productIncentive: variable?.productIncentive || 0, grt: variable?.grt || 0, senior: variable?.senior || 0, npaRecovery: variable?.npaRecovery || 0, bonus: 0,
     pf: emp.pfDeduction ? Math.round((basicEarned * (emp.pfPercent ?? 12)) / 100) : 0,
     esi: emp.esiDeduction ? Math.round((basicEarned * (emp.esiPercent ?? 0.75)) / 100) : 0,
-    profTax: emp.professionalTaxPaise || 0, advance: emp.advanceDeductionPaise || 0, leave: Math.round(gross * (1 - r)), recovery: 0, security: secCut, other: 0,
+    profTax: emp.professionalTaxPaise || 0,
+    advance: emp.advanceDeductionPaise || 0,
+    // Absent deduction is calculated specifically from Basic + Fuel
+    leave: Math.round(((fixed.basic || 0) + (fixed.fuel || 0)) * (1 - r)),
+    recovery: 0,
+    security: secCut,
+    other: 0,
   };
   return ALL_LINES.map(([key, label, side]) => {
     const manual = kept.has(key);

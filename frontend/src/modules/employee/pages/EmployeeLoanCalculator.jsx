@@ -51,19 +51,53 @@ function computeLocalLoan(amt, annualRate, termNum, repayMode, type) {
 
 export default function EmployeeLoanCalculator() {
   const { t } = useEmployeeApp();
+  const [schemes, setSchemes] = useState([]);
+  const [selectedSchemeId, setSelectedSchemeId] = useState('');
   const [amount, setAmount] = useState(25000);
   const [rate, setRate] = useState(18);
   const [term, setTerm] = useState(12);
   const [mode, setMode] = useState('monthly');
   const [calculationType, setCalculationType] = useState('flat');
   const [result, setResult] = useState(() => computeLocalLoan(25000, 18, 12, 'monthly', 'flat'));
-  const [loading, setLoading] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
   const [error, setError] = useState('');
 
+  // Fetch active loan schemes
+  useEffect(() => {
+    if (api.loanSchemes?.options) {
+      api.loanSchemes
+        .options()
+        .then((res) => {
+          const list = res.items || [];
+          setSchemes(list);
+          if (list.length > 0) {
+            handleSchemeSelect(list[0]);
+          }
+        })
+        .catch(() => {});
+    }
+  }, []);
+
+  const handleSchemeSelect = (scheme) => {
+    if (!scheme) return;
+    setSelectedSchemeId(scheme.id || scheme._id);
+    if (scheme.interestRate !== undefined) setRate(Number(scheme.interestRate));
+    if (scheme.term) setTerm(Number(scheme.term));
+    if (scheme.repaymentMode) setMode(scheme.repaymentMode.toLowerCase());
+    if (scheme.interestType) setCalculationType(scheme.interestType.toLowerCase());
+    if (scheme.minAmount && amount < scheme.minAmount) setAmount(scheme.minAmount);
+    else if (scheme.maxAmount && amount > scheme.maxAmount) setAmount(scheme.maxAmount);
+  };
+
+  const onSchemeChange = (e) => {
+    const sId = e.target.value;
+    setSelectedSchemeId(sId);
+    const found = schemes.find((s) => (s.id || s._id) === sId);
+    if (found) handleSchemeSelect(found);
+  };
+
   const calculate = async () => {
     setError('');
-    // Instantaneous local calculation for instant responsiveness
     const localRes = computeLocalLoan(amount, rate, term, mode, calculationType);
     setResult(localRes);
 
@@ -75,7 +109,7 @@ export default function EmployeeLoanCalculator() {
           annualRate: Number(rate),
           term: Number(term),
           mode,
-          calculationType
+          calculationType,
         });
         if (res && res.totalPayable) {
           setResult({ ...localRes, ...res });
@@ -88,7 +122,7 @@ export default function EmployeeLoanCalculator() {
 
   useEffect(() => {
     calculate();
-  }, [amount, rate, term, mode, calculationType]);
+  }, [amount, rate, term, mode, calculationType, selectedSchemeId]);
 
   return (
     <div className="emp-page-container">
@@ -106,6 +140,26 @@ export default function EmployeeLoanCalculator() {
 
         {/* Inputs */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {/* Scheme Selector */}
+          <div>
+            <label style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--emp-text)', display: 'block', marginBottom: 6 }}>
+              Select Loan Scheme *
+            </label>
+            <select
+              className="emp-input"
+              value={selectedSchemeId}
+              onChange={onSchemeChange}
+              style={{ fontWeight: 600, background: '#f8fafc' }}
+            >
+              <option value="">-- Choose Loan Scheme --</option>
+              {schemes.map((s) => (
+                <option key={s.id || s._id} value={s.id || s._id}>
+                  {s.name} ({s.code || s.repaymentMode} • {s.interestRate}% {s.interestType})
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
               <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)' }}>Loan Amount (₹)</label>
@@ -130,24 +184,22 @@ export default function EmployeeLoanCalculator() {
             />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div>
-              <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
-                Rate of Interest (% p.a.)
+              <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                ROI (% p.a.)
               </label>
               <input
                 type="number"
                 className="emp-input"
                 value={rate}
                 onChange={(e) => setRate(e.target.value)}
-                min="0"
-                max="50"
                 step="0.5"
               />
             </div>
             <div>
-              <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
-                Term ({mode === 'daily' ? 'Days' : mode === 'weekly' ? 'Weeks' : 'Months'})
+              <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                Tenure / Term
               </label>
               <input
                 type="number"
@@ -155,123 +207,122 @@ export default function EmployeeLoanCalculator() {
                 value={term}
                 onChange={(e) => setTerm(e.target.value)}
                 min="1"
-                max="120"
               />
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div>
-              <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
-                Repayment Mode
+              <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                Frequency / Mode
               </label>
-              <select className="emp-input" value={mode} onChange={(e) => setMode(e.target.value)}>
-                <option value="daily">Daily</option>
+              <select
+                className="emp-input"
+                value={mode}
+                onChange={(e) => setMode(e.target.value)}
+              >
                 <option value="weekly">Weekly</option>
                 <option value="monthly">Monthly</option>
+                <option value="daily">Daily</option>
               </select>
             </div>
             <div>
-              <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
-                Interest Method
+              <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                Calculation Method
               </label>
-              <select className="emp-input" value={calculationType} onChange={(e) => setCalculationType(e.target.value)}>
-                <option value="flat">Flat Rate</option>
-                <option value="reducing">Reducing Balance</option>
+              <select
+                className="emp-input"
+                value={calculationType}
+                onChange={(e) => setCalculationType(e.target.value)}
+              >
+                <option value="flat">Flat Interest</option>
+                <option value="reducing">Reducing Balance (EMI)</option>
               </select>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Result Cards */}
+      {/* Calculated Result Card */}
       {result && (
-        <>
-          <div className="emp-card" style={{ background: 'linear-gradient(135deg, #107870, #0b5d57)', color: '#fff', borderRadius: 14 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <div style={{ fontSize: '0.8rem', opacity: 0.9, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  Installment / EMI
-                </div>
-                <div style={{ fontSize: '1.8rem', fontWeight: 800, marginTop: 4 }}>
-                  ₹{Number(result.emi).toLocaleString('en-IN')}
-                  <span style={{ fontSize: '0.85rem', fontWeight: 500, opacity: 0.85 }}> / {mode}</span>
-                </div>
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: '0.8rem', opacity: 0.9 }}>Total Repayable</div>
-                <div style={{ fontSize: '1.2rem', fontWeight: 700 }}>
-                  ₹{Number(result.totalPayable).toLocaleString('en-IN')}
-                </div>
-              </div>
-            </div>
+        <div className="emp-card" style={{ background: 'linear-gradient(135deg, #059669, #047857)', color: '#fff' }}>
+          <div style={{ fontSize: '0.82rem', opacity: 0.9, textTransform: 'uppercase' }}>
+            Calculated EMI / Installment ({mode})
+          </div>
+          <div style={{ fontSize: '2.2rem', fontWeight: 900, marginTop: 4 }}>
+            ₹{Number(result.emi || result.installment || 0).toLocaleString('en-IN')}
+          </div>
+          <div style={{ fontSize: '0.85rem', opacity: 0.9, marginTop: 4 }}>
+            For {term} {mode} installments
+          </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginTop: 16, paddingTop: 14, borderTop: '1px solid rgba(255,255,255,0.2)' }}>
-              <div>
-                <div style={{ fontSize: '0.72rem', opacity: 0.85 }}>Principal</div>
-                <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>₹{Number(result.principal).toLocaleString('en-IN')}</div>
-              </div>
-              <div>
-                <div style={{ fontSize: '0.72rem', opacity: 0.85 }}>Total Interest</div>
-                <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>₹{Number(result.totalInterest).toLocaleString('en-IN')}</div>
-              </div>
-              <div>
-                <div style={{ fontSize: '0.72rem', opacity: 0.85 }}>Net Disbursed</div>
-                <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>₹{Number(result.netDisbursed || result.principal).toLocaleString('en-IN')}</div>
-              </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 16, paddingTop: 14, borderTop: '1px solid rgba(255,255,255,0.2)' }}>
+            <div>
+              <div style={{ fontSize: '0.72rem', opacity: 0.85 }}>Total Interest</div>
+              <div style={{ fontSize: '1rem', fontWeight: 700 }}>₹{Number(result.totalInterest || 0).toLocaleString('en-IN')}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: '0.72rem', opacity: 0.85 }}>Total Payable</div>
+              <div style={{ fontSize: '1rem', fontWeight: 700 }}>₹{Number(result.totalPayable || 0).toLocaleString('en-IN')}</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Deductions & Net Disbursal */}
+      {result && (
+        <div className="emp-card">
+          <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: '0 0 12px 0', color: 'var(--emp-text)' }}>
+            Disbursement & Deduction Breakdown
+          </h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: '0.85rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: 'var(--emp-text-muted)' }}>Sanctioned Principal:</span>
+              <span style={{ fontWeight: 600 }}>₹{Number(amount).toLocaleString('en-IN')}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#dc2626' }}>
+              <span>- Processing Fee (2%):</span>
+              <span style={{ fontWeight: 600 }}>-₹{Number(result.processingFee || 0).toLocaleString('en-IN')}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#dc2626' }}>
+              <span>- Insurance / Verification (1.5%):</span>
+              <span style={{ fontWeight: 600 }}>-₹{Number(result.insurance || 0).toLocaleString('en-IN')}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#dc2626' }}>
+              <span>- Security Deposit (5%):</span>
+              <span style={{ fontWeight: 600 }}>-₹{Number(result.security || 0).toLocaleString('en-IN')}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--emp-border)', paddingTop: 8, marginTop: 4, fontWeight: 800, fontSize: '0.98rem', color: '#059669' }}>
+              <span>Net In-Hand Disbursed:</span>
+              <span>₹{Number(result.netDisbursed || 0).toLocaleString('en-IN')}</span>
             </div>
           </div>
 
-          {/* Schedule view toggle */}
-          {result.schedule && result.schedule.length > 0 && (
-            <div className="emp-card">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h3 style={{ fontSize: '0.95rem', fontWeight: 700, margin: 0, color: 'var(--emp-text)' }}>
-                  Repayment Schedule ({result.schedule.length} Installments)
-                </h3>
-                <button
-                  type="button"
-                  className="emp-btn-secondary"
-                  style={{ padding: '6px 12px', fontSize: '0.8rem' }}
-                  onClick={() => setShowSchedule(!showSchedule)}
-                >
-                  {showSchedule ? 'Hide Schedule' : 'Show Schedule'}
-                </button>
-              </div>
+          <div style={{ marginTop: 14 }}>
+            <button
+              className="emp-btn-secondary"
+              style={{ width: '100%', fontSize: '0.82rem' }}
+              onClick={() => setShowSchedule(!showSchedule)}
+            >
+              {showSchedule ? 'Hide Sample Schedule' : 'View Sample Repayment Schedule'}
+            </button>
+          </div>
 
-              {showSchedule && (
-                <div style={{ overflowX: 'auto', marginTop: 12 }}>
-                  <table style={{ width: '100%', fontSize: '0.8rem', borderCollapse: 'collapse', textAlign: 'left' }}>
-                    <thead>
-                      <tr style={{ background: 'var(--emp-card-bg)', borderBottom: '1px solid var(--emp-border)', color: 'var(--emp-text-muted)' }}>
-                        <th style={{ padding: '8px 6px' }}>#</th>
-                        <th style={{ padding: '8px 6px' }}>Due Date</th>
-                        <th style={{ padding: '8px 6px' }}>EMI</th>
-                        <th style={{ padding: '8px 6px' }}>Prin.</th>
-                        <th style={{ padding: '8px 6px' }}>Int.</th>
-                        <th style={{ padding: '8px 6px' }}>Balance</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {result.schedule.map((row) => (
-                        <tr key={row.installmentNo} style={{ borderBottom: '1px solid var(--emp-border)' }}>
-                          <td style={{ padding: '8px 6px', fontWeight: 600 }}>{row.installmentNo}</td>
-                          <td style={{ padding: '8px 6px' }}>{row.dueDate}</td>
-                          <td style={{ padding: '8px 6px', fontWeight: 600, color: 'var(--emp-primary)' }}>₹{row.emi}</td>
-                          <td style={{ padding: '8px 6px' }}>₹{row.principal}</td>
-                          <td style={{ padding: '8px 6px' }}>₹{row.interest}</td>
-                          <td style={{ padding: '8px 6px' }}>₹{row.balance}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+          {showSchedule && (
+            <div style={{ marginTop: 12, borderTop: '1px solid var(--emp-border)', paddingTop: 10, maxHeight: 200, overflowY: 'auto' }}>
+              <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--emp-text-muted)', marginBottom: 6 }}>
+                Installment Breakdown ({Math.min(term, 10)} of {term})
+              </div>
+              {Array.from({ length: Math.min(term, 10) }).map((_, idx) => (
+                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', padding: '4px 0', borderBottom: '1px dashed #f1f5f9' }}>
+                  <span>Installment #{idx + 1}</span>
+                  <span style={{ fontWeight: 600 }}>₹{Number(result.emi).toLocaleString('en-IN')}</span>
                 </div>
-              )}
+              ))}
             </div>
           )}
-        </>
+        </div>
       )}
     </div>
   );
 }
-

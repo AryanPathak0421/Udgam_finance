@@ -18,7 +18,8 @@ export default function EmployeeMemberSynopsis() {
     setData(null);
     try {
       const res = await api.employeeApp.memberSynopsis(query.trim());
-      setData(res);
+      const mem = res?.member || res;
+      setData(mem);
     } catch (err) {
       setError(err.message || 'No synopsis found for this query');
     } finally {
@@ -158,32 +159,28 @@ export default function EmployeeMemberSynopsis() {
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {data.loans.map((loan) => (
-                  <div key={loan.id || loan._id} style={{ border: '1px solid var(--emp-border)', borderRadius: 8, padding: 10, background: 'var(--emp-card-bg)' }}>
+                {data.loans.map((loan, lIdx) => (
+                  <div key={loan.id || loan._id || loan.loanId || lIdx} style={{ border: '1px solid var(--emp-border)', borderRadius: 8, padding: 10, background: 'var(--emp-card-bg)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                       <div>
-                        <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>{loan.loanAccountNo || loan.schemeName || 'Loan'}</div>
+                        <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>{loan.loanId || loan.loanAccountNo || loan.kind || 'Microfinance Loan'}</div>
                         <div style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
-                          Scheme: {loan.schemeName || 'Microfinance'} • Disbursed: {loan.disbursedDate || 'N/A'}
+                          Type: {loan.kind || 'Group Loan'} • Mode: {loan.mode || 'Weekly'} • Disbursed: {loan.disbursedOn || loan.disbursedDate || 'Active'}
                         </div>
                       </div>
-                      <span className={`emp-badge ${loan.status === 'active' ? 'emp-badge-success' : 'emp-badge-info'}`}>
+                      <span className={`emp-badge ${loan.status === 'closed' ? 'emp-badge-info' : 'emp-badge-success'}`}>
                         {loan.status || 'Active'}
                       </span>
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--emp-border)', fontSize: '0.78rem' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--emp-border)', fontSize: '0.78rem' }}>
                       <div>
-                        <span style={{ color: 'var(--emp-text-muted)' }}>Sanctioned:</span>
+                        <span style={{ color: 'var(--emp-text-muted)' }}>Sanctioned / Borrowed:</span>
                         <div style={{ fontWeight: 600 }}>₹{Number(loan.amount || 0).toLocaleString('en-IN')}</div>
                       </div>
                       <div>
-                        <span style={{ color: 'var(--emp-text-muted)' }}>EMI:</span>
-                        <div style={{ fontWeight: 600 }}>₹{Number(loan.emiAmount || 0).toLocaleString('en-IN')}</div>
-                      </div>
-                      <div>
-                        <span style={{ color: 'var(--emp-text-muted)' }}>Balance:</span>
-                        <div style={{ fontWeight: 700, color: '#dc2626' }}>₹{Number(loan.balance || 0).toLocaleString('en-IN')}</div>
+                        <span style={{ color: 'var(--emp-text-muted)' }}>Payment Mode:</span>
+                        <div style={{ fontWeight: 600 }}>{loan.mode || 'Weekly'}</div>
                       </div>
                     </div>
                   </div>
@@ -191,6 +188,28 @@ export default function EmployeeMemberSynopsis() {
               </div>
             )}
           </div>
+
+          {/* Recent EMI Collections */}
+          {data.recentEmis && data.recentEmis.length > 0 && (
+            <div className="emp-card">
+              <h4 style={{ fontSize: '0.95rem', fontWeight: 700, margin: '0 0 10px 0', color: 'var(--emp-text)' }}>
+                Recent EMI Payments ({data.recentEmis.length})
+              </h4>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {data.recentEmis.map((e, eIdx) => (
+                  <div key={e.receiptNo || eIdx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '8px 10px', borderRadius: 6, fontSize: '0.8rem' }}>
+                    <div>
+                      <div style={{ fontWeight: 600 }}>Rcpt: {e.receiptNo}</div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)' }}>Paid on: {e.paidOn || 'N/A'} • {e.mode}</div>
+                    </div>
+                    <div style={{ fontWeight: 700, color: '#059669' }}>
+                      ₹{Number(e.amount).toLocaleString('en-IN')}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>

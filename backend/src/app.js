@@ -84,7 +84,9 @@ app.use('/api', hrExtraRoutes);
 app.use('/api', superAdminRoutes);
 app.use('/api', dashboardRoutes);
 app.use('/api/employee', employeeAppRoutes);
+app.use('/api/employee-app', employeeAppRoutes);
 app.use('/api/supervisor', supervisorAppRoutes);
+app.use('/api/supervisor-app', supervisorAppRoutes);
 
 app.use((_req, res) => res.status(404).json({ message: 'Not found' }));
 
