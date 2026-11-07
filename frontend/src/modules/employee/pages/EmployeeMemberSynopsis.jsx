@@ -102,8 +102,8 @@ export default function EmployeeMemberSynopsis() {
                 <div style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', marginTop: 1 }}>
                   Group: <strong>{data.groupCode ? `${data.groupCode} — ${data.groupName}` : (data.groupName || 'Individual')}</strong> • Joined: {data.createdAt ? new Date(data.createdAt).toLocaleDateString() : 'N/A'}
                 </div>
-                <div style={{ fontSize: '0.78rem', color: 'var(--emp-primary)', fontWeight: 600, marginTop: 2 }}>
-                  CIBIL Score: <strong>{data.civilScore || 740}</strong>
+                <div style={{ fontSize: '0.78rem', color: data.civilScore ? (data.civilScore >= 700 ? '#15803d' : '#b91c1c') : 'var(--emp-text-muted)', fontWeight: 600, marginTop: 2 }}>
+                  CIBIL Score: <strong>{data.civilScore ? data.civilScore : 'Not Checked'}</strong>
                 </div>
               </div>
             </div>

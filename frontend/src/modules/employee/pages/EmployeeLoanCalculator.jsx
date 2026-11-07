@@ -3,7 +3,7 @@ import { api } from '../../../api/client.js';
 import { useEmployeeApp } from '../EmployeeAppContext.jsx';
 import Icon from '../../../components/Icon.jsx';
 
-function computeLocalLoan(amt, annualRate, termNum, repayMode, type) {
+function computeLocalLoan(amt, annualRate, termNum, repayMode, type, scheme) {
   const amount = Number(amt) || 0;
   const rate = Number(annualRate) || 0;
   const n = Number(termNum) || 1;
@@ -31,9 +31,18 @@ function computeLocalLoan(amt, annualRate, termNum, repayMode, type) {
     }
   }
 
-  const processingFee = Math.round(amount * 0.02);
-  const insurance = Math.round(amount * 0.015);
-  const security = Math.round(amount * 0.05);
+  // Point 14: Derive deductions strictly from selected Scheme parameters
+  const procPercent = scheme?.processingFeeBp != null ? (scheme.processingFeeBp / 100) : (scheme?.processingFeePercent ?? 2);
+  const processingFee = scheme?.processingFeePaise ? Math.round(scheme.processingFeePaise / 100) : Math.round((amount * procPercent) / 100);
+
+  const insPercent = scheme?.insuranceBp != null ? (scheme.insuranceBp / 100) : (scheme?.insurancePercent ?? 1.5);
+  const insurance = scheme?.insurancePaise ? Math.round(scheme.insurancePaise / 100) : Math.round((amount * insPercent) / 100);
+
+  const secPercent = scheme?.securityDepositBp != null ? (scheme.securityDepositBp / 100) : (scheme?.securityDepositPercent ?? 5);
+  const security = scheme?.securityDepositPaise ? Math.round(scheme.securityDepositPaise / 100) : Math.round((amount * secPercent) / 100);
+
+  const totalDeductions = processingFee + insurance + security;
+  const netDisbursed = Math.max(0, amount - totalDeductions);
 
   return {
     principal: amount,
@@ -42,10 +51,14 @@ function computeLocalLoan(amt, annualRate, termNum, repayMode, type) {
     installment: emi,
     totalInterest,
     totalPayable,
+    procPercent,
     processingFee,
+    insPercent,
     insurance,
+    secPercent,
     security,
-    netDisbursed: Math.max(0, amount - processingFee - insurance - security),
+    totalDeductions,
+    netDisbursed,
   };
 }
 
@@ -110,7 +123,8 @@ export default function EmployeeLoanCalculator() {
 
   const calculate = async () => {
     setError('');
-    const localRes = computeLocalLoan(amount, rate, term, mode, calculationType);
+    const currentScheme = schemes.find((s) => (s.id || s._id) === selectedSchemeId);
+    const localRes = computeLocalLoan(amount, rate, term, mode, calculationType, currentScheme);
     setResult(localRes);
 
     try {
@@ -293,16 +307,20 @@ export default function EmployeeLoanCalculator() {
               <span style={{ fontWeight: 600 }}>₹{Number(amount).toLocaleString('en-IN')}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', color: '#dc2626' }}>
-              <span>- Processing Fee (2%):</span>
+              <span>- Processing Fee ({result.procPercent || 2}%):</span>
               <span style={{ fontWeight: 600 }}>-₹{Number(result.processingFee || 0).toLocaleString('en-IN')}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', color: '#dc2626' }}>
-              <span>- Insurance / Verification (1.5%):</span>
+              <span>- Insurance / Verification ({result.insPercent || 1.5}%):</span>
               <span style={{ fontWeight: 600 }}>-₹{Number(result.insurance || 0).toLocaleString('en-IN')}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', color: '#dc2626' }}>
-              <span>- Security Deposit (5%):</span>
+              <span>- Security Deposit ({result.secPercent || 5}%):</span>
               <span style={{ fontWeight: 600 }}>-₹{Number(result.security || 0).toLocaleString('en-IN')}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#b91c1c', borderTop: '1px dashed #fca5a5', paddingTop: 6, fontWeight: 700 }}>
+              <span>Total Scheme Deductions:</span>
+              <span>-₹{Number(result.totalDeductions || (result.processingFee + result.insurance + result.security) || 0).toLocaleString('en-IN')}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--emp-border)', paddingTop: 8, marginTop: 4, fontWeight: 800, fontSize: '0.98rem', color: '#059669' }}>
               <span>Net In-Hand Disbursed:</span>

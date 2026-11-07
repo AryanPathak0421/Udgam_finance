@@ -728,14 +728,29 @@ export async function registerMember(req, res) {
   }
 
   const mobile = verifiedPayload.mobile;
-  const emp = await Employee.findOne({ employeeCode: code }).populate('branch');
-  const branchId = b.branch || emp?.branch?._id || (req.user?.branches || [])[0];
-  if (!branchId) throw new HttpError(400, 'Branch is required. Please ask admin to assign a branch.');
+  // Point 11: Block duplicate Mobile, Aadhaar, PAN, and Bank Account number across members
+  if (mobile && (await Member.exists({ mobile, isDeleted: false }))) {
+    throw new HttpError(409, 'A member with this mobile phone number is already registered.');
+  }
 
   const aadhaarClean = cleanStr(b.aadhaar);
   if (aadhaarClean && (await Member.exists({ aadhaar: aadhaarClean, isDeleted: false }))) {
     throw new HttpError(409, 'A member with this Aadhaar number is already registered.');
   }
+
+  const panClean = cleanStr(b.pan).toUpperCase();
+  if (panClean && (await Member.exists({ pan: panClean, isDeleted: false }))) {
+    throw new HttpError(409, 'A member with this PAN card number is already registered.');
+  }
+
+  const acctClean = cleanStr(b.accountNumber);
+  if (acctClean && (await Member.exists({ accountNumber: acctClean, isDeleted: false }))) {
+    throw new HttpError(409, 'A member with this Bank Account number is already registered.');
+  }
+
+  const emp = await Employee.findOne({ employeeCode: code }).populate('branch');
+  const branchId = b.branch || emp?.branch?._id || (req.user?.branches || [])[0];
+  if (!branchId) throw new HttpError(400, 'Branch is required. Please ask admin to assign a branch.');
 
   let memberCode;
   let formId;
@@ -893,12 +908,29 @@ export async function getMemberKyc(req, res) {
   const aadhaarBackDoc = docStatus('aadhaarBackPhoto', Boolean(m.aadhaarBackPhoto));
   const panDoc = docStatus('panPhoto', Boolean(m.panPhoto));
 
+  // Point 12: Old/Current Guarantor documents for re-upload and audit
+  const gPhotoDoc = docStatus('guarantor.photo', Boolean(m.guarantor?.photo));
+  const gSignDoc = docStatus('guarantor.signature', Boolean(m.guarantor?.signature));
+  const gAadhaarDoc = docStatus('guarantor.aadhaarPhoto', Boolean(m.guarantor?.aadhaarPhoto));
+  const gAadhaarBackDoc = docStatus('guarantor.aadhaarBackPhoto', Boolean(m.guarantor?.aadhaarBackPhoto));
+  const gPanDoc = docStatus('guarantor.panPhoto', Boolean(m.guarantor?.panPhoto));
+  const gJointDoc = docStatus('guarantor.jointPhoto', Boolean(m.guarantor?.jointPhoto));
+
+  const gName = m.guarantor?.name || 'Guarantor';
+
   const documents = [
     { type: 'photo', field: 'memberPhoto', name: 'Member Photo', status: photoDoc.status, rejectReason: photoDoc.reason, uploadedAt: m.memberPhoto ? m.createdAt : null, image: m.memberPhoto || null },
     { type: 'signature', field: 'signaturePhoto', name: 'Member Signature', status: signDoc.status, rejectReason: signDoc.reason, uploadedAt: m.signaturePhoto ? m.createdAt : null, image: m.signaturePhoto || null },
     { type: 'aadhaar', field: 'aadhaarPhoto', name: 'Aadhaar Card (Front)', status: aadhaarFrontDoc.status, rejectReason: aadhaarFrontDoc.reason, uploadedAt: m.aadhaarPhoto ? m.createdAt : null, image: m.aadhaarPhoto || null },
     { type: 'aadhaarBack', field: 'aadhaarBackPhoto', name: 'Aadhaar Card (Back)', status: aadhaarBackDoc.status, rejectReason: aadhaarBackDoc.reason, uploadedAt: m.aadhaarBackPhoto ? m.createdAt : null, image: m.aadhaarBackPhoto || null },
     { type: 'pan', field: 'panPhoto', name: 'PAN Card Photo', status: panDoc.status, rejectReason: panDoc.reason, uploadedAt: m.panPhoto ? m.createdAt : null, image: m.panPhoto || null },
+    // Point 12: Old/Current Guarantor Documents
+    { type: 'guarantorPhoto', field: 'guarantor.photo', name: `Guarantor Photo (${gName})`, status: gPhotoDoc.status, rejectReason: gPhotoDoc.reason, uploadedAt: m.guarantor?.photo ? m.createdAt : null, image: m.guarantor?.photo || null },
+    { type: 'guarantorSignature', field: 'guarantor.signature', name: `Guarantor Signature (${gName})`, status: gSignDoc.status, rejectReason: gSignDoc.reason, uploadedAt: m.guarantor?.signature ? m.createdAt : null, image: m.guarantor?.signature || null },
+    { type: 'guarantorAadhaar', field: 'guarantor.aadhaarPhoto', name: `Guarantor Aadhaar Front (${gName})`, status: gAadhaarDoc.status, rejectReason: gAadhaarDoc.reason, uploadedAt: m.guarantor?.aadhaarPhoto ? m.createdAt : null, image: m.guarantor?.aadhaarPhoto || null },
+    { type: 'guarantorAadhaarBack', field: 'guarantor.aadhaarBackPhoto', name: `Guarantor Aadhaar Back (${gName})`, status: gAadhaarBackDoc.status, rejectReason: gAadhaarBackDoc.reason, uploadedAt: m.guarantor?.aadhaarBackPhoto ? m.createdAt : null, image: m.guarantor?.aadhaarBackPhoto || null },
+    ...(m.guarantor?.panPhoto ? [{ type: 'guarantorPan', field: 'guarantor.panPhoto', name: `Guarantor PAN Card (${gName})`, status: gPanDoc.status, rejectReason: gPanDoc.reason, uploadedAt: m.createdAt, image: m.guarantor.panPhoto }] : []),
+    ...(m.guarantor?.jointPhoto ? [{ type: 'guarantorJoint', field: 'guarantor.jointPhoto', name: `Member & Guarantor Joint Photo`, status: gJointDoc.status, rejectReason: gJointDoc.reason, uploadedAt: m.createdAt, image: m.guarantor.jointPhoto }] : []),
   ];
 
   res.json({
@@ -942,9 +974,27 @@ export async function reuploadMemberKycDoc(req, res) {
     : docField === 'aadhaar' || docField === 'aadhaarPhoto' ? 'aadhaarPhoto'
     : docField === 'aadhaarBack' || docField === 'aadhaarBackPhoto' ? 'aadhaarBackPhoto'
     : docField === 'pan' || docField === 'panPhoto' ? 'panPhoto'
+    : docField === 'guarantorPhoto' ? 'guarantor.photo'
+    : docField === 'guarantorSignature' ? 'guarantor.signature'
+    : docField === 'guarantorAadhaar' ? 'guarantor.aadhaarPhoto'
+    : docField === 'guarantorAadhaarBack' ? 'guarantor.aadhaarBackPhoto'
+    : docField === 'guarantorPan' ? 'guarantor.panPhoto'
+    : docField === 'guarantorJoint' ? 'guarantor.jointPhoto'
     : docField;
 
-  m[mappedField] = fileData;
+  // Point 12: If document is already approved, re-upload is strictly blocked
+  const existingDoc = (m.kycDocs || []).find((d) => d.key === mappedField || d.field === mappedField);
+  if (existingDoc?.status === 'approved') {
+    throw new HttpError(400, 'This document is already verified and approved. Re-upload is locked.');
+  }
+
+  if (mappedField.startsWith('guarantor.')) {
+    const sub = mappedField.replace('guarantor.', '');
+    if (!m.guarantor) m.guarantor = {};
+    m.guarantor[sub] = fileData;
+  } else {
+    m[mappedField] = fileData;
+  }
   if (!Array.isArray(m.kycDocs)) m.kycDocs = [];
   m.kycDocs = m.kycDocs.filter((d) => d.key !== mappedField && d.field !== mappedField);
   m.kycDocs.push({
@@ -1095,6 +1145,29 @@ export async function requestGuarantorChange(req, res) {
   const emp = await Employee.findOne({ employeeCode: code });
   const b = req.body || {};
 
+  const newMobile = cleanStr(b.mobile);
+  const newAadhaar = cleanStr(b.aadhaar);
+  const newPan = cleanStr(b.pan).toUpperCase();
+
+  if (!newMobile || newMobile.length < 10) throw new HttpError(400, 'Valid 10-digit Guarantor mobile number is required');
+  if (!newAadhaar || newAadhaar.length < 12) throw new HttpError(400, 'Valid 12-digit Guarantor Aadhaar number is required');
+
+  // Point 10: Guarantor cannot have the SAME mobile, Aadhaar, or PAN as the borrower member
+  if (newMobile === m.mobile) throw new HttpError(400, 'Guarantor phone cannot be the same as borrower member phone');
+  if (newAadhaar === m.aadhaar) throw new HttpError(400, 'Guarantor Aadhaar cannot be the same as borrower member Aadhaar');
+  if (newPan && m.pan && newPan === m.pan.toUpperCase()) throw new HttpError(400, 'Guarantor PAN cannot be the same as borrower member PAN');
+
+  // Point 10: Block duplicate guarantor across other members
+  if (await Member.exists({ _id: { $ne: m._id }, 'guarantor.aadhaar': newAadhaar, isDeleted: false })) {
+    throw new HttpError(409, 'A guarantor with this Aadhaar number already exists for another member.');
+  }
+  if (await Member.exists({ _id: { $ne: m._id }, 'guarantor.mobile': newMobile, isDeleted: false })) {
+    throw new HttpError(409, 'A guarantor with this Mobile number already exists for another member.');
+  }
+  if (newPan && (await Member.exists({ _id: { $ne: m._id }, 'guarantor.pan': newPan, isDeleted: false }))) {
+    throw new HttpError(409, 'A guarantor with this PAN number already exists for another member.');
+  }
+
   const request = await GuarantorChangeRequest.create({
     member: m._id,
     memberCode: m.code,
@@ -1109,11 +1182,11 @@ export async function requestGuarantorChange(req, res) {
     },
     newGuarantor: {
       name: cleanStr(b.name),
-      mobile: cleanStr(b.mobile),
-      aadhaar: cleanStr(b.aadhaar),
+      mobile: newMobile,
+      aadhaar: newAadhaar,
       relation: cleanStr(b.relation),
       address: cleanStr(b.address),
-      pan: cleanStr(b.pan),
+      pan: newPan,
       photo: b.photo || '',
       signature: b.signature || '',
       aadhaarPhoto: b.aadhaarPhoto || '',
@@ -1132,7 +1205,11 @@ export async function requestGuarantorChange(req, res) {
     m.guarantorHistory.push({
       name: m.guarantor.name,
       mobile: m.guarantor.mobile,
+      aadhaar: m.guarantor.aadhaar,
+      pan: m.guarantor.pan,
       employeeCode: code,
+      replacedAt: new Date(),
+      reason: cleanStr(b.reason) || 'Guarantor Change Request',
     });
   }
 
@@ -1328,6 +1405,9 @@ export async function getMemberSynopsis(req, res) {
     }
   });
 
+  const latestCivil = await CivilCheck.findOne({ member: m._id, isDeleted: false }).sort({ reportDate: -1, createdAt: -1 }).lean();
+  const actualCivilScore = latestCivil?.score ?? (m.civilScore != null ? m.civilScore : null);
+
   const memberData = {
     id: m._id,
     code: m.code,
@@ -1345,7 +1425,7 @@ export async function getMemberSynopsis(req, res) {
     branchName: m.branch?.name || m.branch?.code || '',
     groupCode: groupDoc?.code || '',
     groupName: groupDoc ? `${groupDoc.code} — ${groupDoc.name}` : (m.groupName || 'Individual'),
-    civilScore: m.civilScore != null ? m.civilScore : 740,
+    civilScore: actualCivilScore,
     gender: m.gender || 'Female',
     occupation: m.occupation || 'Self Employed',
     createdAt: m.createdAt,
@@ -2656,13 +2736,25 @@ export async function getBorrowerSavings(req, res) {
       const interest = Math.round((line.securityPaise * years * SECURITY_INTEREST_PERCENT) / 100);
       totalInterestPaise += interest;
 
-      // Determine whether this loan is closed or running via borrowerState
+      // Determine whether this loan is closed or settled (Point 15: settled loans security is withdrawable)
       let isClosed = false;
-      try {
-        const st = await borrowerState(l, line, asOf);
-        isClosed = Boolean(st.settled) || !st.left || st.left.length === 0;
-      } catch {
-        isClosed = l.status === 'closed' || l.settled || Boolean(line.isSettled);
+      const isSettledInDb = await LoanSettlement.exists({
+        loanPayment: l._id,
+        $or: [
+          { member: member._id },
+          { memberCode: new RegExp(`^${member.code}$`, 'i') },
+        ],
+        status: { $in: ['active', 'approved', 'settled'] },
+      });
+      if (isSettledInDb || l.isSettled || line.isSettled || l.status === 'settled' || l.status === 'closed') {
+        isClosed = true;
+      } else {
+        try {
+          const st = await borrowerState(l, line, asOf);
+          isClosed = Boolean(st.settled) || !st.left || st.left.length === 0;
+        } catch {
+          isClosed = false;
+        }
       }
       if (isClosed) {
         closedSecurityPaise += line.securityPaise;
@@ -2743,11 +2835,23 @@ export async function requestSavingsWithdrawal(req, res) {
     if (line && line.securityPaise > 0) {
       totalDepositedPaise += line.securityPaise;
       let isClosed = false;
-      try {
-        const st = await borrowerState(l, line, asOf);
-        isClosed = Boolean(st.settled) || !st.left || st.left.length === 0;
-      } catch {
-        isClosed = l.status === 'closed' || l.settled || Boolean(line.isSettled);
+      const isSettledInDb = await LoanSettlement.exists({
+        loanPayment: l._id,
+        $or: [
+          { member: member._id },
+          { memberCode: new RegExp(`^${member.code}$`, 'i') },
+        ],
+        status: { $in: ['active', 'approved', 'settled'] },
+      });
+      if (isSettledInDb || l.isSettled || line.isSettled || l.status === 'settled' || l.status === 'closed') {
+        isClosed = true;
+      } else {
+        try {
+          const st = await borrowerState(l, line, asOf);
+          isClosed = Boolean(st.settled) || !st.left || st.left.length === 0;
+        } catch {
+          isClosed = false;
+        }
       }
       if (isClosed) {
         closedSecurityPaise += line.securityPaise;
@@ -2837,6 +2941,14 @@ export async function getEmployeeReports(req, res) {
     ...dateFilter,
   }).sort({ visitDate: -1 }).limit(100).lean();
 
+  // Point 16: Product Sell Requests & Orders for Report & Target
+  const productSales = await ProductSaleOrder.find({
+    employeeCode: code,
+    ...dateFilter,
+  }).sort({ createdAt: -1 }).limit(100).lean();
+
+  const totalProductSales = productSales.reduce((sum, p) => sum + (p.totalAmount || 0), 0);
+
   const targetTasks = await TargetTask.find({
     status: 'active',
     'employees.code': code,
@@ -2851,6 +2963,8 @@ export async function getEmployeeReports(req, res) {
       totalNpaRecovered,
       npaRecoveryCount: npaPayments.length,
       centerSurveyCount: centerSurveys.length,
+      totalProductSales,
+      productSalesCount: productSales.length,
     },
     disbursements: disbursements.map((d) => ({
       loanId: d.loanId || d.receiptNo,
@@ -2889,6 +3003,20 @@ export async function getEmployeeReports(req, res) {
       date: p.paidOn ? new Date(p.paidOn).toLocaleDateString() : 'N/A',
       payMode: p.payMode,
     })),
+    // Point 16: Product Sell Requests list in Reports
+    productSales: productSales.map((p) => ({
+      id: p._id,
+      orderId: p.orderId || p._id,
+      productName: p.productName,
+      quantity: p.quantity,
+      unitPrice: p.unitPrice,
+      totalAmount: p.totalAmount,
+      payMode: p.payMode,
+      memberCode: p.memberCode,
+      memberName: p.memberName,
+      status: p.status || 'pending',
+      date: p.createdAt ? new Date(p.createdAt).toLocaleDateString() : 'N/A',
+    })),
     targets: targetTasks.map((t) => ({
       id: t._id,
       fromDate: t.fromDate,
@@ -2897,6 +3025,7 @@ export async function getEmployeeReports(req, res) {
       achieved: {
         d6: totalDisbursed,
         npaRecovery: totalNpaRecovered,
+        productSales: totalProductSales,
       },
     })),
   });
@@ -3026,11 +3155,26 @@ export async function getSalarySlips(req, res) {
 
       const basic = (basicLine?.amountPaise || 0) / 100;
       const fuel = (fuelLine?.amountPaise || 0) / 100;
-      const leaveDeduction = (leaveLine?.amountPaise || 0) / 100;
-      const grossSalary = (s.grossPaise || s.earnedPaise || (basic + fuel) * 100) / 100;
-      const totalEarnings = (s.totalEarningPaise || s.grossPaise || 0) / 100;
-      const totalDeductions = (s.totalDeductionPaise || 0) / 100;
-      const netSalary = (s.netPaise || (totalEarnings - totalDeductions)) / 100;
+
+      // Point 17: Salary base is Basic + Fuel if fuel is present, else Basic only.
+      // Daily rate = Base / month days. Payout = Daily rate * payable days.
+      const baseSalary = fuel > 0 ? (basic + fuel) : basic;
+      const days = s.daysInMonth || 30;
+      const dailyRate = days > 0 ? (baseSalary / days) : 0;
+      const absentDays = s.absentDays || 0;
+      const payableDays = s.payableDays ?? Math.max(0, days - absentDays);
+
+      const leaveDeduction = (leaveLine?.amountPaise || 0) / 100 || Math.round(dailyRate * absentDays * 100) / 100;
+      const grossSalary = baseSalary || (s.grossPaise || 0) / 100;
+      const earnedSalary = s.earnedPaise ? (s.earnedPaise / 100) : Math.round(dailyRate * payableDays * 100) / 100;
+      const pfDeduction = (pfLine?.amountPaise || 0) / 100;
+      const esiDeduction = (esiLine?.amountPaise || 0) / 100;
+      const advanceDeduction = (advanceLine?.amountPaise || 0) / 100;
+      const securityDeduction = (secLine?.amountPaise || s.securityCutPaise || 0) / 100;
+
+      const otherDeductions = pfDeduction + esiDeduction + advanceDeduction + securityDeduction;
+      const totalDeductions = (s.totalDeductionPaise ? s.totalDeductionPaise / 100 : (leaveDeduction + otherDeductions));
+      const netSalary = s.netPaise ? (s.netPaise / 100) : Math.max(0, earnedSalary - otherDeductions);
 
       return {
         id: s._id,
@@ -3041,18 +3185,20 @@ export async function getSalarySlips(req, res) {
         grossSalary,
         basicSalary: basic || grossSalary,
         fuelAllowance: fuel,
+        dailyRate: Math.round(dailyRate * 100) / 100,
         absentDeduction: leaveDeduction,
-        pfDeduction: (pfLine?.amountPaise || 0) / 100,
-        esiDeduction: (esiLine?.amountPaise || 0) / 100,
-        advanceDeduction: (advanceLine?.amountPaise || 0) / 100,
-        securityDeduction: (secLine?.amountPaise || s.securityCutPaise || 0) / 100,
-        allowances: Math.max(0, totalEarnings - basic),
+        pfDeduction,
+        esiDeduction,
+        advanceDeduction,
+        securityDeduction,
+        allowances: fuel,
         deductions: totalDeductions,
+        earnedSalary,
         netSalary,
-        daysInMonth: s.daysInMonth || 30,
-        presentDays: s.presentDays || 0,
-        absentDays: s.absentDays || 0,
-        payableDays: s.payableDays ?? (s.presentDays || 30),
+        daysInMonth: days,
+        presentDays: s.presentDays || (days - absentDays),
+        absentDays,
+        payableDays,
         status: s.status || 'generated',
         paidOn: s.paidOn,
         lines: (s.lines || []).map((l) => ({

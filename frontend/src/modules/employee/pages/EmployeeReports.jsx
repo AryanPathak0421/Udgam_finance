@@ -91,12 +91,24 @@ export default function EmployeeReports() {
             Surveyed Centers
           </div>
         </div>
+
+        {/* Point 16: Product Sell Requests Metric */}
+        <div className="emp-card" style={{ margin: 0, padding: 12, background: 'linear-gradient(135deg, #7c3aed, #a855f7)', color: '#fff' }}>
+          <div style={{ fontSize: '0.72rem', opacity: 0.9 }}>Product Sales</div>
+          <div style={{ fontSize: '1.25rem', fontWeight: 800, marginTop: 2 }}>
+            ₹{Number(summary.totalProductSales || 0).toLocaleString('en-IN')}
+          </div>
+          <div style={{ fontSize: '0.7rem', opacity: 0.85, marginTop: 2 }}>
+            {summary.productSalesCount || 0} Orders Sold
+          </div>
+        </div>
       </div>
 
       {/* Tabs */}
       <div style={{ display: 'flex', overflowX: 'auto', gap: 6, marginBottom: 12, paddingBottom: 4 }}>
         {[
           { id: 'disbursements', label: 'Disbursements' },
+          { id: 'productSales', label: 'Product Sell Requests' },
           { id: 'surveys', label: 'New Center Surveys' },
           { id: 'requisitions', label: 'Requisitions' },
           { id: 'approvals', label: 'Approvals' },
@@ -275,6 +287,39 @@ export default function EmployeeReports() {
             )
           )}
 
+          {/* Point 16: Tab Product Sell Requests */}
+          {tab === 'productSales' && (
+            reportData.productSales?.length === 0 ? (
+              <div className="emp-card" style={{ textAlign: 'center', padding: '24px', color: 'var(--emp-text-muted)' }}>
+                No product sell requests recorded for this period.
+              </div>
+            ) : (
+              reportData.productSales.map((p, i) => (
+                <div key={p.id || i} className="emp-card" style={{ margin: 0, padding: 12, border: '1px solid var(--emp-border)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <strong style={{ fontSize: '0.92rem', color: 'var(--emp-text)' }}>{p.productName}</strong>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
+                        Order: <strong>{p.orderId}</strong> • Member: {p.memberName || p.memberCode}
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
+                        Qty: <strong>{p.quantity}</strong> • Mode: <span style={{ textTransform: 'capitalize' }}>{p.payMode}</span> • Date: {p.date}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontWeight: 800, color: '#7c3aed', fontSize: '1rem' }}>
+                        ₹{Number(p.totalAmount).toLocaleString('en-IN')}
+                      </div>
+                      <span className={`emp-badge emp-badge-${p.status === 'approved' ? 'success' : p.status === 'delivered' ? 'info' : 'warning'}`} style={{ fontSize: '0.68rem', textTransform: 'capitalize' }}>
+                        {p.status || 'Pending'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )
+          )}
+
           {/* Tab 5: Targets Show */}
           {tab === 'targets' && (
             reportData.targets?.length === 0 ? (
@@ -306,6 +351,17 @@ export default function EmployeeReports() {
                       </div>
                       <div style={{ height: 6, borderRadius: 3, background: 'var(--emp-border)', overflow: 'hidden' }}>
                         <div style={{ height: '100%', width: '40%', background: '#059669' }} />
+                      </div>
+                    </div>
+
+                    {/* Point 16: Product Sell Target */}
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: 2 }}>
+                        <span>Product Sell Target:</span>
+                        <strong>₹{t.achieved?.productSales || 0} / ₹{t.targets?.productSales || 10000}</strong>
+                      </div>
+                      <div style={{ height: 6, borderRadius: 3, background: 'var(--emp-border)', overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: `${Math.min(100, Math.round(((t.achieved?.productSales || 0) / (t.targets?.productSales || 10000)) * 100))}%`, background: '#7c3aed' }} />
                       </div>
                     </div>
                   </div>

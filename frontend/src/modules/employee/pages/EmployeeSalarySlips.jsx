@@ -184,7 +184,7 @@ export default function EmployeeSalarySlips() {
             </div>
 
             {/* Attendance & Days Metric */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 6, textAlign: 'center', background: '#f8fafc', padding: 8, borderRadius: 8, marginBottom: 14, fontSize: '0.75rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 6, textAlign: 'center', background: '#f8fafc', padding: 8, borderRadius: 8, marginBottom: 10, fontSize: '0.75rem' }}>
               <div>
                 <div style={{ color: 'var(--emp-text-muted)' }}>Month Days</div>
                 <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>{activeSlip.daysInMonth || 30}</div>
@@ -200,6 +200,22 @@ export default function EmployeeSalarySlips() {
               <div>
                 <div style={{ color: 'var(--emp-primary)' }}>Payable</div>
                 <div style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--emp-primary)' }}>{activeSlip.payableDays || 0}</div>
+              </div>
+            </div>
+
+            {/* Point 17: Salary Calculation Formula Breakdown */}
+            <div style={{ background: '#f8fafc', border: '1px dashed var(--emp-border)', borderRadius: 8, padding: '8px 12px', marginBottom: 14, fontSize: '0.75rem', color: 'var(--emp-text-muted)' }}>
+              <div style={{ fontWeight: 700, color: 'var(--emp-text)', marginBottom: 2 }}>
+                🧮 Salary Calculation Breakdown:
+              </div>
+              <div>
+                Base = Basic (₹{activeSlip.basicSalary}) {activeSlip.fuelAllowance > 0 ? `+ Fuel Allowance (₹${activeSlip.fuelAllowance}) = ₹${activeSlip.basicSalary + activeSlip.fuelAllowance}` : '(Fuel allowance not applicable)'}
+              </div>
+              <div>
+                Daily Rate = ₹{activeSlip.basicSalary + (activeSlip.fuelAllowance || 0)} ÷ {activeSlip.daysInMonth || 30} days = <strong>₹{activeSlip.dailyRate || ((activeSlip.basicSalary + (activeSlip.fuelAllowance || 0)) / (activeSlip.daysInMonth || 30)).toFixed(2)}/day</strong>
+              </div>
+              <div>
+                Earned Payout = Daily Rate × {activeSlip.payableDays} Payable Days = <strong>₹{Number(activeSlip.earnedSalary || (activeSlip.dailyRate ? activeSlip.dailyRate * activeSlip.payableDays : activeSlip.netSalary)).toLocaleString('en-IN')}</strong> {activeSlip.absentDays > 0 ? `(Deducted ${activeSlip.absentDays} absent days)` : ''}
               </div>
             </div>
 

@@ -54,7 +54,7 @@ export default function EmployeeLoanRequisition() {
     extraQty: '1',
     // Business / MSME specific (Point 8)
     businessName: '',
-    civilScore: '740',
+    civilScore: '',
     custNumber: '',
     vintageYears: '2',
     monthlyTurnover: '50000',
@@ -240,13 +240,13 @@ export default function EmployeeLoanRequisition() {
         kycStatus: isKycOk ? 'approved' : (fullM.kycRejected ? 'rejected' : 'pending'),
         branchName: fullM.branch?.name || fullM.branchName,
         groupName: selectedGroup.name,
-        civilScore: fullM.civilScore || 740,
+        civilScore: fullM.civilScore,
         guarantor: fullM.guarantor,
       });
 
       setForm((f) => ({
         ...f,
-        civilScore: String(fullM.civilScore || 740),
+        civilScore: fullM.civilScore ? String(fullM.civilScore) : 'Not Checked',
         custNumber: fullM.code || '',
         regPhone: fullM.mobile || f.regPhone,
         guarantorName: fullM.guarantor?.name || f.guarantorName,
@@ -281,12 +281,12 @@ export default function EmployeeLoanRequisition() {
         kycStatus: isKycOk ? 'approved' : (m.kycRejected ? 'rejected' : 'pending'),
         branchName: m.branch?.name || m.branchName,
         groupName: m.groupName,
-        civilScore: m.civilScore || 740,
+        civilScore: m.civilScore,
         guarantor: m.guarantor,
       });
       setForm((f) => ({
         ...f,
-        civilScore: String(m.civilScore || 740),
+        civilScore: m.civilScore ? String(m.civilScore) : 'Not Checked',
         custNumber: m.code || '',
         regPhone: m.mobile || f.regPhone,
         guarantorName: m.guarantor?.name || f.guarantorName,
@@ -486,7 +486,7 @@ export default function EmployeeLoanRequisition() {
         extraUnitPrice: form.hasExtraProduct ? form.extraUnitPrice : 0,
         // Business / MSME specific
         businessName: form.businessName,
-        civilScore: Number(form.civilScore) || 740,
+        civilScore: Number(form.civilScore) || (selectedMember?.civilScore ?? null),
         custNumber: form.custNumber,
         businessType: form.businessType,
         vintageYears: Number(form.vintageYears || 1),
@@ -701,7 +701,7 @@ export default function EmployeeLoanRequisition() {
                       Code: {selectedMember.code} • Mobile: +91 {selectedMember.mobile}
                     </div>
                     <div style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
-                      Group: {selectedMember.groupName || 'Individual'} • CIBIL: <strong>{selectedMember.civilScore || 740}</strong>
+                      Group: {selectedMember.groupName || 'Individual'} • CIBIL: <strong>{selectedMember.civilScore ? selectedMember.civilScore : 'Not Checked'}</strong>
                     </div>
                   </div>
                   <div>
