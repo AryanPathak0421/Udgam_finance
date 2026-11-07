@@ -120,10 +120,12 @@ export default function EmployeeEmiPayment() {
       // Pre-fill collection map
       const initialMap = {};
       members.forEach((m) => {
-        const canCollect = !m.isAdvancePaid && !m.alreadyPaidToday;
+        const isFullyPaid = m.isAdvancePaid || (m.todayPaidAmount >= m.totalDue && m.dueAmount <= 0);
+        const canCollect = !isFullyPaid && (m.dueAmount > 0 || !m.alreadyPaidToday);
+        const pendingAmount = m.dueAmount > 0 ? m.dueAmount : (m.alreadyPaidToday ? 0 : m.emiAmount);
         initialMap[m.memberCode] = {
           selected: canCollect,
-          amount: m.suggestedAmount || m.emiAmount || 0,
+          amount: pendingAmount || m.suggestedAmount || m.emiAmount || 0,
           loanPaymentId: m.loanPaymentId,
           memberId: m.memberId,
           isAdvancePaid: m.isAdvancePaid,
@@ -148,10 +150,12 @@ export default function EmployeeEmiPayment() {
 
       const initialMap = {};
       items.forEach((item) => {
-        const canCollect = !item.isAdvancePaid && !item.alreadyPaidToday;
+        const isFullyPaid = item.isAdvancePaid || (item.todayPaidAmount >= item.totalDue && item.dueAmount <= 0);
+        const canCollect = !isFullyPaid && (item.dueAmount > 0 || !item.alreadyPaidToday);
+        const pendingAmount = item.dueAmount > 0 ? item.dueAmount : (item.alreadyPaidToday ? 0 : item.emiAmount);
         initialMap[item.memberCode] = {
           selected: canCollect,
-          amount: item.suggestedAmount || item.emiAmount || 0,
+          amount: pendingAmount || item.suggestedAmount || item.emiAmount || 0,
           loanPaymentId: item.loanPaymentId,
           memberId: item.memberId,
           isAdvancePaid: item.isAdvancePaid,
@@ -205,7 +209,8 @@ export default function EmployeeEmiPayment() {
     setCollectionMap((prev) => {
       const next = { ...prev };
       list.forEach((m) => {
-        if (!m.isAdvancePaid && !m.alreadyPaidToday) {
+        const isFullyPaid = m.isAdvancePaid || (m.todayPaidAmount >= m.totalDue && m.dueAmount <= 0);
+        if (!isFullyPaid) {
           next[m.memberCode] = {
             ...next[m.memberCode],
             selected: checked,

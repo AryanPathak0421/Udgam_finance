@@ -2289,6 +2289,8 @@ export async function getGroupEmiMembers(req, res) {
 
       const isAdvancePaid = advancePaise >= emiPaise;
       const alreadyPaidToday = todayPaidPaise > 0;
+      const isFullyPaidToday = todayPaidPaise >= emiPaise && duesPaise === 0;
+      const memberPendingDue = duesPaise > 0 ? (duesPaise / 100) : (alreadyPaidToday ? 0 : emiPaise / 100);
 
       members.push({
         loanPaymentId: l._id,
@@ -2297,14 +2299,15 @@ export async function getGroupEmiMembers(req, res) {
         memberCode: line.code,
         memberName: line.name,
         emiAmount: emiPaise / 100,
-        totalDue: emiPaise / 100,
-        suggestedAmount: emiPaise / 100,
-        dueAmount: duesPaise / 100,
+        totalDue: duesPaise > 0 ? (duesPaise + todayPaidPaise) / 100 : emiPaise / 100,
+        suggestedAmount: memberPendingDue > 0 ? memberPendingDue : emiPaise / 100,
+        dueAmount: memberPendingDue,
         todayPaidAmount: todayPaidPaise / 100,
         collectedAmount: todayPaidPaise / 100,
         advanceAmount: advancePaise / 100,
         isAdvancePaid,
         alreadyPaidToday,
+        isFullyPaid: isFullyPaidToday,
         balanceAmount: Math.max(0, totalLoanPaise - totalPaidPaise) / 100,
       });
     }
