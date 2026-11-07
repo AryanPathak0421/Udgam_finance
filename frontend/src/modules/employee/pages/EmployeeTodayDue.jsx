@@ -216,15 +216,34 @@ export default function EmployeeTodayDue() {
       </div>
 
       {/* Due Summary */}
-      <div className="emp-card" style={{ background: 'linear-gradient(135deg, #d97706, #f59e0b)', color: '#fff' }}>
-        <div style={{ fontSize: '0.8rem', opacity: 0.9, textTransform: 'uppercase' }}>
-          {selectedCategory === 'all' ? 'Total Demand Due' : `${DUE_CATEGORIES.find((c) => c.id === selectedCategory)?.label} Demand`} ({date})
+      <div className="emp-card" style={{ background: 'linear-gradient(135deg, #d97706, #f59e0b)', color: '#fff', padding: '16px' }}>
+        <div style={{ fontSize: '0.82rem', opacity: 0.95, fontWeight: 700, textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.5px' }}>
+          {selectedCategory === 'all' ? 'Today Demand & Collection Summary' : `${DUE_CATEGORIES.find((c) => c.id === selectedCategory)?.label} Summary`} ({date})
         </div>
-        <div style={{ fontSize: '1.8rem', fontWeight: 800, marginTop: 4 }}>
-          ₹{(summary[selectedCategory]?.amount ?? totalDue).toLocaleString('en-IN')}
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, background: 'rgba(0,0,0,0.16)', padding: '10px 8px', borderRadius: 8 }}>
+          <div>
+            <div style={{ fontSize: '0.7rem', opacity: 0.9, fontWeight: 600 }}>Total Due:</div>
+            <div style={{ fontSize: '1.2rem', fontWeight: 800, marginTop: 2 }}>
+              ₹{(summary[selectedCategory]?.totalDue ?? (summary[selectedCategory]?.amount + (summary[selectedCategory]?.totalCollected || 0)) ?? totalDue).toLocaleString('en-IN')}
+            </div>
+          </div>
+          <div style={{ textAlign: 'center', borderLeft: '1px solid rgba(255,255,255,0.2)', borderRight: '1px solid rgba(255,255,255,0.2)', padding: '0 4px' }}>
+            <div style={{ fontSize: '0.7rem', opacity: 0.9, fontWeight: 600 }}>Collected:</div>
+            <div style={{ fontSize: '1.2rem', fontWeight: 800, marginTop: 2, color: '#dcfce7' }}>
+              ₹{(summary[selectedCategory]?.totalCollected ?? 0).toLocaleString('en-IN')}
+            </div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: '0.7rem', opacity: 0.9, fontWeight: 600 }}>Remaining Due:</div>
+            <div style={{ fontSize: '1.2rem', fontWeight: 800, marginTop: 2, color: '#fff' }}>
+              ₹{(summary[selectedCategory]?.remainingDue ?? summary[selectedCategory]?.amount ?? totalDue).toLocaleString('en-IN')}
+            </div>
+          </div>
         </div>
-        <div style={{ fontSize: '0.8rem', opacity: 0.85, marginTop: 4 }}>
-          {summary[selectedCategory]?.count ?? filteredItems.length} installments due
+
+        <div style={{ fontSize: '0.75rem', opacity: 0.95, marginTop: 8, fontWeight: 500 }}>
+          {summary[selectedCategory]?.dueCount ?? filteredItems.filter((x) => x.dueAmount > 0).length} pending • {summary[selectedCategory]?.paidCount ?? filteredItems.filter((x) => x.isFullyPaid).length} collected
         </div>
       </div>
 
@@ -278,38 +297,52 @@ export default function EmployeeTodayDue() {
                 </div>
 
                 <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontWeight: 800, fontSize: '1.05rem', color: '#d97706' }}>
-                    ₹{Number(d.dueAmount).toLocaleString('en-IN')}
+                  <div style={{ fontWeight: 800, fontSize: '1.05rem', color: d.dueAmount > 0 ? '#d97706' : '#16a34a' }}>
+                    {d.dueAmount > 0 ? `₹${Number(d.dueAmount).toLocaleString('en-IN')} Due` : '✓ Fully Paid'}
                   </div>
-                  <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', marginTop: 6 }}>
-                    <button
-                      type="button"
-                      className="emp-btn-secondary"
-                      style={{
-                        padding: '4px 8px',
-                        fontSize: '0.72rem',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 4,
-                      }}
-                      onClick={() => setBarcodeModal(d)}
-                      title="View Barcode / QR"
-                    >
-                      <span style={{ letterSpacing: '-1px', fontWeight: 800 }}>▌│█║</span> Barcode
-                    </button>
-                    <button
-                      className="emp-btn-primary"
-                      style={{
-                        padding: '4px 12px',
-                        fontSize: '0.75rem',
-                        background: '#059669',
-                        border: 'none',
-                      }}
-                      onClick={() => handleOpenCollect(d)}
-                    >
-                      Collect
-                    </button>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
+                    Total Due: <strong>₹{Number(d.totalDue || d.dueAmount).toLocaleString('en-IN')}</strong>
+                    {d.collectedAmount > 0 && (
+                      <span style={{ color: '#16a34a', fontWeight: 700 }}> • Collect: ₹{Number(d.collectedAmount).toLocaleString('en-IN')}</span>
+                    )}
                   </div>
+                  {d.dueAmount > 0 ? (
+                    <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', marginTop: 6 }}>
+                      <button
+                        type="button"
+                        className="emp-btn-secondary"
+                        style={{
+                          padding: '4px 8px',
+                          fontSize: '0.72rem',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 4,
+                        }}
+                        onClick={() => setBarcodeModal(d)}
+                        title="View Barcode / QR"
+                      >
+                        <span style={{ letterSpacing: '-1px', fontWeight: 800 }}>▌│█║</span> Barcode
+                      </button>
+                      <button
+                        className="emp-btn-primary"
+                        style={{
+                          padding: '4px 12px',
+                          fontSize: '0.75rem',
+                          background: '#059669',
+                          border: 'none',
+                        }}
+                        onClick={() => handleOpenCollect(d)}
+                      >
+                        Collect
+                      </button>
+                    </div>
+                  ) : (
+                    <div style={{ marginTop: 6 }}>
+                      <span style={{ fontSize: '0.7rem', padding: '2px 8px', background: '#dcfce7', color: '#166534', borderRadius: 4, fontWeight: 700 }}>
+                        ✓ Collected
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -345,7 +378,11 @@ export default function EmployeeTodayDue() {
             <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: 8, marginBottom: 14, fontSize: '0.82rem' }}>
               <div><strong>Borrower:</strong> {collectModal.memberName} ({collectModal.memberCode})</div>
               <div><strong>Loan ID:</strong> {collectModal.loanId}</div>
-              <div><strong>Standard Due:</strong> ₹{collectModal.dueAmount}</div>
+              <div><strong>Total Due:</strong> ₹{collectModal.totalDue || collectModal.dueAmount}</div>
+              {collectModal.collectedAmount > 0 && (
+                <div><strong>Collected Today:</strong> <span style={{ color: '#16a34a', fontWeight: 700 }}>₹{collectModal.collectedAmount}</span></div>
+              )}
+              <div><strong>Remaining Due:</strong> <span style={{ color: '#dc2626', fontWeight: 800 }}>₹{collectModal.dueAmount}</span></div>
             </div>
 
             {actionMessage.text && (

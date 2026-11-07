@@ -80,7 +80,7 @@ export default function EmployeeHome() {
 
       {/* Today KPI Summary Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, marginBottom: 14 }}>
-        <div className="emp-card" style={{ margin: 0, cursor: 'pointer', borderLeft: '4px solid var(--emp-danger)' }} onClick={() => navigate('/employee/due-list')}>
+        <div className="emp-card" style={{ margin: 0, cursor: 'pointer', borderLeft: '4px solid var(--emp-danger)' }} onClick={() => navigate('/employee/today-due')}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span className="emp-stat-label" style={{ fontWeight: 600 }}>{t('today_due')}</span>
             <span style={{ color: 'var(--emp-danger)' }}>
@@ -90,10 +90,11 @@ export default function EmployeeHome() {
           <div style={{ fontSize: '1.3rem', fontWeight: 800, margin: '6px 0 2px', color: 'var(--emp-danger)' }}>
             ₹{summary.todayDue.toLocaleString('en-IN')}
           </div>
-          <span style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)' }}>
-            {summary.todayTargetDue !== undefined && summary.todayTargetDue !== summary.todayDue ? `Target ₹${summary.todayTargetDue.toLocaleString('en-IN')} • ` : ''}
-            {summary.dueCount} pending
-          </span>
+          <div style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)', lineHeight: 1.3 }}>
+            Total Due: <strong>₹{(summary.todayTotalDue ?? summary.todayTargetDue ?? summary.todayDue).toLocaleString('en-IN')}</strong>
+            {summary.todayCollected > 0 && <span style={{ color: '#16a34a' }}> • Collect: ₹{summary.todayCollected.toLocaleString('en-IN')}</span>}
+            <div>{summary.dueCount} pending installments</div>
+          </div>
         </div>
 
         <div className="emp-card" style={{ margin: 0, cursor: 'pointer', borderLeft: '4px solid var(--emp-success)' }} onClick={() => navigate('/employee/collections')}>
@@ -106,7 +107,11 @@ export default function EmployeeHome() {
           <div style={{ fontSize: '1.3rem', fontWeight: 800, margin: '6px 0 2px', color: 'var(--emp-success)' }}>
             ₹{summary.todayCollected.toLocaleString('en-IN')}
           </div>
-          <span style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)' }}>{summary.todayReceiptsCount} receipts settled</span>
+          <div style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)', lineHeight: 1.3 }}>
+            Total Due: <strong>₹{(summary.todayTotalDue ?? summary.todayTargetDue ?? summary.todayDue).toLocaleString('en-IN')}</strong>
+            {summary.todayDue > 0 && <span style={{ color: '#dc2626' }}> • Due: ₹{summary.todayDue.toLocaleString('en-IN')}</span>}
+            <div>{summary.todayReceiptsCount} receipts settled</div>
+          </div>
         </div>
       </div>
 

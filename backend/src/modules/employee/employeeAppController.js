@@ -490,6 +490,7 @@ export async function getDashboard(req, res) {
     summary: {
       todayCollected,
       todayReceiptsCount,
+      todayTotalDue: Math.round(todayTargetDue),
       todayTargetDue: Math.round(todayTargetDue),
       todayDue: remainingTodayDue,
       dueCount: remainingDueCount,
@@ -606,7 +607,11 @@ export async function getTodayDueList(req, res) {
     paidOn: { $gte: startDay, $lte: asOf },
   }).select('loanPayment memberCode amountPaise').lean() : [];
 
-  const paidTodayKeySet = new Set(paidToday.map((p) => `${String(p.loanPayment)}_${p.memberCode}`));
+  const paidTodayMap = new Map();
+  for (const p of paidToday) {
+    const k = `${String(p.loanPayment)}_${p.memberCode}`;
+    paidTodayMap.set(k, (paidTodayMap.get(k) || 0) + (p.amountPaise || 0) / 100);
+  }
 
   const dues = [];
   loans.forEach((l) => {
@@ -628,17 +633,24 @@ export async function getTodayDueList(req, res) {
       const isLineSettled = line.isSettled || settledKeySet.has(`${String(l._id)}_${line.code}`) || settledKeySet.has(`${l.loanId}_${line.code}`);
       if (isLineSettled) return;
 
-      const alreadyPaid = paidTodayKeySet.has(`${String(l._id)}_${line.code}`);
-      if (alreadyPaid) return; // Point 1: already collected today, remove from pending due list
+      const fullEmi = (latest.installmentPaise + (line.extraEmiPaise || 0)) / 100;
+      const k = `${String(l._id)}_${line.code}`;
+      const collectedAmount = paidTodayMap.get(k) || 0;
+      const remainingDue = Math.max(0, fullEmi - collectedAmount);
 
       dues.push({
+        loanPaymentId: l._id,
         loanId: l.loanId || l.formId,
         memberCode: line.code,
         memberName: line.name,
         groupName: l.group?.name || l.group?.code || 'Individual',
         category: cat,
         installmentNo: latest.no,
-        dueAmount: (latest.installmentPaise + (line.extraEmiPaise || 0)) / 100,
+        totalDue: fullEmi,
+        collectedAmount,
+        dueAmount: remainingDue,
+        isFullyPaid: collectedAmount >= fullEmi,
+        isPartiallyPaid: collectedAmount > 0 && remainingDue > 0,
         dueDate: latest.dueDate ? latest.dueDate.toISOString().slice(0, 10) : dateStr,
         mode: l.modeLabel || l.mode || 'Weekly',
       });
@@ -646,17 +658,30 @@ export async function getTodayDueList(req, res) {
   });
 
   const summary = {
-    all: { count: dues.length, amount: dues.reduce((s, x) => s + x.dueAmount, 0) },
-    group: { count: 0, amount: 0 },
-    personal: { count: 0, amount: 0 },
-    msme: { count: 0, amount: 0 },
-    product: { count: 0, amount: 0 },
+    all: {
+      count: dues.length,
+      totalDue: dues.reduce((s, x) => s + x.totalDue, 0),
+      totalCollected: dues.reduce((s, x) => s + x.collectedAmount, 0),
+      amount: dues.reduce((s, x) => s + x.dueAmount, 0),
+      remainingDue: dues.reduce((s, x) => s + x.dueAmount, 0),
+      dueCount: dues.filter((x) => x.dueAmount > 0).length,
+      paidCount: dues.filter((x) => x.isFullyPaid).length,
+    },
+    group: { count: 0, totalDue: 0, totalCollected: 0, amount: 0, remainingDue: 0, dueCount: 0, paidCount: 0 },
+    personal: { count: 0, totalDue: 0, totalCollected: 0, amount: 0, remainingDue: 0, dueCount: 0, paidCount: 0 },
+    msme: { count: 0, totalDue: 0, totalCollected: 0, amount: 0, remainingDue: 0, dueCount: 0, paidCount: 0 },
+    product: { count: 0, totalDue: 0, totalCollected: 0, amount: 0, remainingDue: 0, dueCount: 0, paidCount: 0 },
   };
 
   dues.forEach((it) => {
     if (summary[it.category]) {
       summary[it.category].count += 1;
+      summary[it.category].totalDue += it.totalDue;
+      summary[it.category].totalCollected += it.collectedAmount;
       summary[it.category].amount += it.dueAmount;
+      summary[it.category].remainingDue += it.dueAmount;
+      if (it.dueAmount > 0) summary[it.category].dueCount += 1;
+      if (it.isFullyPaid) summary[it.category].paidCount += 1;
     }
   });
 
@@ -666,8 +691,11 @@ export async function getTodayDueList(req, res) {
 
   res.json({
     date: dateStr,
-    totalDue: summary.all.amount,
+    totalDue: summary.all.totalDue,
+    totalCollected: summary.all.totalCollected,
+    remainingDue: summary.all.remainingDue,
     count: summary.all.count,
+    dueCount: summary.all.dueCount,
     summary,
     items: filteredDues,
   });
@@ -2198,8 +2226,11 @@ export async function getGroupEmiMembers(req, res) {
         memberCode: line.code,
         memberName: line.name,
         emiAmount: emiPaise / 100,
+        totalDue: emiPaise / 100,
         suggestedAmount: emiPaise / 100,
         dueAmount: duesPaise / 100,
+        todayPaidAmount: todayPaidPaise / 100,
+        collectedAmount: todayPaidPaise / 100,
         advanceAmount: advancePaise / 100,
         isAdvancePaid,
         alreadyPaidToday,
@@ -2456,8 +2487,11 @@ export async function getIndividualLoans(req, res) {
         loanType: l.loanType || loanType,
         mode: l.mode || l.modeLabel || 'monthly',
         emiAmount: emiPaise / 100,
+        totalDue: emiPaise / 100,
         suggestedAmount: emiPaise / 100,
         dueAmount: duesPaise / 100,
+        todayPaidAmount: todayPaidPaise / 100,
+        collectedAmount: todayPaidPaise / 100,
         advanceAmount: advancePaise / 100,
         isAdvancePaid,
         alreadyPaidToday,

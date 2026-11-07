@@ -555,7 +555,7 @@ export default function EmployeeEmiPayment() {
                       </div>
                       <div style={{ textAlign: 'center' }}>
                         <div style={{ fontSize: '0.68rem', color: is100Percent ? '#166534' : 'var(--emp-text-muted)', fontWeight: 600 }}>
-                          Target Due:
+                          Total Due:
                         </div>
                         <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--emp-text)' }}>
                           ₹{Number(g.totalDueAmount || 0).toLocaleString('en-IN')}
@@ -635,7 +635,7 @@ export default function EmployeeEmiPayment() {
                   Group Code: <strong>{activeGroup.groupCode}</strong>
                 </div>
                 <div style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', marginTop: 4 }}>
-                  Actual Group Collection: <strong style={{ color: '#15803d' }}>₹{Number(activeGroup.totalCollectedToday || 0).toLocaleString('en-IN')}</strong> • Target Due: <strong>₹{Number(activeGroup.totalDueAmount || 0).toLocaleString('en-IN')}</strong>
+                  Actual Group Collection: <strong style={{ color: '#15803d' }}>₹{Number(activeGroup.totalCollectedToday || 0).toLocaleString('en-IN')}</strong> • Pending Due: <strong style={{ color: '#dc2626' }}>₹{Math.max(0, Number(activeGroup.totalDueAmount || 0) - Number(activeGroup.totalCollectedToday || 0)).toLocaleString('en-IN')}</strong> • Total Due: <strong>₹{Number(activeGroup.totalDueAmount || 0).toLocaleString('en-IN')}</strong>
                 </div>
               </div>
               <div style={{ textAlign: 'right' }}>
@@ -700,6 +700,11 @@ export default function EmployeeEmiPayment() {
                             </div>
                             <div style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)', marginTop: 1 }}>
                               Code: <strong>{m.memberCode}</strong> • Loan A/c: <strong>{m.loanId}</strong>
+                            </div>
+                            <div style={{ fontSize: '0.74rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
+                              Total Due: <strong>₹{Number(m.totalDue || m.emiAmount).toLocaleString('en-IN')}</strong>
+                              {m.todayPaidAmount > 0 && <span style={{ color: '#16a34a', fontWeight: 700 }}> • Collect: ₹{Number(m.todayPaidAmount).toLocaleString('en-IN')}</span>}
+                              {m.dueAmount > 0 && <span style={{ color: '#dc2626', fontWeight: 700 }}> • Due: ₹{Number(m.dueAmount).toLocaleString('en-IN')}</span>}
                             </div>
                           </div>
 
@@ -884,6 +889,11 @@ export default function EmployeeEmiPayment() {
                             </div>
                             <div style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)', marginTop: 1 }}>
                               Code: <strong>{item.memberCode}</strong> • Loan A/c: <strong>{item.loanId}</strong>
+                            </div>
+                            <div style={{ fontSize: '0.74rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
+                              Total Due: <strong>₹{Number(item.totalDue || item.emiAmount).toLocaleString('en-IN')}</strong>
+                              {item.todayPaidAmount > 0 && <span style={{ color: '#16a34a', fontWeight: 700 }}> • Collect: ₹{Number(item.todayPaidAmount).toLocaleString('en-IN')}</span>}
+                              {item.dueAmount > 0 && <span style={{ color: '#dc2626', fontWeight: 700 }}> • Due: ₹{Number(item.dueAmount).toLocaleString('en-IN')}</span>}
                             </div>
                           </div>
 
