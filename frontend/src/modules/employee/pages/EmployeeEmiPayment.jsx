@@ -229,8 +229,14 @@ export default function EmployeeEmiPayment() {
     }
   };
 
+  const isSunday = new Date().getDay() === 0;
+
   // Submit Bulk EMI Collection (Save / Done)
   const handleSaveCollection = async () => {
+    if (isSunday) {
+      setMessage({ text: 'EMI collections and Loan Requisitions are blocked on Sundays (Weekly Off).', type: 'error' });
+      return;
+    }
     const itemsToPay = Object.entries(collectionMap)
       .filter(([, v]) => v.selected && Number(v.amount) > 0)
       .map(([code, v]) => ({
@@ -301,6 +307,17 @@ export default function EmployeeEmiPayment() {
 
   return (
     <div className="emp-page-container">
+      {/* Sunday Block Banner (Point 23) */}
+      {isSunday && (
+        <div style={{ background: '#fee2e2', border: '1.5px solid #ef4444', color: '#991b1b', padding: '12px 14px', borderRadius: 8, fontSize: '0.85rem', marginBottom: 12, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Icon name="alert" size={18} />
+          <div>
+            <div>Sunday Weekly Off — Collections Blocked</div>
+            <div style={{ fontSize: '0.74rem', fontWeight: 500, marginTop: 2 }}>Posting EMI collections and Loan Requisitions is strictly blocked on Sundays & Company Holidays.</div>
+          </div>
+        </div>
+      )}
+
       {/* 1. Loan Category Tabs - Vibrant and Colorful */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginBottom: 12 }}>
         {LOAN_TYPES.map((lt) => {
@@ -967,9 +984,9 @@ export default function EmployeeEmiPayment() {
                   className="emp-btn-primary"
                   style={{ width: '100%', padding: '12px', fontSize: '0.95rem', fontWeight: 800 }}
                   onClick={handleSaveCollection}
-                  disabled={submitting || totalSelectedCollection <= 0}
+                  disabled={submitting || totalSelectedCollection <= 0 || isSunday}
                 >
-                  {submitting ? 'Saving Collections...' : '✓ Done / Save Collection'}
+                  {submitting ? 'Saving Collections...' : isSunday ? '⚠️ Blocked on Sundays' : '✓ Done / Save Collection'}
                 </button>
               </div>
             </div>

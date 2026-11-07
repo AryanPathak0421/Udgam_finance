@@ -18,13 +18,14 @@ function firstMonth(join) {
   return idx(j) + (j.getUTCDate() <= 15 ? 0 : 1);
 }
 
-/** The days of EL an employee earned in the months from `fromIdx` to `toIdx` (inclusive). */
+/** The days of EL an employee earned in the months from `fromIdx` to `toIdx` (inclusive). Capped at 12 per financial year. */
 const earnedBetween = (first, fromIdx, toIdx) => {
   const start = first === null ? fromIdx : Math.max(first, fromIdx);
-  return Math.max(toIdx - start + 1, 0);
+  const months = Math.max(toIdx - start + 1, 0);
+  return Math.min(months, 12);
 };
 
-/** The balance of one employee as on a date: carried from the years before, earned this financial year, taken, and what can be taken now. */
+/** The balance of one employee as on a date: carried from the years before, earned this financial year (1 per month, April to March = max 12), taken, and what can be taken now. */
 export function balanceOf(emp, taken, asOf = new Date()) {
   const today = new Date(Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth(), asOf.getUTCDate()));
   const fy = fyStartOf(today);
@@ -32,7 +33,7 @@ export function balanceOf(emp, taken, asOf = new Date()) {
   const joinDate = emp.joiningDate || emp.createdAt;
   const first = firstMonth(joinDate);
   const before = first === null ? 0 : earnedBetween(first, first, fyIdx - 1);
-  const earned = earnedBetween(first, fyIdx, idx(today));
+  const earned = Math.min(earnedBetween(first, fyIdx, idx(today)), 12);
   const usedBefore = taken.filter((l) => new Date(l.from) < fy).reduce((s, l) => s + (l.days || 0), 0);
   const used = taken.filter((l) => new Date(l.from) >= fy).reduce((s, l) => s + (l.days || 0), 0);
   const opening = Math.max(before - usedBefore, 0);

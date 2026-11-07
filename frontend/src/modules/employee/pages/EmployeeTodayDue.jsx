@@ -39,6 +39,9 @@ export default function EmployeeTodayDue() {
   // Barcode / QR Modal
   const [barcodeModal, setBarcodeModal] = useState(null);
 
+  // Sunday and Holiday lock (Point 23)
+  const isSunday = new Date().getDay() === 0;
+
   const fetchDues = async () => {
     setLoading(true);
     setError('');
@@ -83,6 +86,10 @@ export default function EmployeeTodayDue() {
 
   const handleCollectSubmit = async (e) => {
     e.preventDefault();
+    if (isSunday) {
+      setActionMessage({ text: 'Collections are blocked on Sundays (Weekly Off).', type: 'error' });
+      return;
+    }
     if (!collectAmount || Number(collectAmount) <= 0) {
       setActionMessage({ text: 'Please enter a valid amount', type: 'error' });
       return;
@@ -120,6 +127,17 @@ export default function EmployeeTodayDue() {
 
   return (
     <div className="emp-page-container">
+      {/* Sunday Block Banner (Point 23) */}
+      {isSunday && (
+        <div style={{ background: '#fee2e2', border: '1.5px solid #ef4444', color: '#991b1b', padding: '12px 14px', borderRadius: 8, fontSize: '0.85rem', marginBottom: 12, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Icon name="alert" size={18} />
+          <div>
+            <div>Sunday Weekly Off — Collections Blocked</div>
+            <div style={{ fontSize: '0.74rem', fontWeight: 500, marginTop: 2 }}>Posting EMI collections and Loan Requisitions is strictly blocked on Sundays & Company Holidays.</div>
+          </div>
+        </div>
+      )}
+
       {/* Date Filter Card */}
       <div className="emp-card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
@@ -389,9 +407,9 @@ export default function EmployeeTodayDue() {
                   type="submit"
                   className="emp-btn-primary"
                   style={{ flex: 1 }}
-                  disabled={submitting}
+                  disabled={submitting || isSunday}
                 >
-                  {submitting ? 'Collecting...' : 'Confirm Payment'}
+                  {submitting ? 'Collecting...' : isSunday ? 'Blocked on Sundays' : 'Confirm Payment'}
                 </button>
               </div>
             </form>

@@ -578,7 +578,7 @@ function History({ kind, reloadKey, onCancelled }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [page, setPage] = useState(1);
-  const [status, setStatus] = useState('active');
+  const [status, setStatus] = useState(kind === 'death' ? 'pending' : 'active');
   const [type, setType] = useState('all'); // loan settlements only, auto settle only, or both
   const [branch, setBranch] = useState('');
   const [from, setFrom] = useState('');

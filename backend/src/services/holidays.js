@@ -1,9 +1,36 @@
 import { Holiday } from '../models/SuperAdmin.js';
 import { LoanPayment } from '../models/LoanPayment.js';
+import { HttpError } from '../utils/http.js';
 
 const DAY = 24 * 3600 * 1000;
 const iso = (d) => new Date(d).toISOString().slice(0, 10);
 export const addDay = (d, n = 1) => new Date(d.getTime() + n * DAY);
+
+/** Asserts that the given date is neither a Sunday nor an active holiday for the branch. Throws HttpError(400) if blocked. */
+export async function assertNotSundayOrHoliday(date = new Date(), branchId = null) {
+  const d = new Date(date);
+  const istOffset = 5.5 * 60 * 60 * 1000;
+  const istTime = new Date(d.getTime() + (d.getTimezoneOffset() * 60000) + istOffset);
+  const istDay = istTime.getDay();
+  if (istDay === 0) {
+    throw new HttpError(400, 'Posting Loan Requisitions and EMI collections is strictly blocked on Sundays (Weekly Off).');
+  }
+
+  const dateIso = istTime.toISOString().slice(0, 10);
+  const offDays = await offDaysFor(branchId);
+  if (offDays.has(dateIso)) {
+    const h = await Holiday.findOne({
+      isDeleted: false,
+      isActive: true,
+      $or: [{ branch: branchId }, { branch: null }, { branch: { $exists: false } }],
+      date: {
+        $gte: new Date(`${dateIso}T00:00:00.000Z`),
+        $lte: new Date(`${dateIso}T23:59:59.999Z`),
+      },
+    }).lean();
+    throw new HttpError(400, `Posting Loan Requisitions and EMI collections is strictly blocked on Company Holidays (${h?.name || 'Company Holiday'}).`);
+  }
+}
 
 /** The holidays of the Holiday Master: the ones of every branch, and the ones of single branches. */
 export async function loadHolidays() {

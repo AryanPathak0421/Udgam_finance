@@ -290,8 +290,8 @@ export default function GroupLoanRequisition() {
                 {branches.map((x) => <option key={x.id} value={x.id}>{x.code} — {x.name}</option>)}
               </select>
             </FormField>
-            <FormField id="loanDate" label="Loan date" hint={form.loanDate ? `Branch working date: ${form.loanDate}` : 'A group requisition is made for your branch working date'} error={errors.loanDate}>
-              <input id="loanDate" type="date" value={form.loanDate || todayISO()} onChange={(e) => setForm((f) => ({ ...f, loanDate: e.target.value }))} readOnly={!isAdmin && Boolean(form.branch)} />
+            <FormField id="loanDate" label="Loan date" hint="Same-day requisition only (Date is locked to today)">
+              <input id="loanDate" type="date" value={form.loanDate || todayISO()} readOnly disabled style={{ background: '#f1f5f9', cursor: 'not-allowed', color: '#64748b' }} />
             </FormField>
             <EmployeeSelect id="filterEmployee" branch={form.branch} value={form.filterEmployee} label="Filter groups by employee" required={false} autoDefault={false}
               onChange={(code) => { setForm((f) => ({ ...f, filterEmployee: code })); setPicked(null); setDetail(null); setChosen([]); }} />

@@ -423,8 +423,12 @@ export default function EmployeeLoanRequisition() {
   // KYC validation check (Point 6)
   const isKycIncomplete = selectedMember && !selectedMember.isKycOk;
 
+  // Sunday and Holiday lock (Point 23)
+  const isSunday = new Date().getDay() === 0;
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (isSunday) return setError('Loan requisitions and EMI collections are blocked on Sundays (Weekly Off).');
     if (!selectedMember) return setError('Please select or search a borrower member first');
     if (isKycIncomplete) {
       return setError('Member KYC is incomplete or not verified! Loan requisition is blocked until KYC is approved in New Member / KYC section.');
@@ -564,6 +568,25 @@ export default function EmployeeLoanRequisition() {
 
       {activeTab === 'new' && (
         <>
+          {/* Sunday Block Banner (Point 23) */}
+          {isSunday && (
+            <div style={{ background: '#fee2e2', border: '1.5px solid #ef4444', color: '#991b1b', padding: '12px 14px', borderRadius: 8, fontSize: '0.85rem', marginBottom: 12, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Icon name="alert" size={18} />
+              <div>
+                <div>Sunday Weekly Off — Loan Requisitions Blocked</div>
+                <div style={{ fontSize: '0.74rem', fontWeight: 500, marginTop: 2 }}>Posting Loan Requisitions and EMI collections is blocked on Sundays & Company Holidays.</div>
+              </div>
+            </div>
+          )}
+
+          {/* Locked Requisition Date Notice (Point 23) */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', border: '1px solid var(--emp-border)', padding: '8px 12px', borderRadius: 8, marginBottom: 10, fontSize: '0.8rem' }}>
+            <span style={{ color: 'var(--emp-text-muted)' }}>Requisition Date (Same Day):</span>
+            <span style={{ fontWeight: 800, color: 'var(--emp-text)' }}>
+              📅 {new Date().toISOString().slice(0, 10)} (Locked)
+            </span>
+          </div>
+
           {/* Loan Category Selector */}
           <div className="emp-card" style={{ padding: '12px 14px' }}>
             <label style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--emp-text)', display: 'block', marginBottom: 8 }}>
@@ -1345,9 +1368,9 @@ export default function EmployeeLoanRequisition() {
                   opacity: isKycIncomplete ? 0.6 : 1,
                   cursor: isKycIncomplete ? 'not-allowed' : 'pointer',
                 }}
-                disabled={submitting || isKycIncomplete}
+                disabled={submitting || isKycIncomplete || isSunday}
               >
-                {submitting ? 'Submitting Requisition...' : isKycIncomplete ? '⚠️ Blocked: Member KYC Pending' : 'Submit Loan Requisition'}
+                {submitting ? 'Submitting Requisition...' : isSunday ? '⚠️ Blocked: Sunday Weekly Off' : isKycIncomplete ? '⚠️ Blocked: Member KYC Pending' : 'Submit Loan Requisition'}
               </button>
             </form>
           )}

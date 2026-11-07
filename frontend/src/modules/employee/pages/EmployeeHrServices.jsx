@@ -218,12 +218,15 @@ export default function EmployeeHrServices() {
                 <div style={{ background: '#eff6ff', border: '1px solid #3b82f6', padding: 10, borderRadius: 8 }}>
                   <div style={{ fontSize: '0.72rem', color: '#1e40af' }}>Earned Leave (EL)</div>
                   <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#1e40af' }}>
-                    {leaveData.balances.elBalance} <span style={{ fontSize: '0.75rem', fontWeight: 500 }}>/ {leaveData.balances.elTotal}</span>
+                    {leaveData.balances.elBalance} <span style={{ fontSize: '0.75rem', fontWeight: 500 }}>/ {leaveData.balances.elTotal || 12}</span>
                   </div>
                   <div style={{ fontSize: '0.68rem', color: '#1e40af', marginTop: 2 }}>
-                    Opening: {leaveData.balances.elOpening || 0} • Earned: {leaveData.balances.elEarned || 0} • Used: {leaveData.balances.elUsed || 0}
+                    Opening: {leaveData.balances.elOpening || 0} • Accrued this FY: {leaveData.balances.elEarned || 0} • Taken: {leaveData.balances.elUsed || 0}
                   </div>
                 </div>
+              </div>
+              <div style={{ marginTop: 8, fontSize: '0.72rem', color: 'var(--emp-text-muted)', background: '#f8fafc', padding: '6px 8px', borderRadius: 6 }}>
+                💡 <strong>EL Rule:</strong> 1 EL per month, 12 EL per Financial Year (April to March). Accrued balance accumulates monthly (e.g. if April, May, June are due/unused, up to 4 EL can be taken in July).
               </div>
             </div>
           )}

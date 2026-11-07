@@ -220,25 +220,83 @@ export default function EmployeeDeathRequest() {
               {/* Target Type Selector */}
               <div>
                 <label style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--emp-text)', display: 'block', marginBottom: 6 }}>
-                  Deceased Person *
+                  Deceased Person * (मृत व्यक्ति चुनें)
                 </label>
                 <div style={{ display: 'flex', gap: 10 }}>
                   <button
                     type="button"
-                    className={targetType === 'member' ? 'emp-btn-primary' : 'emp-btn-secondary'}
-                    style={{ flex: 1, padding: '10px', fontSize: '0.85rem', fontWeight: 700 }}
+                    style={{
+                      flex: 1,
+                      padding: '12px',
+                      fontSize: '0.88rem',
+                      fontWeight: 800,
+                      borderRadius: 8,
+                      border: targetType === 'member' ? '2px solid #ef4444' : '1px solid #cbd5e1',
+                      background: targetType === 'member' ? '#fee2e2' : '#f8fafc',
+                      color: targetType === 'member' ? '#991b1b' : '#64748b',
+                      boxShadow: targetType === 'member' ? '0 0 0 3px rgba(239, 68, 68, 0.25)' : 'none',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                    }}
                     onClick={() => setTargetType('member')}
                   >
-                    Member (कर्जदार)
+                    {targetType === 'member' ? '✓ ' : ''}Member (कर्जदार)
                   </button>
                   <button
                     type="button"
-                    className={targetType === 'guarantor' ? 'emp-btn-primary' : 'emp-btn-secondary'}
-                    style={{ flex: 1, padding: '10px', fontSize: '0.85rem', fontWeight: 700 }}
+                    style={{
+                      flex: 1,
+                      padding: '12px',
+                      fontSize: '0.88rem',
+                      fontWeight: 800,
+                      borderRadius: 8,
+                      border: targetType === 'guarantor' ? '2px solid #8b5cf6' : '1px solid #cbd5e1',
+                      background: targetType === 'guarantor' ? '#ede9fe' : '#f8fafc',
+                      color: targetType === 'guarantor' ? '#5b21b6' : '#64748b',
+                      boxShadow: targetType === 'guarantor' ? '0 0 0 3px rgba(139, 92, 246, 0.25)' : 'none',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                    }}
                     onClick={() => setTargetType('guarantor')}
                   >
-                    Guarantor (जमानतदार)
+                    {targetType === 'guarantor' ? '✓ ' : ''}Guarantor (जमानतदार)
                   </button>
+                </div>
+
+                {/* Highlighted Selected Deceased Person Banner (Point 20) */}
+                <div style={{
+                  marginTop: 10,
+                  padding: '10px 14px',
+                  borderRadius: 8,
+                  background: targetType === 'member' ? '#fef2f2' : '#f5f3ff',
+                  border: targetType === 'member' ? '1.5px solid #f87171' : '1.5px solid #a78bfa',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                }}>
+                  <div style={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: '50%',
+                    background: targetType === 'member' ? '#fee2e2' : '#ede9fe',
+                    color: targetType === 'member' ? '#dc2626' : '#7c3aed',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontWeight: 800,
+                  }}>
+                    {targetType === 'member' ? 'M' : 'G'}
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '0.84rem', fontWeight: 800, color: targetType === 'member' ? '#991b1b' : '#5b21b6' }}>
+                      Selected Deceased: {targetType === 'member' ? `Member (Borrower) — ${selectedMember?.name} (${selectedMember?.code})` : `Guarantor (जमानतदार) — ${guarantorName || selectedMember?.guarantor?.name || 'Guarantor'}`}
+                    </div>
+                    <div style={{ fontSize: '0.74rem', color: targetType === 'member' ? '#b91c1c' : '#6d28d9', marginTop: 1 }}>
+                      {targetType === 'member'
+                        ? 'Death settlement request will be registered directly in Dead Settlement section for Admin closure.'
+                        : 'Guarantor demise will be officially recorded in software Guarantor Deaths section.'}
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -355,21 +413,42 @@ export default function EmployeeDeathRequest() {
                 </div>
               </div>
 
-              {/* 1 Staff House Visit Photo */}
+              {/* 1 Staff House Visit Photo (Strict Live Camera Capture Only - Point 20) */}
               <div>
                 <label style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>
-                  Staff House Visit Photo *
+                  Staff House Visit Photo * (Live Camera Only)
                 </label>
-                <input type="file" accept="image/*" id="hvp" style={{ display: 'none' }} onChange={(e) => handleImageFile(e, setHouseVisitPhoto)} />
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  id="hvp"
+                  style={{ display: 'none' }}
+                  onChange={(e) => handleImageFile(e, setHouseVisitPhoto)}
+                />
                 <button
                   type="button"
                   className="emp-btn-secondary"
-                  style={{ width: '100%', padding: '12px', border: '1px dashed var(--emp-primary)', color: 'var(--emp-primary)', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    border: '1.5px dashed var(--emp-primary)',
+                    background: '#f0fdf4',
+                    color: 'var(--emp-primary)',
+                    fontWeight: 700,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                  }}
                   onClick={() => document.getElementById('hvp').click()}
                 >
                   <Icon name="camera" size={18} />
-                  <span>{houseVisitPhoto ? '✓ Staff Visit Photo Uploaded (Click to change)' : 'Capture Staff House Visit Photo'}</span>
+                  <span>{houseVisitPhoto ? '✓ Live House Visit Photo Captured (Tap to Retake)' : '📷 Capture Staff House Visit Photo (Camera Only)'}</span>
                 </button>
+                <div style={{ fontSize: '0.72rem', color: '#b45309', marginTop: 4 }}>
+                  ⚠️ Gallery upload option disabled. Direct live camera capture required during physical house visit.
+                </div>
                 {houseVisitPhoto && (
                   <div style={{ marginTop: 8, textAlign: 'center' }}>
                     <img src={houseVisitPhoto} alt="Visit Photo" style={{ width: '100%', maxHeight: 150, objectFit: 'cover', borderRadius: 8 }} />

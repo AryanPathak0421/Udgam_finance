@@ -16,7 +16,7 @@ import { toMinor } from '../utils/money.js';
 import { audit } from '../utils/audit.js';
 import { notifyApprovers } from '../services/notify.js';
 import { branchFilter, isAdmin, showMobile } from './groupController.js';
-import { loadHolidays, offDaysOf, nextWorking } from '../services/holidays.js';
+import { loadHolidays, offDaysOf, nextWorking, assertNotSundayOrHoliday } from '../services/holidays.js';
 
 const invalid = (errors) => new HttpError(422, 'Please correct the highlighted fields', errors);
 const POPULATE = [{ path: 'branch', select: 'code name' }];
@@ -218,6 +218,8 @@ async function readPaidOn(req, p, input) {
  * installments that are not due yet.
  */
 export async function receive(req, p, line, { amountPaise, count, type, paidOn, payMode, reference, bankAccount, npa = false, dueOnly = false, employeeCode = '' }) {
+  // Point 23: Block EMI payment posting on Sundays and Holidays
+  await assertNotSundayOrHoliday(paidOn || new Date(), p.branch?._id || p.branch);
   // a branch whose day is closed (denomination made) takes no EMI for that day
   await assertDayOpen(p.branch?._id || p.branch, paidOn, req.user);
   const st = await borrowerState(p, line, paidOn);

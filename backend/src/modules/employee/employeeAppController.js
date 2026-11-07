@@ -33,6 +33,7 @@ import { issueOtp, takeVerified, consumeChallenge } from '../../services/otpChal
 import { sendSms } from '../../services/sms.js';
 import { sendMail, mailConfigured } from '../../services/mailer.js';
 import { elBalance } from '../../services/earnedLeave.js';
+import { assertNotSundayOrHoliday } from '../../services/holidays.js';
 import { borrowerState } from '../../controllers/emiController.js';
 import { asString, parseDateOnly, HttpError, startOfToday, todayDateString } from '../../utils/http.js';
 import { audit } from '../../utils/audit.js';
@@ -1040,7 +1041,19 @@ export async function rejectMemberKycDoc(req, res) {
   });
   m.kycRejected = true;
   await m.save();
-  res.json({ status: 'ok', message: `Document (${mappedField}) rejected. Ready for re-upload.` });
+
+  // Point 22: Dispatch Push/In-App Notification to staff when KYC is rejected
+  const notifyUser = m.createdBy || m.joiningApproval?.submittedBy;
+  if (notifyUser) {
+    await UserNotification.create({
+      user: notifyUser,
+      title: '⚠️ Member KYC Document Rejected',
+      message: `KYC document (${mappedField}) for member ${m.code} (${m.name}) was rejected: "${reason}". Please re-upload from Employee KYC section.`,
+      data: { memberId: m._id, memberCode: m.code, field: mappedField, type: 'kyc_rejected' },
+    }).catch((e) => console.error('[rejectMemberKycDoc] Notification dispatch error:', e.message));
+  }
+
+  res.json({ status: 'ok', message: `Document (${mappedField}) rejected. Notification sent to staff for re-upload.` });
 }
 
 export async function sendMemberPhoneChangeOtp(req, res) {
@@ -1271,6 +1284,9 @@ export async function collectTodayDue(req, res) {
     loan = await LoanPayment.findOne({ $or: [{ loanId }, { formId: loanId }] });
   }
   if (!loan) throw new HttpError(404, 'Loan record not found');
+
+  // Point 23: Block EMI collection on Sundays and Holidays
+  await assertNotSundayOrHoliday(new Date(), loan.branch);
 
   const line = (loan.lines || []).find((l) => l.code === memberCode) || loan.lines?.[0];
   if (!line) throw new HttpError(404, 'Borrower line not found in loan');
@@ -1545,6 +1561,9 @@ export async function createLoanRequisition(req, res) {
   const emp = await Employee.findOne({ employeeCode: code }).lean();
   const branchId = b.branch || emp?.branch || (req.user?.branches || [])[0];
   if (!branchId) throw new HttpError(400, 'Branch is required. Please assign a branch.');
+
+  // Point 23: Block Loan Requisition on Sundays and Company Holidays
+  await assertNotSundayOrHoliday(new Date(), branchId);
 
   const borrowerCode = cleanStr(b.borrowerCode || b.borrower?.code);
   if (!borrowerCode) throw new HttpError(400, 'Borrower member code is required');
@@ -2171,6 +2190,9 @@ export async function collectBulkEmi(req, res) {
   const paidOn = date ? new Date(date) : new Date();
   const staffCode = req.user?.employeeCode || '';
 
+  // Point 23: Block EMI collection on Sundays and Holidays
+  await assertNotSundayOrHoliday(paidOn);
+
   for (const it of items) {
     try {
       const amount = Number(it.amount);
@@ -2428,6 +2450,9 @@ export async function advancePayment(req, res) {
   });
   if (!loan) throw new HttpError(404, `Loan '${loanId}' not found or already closed`);
 
+  // Point 23: Block EMI collection on Sundays and Holidays
+  await assertNotSundayOrHoliday(new Date(), loan.branch);
+
   const line = (loan.lines || []).find((l) => (memberCode && l.code === memberCode)) || loan.lines?.[0];
   if (!line) throw new HttpError(404, 'Borrower line not found in this loan');
 
@@ -2621,6 +2646,12 @@ export async function recoverNpaLoan(req, res) {
 
   const loan = await LoanPayment.findById(loanPaymentId);
   if (!loan) throw new HttpError(404, 'Loan record not found');
+
+  // Point 23: Block NPA recovery collection on Sundays and Holidays
+  await assertNotSundayOrHoliday(new Date(), loan.branch);
+
+  // Point 23: Block EMI collection on Sundays and Holidays
+  await assertNotSundayOrHoliday(new Date(), loan.branch);
 
   const line = (loan.lines || []).find((l) => l.code === memberCode) || loan.lines?.[0];
   if (!line) throw new HttpError(404, 'Borrower line not found in loan');
@@ -3463,7 +3494,8 @@ export async function getLeaveOverview(req, res) {
       clTotal: 12,
       clUsed: approvedCasual,
       clBalance: Math.max(0, 12 - approvedCasual),
-      elTotal: (realEl.opening || 0) + (realEl.earned || 0),
+      elTotal: 12, // Fixed standard: 12 EL per Financial Year (1 EL per month)
+      elAccumulated: (realEl.opening || 0) + (realEl.earned || 0),
       elUsed: realEl.used || 0,
       elBalance: realEl.available,
       elOpening: realEl.opening || 0,
@@ -3685,18 +3717,43 @@ export async function getBranchStockProducts(req, res) {
 export async function sellStockProduct(req, res) {
   const code = req.user?.employeeCode;
   const emp = await Employee.findOne({ employeeCode: code });
-  const { memberCode, productCode, quantity = 1, payMode = 'cash' } = req.body || {};
+  const { memberCode, productCode, quantity = 1, payMode = 'upi' } = req.body || {};
 
-  const product = await StockProduct.findOne({ code: productCode, isDeleted: false });
-  if (!product) throw new HttpError(404, 'Product not found');
-  if (product.stockQty < quantity) throw new HttpError(400, `Insufficient stock (Available: ${product.stockQty})`);
+  const bookQty = Math.max(1, parseInt(quantity, 10) || 1);
+  if (!['qr', 'upi', 'upi_qr'].includes(String(payMode || '').toLowerCase())) {
+    throw new HttpError(400, 'Product booking is only allowed via Company Dynamic QR Payment.');
+  }
+
+  let product = await StockProduct.findOne({ code: productCode, isDeleted: false });
+  // If product not seeded in DB yet, initialize from standard catalog
+  if (!product) {
+    const catalog = [
+      { code: 'TV32', name: '32-inch Smart HD LED TV', category: 'Electronics', brand: 'LG/Samsung', unitPricePaise: 1250000, stockQty: 10 },
+      { code: 'SOLAR01', name: 'Solar Home Light System (1kW)', category: 'Solar', brand: 'Luminous', unitPricePaise: 850000, stockQty: 15 },
+      { code: 'SEW01', name: 'Sewing Machine Heavy Duty', category: 'Appliances', brand: 'Usha/Singer', unitPricePaise: 680000, stockQty: 30 },
+      { code: 'FAN01', name: 'Ceiling Fan High Speed 1200mm', category: 'Appliances', brand: 'Crompton', unitPricePaise: 220000, stockQty: 40 },
+      { code: 'MIX01', name: 'Mixer Grinder 750W 3 Jars', category: 'Appliances', brand: 'Bajaj', unitPricePaise: 320000, stockQty: 20 },
+    ];
+    const found = catalog.find((c) => c.code === productCode);
+    if (found) {
+      product = await StockProduct.create({ ...found, branch: emp?.branch });
+    }
+  }
+
+  if (!product) throw new HttpError(404, 'Product not found in stock inventory');
+  if (product.stockQty <= 0) {
+    throw new HttpError(400, `Product "${product.name}" is OUT OF STOCK. Cannot book.`);
+  }
+  if (product.stockQty < bookQty) {
+    throw new HttpError(400, `Insufficient stock for "${product.name}". Available: ${product.stockQty} pcs, Requested: ${bookQty} pcs.`);
+  }
 
   const member = await Member.findOne({ code: memberCode });
   const unitPrice = (product.unitPricePaise || 0) / 100;
-  const totalAmount = unitPrice * quantity;
+  const totalAmount = unitPrice * bookQty;
 
-  // Reserve stock for the booking
-  product.stockQty -= quantity;
+  // Reserve/decrement stock for this confirmed booking
+  product.stockQty = Math.max(0, product.stockQty - bookQty);
   await product.save();
 
   const receiptNo = `BK${Date.now().toString().slice(-8)}`;
@@ -3709,10 +3766,10 @@ export async function sellStockProduct(req, res) {
     memberName: member?.name || 'Customer',
     productCode: product.code,
     productName: product.name,
-    quantity,
+    quantity: bookQty,
     unitPrice,
     totalAmount,
-    payMode,
+    payMode: 'upi',
     status: 'pending',
   });
 
@@ -3720,7 +3777,7 @@ export async function sellStockProduct(req, res) {
     success: true,
     receiptNo,
     totalAmount,
-    message: `Product ${product.name} booked successfully (Booking ID: ${receiptNo}). Waiting for branch approval in Software App Section.`,
+    message: `Product "${product.name}" (Qty: ${bookQty}) booked successfully (Booking ID: ${receiptNo}) via QR Payment. Remaining stock: ${product.stockQty} pcs.`,
     item: saleDoc,
   });
 }
@@ -4149,6 +4206,8 @@ export async function submitDeathRequest(req, res) {
   const member = await Member.findById(memberId);
   if (!member) throw new HttpError(404, 'Member record not found');
 
+  const target = targetType === 'guarantor' ? 'guarantor' : 'member';
+  const cleanDeathDate = parseDateOnly(deathDate) || new Date(deathDate);
   const receiptNo = `DRQ-${Date.now().toString().slice(-8)}`;
 
   // Photos array cleanup
@@ -4159,10 +4218,10 @@ export async function submitDeathRequest(req, res) {
     member: member._id,
     memberCode: member.code,
     memberName: member.name,
-    targetType: targetType === 'guarantor' ? 'guarantor' : 'member',
+    targetType: target,
     guarantorName: guarantorName || member.guarantor?.name || '',
     requestDate: new Date(), // Fixed creation date, not editable
-    deathDate: parseDateOnly(deathDate) || new Date(deathDate),
+    deathDate: cleanDeathDate,
     deathReason: cleanStr(deathReason),
     deathPhotos: cleanDeathPhotos,
     houseVisitPhoto,
@@ -4172,10 +4231,69 @@ export async function submitDeathRequest(req, res) {
     status: 'pending',
   });
 
+  // Point 21 Linkage: Sync Death Request directly into Dead Settlement (LoanSettlement)
+  let loanSettlementDoc = null;
+  if (target === 'member') {
+    // Find active running loan for this member
+    const loan = await LoanPayment.findOne({
+      $or: [{ 'lines.member': member._id }, { 'lines.code': member.code }],
+      status: { $in: ['approved', 'disbursed', 'active'] },
+    }).populate('group branch').sort({ createdAt: -1 });
+
+    if (loan) {
+      const line = (loan.lines || []).find((l) => String(l.member) === String(member._id) || l.code === member.code);
+      let outstandingPaise = 0;
+      if (line) {
+        try {
+          const state = await borrowerState(loan, line, new Date());
+          outstandingPaise = toMinor(state.outstanding || 0);
+        } catch {
+          outstandingPaise = line.amountPaise || 0;
+        }
+      }
+
+      const dthReceiptNo = `DTH-${Date.now().toString().slice(-8)}`;
+      loanSettlementDoc = await LoanSettlement.create({
+        kind: 'death',
+        receiptNo: dthReceiptNo,
+        loanPayment: loan._id,
+        loanId: loan.loanId || loan.formId,
+        formId: loan.formId,
+        branch: branchId || loan.branch?._id || loan.branch || member.branch,
+        member: member._id,
+        memberCode: member.code,
+        memberName: member.name,
+        group: loan.group?.code ? `${loan.group.code} — ${loan.group.name}` : '',
+        outstandingPaise,
+        amountPaise: 0,
+        waiverPaise: outstandingPaise,
+        settledOn: new Date(),
+        deathDate: cleanDeathDate,
+        certificate: deathCertificate,
+        remark: `[Submitted via Staff App: ${emp?.name || code}] Cause: ${deathReason}`,
+        verifier: { code: emp?.employeeCode || code || 'APP', name: emp?.name || 'Staff' },
+        status: 'pending',
+        createdBy: req.user?._id,
+      }).catch((e) => {
+        console.error('Failed to auto-create LoanSettlement from DeathRequest:', e.message);
+        return null;
+      });
+    }
+  } else if (target === 'guarantor') {
+    // Record guarantor death directly on Member profile
+    member.guarantor = member.guarantor || {};
+    member.guarantor.deceasedOn = cleanDeathDate;
+    member.guarantor.deathCertificate = deathCertificate;
+    member.guarantor.deathReason = cleanStr(deathReason);
+    member.guarantor.verifiedBy = { code: emp?.employeeCode || code || 'APP', name: emp?.name || 'Staff' };
+    await member.save().catch(() => {});
+  }
+
   res.status(201).json({
     success: true,
-    message: `Death request ${receiptNo} submitted successfully for review.`,
+    message: `Death request ${receiptNo} submitted successfully. It is now listed in Software Dead Settlement for approval.`,
     receiptNo,
+    settlementReceiptNo: loanSettlementDoc?.receiptNo,
     request: deathReq,
   });
 }

@@ -24,6 +24,7 @@ import { CivilCheck } from '../models/CivilCheck.js';
 import { missingDetails, guarantorGaps } from '../utils/memberDetails.js';
 import { notifyApprovers } from '../services/notify.js';
 import { blockedCodes } from '../services/blockedStaff.js';
+import { UserNotification } from '../models/SuperAdmin.js';
 
 export const GENDERS = ['male', 'female', 'other'];
 export const OCCUPATIONS = ['Farmer', 'Agricultural labour', 'Dairy / animal husbandry', 'Small shop / trader', 'Tailoring / handicraft', 'Daily wage labour', 'Salaried', 'Self employed', 'Homemaker', 'Other'];
@@ -965,8 +966,25 @@ export async function reviewKyc(req, res) {
   const rec = { key, status: action === 'approve' ? 'approved' : 'rejected', reason: action === 'reject' ? reason : '', reviewedAt: new Date(), reviewedBy: req.user._id, reviewedByCode: await staffId(req.user) };
   const list = (m.kycDocs || []).filter((x) => x.key !== key);
   m.kycDocs = [...list, rec];
+  if (action === 'reject') {
+    m.kycRejected = true;
+  }
   await m.save();
   await audit(req, { action: `kyc.${action}`, entity: 'Member', entityId: m._id, after: { code: m.code, document: key, reason: rec.reason } });
+
+  // Point 22: Dispatch Push/In-App Notification to staff who registered the member
+  if (action === 'reject') {
+    const notifyUser = m.createdBy || m.joiningApproval?.submittedBy;
+    if (notifyUser) {
+      UserNotification.create({
+        user: notifyUser,
+        title: '⚠️ KYC Document Rejected',
+        message: `KYC document (${key}) for member ${m.code} (${m.name}) was rejected: "${reason}". Please re-upload from Employee KYC section.`,
+        data: { memberId: m._id, memberCode: m.code, key, type: 'kyc_rejected' },
+      }).catch((e) => console.error('[reviewKyc] Notification dispatch error:', e.message));
+    }
+  }
+
   res.json({ message: action === 'approve' ? 'Document approved' : 'Document rejected' });
 }
 
