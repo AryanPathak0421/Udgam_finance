@@ -47,6 +47,13 @@ const loanRequisitionSchema = new mongoose.Schema(
       mobile: String,
       guarantorName: String,
     },
+    guarantor: {
+      name: String,
+      relation: String,
+      mobile: String,
+      aadhaar: String,
+      photo: String,
+    },
     previousLoanPaise: { type: Number, default: 0 },
 
     // group: every member of the group gets a loan of `amountPaise`

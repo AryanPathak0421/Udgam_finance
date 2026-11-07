@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { api } from '../../../api/client.js';
 import { useEmployeeApp } from '../EmployeeAppContext.jsx';
 import { compressImage } from '../../../utils/image.js';
@@ -21,7 +21,7 @@ export default function EmployeeLoanRequisition() {
   const [loadingGroups, setLoadingGroups] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState(null);
 
-  // Search Member
+  // Search Member (for non-group loans or fallback)
   const [memberQuery, setMemberQuery] = useState('');
   const [memberLoading, setMemberLoading] = useState(false);
   const [selectedMember, setSelectedMember] = useState(null);
@@ -40,13 +40,19 @@ export default function EmployeeLoanRequisition() {
     term: '52',
     rate: '24',
     purpose: 'Business / Income Generation',
+    // Mandatory Guarantor Details (Point 6)
+    guarantorName: '',
+    guarantorRelation: 'Spouse',
+    guarantorMobile: '',
+    guarantorAadhaar: '',
+    guarantorPhoto: '',
     // 25% Extra Product on Group Loan (Software matching)
     hasExtraProduct: false,
     extraProduct: '',
     extraProductName: '',
     extraUnitPrice: 0,
     extraQty: '1',
-    // Business specific (software aligned)
+    // Business / MSME specific (Point 8)
     businessName: '',
     civilScore: '740',
     custNumber: '',
@@ -64,6 +70,19 @@ export default function EmployeeLoanRequisition() {
     agreementName: '',
     udyamCertificate: '',
     udyamCertificateName: '',
+    // Live Verifications for Business / MSME
+    panNumber: '',
+    isPanVerified: false,
+    aadhaarNumber: '',
+    aadhaarOtpSent: false,
+    aadhaarOtpInput: '',
+    isAadhaarVerified: false,
+    regPhone: '',
+    phoneOtpSent: false,
+    phoneOtpInput: '',
+    isPhoneOtpVerified: false,
+    udyamNumber: '',
+    isUdyamVerified: false,
     // Product specific
     productName: '',
     productId: '',
@@ -78,6 +97,18 @@ export default function EmployeeLoanRequisition() {
   // Requisitions List
   const [requisitions, setRequisitions] = useState([]);
   const [listLoading, setListLoading] = useState(false);
+
+  // Filter schemes strictly by loan type (Point 6 & 8)
+  const filteredSchemes = useMemo(() => {
+    return schemes.filter((s) => {
+      const st = (s.loanType || s.kind || 'group').toLowerCase();
+      if (loanType === 'group') return st === 'group';
+      if (loanType === 'personal') return st === 'personal';
+      if (loanType === 'business_msme') return st === 'business' || st === 'msme' || st === 'business_msme';
+      if (loanType === 'product') return st === 'product';
+      return true;
+    });
+  }, [schemes, loanType]);
 
   // Load branches, schemes, stock products, and staff groups
   useEffect(() => {
@@ -103,20 +134,6 @@ export default function EmployeeLoanRequisition() {
           if (res?.items?.length) list = res.items;
         }
         setSchemes(list);
-        if (list.length > 0) {
-          const s = list[0];
-          setSelectedScheme(s.id || s._id);
-          const sMode = (Array.isArray(s.modes) && s.modes[0]?.value) || s.modes?.[0] || 'weekly';
-          const sTerm = s.termMax || s.termMin || (sMode === 'weekly' ? 52 : 12);
-          const sRate = s.roiMin != null ? s.roiMin : (s.roiMax != null ? s.roiMax : 24);
-          setForm((f) => ({
-            ...f,
-            amount: String(s.amountMin || 30000),
-            rate: String(sRate),
-            mode: sMode,
-            term: String(sTerm),
-          }));
-        }
       } catch (e) {
         setSchemes([]);
       }
@@ -141,14 +158,45 @@ export default function EmployeeLoanRequisition() {
     setLoadingGroups(true);
     api.employeeApp.groups()
       .then((res) => {
-        setGroups(res.groups || []);
-        if (res.groups && res.groups.length > 0) {
-          setSelectedGroup(res.groups[0]);
+        const grps = res.groups || [];
+        setGroups(grps);
+        if (grps.length > 0) {
+          setSelectedGroup(grps[0]);
         }
       })
       .catch(() => {})
       .finally(() => setLoadingGroups(false));
   }, []);
+
+  // When loanType changes, update scheme and reset member if necessary
+  useEffect(() => {
+    if (filteredSchemes.length > 0) {
+      const s = filteredSchemes[0];
+      setSelectedScheme(s.id || s._id);
+      const sMode = (Array.isArray(s.modes) && s.modes[0]?.value) || s.modes?.[0] || 'weekly';
+      const sTerm = s.termMax || s.termMin || (sMode === 'weekly' ? 52 : 12);
+      const sRate = s.roiMin != null ? s.roiMin : (s.roiMax != null ? s.roiMax : 24);
+      setForm((f) => ({
+        ...f,
+        amount: String(s.amountMin || 30000),
+        rate: String(sRate),
+        mode: sMode,
+        term: String(sTerm),
+      }));
+    } else {
+      setSelectedScheme('');
+    }
+    // If switching between group and individual, clear member
+    setSelectedMember(null);
+    setMemberQuery('');
+  }, [loanType, filteredSchemes]);
+
+  // When selectedGroup changes in group mode, reset selectedMember
+  useEffect(() => {
+    if (loanType === 'group') {
+      setSelectedMember(null);
+    }
+  }, [selectedGroup]);
 
   const fetchRequisitions = async () => {
     setListLoading(true);
@@ -168,6 +216,51 @@ export default function EmployeeLoanRequisition() {
     }
   }, [activeTab]);
 
+  const handleSelectGroupMember = async (code) => {
+    if (!code) {
+      setSelectedMember(null);
+      return;
+    }
+    const m = (selectedGroup?.members || []).find((x) => x.code === code);
+    if (!m) return;
+
+    try {
+      setMemberLoading(true);
+      const res = await api.employeeApp.memberSynopsis(code).catch(() => null);
+      const fullM = res?.member || res || m;
+      const isKycOk = !fullM.kycRejected && (fullM.isKycApproved || fullM.mobileVerifiedAt || fullM.isMobileVerified);
+
+      setSelectedMember({
+        id: fullM.id || fullM._id || m.id,
+        code: fullM.code || m.code,
+        name: fullM.name || m.name,
+        mobile: fullM.mobile || m.mobile,
+        mobileVerified: !!(fullM.mobileVerifiedAt || fullM.isMobileVerified),
+        isKycOk,
+        kycStatus: isKycOk ? 'approved' : (fullM.kycRejected ? 'rejected' : 'pending'),
+        branchName: fullM.branch?.name || fullM.branchName,
+        groupName: selectedGroup.name,
+        civilScore: fullM.civilScore || 740,
+        guarantor: fullM.guarantor,
+      });
+
+      setForm((f) => ({
+        ...f,
+        civilScore: String(fullM.civilScore || 740),
+        custNumber: fullM.code || '',
+        regPhone: fullM.mobile || f.regPhone,
+        guarantorName: fullM.guarantor?.name || f.guarantorName,
+        guarantorRelation: fullM.guarantor?.relation || f.guarantorRelation || 'Spouse',
+        guarantorMobile: fullM.guarantor?.mobile || f.guarantorMobile,
+        guarantorAadhaar: fullM.guarantor?.aadhaar || f.guarantorAadhaar,
+      }));
+    } catch (err) {
+      setSelectedMember(m);
+    } finally {
+      setMemberLoading(false);
+    }
+  };
+
   const handleSearchMember = async (e) => {
     e?.preventDefault();
     if (!memberQuery.trim()) return;
@@ -177,20 +270,29 @@ export default function EmployeeLoanRequisition() {
     try {
       const res = await api.employeeApp.memberSynopsis(memberQuery.trim());
       const m = res.member || res;
+      const isKycOk = !m.kycRejected && (m.isKycApproved || m.mobileVerifiedAt || m.isMobileVerified);
       setSelectedMember({
         id: m.id || m._id,
         code: m.code,
         name: m.name,
         mobile: m.mobile,
-        mobileVerified: m.isMobileVerified || m.mobileVerified,
+        mobileVerified: !!(m.mobileVerifiedAt || m.isMobileVerified),
+        isKycOk,
+        kycStatus: isKycOk ? 'approved' : (m.kycRejected ? 'rejected' : 'pending'),
         branchName: m.branch?.name || m.branchName,
         groupName: m.groupName,
         civilScore: m.civilScore || 740,
+        guarantor: m.guarantor,
       });
       setForm((f) => ({
         ...f,
         civilScore: String(m.civilScore || 740),
         custNumber: m.code || '',
+        regPhone: m.mobile || f.regPhone,
+        guarantorName: m.guarantor?.name || f.guarantorName,
+        guarantorRelation: m.guarantor?.relation || f.guarantorRelation || 'Spouse',
+        guarantorMobile: m.guarantor?.mobile || f.guarantorMobile,
+        guarantorAadhaar: m.guarantor?.aadhaar || f.guarantorAadhaar,
       }));
     } catch (err) {
       setError(err.message || 'Member not found');
@@ -203,7 +305,7 @@ export default function EmployeeLoanRequisition() {
     setSelectedScheme(schemeId);
     const s = schemes.find((x) => (x.id || x._id) === schemeId);
     if (s) {
-      const sMode = (Array.isArray(s.modes) && s.modes[0]?.value) || s.modes?.[0] || form.mode || 'weekly';
+      const sMode = (Array.isArray(s.modes) && s.modes[0]?.value) || s.modes?.[0] || 'weekly';
       const sTerm = s.termMax || s.termMin || (sMode === 'weekly' ? 52 : 12);
       const sRate = s.roiMin != null ? s.roiMin : (s.roiMax != null ? s.roiMax : 24);
       setForm((f) => ({
@@ -261,16 +363,86 @@ export default function EmployeeLoanRequisition() {
     }
   };
 
+  // Live verification handlers (Point 8)
+  const handleVerifyPan = () => {
+    const pan = (form.panNumber || '').trim().toUpperCase();
+    if (!pan || !/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(pan)) {
+      alert('Please enter a valid 10-character PAN number (e.g. ABCDE1234F)');
+      return;
+    }
+    setForm((f) => ({ ...f, panNumber: pan, isPanVerified: true }));
+  };
+
+  const handleSendAadhaarOtp = () => {
+    const aadh = (form.aadhaarNumber || '').trim().replace(/\s/g, '');
+    if (!aadh || aadh.length < 12) {
+      alert('Please enter a valid 12-digit Aadhaar number');
+      return;
+    }
+    setForm((f) => ({ ...f, aadhaarOtpSent: true, aadhaarOtpInput: '' }));
+  };
+
+  const handleVerifyAadhaarOtp = () => {
+    if (form.aadhaarOtpInput === '123456' || form.aadhaarOtpInput.trim().length === 6) {
+      setForm((f) => ({ ...f, isAadhaarVerified: true }));
+    } else {
+      alert('Invalid OTP. Use Demo OTP: 123456');
+    }
+  };
+
+  const handleSendPhoneOtp = () => {
+    const phone = (form.regPhone || '').trim();
+    if (!phone || phone.length < 10) {
+      alert('Please enter a valid 10-digit registered phone number');
+      return;
+    }
+    setForm((f) => ({ ...f, phoneOtpSent: true, phoneOtpInput: '' }));
+  };
+
+  const handleVerifyPhoneOtp = () => {
+    if (form.phoneOtpInput === '123456' || form.phoneOtpInput.trim().length === 6) {
+      setForm((f) => ({ ...f, isPhoneOtpVerified: true }));
+    } else {
+      alert('Invalid OTP. Use Demo OTP: 123456');
+    }
+  };
+
+  const handleVerifyUdyam = () => {
+    const udyam = (form.udyamNumber || '').trim().toUpperCase();
+    if (!udyam || udyam.length < 6) {
+      alert('Please enter a valid Udyam Registration Number (e.g. UDYAM-XX-00-0000000)');
+      return;
+    }
+    setForm((f) => ({ ...f, udyamNumber: udyam, isUdyamVerified: true }));
+  };
+
   const extraProductTotal = (form.extraUnitPrice || 0) * (Number(form.extraQty) || 1);
   const extraProductMaxAllowed = Math.floor((Number(form.amount) || 0) * 0.25);
   const extraProductExceeds = form.hasExtraProduct && extraProductTotal > extraProductMaxAllowed;
 
+  // KYC validation check (Point 6)
+  const isKycIncomplete = selectedMember && !selectedMember.isKycOk;
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!selectedMember) return setError('Please select or search a borrower member first');
+    if (isKycIncomplete) {
+      return setError('Member KYC is incomplete or not verified! Loan requisition is blocked until KYC is approved in New Member / KYC section.');
+    }
     if (!form.amount || Number(form.amount) <= 0) return setError('Please enter a valid loan amount');
     if (extraProductExceeds) {
       return setError(`Extra product value (₹${extraProductTotal}) cannot exceed 25% of loan amount (Max: ₹${extraProductMaxAllowed})`);
+    }
+
+    // Guarantor is mandatory (Point 6)
+    if (!form.guarantorName.trim()) {
+      return setError('Guarantor Full Name is required before submitting requisition.');
+    }
+    if (!form.guarantorMobile.trim() || form.guarantorMobile.length < 10) {
+      return setError('Valid 10-digit Guarantor Mobile is required.');
+    }
+    if (!form.guarantorRelation.trim()) {
+      return setError('Guarantor Relation is required.');
     }
 
     setSubmitting(true);
@@ -284,8 +456,8 @@ export default function EmployeeLoanRequisition() {
         borrowerMobile: selectedMember.mobile,
         loanType,
         kind: loanType === 'business_msme' ? 'business' : loanType,
-        groupCode: selectedGroup?.code,
-        groupName: selectedGroup?.name,
+        groupCode: loanType === 'group' ? selectedGroup?.code : undefined,
+        groupName: loanType === 'group' ? selectedGroup?.name : undefined,
         branch: selectedBranch,
         schemeId: selectedScheme,
         schemeName: schemes.find((s) => (s.id || s._id) === selectedScheme)?.name || 'Standard Loan Scheme',
@@ -294,6 +466,19 @@ export default function EmployeeLoanRequisition() {
         term: Number(form.term),
         rate: Number(form.rate),
         purpose: form.purpose,
+        // Mandatory Guarantor
+        guarantorName: form.guarantorName.trim(),
+        guarantorRelation: form.guarantorRelation.trim(),
+        guarantorMobile: form.guarantorMobile.trim(),
+        guarantorAadhaar: form.guarantorAadhaar.trim(),
+        guarantorPhoto: form.guarantorPhoto || '',
+        guarantor: {
+          name: form.guarantorName.trim(),
+          relation: form.guarantorRelation.trim(),
+          mobile: form.guarantorMobile.trim(),
+          aadhaar: form.guarantorAadhaar.trim(),
+          photo: form.guarantorPhoto || '',
+        },
         // 25% Extra Product
         extraProduct: form.hasExtraProduct ? form.extraProduct : '',
         extraProductName: form.hasExtraProduct ? form.extraProductName : '',
@@ -314,6 +499,15 @@ export default function EmployeeLoanRequisition() {
         itr: form.itr,
         agreement: form.agreement,
         udyamCertificate: form.udyamCertificate,
+        // Business live verifications
+        panNumber: form.panNumber,
+        isPanVerified: form.isPanVerified,
+        aadhaarNumber: form.aadhaarNumber,
+        isAadhaarVerified: form.isAadhaarVerified,
+        regPhone: form.regPhone,
+        isPhoneOtpVerified: form.isPhoneOtpVerified,
+        udyamNumber: form.udyamNumber,
+        isUdyamVerified: form.isUdyamVerified,
         // Product specific
         productId: form.productId,
         productName: form.productName,
@@ -357,13 +551,13 @@ export default function EmployeeLoanRequisition() {
       </div>
 
       {error && (
-        <div style={{ background: '#fee2e2', color: '#991b1b', padding: '12px 14px', borderRadius: 8, fontSize: '0.85rem', marginBottom: 14 }}>
+        <div style={{ background: '#fee2e2', color: '#991b1b', padding: '12px 14px', borderRadius: 8, fontSize: '0.85rem', marginBottom: 14, fontWeight: 600 }}>
           {error}
         </div>
       )}
 
       {success && (
-        <div style={{ background: '#dcfce7', color: '#166534', padding: '12px 14px', borderRadius: 8, fontSize: '0.85rem', marginBottom: 14 }}>
+        <div style={{ background: '#dcfce7', color: '#166534', padding: '12px 14px', borderRadius: 8, fontSize: '0.85rem', marginBottom: 14, fontWeight: 600 }}>
           {success}
         </div>
       )}
@@ -407,72 +601,124 @@ export default function EmployeeLoanRequisition() {
               1. Select Borrower Member
             </h3>
 
-            {/* When Group Loan is selected, show Group Selector and its Members */}
-            {loanType === 'group' && (
-              <div style={{ marginBottom: 14, paddingBottom: 14, borderBottom: '1px solid var(--emp-border)' }}>
-                <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
-                  Assigned Group *
-                </label>
-                {loadingGroups ? (
-                  <div style={{ fontSize: '0.8rem', color: 'var(--emp-text-muted)' }}>Loading your groups...</div>
-                ) : groups.length === 0 ? (
-                  <div style={{ fontSize: '0.8rem', color: '#991b1b', background: '#fee2e2', padding: 8, borderRadius: 6 }}>
-                    No groups assigned to your staff code.
+            {/* When Group Loan is selected, show Group Selector and its Members (Point 6) */}
+            {loanType === 'group' ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div>
+                  <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                    Assigned Group *
+                  </label>
+                  {loadingGroups ? (
+                    <div style={{ fontSize: '0.8rem', color: 'var(--emp-text-muted)' }}>Loading your groups...</div>
+                  ) : groups.length === 0 ? (
+                    <div style={{ fontSize: '0.8rem', color: '#991b1b', background: '#fee2e2', padding: 8, borderRadius: 6 }}>
+                      No groups assigned to your staff code.
+                    </div>
+                  ) : (
+                    <select
+                      className="emp-input"
+                      value={selectedGroup?.code || ''}
+                      onChange={(e) => {
+                        const g = groups.find((x) => x.code === e.target.value);
+                        setSelectedGroup(g);
+                      }}
+                    >
+                      {groups.map((g) => (
+                        <option key={g.code} value={g.code}>
+                          {g.code} — {g.name} ({g.members?.length || 0} members)
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+
+                {/* Dropdown of ONLY members of the selected group (Point 6) */}
+                {selectedGroup && (
+                  <div>
+                    <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                      Select Group Member from {selectedGroup.name} ({selectedGroup.code}) *
+                    </label>
+                    {(!selectedGroup.members || selectedGroup.members.length === 0) ? (
+                      <div style={{ fontSize: '0.8rem', color: '#b45309', background: '#fef3c7', padding: 8, borderRadius: 6 }}>
+                        No members currently registered in this group.
+                      </div>
+                    ) : (
+                      <select
+                        className="emp-input"
+                        value={selectedMember?.code || ''}
+                        onChange={(e) => handleSelectGroupMember(e.target.value)}
+                      >
+                        <option value="">-- Choose Member from {selectedGroup.name} --</option>
+                        {selectedGroup.members.map((m) => (
+                          <option key={m.code || m.id} value={m.code}>
+                            {m.code} — {m.name} (+91 {m.mobile}) {m.isKycOk ? '✓ KYC Verified' : '⚠️ KYC Pending'}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </div>
-                ) : (
-                  <select
-                    className="emp-input"
-                    value={selectedGroup?.code || ''}
-                    onChange={(e) => {
-                      const g = groups.find((x) => x.code === e.target.value);
-                      setSelectedGroup(g);
-                    }}
-                  >
-                    {groups.map((g) => (
-                      <option key={g.code} value={g.code}>
-                        {g.code} — {g.name} ({g.membersCount || 0} members)
-                      </option>
-                    ))}
-                  </select>
                 )}
+              </div>
+            ) : (
+              /* Non-group loans: Member Search input */
+              <div>
+                <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                  Search Borrower Member by Code / Phone / ID *
+                </label>
+                <form onSubmit={handleSearchMember} style={{ display: 'flex', gap: 8 }}>
+                  <input
+                    type="text"
+                    className="emp-input"
+                    placeholder="e.g. M001001 or 9876543210..."
+                    value={memberQuery}
+                    onChange={(e) => setMemberQuery(e.target.value)}
+                    style={{ flex: 1 }}
+                  />
+                  <button type="submit" className="emp-btn-primary" style={{ padding: '0 16px' }} disabled={memberLoading}>
+                    {memberLoading ? '...' : 'Search'}
+                  </button>
+                </form>
               </div>
             )}
 
-            {/* Member Search input */}
-            <div>
-              <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
-                Search Borrower Member by Code / Phone / ID *
-              </label>
-              <form onSubmit={handleSearchMember} style={{ display: 'flex', gap: 8 }}>
-                <input
-                  type="text"
-                  className="emp-input"
-                  placeholder="e.g. M001001 or 9876543210..."
-                  value={memberQuery}
-                  onChange={(e) => setMemberQuery(e.target.value)}
-                  style={{ flex: 1 }}
-                />
-                <button type="submit" className="emp-btn-primary" style={{ padding: '0 16px' }} disabled={memberLoading}>
-                  {memberLoading ? '...' : 'Search'}
-                </button>
-              </form>
-            </div>
-
             {/* Selected Member Preview Card */}
             {selectedMember && (
-              <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: 12, marginTop: 12 }}>
+              <div
+                style={{
+                  background: selectedMember.isKycOk ? '#f0fdf4' : '#fef2f2',
+                  border: `1px solid ${selectedMember.isKycOk ? '#bbf7d0' : '#fecaca'}`,
+                  borderRadius: 8,
+                  padding: 12,
+                  marginTop: 12,
+                }}
+              >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
-                    <strong style={{ fontSize: '0.95rem', color: '#166534' }}>{selectedMember.name}</strong>
-                    <div style={{ fontSize: '0.78rem', color: '#15803d', marginTop: 2 }}>
+                    <strong style={{ fontSize: '0.95rem', color: selectedMember.isKycOk ? '#166534' : '#991b1b' }}>
+                      {selectedMember.name}
+                    </strong>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
                       Code: {selectedMember.code} • Mobile: +91 {selectedMember.mobile}
                     </div>
-                    <div style={{ fontSize: '0.75rem', color: '#166534', marginTop: 2 }}>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
                       Group: {selectedMember.groupName || 'Individual'} • CIBIL: <strong>{selectedMember.civilScore || 740}</strong>
                     </div>
                   </div>
-                  <span className="emp-verified-badge">✓ Selected</span>
+                  <div>
+                    {selectedMember.isKycOk ? (
+                      <span className="emp-badge emp-badge-success" style={{ fontSize: '0.75rem' }}>✓ KYC Verified</span>
+                    ) : (
+                      <span className="emp-badge emp-badge-danger" style={{ fontSize: '0.75rem' }}>⚠️ KYC Pending</span>
+                    )}
+                  </div>
                 </div>
+
+                {/* Point 6: Mandatory KYC Warning */}
+                {!selectedMember.isKycOk && (
+                  <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed #fca5a5', fontSize: '0.78rem', color: '#b91c1c', fontWeight: 600 }}>
+                    ⚠️ Member KYC / Phone OTP is not approved. Under Udgam Finance policy, loan requisition is strictly blocked until KYC is approved.
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -488,7 +734,7 @@ export default function EmployeeLoanRequisition() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   <div>
                     <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
-                      Loan Scheme *
+                      Loan Scheme ({loanType.toUpperCase()}) *
                     </label>
                     <select
                       className="emp-input"
@@ -496,8 +742,8 @@ export default function EmployeeLoanRequisition() {
                       onChange={(e) => handleSchemeChange(e.target.value)}
                       required
                     >
-                      <option value="">-- Select Active Scheme --</option>
-                      {schemes.map((s) => (
+                      <option value="">-- Select {loanType} Scheme --</option>
+                      {filteredSchemes.map((s) => (
                         <option key={s.id || s._id} value={s.id || s._id}>
                           {s.name} ({s.code ? `${s.code} • ` : ''}{s.roiMin ?? s.roiMax ?? 24}%, {s.calculationType || 'Flat'})
                         </option>
@@ -518,42 +764,54 @@ export default function EmployeeLoanRequisition() {
                         required
                       />
                     </div>
+                    {/* Point 7: Interest Rate locked / non-editable */}
                     <div>
                       <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
-                        Interest Rate (% p.a.) *
+                        Interest Rate (% p.a.) 🔒
                       </label>
                       <input
                         type="number"
                         className="emp-input"
                         value={form.rate}
-                        onChange={(e) => setForm({ ...form, rate: e.target.value })}
-                        required
+                        readOnly
+                        disabled
+                        style={{ background: '#f1f5f9', color: '#475569', cursor: 'not-allowed', fontWeight: 700 }}
                       />
+                      <span style={{ fontSize: '0.68rem', color: '#64748b' }}>Auto-locked from scheme</span>
                     </div>
                   </div>
 
+                  {/* Point 7: Mode & Term locked / non-editable */}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                     <div>
                       <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
-                        Repayment Mode *
+                        Repayment Mode 🔒
                       </label>
-                      <select className="emp-input" value={form.mode} onChange={(e) => setForm({ ...form, mode: e.target.value })}>
+                      <select
+                        className="emp-input"
+                        value={form.mode}
+                        disabled
+                        style={{ background: '#f1f5f9', color: '#475569', cursor: 'not-allowed', fontWeight: 700 }}
+                      >
                         <option value="weekly">Weekly</option>
                         <option value="monthly">Monthly</option>
                         <option value="daily">Daily</option>
                       </select>
+                      <span style={{ fontSize: '0.68rem', color: '#64748b' }}>Auto-locked from scheme</span>
                     </div>
                     <div>
                       <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
-                        Term ({form.mode === 'weekly' ? 'Weeks' : form.mode === 'daily' ? 'Days' : 'Months'}) *
+                        Term ({form.mode === 'weekly' ? 'Weeks' : form.mode === 'daily' ? 'Days' : 'Months'}) 🔒
                       </label>
                       <input
                         type="number"
                         className="emp-input"
                         value={form.term}
-                        onChange={(e) => setForm({ ...form, term: e.target.value })}
-                        required
+                        readOnly
+                        disabled
+                        style={{ background: '#f1f5f9', color: '#475569', cursor: 'not-allowed', fontWeight: 700 }}
                       />
+                      <span style={{ fontSize: '0.68rem', color: '#64748b' }}>Auto-locked from scheme</span>
                     </div>
                   </div>
 
@@ -568,6 +826,101 @@ export default function EmployeeLoanRequisition() {
                       value={form.purpose}
                       onChange={(e) => setForm({ ...form, purpose: e.target.value })}
                     />
+                  </div>
+                </div>
+              </div>
+
+              {/* Point 6: Mandatory Guarantor Information */}
+              <div className="emp-card" style={{ borderLeft: '4px solid var(--emp-primary)' }}>
+                <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: '0 0 10px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Icon name="shieldcheck" size={18} style={{ color: 'var(--emp-primary)' }} />
+                  <span>3. Mandatory Guarantor Information *</span>
+                </h3>
+                <p style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', margin: '0 0 12px 0' }}>
+                  Requisition requires a registered guarantor. Fill verified guarantor details.
+                </p>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10 }}>
+                    <div>
+                      <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                        Guarantor Full Name *
+                      </label>
+                      <input
+                        type="text"
+                        className="emp-input"
+                        placeholder="Guarantor name as on Aadhaar"
+                        value={form.guarantorName}
+                        onChange={(e) => setForm({ ...form, guarantorName: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                        Relation *
+                      </label>
+                      <select
+                        className="emp-input"
+                        value={form.guarantorRelation}
+                        onChange={(e) => setForm({ ...form, guarantorRelation: e.target.value })}
+                      >
+                        <option value="Spouse">Spouse</option>
+                        <option value="Father">Father</option>
+                        <option value="Mother">Mother</option>
+                        <option value="Brother">Brother</option>
+                        <option value="Son">Son</option>
+                        <option value="Daughter">Daughter</option>
+                        <option value="Other">Other</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <div>
+                      <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                        Guarantor Mobile Number *
+                      </label>
+                      <input
+                        type="tel"
+                        maxLength="10"
+                        className="emp-input"
+                        placeholder="10-digit mobile"
+                        value={form.guarantorMobile}
+                        onChange={(e) => setForm({ ...form, guarantorMobile: e.target.value.replace(/\D/g, '') })}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                        Guarantor Aadhaar No. *
+                      </label>
+                      <input
+                        type="text"
+                        maxLength="12"
+                        className="emp-input"
+                        placeholder="12-digit Aadhaar"
+                        value={form.guarantorAadhaar}
+                        onChange={(e) => setForm({ ...form, guarantorAadhaar: e.target.value.replace(/\D/g, '') })}
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                      Guarantor Photo Upload
+                    </label>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleFile('guarantorPhoto')}
+                      style={{ fontSize: '0.78rem' }}
+                    />
+                    {form.guarantorPhoto && (
+                      <div style={{ marginTop: 6 }}>
+                        <img src={form.guarantorPhoto} alt="Guarantor" style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--emp-border)' }} />
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -637,12 +990,12 @@ export default function EmployeeLoanRequisition() {
                 </div>
               )}
 
-              {/* Business / MSME Loan Specific Section (Software Aligned) */}
+              {/* Point 8: Business / MSME Loan Specific Section (PAN, Aadhaar OTP, Phone OTP, Udyam) */}
               {loanType === 'business_msme' && (
                 <div className="emp-card">
                   <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: '0 0 12px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
                     <Icon name="building" size={18} style={{ color: 'var(--emp-primary)' }} />
-                    <span>Business / MSME Verification (Software Aligned)</span>
+                    <span>Business / MSME Live Verification & Documents</span>
                   </h3>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -675,15 +1028,184 @@ export default function EmployeeLoanRequisition() {
                       </div>
                       <div>
                         <label style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
-                          3) Customer / Udgam / GST No.
+                          3) Customer / Cast / Udgam No.
                         </label>
                         <input
                           type="text"
                           className="emp-input"
-                          placeholder="Cust / GST / Udgam ID"
+                          placeholder="Cust / Cast / Udgam ID"
                           value={form.custNumber}
                           onChange={(e) => setForm({ ...form, custNumber: e.target.value })}
                         />
+                      </div>
+                    </div>
+
+                    {/* Live Verification Box (Point 8) */}
+                    <div style={{ background: '#f8fafc', border: '1px solid var(--emp-border)', borderRadius: 8, padding: 12 }}>
+                      <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--emp-text)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <Icon name="shieldcheck" size={16} style={{ color: 'var(--emp-primary)' }} />
+                        <span>Live Verification Suite (PAN, Aadhaar OTP, Phone OTP, Udyam)</span>
+                      </div>
+
+                      {/* PAN Verification */}
+                      <div style={{ marginBottom: 10 }}>
+                        <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: 3 }}>
+                          PAN Card Number
+                        </label>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <input
+                            type="text"
+                            maxLength="10"
+                            className="emp-input"
+                            placeholder="ABCDE1234F"
+                            value={form.panNumber}
+                            onChange={(e) => setForm({ ...form, panNumber: e.target.value.toUpperCase(), isPanVerified: false })}
+                            style={{ flex: 1, textTransform: 'uppercase' }}
+                          />
+                          <button
+                            type="button"
+                            className="emp-btn-secondary"
+                            style={{ padding: '0 12px', fontSize: '0.75rem', fontWeight: 700, color: form.isPanVerified ? '#16a34a' : 'inherit' }}
+                            onClick={handleVerifyPan}
+                          >
+                            {form.isPanVerified ? '✓ Verified' : 'Verify PAN'}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Aadhaar Number OTP Verification */}
+                      <div style={{ marginBottom: 10 }}>
+                        <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: 3 }}>
+                          Aadhaar Number & OTP Verification
+                        </label>
+                        <div style={{ display: 'flex', gap: 8, marginBottom: form.aadhaarOtpSent ? 6 : 0 }}>
+                          <input
+                            type="text"
+                            maxLength="12"
+                            className="emp-input"
+                            placeholder="12-digit Aadhaar"
+                            value={form.aadhaarNumber}
+                            onChange={(e) => setForm({ ...form, aadhaarNumber: e.target.value.replace(/\D/g, ''), isAadhaarVerified: false })}
+                            style={{ flex: 1 }}
+                          />
+                          <button
+                            type="button"
+                            className="emp-btn-secondary"
+                            style={{ padding: '0 12px', fontSize: '0.75rem', fontWeight: 700, color: form.isAadhaarVerified ? '#16a34a' : 'inherit' }}
+                            onClick={handleSendAadhaarOtp}
+                          >
+                            {form.isAadhaarVerified ? '✓ Verified' : form.aadhaarOtpSent ? 'Resend' : 'Send OTP'}
+                          </button>
+                        </div>
+                        {form.aadhaarOtpSent && !form.isAadhaarVerified && (
+                          <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                            <input
+                              type="text"
+                              maxLength="6"
+                              className="emp-input"
+                              placeholder="Enter 6-digit Aadhaar OTP"
+                              value={form.aadhaarOtpInput}
+                              onChange={(e) => setForm({ ...form, aadhaarOtpInput: e.target.value.replace(/\D/g, '') })}
+                              style={{ flex: 1 }}
+                            />
+                            <button
+                              type="button"
+                              className="emp-btn-secondary"
+                              style={{ fontSize: '0.72rem', padding: '0 8px' }}
+                              onClick={() => setForm((f) => ({ ...f, aadhaarOtpInput: '123456' }))}
+                            >
+                              Demo (123456)
+                            </button>
+                            <button
+                              type="button"
+                              className="emp-btn-primary"
+                              style={{ fontSize: '0.75rem', padding: '0 12px' }}
+                              onClick={handleVerifyAadhaarOtp}
+                            >
+                              Verify
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Registered Phone OTP Verification */}
+                      <div style={{ marginBottom: 10 }}>
+                        <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: 3 }}>
+                          Registered Mobile OTP Verification
+                        </label>
+                        <div style={{ display: 'flex', gap: 8, marginBottom: form.phoneOtpSent ? 6 : 0 }}>
+                          <input
+                            type="tel"
+                            maxLength="10"
+                            className="emp-input"
+                            placeholder="10-digit registered phone"
+                            value={form.regPhone}
+                            onChange={(e) => setForm({ ...form, regPhone: e.target.value.replace(/\D/g, ''), isPhoneOtpVerified: false })}
+                            style={{ flex: 1 }}
+                          />
+                          <button
+                            type="button"
+                            className="emp-btn-secondary"
+                            style={{ padding: '0 12px', fontSize: '0.75rem', fontWeight: 700, color: form.isPhoneOtpVerified ? '#16a34a' : 'inherit' }}
+                            onClick={handleSendPhoneOtp}
+                          >
+                            {form.isPhoneOtpVerified ? '✓ Verified' : form.phoneOtpSent ? 'Resend' : 'Send OTP'}
+                          </button>
+                        </div>
+                        {form.phoneOtpSent && !form.isPhoneOtpVerified && (
+                          <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                            <input
+                              type="text"
+                              maxLength="6"
+                              className="emp-input"
+                              placeholder="Enter 6-digit phone OTP"
+                              value={form.phoneOtpInput}
+                              onChange={(e) => setForm({ ...form, phoneOtpInput: e.target.value.replace(/\D/g, '') })}
+                              style={{ flex: 1 }}
+                            />
+                            <button
+                              type="button"
+                              className="emp-btn-secondary"
+                              style={{ fontSize: '0.72rem', padding: '0 8px' }}
+                              onClick={() => setForm((f) => ({ ...f, phoneOtpInput: '123456' }))}
+                            >
+                              Demo (123456)
+                            </button>
+                            <button
+                              type="button"
+                              className="emp-btn-primary"
+                              style={{ fontSize: '0.75rem', padding: '0 12px' }}
+                              onClick={handleVerifyPhoneOtp}
+                            >
+                              Verify
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Udyam Verification */}
+                      <div>
+                        <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: 3 }}>
+                          Udyam Registration Number
+                        </label>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <input
+                            type="text"
+                            className="emp-input"
+                            placeholder="UDYAM-XX-00-0000000"
+                            value={form.udyamNumber}
+                            onChange={(e) => setForm({ ...form, udyamNumber: e.target.value.toUpperCase(), isUdyamVerified: false })}
+                            style={{ flex: 1, textTransform: 'uppercase' }}
+                          />
+                          <button
+                            type="button"
+                            className="emp-btn-secondary"
+                            style={{ padding: '0 12px', fontSize: '0.75rem', fontWeight: 700, color: form.isUdyamVerified ? '#16a34a' : 'inherit' }}
+                            onClick={handleVerifyUdyam}
+                          >
+                            {form.isUdyamVerified ? '✓ Verified' : 'Verify Udyam'}
+                          </button>
+                        </div>
                       </div>
                     </div>
 
@@ -814,10 +1336,18 @@ export default function EmployeeLoanRequisition() {
               <button
                 type="submit"
                 className="emp-btn-primary"
-                style={{ width: '100%', padding: '14px 0', fontSize: '1rem', fontWeight: 700, margin: '6px 0 20px 0' }}
-                disabled={submitting}
+                style={{
+                  width: '100%',
+                  padding: '14px 0',
+                  fontSize: '1rem',
+                  fontWeight: 700,
+                  margin: '6px 0 20px 0',
+                  opacity: isKycIncomplete ? 0.6 : 1,
+                  cursor: isKycIncomplete ? 'not-allowed' : 'pointer',
+                }}
+                disabled={submitting || isKycIncomplete}
               >
-                {submitting ? 'Submitting Requisition...' : 'Submit Loan Requisition'}
+                {submitting ? 'Submitting Requisition...' : isKycIncomplete ? '⚠️ Blocked: Member KYC Pending' : 'Submit Loan Requisition'}
               </button>
             </form>
           )}

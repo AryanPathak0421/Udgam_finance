@@ -1227,7 +1227,16 @@ export async function collectTodayDue(req, res) {
 }
 
 export async function getEmployeeLoanSchemes(req, res) {
-  const items = await LoanScheme.find({ isDeleted: false, isActive: true }).sort({ code: 1 }).lean();
+  const filter = { isDeleted: false, isActive: true };
+  if (req.query.loanType) {
+    const lt = cleanStr(req.query.loanType).toLowerCase();
+    if (lt === 'business_msme' || lt === 'business') {
+      filter.loanType = { $in: ['business', 'msme'] };
+    } else {
+      filter.loanType = lt;
+    }
+  }
+  const items = await LoanScheme.find(filter).sort({ code: 1 }).lean();
   res.json({
     items: items.map((s) => ({
       id: s._id,
@@ -1410,12 +1419,12 @@ export async function getStaffGroups(req, res) {
       { employeeCode: code },
       ...(emp?._id ? [{ employee: emp._id }] : []),
     ],
-  }).populate('branch', 'name code').populate('members.member', 'code name mobile').lean();
+  }).populate('branch', 'name code').populate('members.member', 'code name mobile isMobileVerified mobileVerifiedAt isKycApproved kycRejected guarantor').lean();
 
   if (!groups.length && branchId) {
     groups = await Group.find({ branch: branchId, isDeleted: { $ne: true } })
       .populate('branch', 'name code')
-      .populate('members.member', 'code name mobile')
+      .populate('members.member', 'code name mobile isMobileVerified mobileVerifiedAt isKycApproved kycRejected guarantor')
       .limit(50)
       .lean();
   }
@@ -1429,12 +1438,23 @@ export async function getStaffGroups(req, res) {
       dayOfWeek: g.dayOfWeek || '',
       meetingType: g.meetingType || 'weekly',
       branchName: g.branch?.name || '',
-      members: (g.members || []).map((m) => ({
-        id: m.member?._id || m.member,
-        code: m.member?.code || m.code,
-        name: m.member?.name || m.name,
-        mobile: m.member?.mobile || m.mobile,
-      })),
+      members: (g.members || [])
+        .filter((m) => m.member)
+        .map((m) => {
+          const mem = m.member || {};
+          const isKycOk = !mem.kycRejected && (mem.isKycApproved || mem.mobileVerifiedAt || mem.isMobileVerified);
+          return {
+            id: mem._id || m.member,
+            code: mem.code || m.code,
+            name: mem.name || m.name,
+            mobile: mem.mobile || m.mobile,
+            isMobileVerified: !!(mem.mobileVerifiedAt || mem.isMobileVerified),
+            isKycApproved: !!mem.isKycApproved,
+            kycRejected: !!mem.kycRejected,
+            isKycOk,
+            guarantor: mem.guarantor,
+          };
+        }),
     })),
   });
 }
@@ -1446,6 +1466,67 @@ export async function createLoanRequisition(req, res) {
   const branchId = b.branch || emp?.branch || (req.user?.branches || [])[0];
   if (!branchId) throw new HttpError(400, 'Branch is required. Please assign a branch.');
 
+  const borrowerCode = cleanStr(b.borrowerCode || b.borrower?.code);
+  if (!borrowerCode) throw new HttpError(400, 'Borrower member code is required');
+
+  const memberDoc = await Member.findOne({ code: new RegExp(`^${borrowerCode}$`, 'i'), isDeleted: false });
+  if (!memberDoc) throw new HttpError(404, 'Borrower member record not found');
+
+  // Point 6: Verify Member KYC is approved/valid before allowing Requisition
+  if (memberDoc.kycRejected || (!memberDoc.mobileVerifiedAt && !memberDoc.isMobileVerified)) {
+    throw new HttpError(400, 'Member KYC is not verified/approved. KYC verification is mandatory before loan requisition.');
+  }
+
+  // Point 6: Guarantor is mandatory for loan requisition
+  const guarantor = b.guarantor || memberDoc.guarantor || {};
+  const guarantorName = cleanStr(guarantor.name || b.guarantorName);
+  if (!guarantorName) {
+    throw new HttpError(400, 'Guarantor details are required for loan requisition. Please add a guarantor.');
+  }
+
+  let kind = b.kind || b.loanType || 'group';
+  if (kind === 'msme' || kind === 'business_msme') kind = 'business';
+
+  // Point 6: Double loan check in same group/scheme
+  // 1 group में 1 member को 1 loan. Loan settlement या auto-settlement के बाद ही दूसरा loan मिल सकता है (या 25% product loan).
+  if (kind === 'group') {
+    const runningLoans = await LoanPayment.find({
+      'lines.code': new RegExp(`^${borrowerCode}$`, 'i'),
+      status: 'paid',
+      isSettled: { $ne: true },
+      loanType: 'group',
+    }).select('_id loanId lines schedule isSettled').lean();
+
+    if (runningLoans.length > 0) {
+      const loanIds = runningLoans.map((l) => l._id);
+      const activeSettlements = await LoanSettlement.find({
+        loanPayment: { $in: loanIds },
+        memberCode: new RegExp(`^${borrowerCode}$`, 'i'),
+        status: 'active',
+      }).lean();
+      const settledIds = new Set(activeSettlements.map((s) => String(s.loanPayment)));
+      const activeRunning = runningLoans.filter((l) => !settledIds.has(String(l._id)));
+
+      if (activeRunning.length > 0) {
+        throw new HttpError(400, `Member ${borrowerCode} already has an active running group loan (${activeRunning[0].loanId}). A second group loan is only permitted after loan settlement or auto-settlement. (Member can still apply for a Product loan or 25% top-up).`);
+      }
+    }
+  }
+
+  // Point 7: Auto-derive and enforce Scheme parameters (Interest Rate, Term, Mode) strictly from Scheme
+  let rate = Number(b.annualRate || b.rate) || 24;
+  let term = Number(b.term) || 52;
+  let mode = b.mode || 'weekly';
+
+  if (b.schemeId && mongoose.isValidObjectId(b.schemeId)) {
+    const schemeDoc = await LoanScheme.findById(b.schemeId);
+    if (schemeDoc) {
+      rate = schemeDoc.roiMinBp ? schemeDoc.roiMinBp / 100 : (schemeDoc.roiMaxBp ? schemeDoc.roiMaxBp / 100 : rate);
+      term = schemeDoc.termMin || schemeDoc.termMax || term;
+      mode = (Array.isArray(schemeDoc.modes) && schemeDoc.modes[0]?.value) || schemeDoc.modes?.[0] || mode;
+    }
+  }
+
   let formId;
   try {
     formId = await generateCode('form');
@@ -1455,14 +1536,8 @@ export async function createLoanRequisition(req, res) {
   }
 
   const amount = Number(b.amount) || 10000;
-  const term = Number(b.term) || 52;
-  const mode = b.mode || 'weekly';
-  const rate = Number(b.annualRate || b.rate) || 24;
   const totalInterest = Math.round((amount * rate * (term / 52)) / 100);
   const installment = Math.round((amount + totalInterest) / term);
-
-  let kind = b.kind || b.loanType || 'group';
-  if (kind === 'msme' || kind === 'business_msme') kind = 'business';
 
   const reqDoc = await LoanRequisition.create({
     formId,
@@ -1480,9 +1555,16 @@ export async function createLoanRequisition(req, res) {
     annualRateBp: rate * 100,
     employeeCode: code,
     borrower: {
-      name: cleanStr(b.borrowerName || b.borrower?.name),
-      mobile: cleanStr(b.borrowerMobile || b.borrower?.mobile),
-      code: cleanStr(b.borrowerCode || b.borrower?.code),
+      name: cleanStr(b.borrowerName || b.borrower?.name || memberDoc.name),
+      mobile: cleanStr(b.borrowerMobile || b.borrower?.mobile || memberDoc.mobile),
+      code: cleanStr(b.borrowerCode || b.borrower?.code || memberDoc.code),
+    },
+    guarantor: {
+      name: guarantorName,
+      relation: cleanStr(guarantor.relation || b.guarantorRelation) || 'Spouse',
+      mobile: cleanStr(guarantor.mobile || b.guarantorMobile) || memberDoc.mobile,
+      aadhaar: cleanStr(guarantor.aadhaar || b.guarantorAadhaar) || '',
+      photo: guarantor.photo || b.guarantorPhoto || '',
     },
     groupInfo: kind === 'group' ? {
       code: b.groupCode || b.groupInfo?.code,
