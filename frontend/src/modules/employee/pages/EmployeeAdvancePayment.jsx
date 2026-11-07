@@ -71,8 +71,14 @@ export default function EmployeeAdvancePayment() {
     }
   };
 
+  const isSunday = new Date().getDay() === 0;
+
   const handleSubmitAdvance = async (e) => {
     e?.preventDefault();
+    if (isSunday) {
+      setError('EMI collections and Advance payments are strictly blocked on Sundays (Weekly Off).');
+      return;
+    }
     // Immediate synchronous lock to prevent multiple rapid taps
     if (!loanData || isSubmittingRef.current || submitting) return;
 
@@ -124,6 +130,17 @@ export default function EmployeeAdvancePayment() {
 
   return (
     <div className="emp-page-container">
+      {/* Sunday Block Banner (Point 23) */}
+      {isSunday && (
+        <div style={{ background: '#fee2e2', border: '1.5px solid #ef4444', color: '#991b1b', padding: '12px 14px', borderRadius: 8, fontSize: '0.85rem', marginBottom: 12, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Icon name="alert" size={18} />
+          <div>
+            <div>Sunday Weekly Off — Advance Payments Blocked</div>
+            <div style={{ fontSize: '0.74rem', fontWeight: 500, marginTop: 2 }}>Posting EMI collections and Advance payments is strictly blocked on Sundays & Company Holidays.</div>
+          </div>
+        </div>
+      )}
+
       {/* Header Search Card */}
       <div className="emp-card">
         <h2 style={{ fontSize: '1.2rem', fontWeight: 800, margin: '0 0 8px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 8 }}>

@@ -265,38 +265,53 @@ export default function EmployeeDeathRequest() {
 
                 {/* Highlighted Selected Deceased Person Banner (Point 20) */}
                 <div style={{
-                  marginTop: 10,
-                  padding: '10px 14px',
-                  borderRadius: 8,
+                  marginTop: 12,
+                  padding: '12px 16px',
+                  borderRadius: 10,
                   background: targetType === 'member' ? '#fef2f2' : '#f5f3ff',
-                  border: targetType === 'member' ? '1.5px solid #f87171' : '1.5px solid #a78bfa',
+                  border: targetType === 'member' ? '2px solid #ef4444' : '2px solid #8b5cf6',
+                  boxShadow: targetType === 'member' ? '0 2px 8px rgba(239, 68, 68, 0.15)' : '0 2px 8px rgba(139, 92, 246, 0.15)',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 10,
+                  gap: 12,
                 }}>
                   <div style={{
-                    width: 34,
-                    height: 34,
+                    width: 42,
+                    height: 42,
                     borderRadius: '50%',
                     background: targetType === 'member' ? '#fee2e2' : '#ede9fe',
                     color: targetType === 'member' ? '#dc2626' : '#7c3aed',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    fontWeight: 800,
+                    fontWeight: 900,
+                    fontSize: '1.1rem',
+                    border: targetType === 'member' ? '2px solid #dc2626' : '2px solid #7c3aed',
+                    flexShrink: 0,
                   }}>
                     {targetType === 'member' ? 'M' : 'G'}
                   </div>
-                  <div>
-                    <div style={{ fontSize: '0.84rem', fontWeight: 800, color: targetType === 'member' ? '#991b1b' : '#5b21b6' }}>
-                      Selected Deceased: {targetType === 'member' ? `Member (Borrower) — ${selectedMember?.name} (${selectedMember?.code})` : `Guarantor (जमानतदार) — ${guarantorName || selectedMember?.guarantor?.name || 'Guarantor'}`}
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '0.92rem', fontWeight: 800, color: targetType === 'member' ? '#991b1b' : '#5b21b6' }}>
+                      Selected Deceased: {targetType === 'member' ? `Member (Borrower) — ${selectedMember?.name || 'Selected'} (${selectedMember?.code || 'Member'})` : `Guarantor (जमानतदार) — ${guarantorName || selectedMember?.guarantor?.name || 'Guarantor'}`}
                     </div>
-                    <div style={{ fontSize: '0.74rem', color: targetType === 'member' ? '#b91c1c' : '#6d28d9', marginTop: 1 }}>
+                    <div style={{ fontSize: '0.76rem', color: targetType === 'member' ? '#b91c1c' : '#6d28d9', marginTop: 2, fontWeight: 600 }}>
                       {targetType === 'member'
-                        ? 'Death settlement request will be registered directly in Dead Settlement section for Admin closure.'
-                        : 'Guarantor demise will be officially recorded in software Guarantor Deaths section.'}
+                        ? '⚠️ Death settlement request will be registered directly in Dead Settlement (मृत्यु सेटलमेंट) section for Admin closure.'
+                        : '⚠️ Guarantor demise will be officially recorded in software Guarantor Deaths section.'}
                     </div>
                   </div>
+                  <span style={{
+                    background: targetType === 'member' ? '#dc2626' : '#7c3aed',
+                    color: '#fff',
+                    padding: '3px 8px',
+                    borderRadius: 6,
+                    fontSize: '0.72rem',
+                    fontWeight: 800,
+                    textTransform: 'uppercase',
+                  }}>
+                    {targetType === 'member' ? 'Deceased Member' : 'Deceased Guarantor'}
+                  </span>
                 </div>
               </div>
 
@@ -415,9 +430,14 @@ export default function EmployeeDeathRequest() {
 
               {/* 1 Staff House Visit Photo (Strict Live Camera Capture Only - Point 20) */}
               <div>
-                <label style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>
-                  Staff House Visit Photo * (Live Camera Only)
-                </label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <label style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--emp-text)' }}>
+                    Staff House Visit Photo *
+                  </label>
+                  <span style={{ fontSize: '0.72rem', background: '#fee2e2', color: '#991b1b', padding: '2px 8px', borderRadius: 10, fontWeight: 700 }}>
+                    🚫 Gallery Selection Disabled
+                  </span>
+                </div>
                 <input
                   type="file"
                   accept="image/*"
@@ -432,9 +452,9 @@ export default function EmployeeDeathRequest() {
                   style={{
                     width: '100%',
                     padding: '12px',
-                    border: '1.5px dashed var(--emp-primary)',
+                    border: '1.5px dashed #059669',
                     background: '#f0fdf4',
-                    color: 'var(--emp-primary)',
+                    color: '#065f46',
                     fontWeight: 700,
                     display: 'flex',
                     alignItems: 'center',
@@ -444,10 +464,10 @@ export default function EmployeeDeathRequest() {
                   onClick={() => document.getElementById('hvp').click()}
                 >
                   <Icon name="camera" size={18} />
-                  <span>{houseVisitPhoto ? '✓ Live House Visit Photo Captured (Tap to Retake)' : '📷 Capture Staff House Visit Photo (Camera Only)'}</span>
+                  <span>{houseVisitPhoto ? '✓ Live House Visit Photo Captured (Tap to Retake via Camera)' : '📷 Capture Live Staff House Visit Photo (Camera Only)'}</span>
                 </button>
-                <div style={{ fontSize: '0.72rem', color: '#b45309', marginTop: 4 }}>
-                  ⚠️ Gallery upload option disabled. Direct live camera capture required during physical house visit.
+                <div style={{ fontSize: '0.72rem', color: '#991b1b', marginTop: 4, fontWeight: 600 }}>
+                  ⚠️ Only live camera capture from physical house visit is allowed. Gallery file upload option has been removed.
                 </div>
                 {houseVisitPhoto && (
                   <div style={{ marginTop: 8, textAlign: 'center' }}>

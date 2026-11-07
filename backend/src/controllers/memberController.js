@@ -229,6 +229,48 @@ export async function checkAccount(req, res) {
   res.json({ free: !message, message });
 }
 
+/** Universal duplicate checker for mobile, aadhaar, pan, and accountNumber */
+export async function checkMemberDuplicate(req, res) {
+  const { field, value, except } = req.query;
+  const exceptId = mongoose.isValidObjectId(except) ? except : null;
+  const val = String(value || '').trim();
+  if (!field || !val) return res.json({ available: true });
+
+  const query = { isDeleted: { $ne: true } };
+  if (exceptId) query._id = { $ne: exceptId };
+
+  if (field === 'accountNumber') {
+    query.accountNumber = val;
+  } else if (field === 'aadhaar') {
+    const clean = val.replace(/\D/g, '');
+    query.$or = [{ aadhaar: clean }, { aadhaar: val }];
+  } else if (field === 'pan') {
+    query.pan = new RegExp(`^${val}$`, 'i');
+  } else if (field === 'mobile') {
+    const cleanMobile = val.replace(/\D/g, '').slice(-10);
+    query.mobile = cleanMobile;
+  } else {
+    return res.json({ available: true });
+  }
+
+  const existing = await Member.findOne(query).select('code name');
+  if (existing) {
+    const fieldLabel = {
+      accountNumber: 'Bank Account number',
+      aadhaar: 'Aadhaar number',
+      pan: 'PAN number',
+      mobile: 'Mobile number',
+    }[field] || field;
+
+    return res.json({
+      available: false,
+      message: `This ${fieldLabel} is already registered to member ${existing.name} (${existing.code}). Duplicate not allowed.`,
+    });
+  }
+
+  res.json({ available: true });
+}
+
 export async function sendOtp(req, res) {
   const b = req.body || {};
   const purpose = b.purpose === 'mobile' ? 'member_mobile' : null;
@@ -423,6 +465,23 @@ export async function createMember(req, res) {
   await assertMobileFree(d.mobile, null, v);
   // ... and so does a bank account number
   await assertAccountFree(d.accountNumber, null, v);
+  // ... and Aadhaar number
+  if (d.aadhaar) {
+    const cleanAadhaar = d.aadhaar.replace(/\D/g, '');
+    const takenAadhaar = await Member.findOne({
+      $or: [{ aadhaar: cleanAadhaar }, { aadhaar: d.aadhaar }],
+      isDeleted: { $ne: true },
+    }).select('code name');
+    if (takenAadhaar) v.add('aadhaar', `This Aadhaar number is already registered to member ${takenAadhaar.name} (${takenAadhaar.code}). Duplicate not allowed.`);
+  }
+  // ... and PAN number
+  if (d.pan) {
+    const takenPan = await Member.findOne({
+      pan: new RegExp(`^${d.pan}$`, 'i'),
+      isDeleted: { $ne: true },
+    }).select('code name');
+    if (takenPan) v.add('pan', `This PAN card number is already registered to member ${takenPan.name} (${takenPan.code}). Duplicate not allowed.`);
+  }
   v.throwIfAny();
 
   // The mobile number must be verified with an OTP.
@@ -879,7 +938,7 @@ const kycSummary = (m, keys) => {
     // A member is listed under Pending while any document waits, and under Rejected while any document
     // is rejected - so both can be true at once (e.g. 1 rejected and 4 pending).
     hasPending: count('pending') > 0,
-    hasRejected: count('rejected') > 0,
+    hasRejected: count('rejected') > 0 || Boolean(m.kycRejected),
     total: docs.length,
     approved: count('approved'),
     rejected: count('rejected'),
@@ -974,15 +1033,33 @@ export async function reviewKyc(req, res) {
 
   // Point 22: Dispatch Push/In-App Notification to staff who registered the member
   if (action === 'reject') {
-    const notifyUser = m.createdBy || m.joiningApproval?.submittedBy;
-    if (notifyUser) {
-      UserNotification.create({
-        user: notifyUser,
-        title: '⚠️ KYC Document Rejected',
-        message: `KYC document (${key}) for member ${m.code} (${m.name}) was rejected: "${reason}". Please re-upload from Employee KYC section.`,
-        data: { memberId: m._id, memberCode: m.code, key, type: 'kyc_rejected' },
-      }).catch((e) => console.error('[reviewKyc] Notification dispatch error:', e.message));
-    }
+    (async () => {
+      try {
+        const recipients = new Set();
+        if (m.createdBy) recipients.add(String(m.createdBy));
+        if (m.joiningApproval?.submittedBy) recipients.add(String(m.joiningApproval.submittedBy));
+        if (m.employeeCode) {
+          const emp = await Employee.findOne({ employeeCode: new RegExp(`^${m.employeeCode}$`, 'i'), isDeleted: false });
+          if (emp?.user) recipients.add(String(emp.user));
+        }
+        if (m.branch) {
+          const bStaff = await Employee.find({ branch: m.branch, isDeleted: false }).select('user');
+          for (const s of bStaff) {
+            if (s.user) recipients.add(String(s.user));
+          }
+        }
+        for (const uid of recipients) {
+          await UserNotification.create({
+            user: uid,
+            title: '⚠️ KYC Document Rejected',
+            message: `KYC document (${key}) for member ${m.code} (${m.name}) was rejected: "${reason}". Please re-upload from Employee KYC section.`,
+            data: { memberId: m._id, memberCode: m.code, key, type: 'kyc_rejected' },
+          }).catch(() => {});
+        }
+      } catch (err) {
+        console.error('[reviewKyc] Notification dispatch error:', err.message);
+      }
+    })();
   }
 
   res.json({ message: action === 'approve' ? 'Document approved' : 'Document rejected' });

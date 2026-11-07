@@ -9,7 +9,7 @@ const loanSettlementSchema = new mongoose.Schema(
   {
     kind: { type: String, enum: SETTLEMENT_KINDS, required: true },
     receiptNo: { type: String, required: true, uppercase: true, trim: true, immutable: true },
-    loanPayment: { type: mongoose.Schema.Types.ObjectId, ref: 'LoanPayment', required: true },
+    loanPayment: { type: mongoose.Schema.Types.ObjectId, ref: 'LoanPayment' },
     loanId: String,
     formId: String,
     branch: { type: mongoose.Schema.Types.ObjectId, ref: 'Branch', required: true },

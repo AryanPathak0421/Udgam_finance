@@ -276,9 +276,15 @@ export default function GroupLoanRequisition() {
 
   const total = members.reduce((s, m) => s + (Number(entries[m.id]?.amount) || 0), 0);
   const eligibleCount = g ? g.members.filter(eligible).length : 0;
+  const isSunday = new Date().getDay() === 0;
   return (
     <>
       <PageHeader title="Group Loan Requisition" description="Choose the branch, the group and the employee, then fill in each member's loan: scheme, amount and the two photos of her application form." />
+      {isSunday && (
+        <div className="notice danger" style={{ marginBottom: 14 }}>
+          <strong>Sunday Weekly Off:</strong> Loan Requisitions and EMI collections are strictly blocked on Sundays &amp; Company Holidays.
+        </div>
+      )}
       <form onSubmit={review} noValidate>
         <div className="panel" style={{ padding: 18, marginBottom: 14 }}>
           <h3 className="section-title">Requisition</h3>
@@ -359,7 +365,7 @@ export default function GroupLoanRequisition() {
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, alignItems: 'center' }}>
           {members.length > 0 && <span className="muted">{members.length} member loan{members.length === 1 ? '' : 's'} · total {inr(total)}</span>}
-          <button type="submit" className="btn primary">Review &amp; submit</button>
+          <button type="submit" className="btn primary" disabled={isSunday}>{isSunday ? 'Blocked on Sundays' : 'Review & submit'}</button>
         </div>
       </form>
 

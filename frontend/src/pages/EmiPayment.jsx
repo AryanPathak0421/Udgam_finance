@@ -98,7 +98,13 @@ function LoanView({ id, advance, canCollect, onBack }) {
     setErrors({});
   }, [member, data, advance]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const isSunday = new Date().getDay() === 0;
+
   async function pay() {
+    if (isSunday) {
+      setErrors({ general: 'EMI collections and advance payments are strictly blocked on Sundays (Weekly Off).' });
+      return;
+    }
     setBusy(true);
     setErrors({});
     try {
@@ -188,8 +194,13 @@ function LoanView({ id, advance, canCollect, onBack }) {
                 {' '}· {chosen.length} installment{chosen.length === 1 ? '' : 's'} = <strong>{inr(amount)}</strong>
               </div>
             )}
+            {isSunday && (
+              <div className="notice danger" style={{ margin: '10px 0' }}>
+                <strong>Sunday Weekly Off:</strong> EMI collections and loan requisition posting are strictly blocked on Sundays &amp; Company Holidays.
+              </div>
+            )}
             {errors.general && <div className="field-error" role="alert">{errors.general}</div>}
-            <button className="btn primary" disabled={busy || !chosen.length} onClick={pay}>{busy ? 'Saving…' : `Receive ${inr(amount)}${advance ? ' (advance)' : ''}`}</button>
+            <button className="btn primary" disabled={busy || !chosen.length || isSunday} onClick={pay}>{busy ? 'Saving…' : isSunday ? 'Blocked on Sundays' : `Receive ${inr(amount)}${advance ? ' (advance)' : ''}`}</button>
           </>
         )}
       </div>

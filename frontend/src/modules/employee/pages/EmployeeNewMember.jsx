@@ -193,14 +193,24 @@ function MobileOtpVerify({ mobile, mobileValid, verified, onVerified, onReset })
     setBusy(true);
     setError('');
     try {
+      const dup = await api.members.checkDuplicate('mobile', mobile.trim());
+      if (dup && !dup.available) {
+        setError(dup.message || 'This mobile number is already registered to an existing member. Duplicate not allowed.');
+        setBusy(false);
+        return;
+      }
       const res = await api.employeeApp.sendMemberOtp(mobile.trim());
       setChallengeId(res.challengeId || 'ch_' + Date.now());
       setDevOtp(res.demoOtp || res.devOtp || '123456');
       setOtp('');
     } catch (err) {
-      // In dev fallback allow testing demo otp
-      setChallengeId('ch_' + Date.now());
-      setDevOtp('123456');
+      if (err.message && err.message.includes('already registered')) {
+        setError(err.message);
+      } else {
+        // In dev fallback allow testing demo otp
+        setChallengeId('ch_' + Date.now());
+        setDevOtp('123456');
+      }
     } finally {
       setBusy(false);
     }
@@ -353,6 +363,8 @@ export default function EmployeeNewMember() {
   const [pinInfo, setPinInfo] = useState(null);
   const [bankInfo, setBankInfo] = useState(null);
   const [accountTaken, setAccountTaken] = useState('');
+  const [aadhaarTaken, setAadhaarTaken] = useState('');
+  const [panTaken, setPanTaken] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [globalError, setGlobalError] = useState('');
   const [registrationSuccess, setRegistrationSuccess] = useState(null);
@@ -499,8 +511,30 @@ export default function EmployeeNewMember() {
   const checkAccount = async () => {
     if (!/^\d{9,18}$/.test(form.accountNumber)) return;
     try {
-      const r = await api.members.checkAccount(form.accountNumber);
-      setAccountTaken(r.free ? '' : r.message);
+      const r = await api.members.checkDuplicate('accountNumber', form.accountNumber);
+      setAccountTaken(r.available ? '' : r.message);
+    } catch {
+      // server verifies again on submit
+    }
+  };
+
+  // Aadhaar Number duplicate check
+  const checkAadhaar = async () => {
+    if (!/^\d{12}$/.test(form.aadhaar)) return;
+    try {
+      const r = await api.members.checkDuplicate('aadhaar', form.aadhaar);
+      setAadhaarTaken(r.available ? '' : r.message);
+    } catch {
+      // server verifies again on submit
+    }
+  };
+
+  // PAN Card duplicate check
+  const checkPan = async () => {
+    if (!/^[A-Z]{5}\d{4}[A-Z]$/.test(form.pan)) return;
+    try {
+      const r = await api.members.checkDuplicate('pan', form.pan);
+      setPanTaken(r.available ? '' : r.message);
     } catch {
       // server verifies again on submit
     }
@@ -566,10 +600,13 @@ export default function EmployeeNewMember() {
     // Section 3: Identity & Bank
     if (!/^\d{12}$/.test(form.aadhaar)) {
       found.aadhaar = 'Enter 12-digit Aadhaar number';
+    } else if (aadhaarTaken) {
+      found.aadhaar = aadhaarTaken;
     }
     if (form.pan) {
       if (!panValid) found.pan = 'Enter a valid PAN (e.g. ABCDE1234F)';
       else if (form.pan[3] !== 'P') found.pan = 'Borrower PAN must be individual (4th letter P)';
+      else if (panTaken) found.pan = panTaken;
       if (!form.panPhoto) found.panPhoto = 'PAN photo is required when PAN number is provided';
     }
     need('bankName', 'Bank name is required');
@@ -593,9 +630,15 @@ export default function EmployeeNewMember() {
     need('guarantorRelation', 'Select guarantor relation');
     if (!/^[6-9]\d{9}$/.test(form.guarantorMobile)) {
       found.guarantorMobile = 'Enter a valid 10-digit guarantor mobile';
+    } else if (form.guarantorMobile === form.mobile) {
+      found.guarantorMobile = 'Guarantor mobile cannot be the same as member mobile number';
     }
-    if (form.guarantorAadhaar && !/^\d{12}$/.test(form.guarantorAadhaar)) {
-      found.guarantorAadhaar = 'Guarantor Aadhaar must be 12 digits';
+    if (form.guarantorAadhaar) {
+      if (!/^\d{12}$/.test(form.guarantorAadhaar)) {
+        found.guarantorAadhaar = 'Guarantor Aadhaar must be 12 digits';
+      } else if (form.guarantorAadhaar === form.aadhaar) {
+        found.guarantorAadhaar = 'Guarantor Aadhaar cannot be the same as member Aadhaar number';
+      }
     }
 
     setErrors(found);
@@ -1252,10 +1295,14 @@ export default function EmployeeNewMember() {
                       inputMode="numeric"
                       maxLength={12}
                       value={form.aadhaar}
-                      onChange={setDigits('aadhaar', 12)}
-                      style={{ borderColor: errors.aadhaar ? '#ef4444' : undefined }}
+                      onChange={(e) => {
+                        setAadhaarTaken('');
+                        setDigits('aadhaar', 12)(e);
+                      }}
+                      onBlur={checkAadhaar}
+                      style={{ borderColor: errors.aadhaar || aadhaarTaken ? '#ef4444' : undefined }}
                     />
-                    {errors.aadhaar && <span style={{ fontSize: '0.72rem', color: '#ef4444' }}>{errors.aadhaar}</span>}
+                    {(errors.aadhaar || aadhaarTaken) && <span style={{ fontSize: '0.72rem', color: '#ef4444' }}>{errors.aadhaar || aadhaarTaken}</span>}
                   </div>
 
                   {/* PAN */}
@@ -1268,11 +1315,15 @@ export default function EmployeeNewMember() {
                       placeholder="ABCDE1234F"
                       maxLength={10}
                       value={form.pan}
-                      onChange={setUpper('pan', 10)}
-                      style={{ borderColor: errors.pan ? '#ef4444' : undefined }}
+                      onChange={(e) => {
+                        setPanTaken('');
+                        setUpper('pan', 10)(e);
+                      }}
+                      onBlur={checkPan}
+                      style={{ borderColor: errors.pan || panTaken ? '#ef4444' : undefined }}
                     />
-                    {errors.pan ? (
-                      <span style={{ fontSize: '0.72rem', color: '#ef4444' }}>{errors.pan}</span>
+                    {errors.pan || panTaken ? (
+                      <span style={{ fontSize: '0.72rem', color: '#ef4444' }}>{errors.pan || panTaken}</span>
                     ) : form.pan && panValid && form.pan[3] === 'P' ? (
                       <span style={{ fontSize: '0.7rem', color: '#047857' }}>✓ Valid individual PAN</span>
                     ) : (

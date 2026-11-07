@@ -2,7 +2,7 @@ import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { requireAuth, requireMenu, requireRole } from '../middleware/auth.js';
 import { asyncHandler as h } from '../utils/http.js';
-import { checkAccount, memberOptions, districts, sendOtp, verifyOtp, createMember, listMembers, getMember, savePerson, employeeOptions, changeGuarantor, setBlocked, synopsis, updateMember, completeMember, pincodeInfo, ifscInfo, listKyc, getKyc, reviewKyc, reuploadKyc } from '../controllers/memberController.js';
+import { checkAccount, checkMemberDuplicate, memberOptions, districts, sendOtp, verifyOtp, createMember, listMembers, getMember, savePerson, employeeOptions, changeGuarantor, setBlocked, synopsis, updateMember, completeMember, pincodeInfo, ifscInfo, listKyc, getKyc, reviewKyc, reuploadKyc } from '../controllers/memberController.js';
 
 const router = Router();
 
@@ -14,6 +14,7 @@ const otpLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 60, standardHead
 router.get('/members/options', requireAuth, requireRole(...READ), memberOptions);
 router.get('/members/employees', requireAuth, requireRole(...READ), h(employeeOptions));
 router.get('/members/check-account', requireAuth, requireRole(...READ), h(checkAccount));
+router.get('/members/check-duplicate', requireAuth, requireRole(...READ), h(checkMemberDuplicate));
 router.get('/members/lookup/pincode/:pin', requireAuth, requireRole(...READ), h(pincodeInfo));
 router.get('/members/lookup/ifsc/:code', requireAuth, requireRole(...READ), h(ifscInfo));
 router.get('/members/districts', requireAuth, requireRole(...READ), districts);

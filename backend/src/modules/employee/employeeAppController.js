@@ -744,6 +744,12 @@ export async function sendMemberOtp(req, res) {
   const mobile = cleanStr(req.body?.mobile).replace(/\D/g, '').slice(-10);
   if (!/^\d{10}$/.test(mobile)) throw new HttpError(400, 'Enter a valid 10-digit mobile number');
 
+  // Point 11: Block duplicate Mobile number across members immediately
+  const existing = await Member.findOne({ mobile, isDeleted: { $ne: true } }).select('code name');
+  if (existing) {
+    throw new HttpError(409, `Mobile number ${mobile} is already registered to member ${existing.name} (${existing.code}). Duplicate not allowed.`);
+  }
+
   const { otp, challengeId } = await issueOtp(`mem_reg_${mobile}`, { ttlSec: 300 });
   try {
     await sendSms({ to: mobile, text: `Your Udgam Member Registration verification OTP is ${otp}. Valid for 5 minutes.` });
@@ -812,6 +818,16 @@ export async function registerMember(req, res) {
   const acctClean = cleanStr(b.accountNumber);
   if (acctClean && (await Member.exists({ accountNumber: acctClean, isDeleted: false }))) {
     throw new HttpError(409, 'A member with this Bank Account number is already registered.');
+  }
+
+  // Point 10 & 11: Guarantor cannot have the same mobile or Aadhaar as borrower member
+  const gMobile = cleanStr(b.guarantorMobile || b.guarantor?.mobile).replace(/\D/g, '').slice(-10);
+  const gAadhaar = cleanStr(b.guarantorAadhaar || b.guarantor?.aadhaar).replace(/\D/g, '');
+  if (gMobile && mobile && gMobile === mobile) {
+    throw new HttpError(400, 'Guarantor mobile number cannot be the same as borrower member mobile number.');
+  }
+  if (gAadhaar && aadhaarClean && gAadhaar === aadhaarClean) {
+    throw new HttpError(400, 'Guarantor Aadhaar number cannot be the same as borrower member Aadhaar number.');
   }
 
   const emp = await Employee.findOne({ employeeCode: code }).populate('branch');
@@ -931,20 +947,26 @@ export async function getStaffRecentMembers(req, res) {
     .lean();
 
   res.json({
-    items: members.map((m) => ({
-      id: m._id,
-      code: m.code,
-      name: m.name,
-      mobile: m.mobile,
-      branchName: m.branch?.name || '',
-      hasPhoto: Boolean(m.memberPhoto),
-      hasSignature: Boolean(m.signaturePhoto),
-      hasAadhaar: Boolean(m.aadhaarPhoto),
-      hasPan: Boolean(m.panPhoto),
-      kycPending: m.kycPending,
-      kycRejected: m.kycRejected,
-      createdAt: m.createdAt,
-    })),
+    items: members.map((m) => {
+      const isRejected = Boolean(m.kycRejected || (m.kycDocs || []).some((d) => d.status === 'rejected'));
+      const isPending = Boolean(!isRejected && (m.kycPending || (m.kycDocs || []).some((d) => d.status === 'pending')));
+      return {
+        id: m._id,
+        code: m.code,
+        name: m.name,
+        mobile: m.mobile,
+        branchName: m.branch?.name || '',
+        hasPhoto: Boolean(m.memberPhoto),
+        hasSignature: Boolean(m.signaturePhoto),
+        hasAadhaar: Boolean(m.aadhaarPhoto),
+        hasPan: Boolean(m.panPhoto),
+        kycPending: isPending,
+        kycRejected: isRejected,
+        rejectedDocsCount: (m.kycDocs || []).filter((d) => d.status === 'rejected').length,
+        documents: (m.kycDocs || []).map((d) => ({ key: d.key || d.field, status: d.status, reason: d.reason || '' })),
+        createdAt: m.createdAt,
+      };
+    }),
   });
 }
 
@@ -4385,15 +4407,24 @@ export async function submitDeathRequest(req, res) {
   // Point 21 Linkage: Sync Death Request directly into Dead Settlement (LoanSettlement)
   let loanSettlementDoc = null;
   if (target === 'member') {
-    // Find active running loan for this member
+    // Find active running loan for this member (status: 'paid')
     const loan = await LoanPayment.findOne({
       $or: [{ 'lines.member': member._id }, { 'lines.code': member.code }],
-      status: { $in: ['approved', 'disbursed', 'active'] },
+      status: 'paid',
     }).populate('group branch').sort({ createdAt: -1 });
 
+    let outstandingPaise = 0;
+    let loanPaymentId = null;
+    let loanId = member.code;
+    let formId = member.code;
+    let groupStr = '';
+
     if (loan) {
+      loanPaymentId = loan._id;
+      loanId = loan.loanId || loan.formId;
+      formId = loan.formId || loan.loanId;
+      groupStr = loan.group?.code ? `${loan.group.code} — ${loan.group.name}` : '';
       const line = (loan.lines || []).find((l) => String(l.member) === String(member._id) || l.code === member.code);
-      let outstandingPaise = 0;
       if (line) {
         try {
           const state = await borrowerState(loan, line, new Date());
@@ -4402,40 +4433,43 @@ export async function submitDeathRequest(req, res) {
           outstandingPaise = line.amountPaise || 0;
         }
       }
-
-      const dthReceiptNo = `DTH-${Date.now().toString().slice(-8)}`;
-      loanSettlementDoc = await LoanSettlement.create({
-        kind: 'death',
-        receiptNo: dthReceiptNo,
-        loanPayment: loan._id,
-        loanId: loan.loanId || loan.formId,
-        formId: loan.formId,
-        branch: branchId || loan.branch?._id || loan.branch || member.branch,
-        member: member._id,
-        memberCode: member.code,
-        memberName: member.name,
-        group: loan.group?.code ? `${loan.group.code} — ${loan.group.name}` : '',
-        outstandingPaise,
-        amountPaise: 0,
-        waiverPaise: outstandingPaise,
-        settledOn: new Date(),
-        deathDate: cleanDeathDate,
-        certificate: deathCertificate,
-        remark: `[Submitted via Staff App: ${emp?.name || code}] Cause: ${deathReason}`,
-        verifier: { code: emp?.employeeCode || code || 'APP', name: emp?.name || 'Staff' },
-        status: 'pending',
-        createdBy: req.user?._id,
-      }).catch((e) => {
-        console.error('Failed to auto-create LoanSettlement from DeathRequest:', e.message);
-        return null;
-      });
     }
+
+    const dthReceiptNo = `DTH-${Date.now().toString().slice(-8)}`;
+    loanSettlementDoc = await LoanSettlement.create({
+      kind: 'death',
+      receiptNo: dthReceiptNo,
+      loanPayment: loanPaymentId,
+      loanId,
+      formId,
+      branch: branchId || loan?.branch?._id || loan?.branch || member.branch,
+      member: member._id,
+      memberCode: member.code,
+      memberName: member.name,
+      group: groupStr,
+      outstandingPaise,
+      amountPaise: 0,
+      waiverPaise: outstandingPaise,
+      settledOn: new Date(),
+      deathDate: cleanDeathDate,
+      certificate: deathCertificate,
+      remark: `[Submitted via Staff App: ${emp?.name || code}] Cause: ${deathReason}`,
+      verifier: { code: emp?.employeeCode || code || 'APP', name: emp?.name || 'Staff' },
+      status: 'pending',
+      createdBy: req.user?._id,
+    }).catch((e) => {
+      console.error('Failed to auto-create LoanSettlement from DeathRequest:', e.message);
+      return null;
+    });
   } else if (target === 'guarantor') {
-    // Record guarantor death directly on Member profile
+    // Record guarantor death directly on Member profile so it shows in Guarantor Deaths list
     member.guarantor = member.guarantor || {};
     member.guarantor.deceasedOn = cleanDeathDate;
     member.guarantor.deathCertificate = deathCertificate;
     member.guarantor.deathReason = cleanStr(deathReason);
+    member.guarantor.deathRemark = cleanStr(deathReason);
+    member.guarantor.deathRecordedAt = new Date();
+    member.guarantor.deathRecordedByCode = emp?.employeeCode || code || 'APP';
     member.guarantor.verifiedBy = { code: emp?.employeeCode || code || 'APP', name: emp?.name || 'Staff' };
     await member.save().catch(() => {});
   }

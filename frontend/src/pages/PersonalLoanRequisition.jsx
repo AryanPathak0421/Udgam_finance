@@ -598,9 +598,17 @@ function RequisitionForm({ kind }) {
   const amountNum = Number(form.amount) || 0;
   const schemeLabel = kind === 'product' ? 'Product' : 'Loan scheme';
 
+  const isSunday = new Date().getDay() === 0;
+
   return (
     <>
       <PageHeader title={cfg.title} description={cfg.desc} />
+
+      {isSunday && (
+        <div className="notice danger" style={{ marginBottom: 14 }}>
+          <strong>Sunday Weekly Off:</strong> Loan Requisitions and EMI collections are strictly blocked on Sundays &amp; Company Holidays.
+        </div>
+      )}
 
       <form onSubmit={review} noValidate>
         <div className="panel" style={{ padding: 18, marginBottom: 14 }}>
@@ -1051,7 +1059,7 @@ function RequisitionForm({ kind }) {
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <button type="submit" className="btn primary">Review &amp; submit</button>
+          <button type="submit" className="btn primary" disabled={isSunday}>{isSunday ? 'Blocked on Sundays' : 'Review & submit'}</button>
         </div>
       </form>
 
