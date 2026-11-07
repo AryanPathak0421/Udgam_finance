@@ -607,10 +607,20 @@ export async function getTodayDueList(req, res) {
     paidOn: { $gte: startDay, $lte: asOf },
   }).select('loanPayment memberCode amountPaise').lean() : [];
 
+  const appPaidToday = loanIds.length ? await AppEmiCollection.find({
+    loanPayment: { $in: loanIds },
+    status: { $in: ['pending', 'approved'] },
+    collectedOn: { $gte: startDay, $lte: asOf },
+  }).select('loanPayment memberCode amountPaise').lean() : [];
+
   const paidTodayMap = new Map();
   for (const p of paidToday) {
     const k = `${String(p.loanPayment)}_${p.memberCode}`;
     paidTodayMap.set(k, (paidTodayMap.get(k) || 0) + (p.amountPaise || 0) / 100);
+  }
+  for (const ap of appPaidToday) {
+    const k = `${String(ap.loanPayment)}_${ap.memberCode}`;
+    paidTodayMap.set(k, (paidTodayMap.get(k) || 0) + (ap.amountPaise || 0) / 100);
   }
 
   const dues = [];
@@ -655,6 +665,31 @@ export async function getTodayDueList(req, res) {
         mode: l.modeLabel || l.mode || 'Weekly',
       });
     });
+  });
+
+  // Calculate Whole Group Actual Collection and Totals for group loans
+  const groupSummaryMap = new Map();
+  dues.forEach((d) => {
+    if (d.category === 'group' && d.groupName) {
+      const cur = groupSummaryMap.get(d.groupName) || { actualCollection: 0, collectedAmount: 0, dueAmount: 0, membersCount: 0 };
+      cur.actualCollection += d.totalDue;
+      cur.collectedAmount += d.collectedAmount;
+      cur.dueAmount += d.dueAmount;
+      cur.membersCount += 1;
+      groupSummaryMap.set(d.groupName, cur);
+    }
+  });
+
+  dues.forEach((d) => {
+    if (d.category === 'group' && d.groupName) {
+      const gStats = groupSummaryMap.get(d.groupName);
+      if (gStats) {
+        d.groupActualCollection = gStats.actualCollection;
+        d.groupTotalCollected = gStats.collectedAmount;
+        d.groupPendingDue = gStats.dueAmount;
+        d.groupMembersCount = gStats.membersCount;
+      }
+    }
   });
 
   const summary = {
@@ -1982,9 +2017,19 @@ export async function getEmiGroups(req, res) {
     { $group: { _id: '$loanPayment', total: { $sum: '$amountPaise' } } },
   ]) : [];
 
+  const appCollections = allLoanIds.length ? await AppEmiCollection.find({
+    loanPayment: { $in: allLoanIds },
+    status: { $in: ['pending', 'approved'] },
+    collectedOn: { $gte: startDay, $lte: endDay },
+  }).select('loanPayment memberCode amountPaise').lean() : [];
+
   const collectionsByLoanId = new Map();
   for (const c of collections) {
     collectionsByLoanId.set(String(c._id), c.total || 0);
+  }
+  for (const ac of appCollections) {
+    const lid = String(ac.loanPayment);
+    collectionsByLoanId.set(lid, (collectionsByLoanId.get(lid) || 0) + (ac.amountPaise || 0));
   }
 
   // Pre-fetch all past payments for dues calculation
@@ -2001,6 +2046,13 @@ export async function getEmiGroups(req, res) {
     if (p.paidOn >= startDay && p.paidOn <= endDay) {
       cur.todayPaise += (p.amountPaise || 0);
     }
+    paymentsByKey.set(k, cur);
+  }
+  for (const ac of appCollections) {
+    const k = `${String(ac.loanPayment)}_${ac.memberCode}`;
+    const cur = paymentsByKey.get(k) || { totalPaise: 0, todayPaise: 0 };
+    cur.todayPaise += (ac.amountPaise || 0);
+    cur.totalPaise += (ac.amountPaise || 0);
     paymentsByKey.set(k, cur);
   }
 
@@ -2124,8 +2176,10 @@ export async function getEmiGroups(req, res) {
       }
     }
 
-    const progress = totalDueAmount > 0 ? Math.min(100, Math.round((totalCollectedToday / totalDueAmount) * 100)) : 100;
-    const isCompleted = (totalCollectedToday >= totalDueAmount && totalDueAmount > 0) || (membersCount > 0 && dueCount === 0 && totalCollectedToday > 0);
+    const actualCollection = totalDueAmount;
+    const pendingDue = Math.max(0, actualCollection - totalCollectedToday);
+    const progress = actualCollection > 0 ? Math.min(100, Math.round((totalCollectedToday / actualCollection) * 100)) : 100;
+    const isCompleted = (totalCollectedToday >= actualCollection && actualCollection > 0) || (membersCount > 0 && dueCount === 0 && totalCollectedToday > 0);
 
     groups.push({
       groupCode: code,
@@ -2134,8 +2188,10 @@ export async function getEmiGroups(req, res) {
       scheduledDay: scheduledDayLabel,
       membersCount,
       dueCount,
-      totalDueAmount,
+      actualCollection,
+      totalDueAmount: actualCollection,
       totalCollectedToday,
+      pendingDue,
       collectionProgressPercent: progress,
       isCompleted,
     });
@@ -2181,6 +2237,12 @@ export async function getGroupEmiMembers(req, res) {
     status: 'paid',
   }).lean();
 
+  const appCollections = allLoanIds.length ? await AppEmiCollection.find({
+    loanPayment: { $in: allLoanIds },
+    status: { $in: ['pending', 'approved'] },
+    collectedOn: { $gte: startDay, $lte: endDay },
+  }).select('loanPayment memberCode amountPaise').lean() : [];
+
   const paymentsByKey = new Map();
   for (const p of allPastPayments) {
     const k = `${String(p.loanPayment)}_${p.memberCode}`;
@@ -2189,6 +2251,13 @@ export async function getGroupEmiMembers(req, res) {
     if (p.paidOn >= startDay && p.paidOn <= endDay) {
       cur.todayPaise += (p.amountPaise || 0);
     }
+    paymentsByKey.set(k, cur);
+  }
+  for (const ac of appCollections) {
+    const k = `${String(ac.loanPayment)}_${ac.memberCode}`;
+    const cur = paymentsByKey.get(k) || { totalPaise: 0, todayPaise: 0 };
+    cur.todayPaise += (ac.amountPaise || 0);
+    cur.totalPaise += (ac.amountPaise || 0);
     paymentsByKey.set(k, cur);
   }
 
@@ -2241,9 +2310,17 @@ export async function getGroupEmiMembers(req, res) {
     }
   }
 
+  const totalActualCollection = members.reduce((s, m) => s + (m.emiAmount || 0), 0);
+  const totalCollectedToday = members.reduce((s, m) => s + (m.todayPaidAmount || 0), 0);
+  const totalPendingDue = Math.max(0, totalActualCollection - totalCollectedToday);
+
   res.json({
     groupCode,
     groupName,
+    actualCollection: totalActualCollection,
+    totalDueAmount: totalActualCollection,
+    totalCollectedToday,
+    pendingDue: totalPendingDue,
     members,
   });
 }

@@ -105,6 +105,18 @@ export default function EmployeeEmiPayment() {
       const members = res.members || [];
       setGroupMembers(members);
 
+      // Whole group collection summary
+      const actualCol = res.actualCollection ?? members.reduce((s, m) => s + (m.emiAmount || 0), 0);
+      const colToday = res.totalCollectedToday ?? members.reduce((s, m) => s + (m.todayPaidAmount || 0), 0);
+      setActiveGroup((prev) => ({
+        ...prev,
+        ...group,
+        actualCollection: actualCol,
+        totalDueAmount: actualCol,
+        totalCollectedToday: colToday,
+        pendingDue: Math.max(0, actualCol - colToday),
+      }));
+
       // Pre-fill collection map
       const initialMap = {};
       members.forEach((m) => {
@@ -505,7 +517,7 @@ export default function EmployeeEmiPayment() {
                               fontWeight: 800,
                             }}
                           >
-                            Actual: ₹{Number(g.totalCollectedToday || 0).toLocaleString('en-IN')}
+                            Actual: ₹{Number(g.actualCollection || g.totalDueAmount || 0).toLocaleString('en-IN')}
                           </span>
                           {is100Percent && (
                             <span style={{ background: '#16a34a', color: '#fff', padding: '2px 8px', borderRadius: 6, fontSize: '0.72rem', fontWeight: 800 }}>
@@ -547,26 +559,26 @@ export default function EmployeeEmiPayment() {
                     }}>
                       <div>
                         <div style={{ fontSize: '0.68rem', color: is100Percent ? '#166534' : 'var(--emp-text-muted)', fontWeight: 600 }}>
-                          Actual Group Collection:
+                          Actual Collection (Whole Group):
+                        </div>
+                        <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--emp-primary)' }}>
+                          ₹{Number(g.actualCollection || g.totalDueAmount || 0).toLocaleString('en-IN')}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: '0.68rem', color: is100Percent ? '#166534' : 'var(--emp-text-muted)', fontWeight: 600 }}>
+                          Collected Today:
                         </div>
                         <div style={{ fontSize: '1rem', fontWeight: 800, color: '#15803d' }}>
                           ₹{Number(g.totalCollectedToday || 0).toLocaleString('en-IN')}
                         </div>
                       </div>
-                      <div style={{ textAlign: 'center' }}>
-                        <div style={{ fontSize: '0.68rem', color: is100Percent ? '#166534' : 'var(--emp-text-muted)', fontWeight: 600 }}>
-                          Total Due:
-                        </div>
-                        <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--emp-text)' }}>
-                          ₹{Number(g.totalDueAmount || 0).toLocaleString('en-IN')}
-                        </div>
-                      </div>
                       <div style={{ textAlign: 'right' }}>
                         <div style={{ fontSize: '0.68rem', color: is100Percent ? '#166534' : '#b91c1c', fontWeight: 600 }}>
-                          Pending Due:
+                          Remaining Due:
                         </div>
                         <div style={{ fontSize: '1rem', fontWeight: 800, color: '#dc2626' }}>
-                          ₹{Math.max(0, Number(g.totalDueAmount || 0) - Number(g.totalCollectedToday || 0)).toLocaleString('en-IN')}
+                          ₹{Number(g.pendingDue ?? Math.max(0, (g.actualCollection || g.totalDueAmount || 0) - (g.totalCollectedToday || 0))).toLocaleString('en-IN')}
                         </div>
                       </div>
                     </div>
@@ -634,14 +646,44 @@ export default function EmployeeEmiPayment() {
                 <div style={{ fontSize: '0.8rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
                   Group Code: <strong>{activeGroup.groupCode}</strong>
                 </div>
-                <div style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', marginTop: 4 }}>
-                  Actual Group Collection: <strong style={{ color: '#15803d' }}>₹{Number(activeGroup.totalCollectedToday || 0).toLocaleString('en-IN')}</strong> • Pending Due: <strong style={{ color: '#dc2626' }}>₹{Math.max(0, Number(activeGroup.totalDueAmount || 0) - Number(activeGroup.totalCollectedToday || 0)).toLocaleString('en-IN')}</strong> • Total Due: <strong>₹{Number(activeGroup.totalDueAmount || 0).toLocaleString('en-IN')}</strong>
-                </div>
               </div>
               <div style={{ textAlign: 'right' }}>
                 <div style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)' }}>Selected Collection</div>
                 <div style={{ fontSize: '1.3rem', fontWeight: 800, color: '#059669' }}>
                   ₹{Number(totalSelectedCollection).toLocaleString('en-IN')}
+                </div>
+              </div>
+            </div>
+
+            {/* Whole Group Collection Breakdown Bar */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr 1fr',
+                gap: 8,
+                marginTop: 12,
+                padding: '8px 12px',
+                background: 'var(--emp-bg-subtle, #f8fafc)',
+                borderRadius: 8,
+                border: '1px solid var(--emp-border)',
+              }}
+            >
+              <div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--emp-text-muted)', fontWeight: 600 }}>Actual Collection (Whole Group):</div>
+                <div style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--emp-primary)' }}>
+                  ₹{Number(activeGroup.actualCollection || activeGroup.totalDueAmount || 0).toLocaleString('en-IN')}
+                </div>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '0.7rem', color: 'var(--emp-text-muted)', fontWeight: 600 }}>Collected Today:</div>
+                <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#15803d' }}>
+                  ₹{Number(activeGroup.totalCollectedToday || 0).toLocaleString('en-IN')}
+                </div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: '0.7rem', color: '#b91c1c', fontWeight: 600 }}>Remaining Due:</div>
+                <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#dc2626' }}>
+                  ₹{Number(activeGroup.pendingDue ?? Math.max(0, (activeGroup.actualCollection || activeGroup.totalDueAmount || 0) - (activeGroup.totalCollectedToday || 0))).toLocaleString('en-IN')}
                 </div>
               </div>
             </div>

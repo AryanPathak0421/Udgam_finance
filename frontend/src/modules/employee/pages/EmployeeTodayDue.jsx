@@ -291,6 +291,11 @@ export default function EmployeeTodayDue() {
                   <div style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
                     Code: <strong>{d.memberCode}</strong> | Group: <strong>{d.groupName}</strong>
                   </div>
+                  {d.groupActualCollection > 0 && (
+                    <div style={{ fontSize: '0.72rem', color: '#0369a1', marginTop: 3, background: '#f0f9ff', padding: '2px 8px', borderRadius: 4, display: 'inline-block' }}>
+                      Whole Group Actual: <strong>₹{Number(d.groupActualCollection).toLocaleString('en-IN')}</strong> • Collect: <strong style={{ color: '#16a34a' }}>₹{Number(d.groupTotalCollected || 0).toLocaleString('en-IN')}</strong> • Due: <strong style={{ color: '#dc2626' }}>₹{Number(d.groupPendingDue || 0).toLocaleString('en-IN')}</strong>
+                    </div>
+                  )}
                   <div style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
                     Inst #{d.installmentNo} • Due: {d.dueDate} • Mode: {d.mode}
                   </div>
@@ -377,12 +382,21 @@ export default function EmployeeTodayDue() {
 
             <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: 8, marginBottom: 14, fontSize: '0.82rem' }}>
               <div><strong>Borrower:</strong> {collectModal.memberName} ({collectModal.memberCode})</div>
+              {collectModal.groupName && collectModal.groupName !== 'Individual' && (
+                <div><strong>Group:</strong> {collectModal.groupName}</div>
+              )}
+              {collectModal.groupActualCollection > 0 && (
+                <div style={{ padding: '6px 8px', background: '#e0f2fe', borderRadius: 6, margin: '6px 0', fontSize: '0.78rem' }}>
+                  <strong>Whole Group Actual Collection:</strong> ₹{Number(collectModal.groupActualCollection).toLocaleString('en-IN')}<br />
+                  <span style={{ color: '#16a34a', fontWeight: 600 }}>Group Collected Today: ₹{Number(collectModal.groupTotalCollected || 0).toLocaleString('en-IN')}</span> • <span style={{ color: '#dc2626', fontWeight: 600 }}>Group Due: ₹{Number(collectModal.groupPendingDue || 0).toLocaleString('en-IN')}</span>
+                </div>
+              )}
               <div><strong>Loan ID:</strong> {collectModal.loanId}</div>
-              <div><strong>Total Due:</strong> ₹{collectModal.totalDue || collectModal.dueAmount}</div>
+              <div><strong>Member Total Due:</strong> ₹{collectModal.totalDue || collectModal.dueAmount}</div>
               {collectModal.collectedAmount > 0 && (
                 <div><strong>Collected Today:</strong> <span style={{ color: '#16a34a', fontWeight: 700 }}>₹{collectModal.collectedAmount}</span></div>
               )}
-              <div><strong>Remaining Due:</strong> <span style={{ color: '#dc2626', fontWeight: 800 }}>₹{collectModal.dueAmount}</span></div>
+              <div><strong>Member Remaining Due:</strong> <span style={{ color: '#dc2626', fontWeight: 800 }}>₹{collectModal.dueAmount}</span></div>
             </div>
 
             {actionMessage.text && (
