@@ -7,16 +7,16 @@ import { checkAccount, memberOptions, districts, sendOtp, verifyOtp, createMembe
 const router = Router();
 
 const READ = ['super_admin', 'admin', 'branch_manager', 'loan_officer', 'field_officer', 'collection_officer', 'accountant', 'viewer'];
-const CREATE = ['super_admin', 'admin', 'branch_manager', 'loan_officer', 'field_officer'];
+const CREATE = ['super_admin', 'admin', 'branch_manager', 'loan_officer', 'field_officer', 'collection_officer'];
 
 const otpLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 60, standardHeaders: true, legacyHeaders: false });
 
-router.get('/members/options', requireAuth, requireRole(...CREATE), memberOptions);
-router.get('/members/employees', requireAuth, requireRole(...CREATE), h(employeeOptions));
-router.get('/members/check-account', requireAuth, requireRole(...CREATE), h(checkAccount));
-router.get('/members/lookup/pincode/:pin', requireAuth, requireRole(...CREATE), h(pincodeInfo));
-router.get('/members/lookup/ifsc/:code', requireAuth, requireRole(...CREATE), h(ifscInfo));
-router.get('/members/districts', requireAuth, requireRole(...CREATE), districts);
+router.get('/members/options', requireAuth, requireRole(...READ), memberOptions);
+router.get('/members/employees', requireAuth, requireRole(...READ), h(employeeOptions));
+router.get('/members/check-account', requireAuth, requireRole(...READ), h(checkAccount));
+router.get('/members/lookup/pincode/:pin', requireAuth, requireRole(...READ), h(pincodeInfo));
+router.get('/members/lookup/ifsc/:code', requireAuth, requireRole(...READ), h(ifscInfo));
+router.get('/members/districts', requireAuth, requireRole(...READ), districts);
 router.post('/members/otp/send', requireAuth, requireRole(...CREATE), otpLimiter, h(sendOtp));
 router.post('/members/otp/verify', requireAuth, requireRole(...CREATE), otpLimiter, h(verifyOtp));
 router.get('/members', requireAuth, requireRole(...READ), h(listMembers));

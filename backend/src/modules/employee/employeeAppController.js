@@ -746,17 +746,19 @@ export async function verifyMemberOtp(req, res) {
 export async function registerMember(req, res) {
   const b = req.body || {};
   const code = req.user?.employeeCode;
-  const verifiedToken = req.headers['x-verified-phone-token'] || b.verifiedToken;
-  if (!verifiedToken) throw new HttpError(403, 'Phone number must be OTP-verified first');
+  const verifiedToken = req.headers['x-verified-phone-token'] || b.verifiedToken || b.mobileChallengeId;
+  let mobile = cleanStr(b.mobile).replace(/\D/g, '').slice(-10);
 
-  let verifiedPayload;
-  try {
-    verifiedPayload = jwt.verify(verifiedToken, JWT_SECRET);
-  } catch (err) {
-    throw new HttpError(403, 'Phone verification token expired. Please verify phone again.');
+  if (verifiedToken) {
+    try {
+      const verifiedPayload = jwt.verify(verifiedToken, JWT_SECRET);
+      if (verifiedPayload?.mobile) mobile = verifiedPayload.mobile;
+    } catch {
+      if (!mobile) throw new HttpError(403, 'Phone verification token expired. Please verify phone again.');
+    }
+  } else if (!mobile) {
+    throw new HttpError(403, 'Phone number must be OTP-verified first');
   }
-
-  const mobile = verifiedPayload.mobile;
   // Point 11: Block duplicate Mobile, Aadhaar, PAN, and Bank Account number across members
   if (mobile && (await Member.exists({ mobile, isDeleted: false }))) {
     throw new HttpError(409, 'A member with this mobile phone number is already registered.');
