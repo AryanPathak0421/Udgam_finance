@@ -97,7 +97,7 @@ export default function EmployeeNewMember() {
     try {
       const res = await api.employeeApp.sendMemberOtp(phone.trim());
       setChallengeId(res.challengeId);
-      if (res.devOtp) setDevOtp(res.devOtp);
+      setDevOtp(res.demoOtp || res.devOtp || '123456');
       setStep(2);
     } catch (err) {
       setStepError(err.message || 'Failed to send OTP');
@@ -307,6 +307,36 @@ export default function EmployeeNewMember() {
             >
               {sendingOtp ? 'Sending OTP...' : 'Send OTP to Verify Number'}
             </button>
+
+            {/* Point 4: Demo OTP / Preview Option */}
+            <div style={{ marginTop: 8, textAlign: 'center', borderTop: '1px dashed var(--emp-border)', paddingTop: 10 }}>
+              <button
+                type="button"
+                className="emp-btn-secondary"
+                style={{ width: '100%', padding: '10px', fontSize: '0.82rem', fontWeight: 700, color: '#0369a1', borderColor: '#7dd3fc', background: '#f0f9ff' }}
+                onClick={async () => {
+                  const testPhone = phone.length === 10 ? phone : '9876543210';
+                  setPhone(testPhone);
+                  setSendingOtp(true);
+                  try {
+                    const res = await api.employeeApp.sendMemberOtp(testPhone);
+                    setChallengeId(res.challengeId);
+                    setDevOtp(res.demoOtp || res.devOtp || '123456');
+                    setOtp(res.demoOtp || res.devOtp || '123456');
+                    setStep(2);
+                  } catch (e) {
+                    setChallengeId('demo-challenge');
+                    setDevOtp('123456');
+                    setOtp('123456');
+                    setStep(2);
+                  } finally {
+                    setSendingOtp(false);
+                  }
+                }}
+              >
+                ⚡ Demo Mode: Open Form with Demo OTP (123456)
+              </button>
+            </div>
           </form>
         </div>
       )}
@@ -321,11 +351,20 @@ export default function EmployeeNewMember() {
             Enter the 6-digit verification code sent to <strong>+91 {phone}</strong>
           </p>
 
-          {devOtp && (
-            <div style={{ background: '#fef3c7', color: '#92400e', padding: '10px 14px', borderRadius: 8, fontSize: '0.85rem', marginBottom: 14, border: '1px dashed #f59e0b', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Icon name="key" size={16} /> <span><strong>Dev Mode OTP:</strong> {devOtp}</span>
+          {/* Point 4: Demo OTP Hint & Fill Button */}
+          <div style={{ background: '#fef3c7', color: '#92400e', padding: '10px 14px', borderRadius: 8, fontSize: '0.85rem', marginBottom: 14, border: '1px dashed #f59e0b', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Icon name="key" size={16} /> <span><strong>Demo OTP:</strong> {devOtp || '123456'}</span>
             </div>
-          )}
+            <button
+              type="button"
+              className="emp-btn-secondary"
+              style={{ padding: '4px 10px', fontSize: '0.75rem', fontWeight: 700, background: '#fff', borderColor: '#d97706', color: '#b45309' }}
+              onClick={() => setOtp(devOtp || '123456')}
+            >
+              Fill Demo OTP
+            </button>
+          </div>
 
           {stepError && (
             <div style={{ background: '#fee2e2', color: '#991b1b', padding: '10px 14px', borderRadius: 8, fontSize: '0.85rem', marginBottom: 14 }}>

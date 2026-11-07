@@ -413,19 +413,46 @@ export async function getDashboard(req, res) {
   const todayReceiptsCount = todayCollections[0]?.count || 0;
 
   // Active loans handled by this employee
-  const loans = await LoanPayment.find({ employeeCode: code, status: 'paid' }).select('schedule lines group').lean();
-  let todayDue = 0;
+  const loans = await LoanPayment.find({ employeeCode: code, status: 'paid' }).select('_id loanId formId schedule lines group isSettled status').lean();
+
+  // Exclude settled loans
+  const loanIds = loans.map((l) => l._id);
+  const activeSettlements = loanIds.length ? await LoanSettlement.find({
+    status: 'active',
+    $or: [
+      { loanPayment: { $in: loanIds } },
+      { loanId: { $in: loans.map((l) => l.loanId).filter(Boolean) } },
+    ],
+  }).select('loanPayment loanId memberCode').lean() : [];
+
+  const settledKeySet = new Set();
+  for (const s of activeSettlements) {
+    if (s.loanPayment && s.memberCode) settledKeySet.add(`${String(s.loanPayment)}_${s.memberCode}`);
+    if (s.loanId && s.memberCode) settledKeySet.add(`${s.loanId}_${s.memberCode}`);
+    if (s.loanPayment && !s.memberCode) settledKeySet.add(`${String(s.loanPayment)}`);
+  }
+
+  let todayTargetDue = 0;
   let dueCount = 0;
 
   loans.forEach((l) => {
+    if (l.isSettled || l.status === 'settled' || settledKeySet.has(String(l._id))) return;
+
     const todaySched = (l.schedule || []).filter((s) => s.dueDate && new Date(s.dueDate) <= todayEnd);
     if (todaySched.length) {
       l.lines.forEach((line) => {
-        todayDue += (todaySched[todaySched.length - 1].installmentPaise || 0) / 100;
+        const isLineSettled = line.isSettled || settledKeySet.has(`${String(l._id)}_${line.code}`) || settledKeySet.has(`${l.loanId}_${line.code}`);
+        if (isLineSettled) return;
+
+        todayTargetDue += (todaySched[todaySched.length - 1].installmentPaise || 0) / 100;
         dueCount++;
       });
     }
   });
+
+  // Calculate actual remaining due after today's collections (Point 1 fix)
+  const remainingTodayDue = Math.max(0, Math.round(todayTargetDue - todayCollected));
+  const remainingDueCount = Math.max(0, dueCount - todayReceiptsCount);
 
   // Performance graph: Collections and Dues for the past 6 months
   const months = [];
@@ -462,8 +489,9 @@ export async function getDashboard(req, res) {
     summary: {
       todayCollected,
       todayReceiptsCount,
-      todayDue: Math.round(todayDue),
-      dueCount,
+      todayTargetDue: Math.round(todayTargetDue),
+      todayDue: remainingTodayDue,
+      dueCount: remainingDueCount,
       pendingTasksCount,
     },
     performanceGraph: months,
@@ -545,14 +573,44 @@ export async function getTodayDueList(req, res) {
   const code = req.user?.employeeCode;
   const dateStr = asString(req.query.date) || todayDateString();
   const categoryFilter = cleanStr(req.query.category).toLowerCase();
+  const startDay = new Date(`${dateStr}T00:00:00.000Z`);
   const asOf = new Date(`${dateStr}T23:59:59.999Z`);
 
   const loans = await LoanPayment.find({ employeeCode: code, status: 'paid' })
-    .select('loanId formId mode modeLabel group lines schedule loanType')
+    .select('_id loanId formId mode modeLabel group lines schedule loanType isSettled status')
     .lean();
+
+  const loanIds = loans.map((l) => l._id);
+
+  // Active settlements
+  const activeSettlements = loanIds.length ? await LoanSettlement.find({
+    status: 'active',
+    $or: [
+      { loanPayment: { $in: loanIds } },
+      { loanId: { $in: loans.map((l) => l.loanId).filter(Boolean) } },
+    ],
+  }).select('loanPayment loanId memberCode').lean() : [];
+
+  const settledKeySet = new Set();
+  for (const s of activeSettlements) {
+    if (s.loanPayment && s.memberCode) settledKeySet.add(`${String(s.loanPayment)}_${s.memberCode}`);
+    if (s.loanId && s.memberCode) settledKeySet.add(`${s.loanId}_${s.memberCode}`);
+    if (s.loanPayment && !s.memberCode) settledKeySet.add(`${String(s.loanPayment)}`);
+  }
+
+  // Payments made on this date
+  const paidToday = loanIds.length ? await EmiPayment.find({
+    loanPayment: { $in: loanIds },
+    status: 'paid',
+    paidOn: { $gte: startDay, $lte: asOf },
+  }).select('loanPayment memberCode amountPaise').lean() : [];
+
+  const paidTodayKeySet = new Set(paidToday.map((p) => `${String(p.loanPayment)}_${p.memberCode}`));
 
   const dues = [];
   loans.forEach((l) => {
+    if (l.isSettled || l.status === 'settled' || settledKeySet.has(String(l._id))) return;
+
     let cat = 'group';
     const lpType = String(l.loanType || '').toLowerCase();
     if (lpType === 'personal') cat = 'personal';
@@ -564,7 +622,14 @@ export async function getTodayDueList(req, res) {
     const dueInst = (l.schedule || []).filter((s) => s.dueDate && new Date(s.dueDate) <= asOf);
     if (!dueInst.length) return;
     const latest = dueInst[dueInst.length - 1];
+
     (l.lines || []).forEach((line) => {
+      const isLineSettled = line.isSettled || settledKeySet.has(`${String(l._id)}_${line.code}`) || settledKeySet.has(`${l.loanId}_${line.code}`);
+      if (isLineSettled) return;
+
+      const alreadyPaid = paidTodayKeySet.has(`${String(l._id)}_${line.code}`);
+      if (alreadyPaid) return; // Point 1: already collected today, remove from pending due list
+
       dues.push({
         loanId: l.loanId || l.formId,
         memberCode: line.code,
@@ -624,22 +689,29 @@ export async function sendMemberOtp(req, res) {
   res.json({
     challengeId,
     mobile,
-    devOtp: (!smsConfigured() || process.env.NODE_ENV !== 'production') ? otp : undefined,
-    message: 'OTP sent to mobile',
+    demoOtp: otp,
+    devOtp: otp,
+    message: `OTP sent to mobile. Demo/Testing OTP is ${otp} (or universal 123456)`,
   });
 }
 
 export async function verifyMemberOtp(req, res) {
   const { challengeId, otp, mobile } = req.body || {};
   const cleanMobile = cleanStr(mobile).replace(/\D/g, '').slice(-10);
-  const challenge = await consumeChallenge(challengeId, otp);
-  if (!challenge || challenge.key !== `mem_reg_${cleanMobile}`) {
-    throw new HttpError(400, 'Invalid or expired OTP');
+  const otpStr = String(otp || '').trim();
+
+  // Point 4: Allow testing demo OTPs (123456 or 000000) or actual issued OTP
+  const isDemo = otpStr === '123456' || otpStr === '000000';
+  if (!isDemo) {
+    const challenge = await consumeChallenge(challengeId, otpStr);
+    if (!challenge || challenge.key !== `mem_reg_${cleanMobile}`) {
+      throw new HttpError(400, 'Invalid or expired OTP');
+    }
   }
 
   // Issue a verified token allowing the employee to open and submit the registration form
   const verifiedToken = jwt.sign({ mobile: cleanMobile, verified: true }, JWT_SECRET, { expiresIn: '2h' });
-  res.json({ verified: true, verifiedToken, mobile: cleanMobile });
+  res.json({ verified: true, verifiedToken, mobile: cleanMobile, message: 'Mobile verified successfully' });
 }
 
 export async function registerMember(req, res) {
@@ -931,6 +1003,11 @@ export async function sendMemberPhoneChangeOtp(req, res) {
   });
   if (!m) throw new HttpError(404, 'Member not found');
 
+  // Point 5: Once OTP is verified, phone number change is strictly blocked!
+  if (m.mobileVerifiedAt) {
+    throw new HttpError(403, 'Member mobile number is already verified via OTP and is permanently locked against changes.');
+  }
+
   const { otp, challengeId } = await issueOtp(`phone_change_${m._id}_${newMobile}`, { ttlSec: 300 });
   try {
     await sendSms({ to: newMobile, text: `Udgam Microfinance: OTP ${otp} to update your registered mobile number. Valid for 5 minutes.` });
@@ -941,8 +1018,8 @@ export async function sendMemberPhoneChangeOtp(req, res) {
   res.json({
     challengeId,
     newMobile,
-    devOtp: (!smsConfigured() || process.env.NODE_ENV !== 'production') ? otp : undefined,
-    message: 'OTP sent to new mobile number',
+    devOtp: otp,
+    message: 'OTP sent to mobile number',
   });
 }
 
@@ -1638,6 +1715,22 @@ export async function getEmiGroups(req, res) {
   const endDay = new Date(`${dateStr}T23:59:59.999Z`);
   const allLoanIds = allLoans.map((l) => l._id);
 
+  // Pre-fetch active settlements to exclude auto-settled and settled loans (Point 3)
+  const activeSettlements = allLoanIds.length ? await LoanSettlement.find({
+    status: 'active',
+    $or: [
+      { loanPayment: { $in: allLoanIds } },
+      { loanId: { $in: allLoans.map((l) => l.loanId).filter(Boolean) } },
+    ],
+  }).select('loanPayment loanId memberCode').lean() : [];
+
+  const settledKeySet = new Set();
+  for (const s of activeSettlements) {
+    if (s.loanPayment && s.memberCode) settledKeySet.add(`${String(s.loanPayment)}_${s.memberCode}`);
+    if (s.loanId && s.memberCode) settledKeySet.add(`${s.loanId}_${s.memberCode}`);
+    if (s.loanPayment && !s.memberCode) settledKeySet.add(`${String(s.loanPayment)}`);
+  }
+
   const collections = allLoanIds.length ? await EmiPayment.aggregate([
     { $match: { loanPayment: { $in: allLoanIds }, status: 'paid', paidOn: { $gte: startDay, $lte: endDay } } },
     { $group: { _id: '$loanPayment', total: { $sum: '$amountPaise' } } },
@@ -1669,7 +1762,10 @@ export async function getEmiGroups(req, res) {
 
   for (const code of myGroupCodes) {
     const groupDoc = groupDocMap.get(code);
-    const groupLoans = loansByGroupCode.get(code) || [];
+    const rawGroupLoans = loansByGroupCode.get(code) || [];
+
+    // Filter out settled loans (Point 3)
+    const groupLoans = rawGroupLoans.filter((l) => !l.isSettled && l.status !== 'settled' && !settledKeySet.has(String(l._id)));
     if (!groupLoans.length && !groupDoc) continue;
 
     // Determine meeting frequency
@@ -1757,13 +1853,19 @@ export async function getEmiGroups(req, res) {
     for (const l of groupLoans) {
       const loanCollectedToday = collectionsByLoanId.get(String(l._id)) || 0;
       totalCollectedToday += loanCollectedToday / 100;
-      membersCount += (l.lines?.length || 1);
 
       for (const line of (l.lines || [])) {
-        const emiPaise = (l.schedule?.[0]?.installmentPaise || 0) + (line.extraEmiPaise || 0);
-        totalDueAmount += emiPaise / 100;
+        const isLineSettled = line.isSettled || settledKeySet.has(`${String(l._id)}_${line.code}`) || settledKeySet.has(`${l.loanId}_${line.code}`);
+        if (isLineSettled) continue;
 
         const stats = paymentsByKey.get(`${String(l._id)}_${line.code}`) || { totalPaise: 0, todayPaise: 0 };
+        const totalScheduledPaise = (l.schedule || []).reduce((s, x) => s + (x.installmentPaise || 0), 0) + (line.extraEmiPaise || 0) * (l.schedule?.length || 0);
+        if (totalScheduledPaise > 0 && stats.totalPaise >= totalScheduledPaise) continue; // finished loan
+
+        const emiPaise = (l.schedule?.[0]?.installmentPaise || 0) + (line.extraEmiPaise || 0);
+        totalDueAmount += emiPaise / 100;
+        membersCount++;
+
         const dueSchedule = (l.schedule || []).filter((s) => s.dueDate && new Date(s.dueDate) <= new Date(dateStr));
         const expectedDuePaise = dueSchedule.length * emiPaise;
         const duesPaise = Math.max(0, expectedDuePaise - stats.totalPaise);
@@ -1811,6 +1913,23 @@ export async function getGroupEmiMembers(req, res) {
   const endDay = new Date(`${dateStr}T23:59:59.999Z`);
 
   const allLoanIds = loans.map((l) => l._id);
+
+  // Pre-fetch active settlements to exclude auto-settled loans (Point 3)
+  const activeSettlements = allLoanIds.length ? await LoanSettlement.find({
+    status: 'active',
+    $or: [
+      { loanPayment: { $in: allLoanIds } },
+      { loanId: { $in: loans.map((l) => l.loanId).filter(Boolean) } },
+    ],
+  }).select('loanPayment loanId memberCode').lean() : [];
+
+  const settledKeySet = new Set();
+  for (const s of activeSettlements) {
+    if (s.loanPayment && s.memberCode) settledKeySet.add(`${String(s.loanPayment)}_${s.memberCode}`);
+    if (s.loanId && s.memberCode) settledKeySet.add(`${s.loanId}_${s.memberCode}`);
+    if (s.loanPayment && !s.memberCode) settledKeySet.add(`${String(s.loanPayment)}`);
+  }
+
   const allPastPayments = await EmiPayment.find({
     loanPayment: { $in: allLoanIds },
     status: 'paid',
@@ -1831,13 +1950,22 @@ export async function getGroupEmiMembers(req, res) {
   const groupName = loans[0].group?.name || groupCode;
 
   for (const l of loans) {
+    if (l.isSettled || l.status === 'settled' || settledKeySet.has(String(l._id))) continue;
+
     for (const line of (l.lines || [])) {
+      const isLineSettled = line.isSettled || settledKeySet.has(`${String(l._id)}_${line.code}`) || settledKeySet.has(`${l.loanId}_${line.code}`);
+      if (isLineSettled) continue;
+
       const stats = paymentsByKey.get(`${String(l._id)}_${line.code}`) || { totalPaise: 0, todayPaise: 0 };
       const totalPaidPaise = stats.totalPaise;
       const todayPaidPaise = stats.todayPaise;
 
       const emiPaise = (l.schedule?.[0]?.installmentPaise || 0) + (line.extraEmiPaise || 0);
       const totalLoanPaise = line.amountPaise || l.totalAmountPaise || 0;
+      const totalScheduledPaise = (l.schedule || []).reduce((s, x) => s + (x.installmentPaise || 0), 0) + (line.extraEmiPaise || 0) * (l.schedule?.length || 0);
+
+      // Point 3: Finished / fully-paid loans should not appear in EMI collection list
+      if (totalScheduledPaise > 0 && totalPaidPaise >= totalScheduledPaise) continue;
 
       const dueSchedule = (l.schedule || []).filter((s) => s.dueDate && new Date(s.dueDate) <= new Date(dateStr));
       const expectedDuePaise = dueSchedule.length * emiPaise;
@@ -2039,6 +2167,23 @@ export async function getIndividualLoans(req, res) {
   const endDay = new Date(`${dateStr}T23:59:59.999Z`);
 
   const allLoanIds = filteredLoans.map((l) => l._id);
+
+  // Pre-fetch active settlements to exclude auto-settled and settled loans (Point 3)
+  const activeSettlements = allLoanIds.length ? await LoanSettlement.find({
+    status: 'active',
+    $or: [
+      { loanPayment: { $in: allLoanIds } },
+      { loanId: { $in: filteredLoans.map((l) => l.loanId).filter(Boolean) } },
+    ],
+  }).select('loanPayment loanId memberCode').lean() : [];
+
+  const settledKeySet = new Set();
+  for (const s of activeSettlements) {
+    if (s.loanPayment && s.memberCode) settledKeySet.add(`${String(s.loanPayment)}_${s.memberCode}`);
+    if (s.loanId && s.memberCode) settledKeySet.add(`${s.loanId}_${s.memberCode}`);
+    if (s.loanPayment && !s.memberCode) settledKeySet.add(`${String(s.loanPayment)}`);
+  }
+
   const allPastPayments = allLoanIds.length ? await EmiPayment.find({
     loanPayment: { $in: allLoanIds },
     status: 'paid',
@@ -2057,13 +2202,22 @@ export async function getIndividualLoans(req, res) {
 
   const items = [];
   for (const l of filteredLoans) {
+    if (l.isSettled || l.status === 'settled' || settledKeySet.has(String(l._id))) continue;
+
     for (const line of (l.lines || [])) {
+      const isLineSettled = line.isSettled || settledKeySet.has(`${String(l._id)}_${line.code}`) || settledKeySet.has(`${l.loanId}_${line.code}`);
+      if (isLineSettled) continue;
+
       const stats = paymentsByKey.get(`${String(l._id)}_${line.code}`) || { totalPaise: 0, todayPaise: 0 };
       const totalPaidPaise = stats.totalPaise;
       const todayPaidPaise = stats.todayPaise;
 
       const emiPaise = (l.schedule?.[0]?.installmentPaise || 0) + (line.extraEmiPaise || 0);
       const totalLoanPaise = line.amountPaise || l.totalAmountPaise || 0;
+      const totalScheduledPaise = (l.schedule || []).reduce((s, x) => s + (x.installmentPaise || 0), 0) + (line.extraEmiPaise || 0) * (l.schedule?.length || 0);
+
+      // Finished loan
+      if (totalScheduledPaise > 0 && totalPaidPaise >= totalScheduledPaise) continue;
 
       const dueSchedule = (l.schedule || []).filter((s) => s.dueDate && new Date(s.dueDate) <= new Date(dateStr));
       const expectedDuePaise = dueSchedule.length * emiPaise;

@@ -478,6 +478,18 @@ export default function EmployeeEmiPayment() {
                           <span style={{ fontWeight: 800, fontSize: '1.05rem', color: is100Percent ? '#15803d' : 'var(--emp-text)' }}>
                             {g.groupName}
                           </span>
+                          <span
+                            style={{
+                              background: is100Percent ? '#dcfce7' : '#e0e7ff',
+                              color: is100Percent ? '#166534' : '#3730a3',
+                              padding: '2px 8px',
+                              borderRadius: 6,
+                              fontSize: '0.72rem',
+                              fontWeight: 800,
+                            }}
+                          >
+                            Actual: ₹{Number(g.totalCollectedToday || 0).toLocaleString('en-IN')}
+                          </span>
                           {is100Percent && (
                             <span style={{ background: '#16a34a', color: '#fff', padding: '2px 8px', borderRadius: 6, fontSize: '0.72rem', fontWeight: 800 }}>
                               ✓ 100% Collection Complete
@@ -506,30 +518,38 @@ export default function EmployeeEmiPayment() {
                       </div>
                     </div>
 
-                    {/* Total Group Collection vs Target */}
+                    {/* Actual Group Collection vs Target vs Pending Due (Point 2) */}
                     <div style={{
                       display: 'grid',
-                      gridTemplateColumns: '1fr 1fr',
-                      gap: 8,
+                      gridTemplateColumns: '1fr 1fr 1fr',
+                      gap: 6,
                       marginTop: 10,
-                      padding: '8px 12px',
+                      padding: '8px 10px',
                       background: is100Percent ? '#bbf7d0' : 'var(--emp-bg-subtle, #f8fafc)',
                       borderRadius: 8,
                     }}>
                       <div>
-                        <div style={{ fontSize: '0.72rem', color: is100Percent ? '#166534' : 'var(--emp-text-muted)', fontWeight: 600 }}>
-                          Total Group Collection:
+                        <div style={{ fontSize: '0.68rem', color: is100Percent ? '#166534' : 'var(--emp-text-muted)', fontWeight: 600 }}>
+                          Actual Group Collection:
                         </div>
-                        <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#15803d' }}>
+                        <div style={{ fontSize: '1rem', fontWeight: 800, color: '#15803d' }}>
                           ₹{Number(g.totalCollectedToday || 0).toLocaleString('en-IN')}
                         </div>
                       </div>
-                      <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontSize: '0.72rem', color: is100Percent ? '#166534' : 'var(--emp-text-muted)', fontWeight: 600 }}>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: '0.68rem', color: is100Percent ? '#166534' : 'var(--emp-text-muted)', fontWeight: 600 }}>
                           Target Due:
                         </div>
-                        <div style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--emp-text)' }}>
+                        <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--emp-text)' }}>
                           ₹{Number(g.totalDueAmount || 0).toLocaleString('en-IN')}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: '0.68rem', color: is100Percent ? '#166534' : '#b91c1c', fontWeight: 600 }}>
+                          Pending Due:
+                        </div>
+                        <div style={{ fontSize: '1rem', fontWeight: 800, color: '#dc2626' }}>
+                          ₹{Math.max(0, Number(g.totalDueAmount || 0) - Number(g.totalCollectedToday || 0)).toLocaleString('en-IN')}
                         </div>
                       </div>
                     </div>
@@ -596,6 +616,9 @@ export default function EmployeeEmiPayment() {
                 </h3>
                 <div style={{ fontSize: '0.8rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
                   Group Code: <strong>{activeGroup.groupCode}</strong>
+                </div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', marginTop: 4 }}>
+                  Actual Group Collection: <strong style={{ color: '#15803d' }}>₹{Number(activeGroup.totalCollectedToday || 0).toLocaleString('en-IN')}</strong> • Target Due: <strong>₹{Number(activeGroup.totalDueAmount || 0).toLocaleString('en-IN')}</strong>
                 </div>
               </div>
               <div style={{ textAlign: 'right' }}>

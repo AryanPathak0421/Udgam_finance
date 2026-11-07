@@ -277,6 +277,31 @@ export default function EmployeeMemberKyc() {
 
           {/* Member Profile Overview Card */}
           <div className="emp-card">
+            {/* Point 5: Mandatory Phone OTP Banner */}
+            {!member.mobileVerified && (
+              <div style={{ background: '#fee2e2', border: '1px solid #fca5a5', color: '#991b1b', padding: '10px 14px', borderRadius: 8, fontSize: '0.85rem', marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Icon name="alerttriangle" size={18} />
+                  <span><strong>Mandatory:</strong> Member phone number must be verified via OTP!</span>
+                </div>
+                <button
+                  type="button"
+                  className="emp-btn-primary"
+                  style={{ padding: '4px 10px', fontSize: '0.75rem', background: '#dc2626' }}
+                  onClick={() => {
+                    setPhoneStep(1);
+                    setNewMobile(member.mobile || '');
+                    setPhoneOtp('');
+                    setPhoneError('');
+                    setPhoneDevOtp('');
+                    setShowPhoneModal(true);
+                  }}
+                >
+                  Verify Phone Now
+                </button>
+              </div>
+            )}
+
             <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
               <div
                 style={{
@@ -330,22 +355,29 @@ export default function EmployeeMemberKyc() {
                     <span className="emp-badge emp-badge-warning" style={{ fontSize: '0.75rem' }}>Unverified</span>
                   )}
                 </div>
+                {/* Point 5: Once verified, phone number change is strictly blocked! */}
                 <div style={{ marginTop: 6 }}>
-                  <button
-                    type="button"
-                    className="emp-btn-secondary"
-                    style={{ fontSize: '0.72rem', padding: '3px 8px', display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                    onClick={() => {
-                      setPhoneStep(1);
-                      setNewMobile('');
-                      setPhoneOtp('');
-                      setPhoneError('');
-                      setPhoneDevOtp('');
-                      setShowPhoneModal(true);
-                    }}
-                  >
-                    <Icon name="phone" size={12} /> Change Number (OTP)
-                  </button>
+                  {member.mobileVerified ? (
+                    <span style={{ fontSize: '0.72rem', color: '#166534', background: '#dcfce7', padding: '3px 8px', borderRadius: 6, display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 700 }}>
+                      <Icon name="lock" size={12} /> Number Verified &amp; Locked
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="emp-btn-primary"
+                      style={{ fontSize: '0.72rem', padding: '4px 8px', display: 'inline-flex', alignItems: 'center', gap: 4, background: '#dc2626' }}
+                      onClick={() => {
+                        setPhoneStep(1);
+                        setNewMobile(member.mobile || '');
+                        setPhoneOtp('');
+                        setPhoneError('');
+                        setPhoneDevOtp('');
+                        setShowPhoneModal(true);
+                      }}
+                    >
+                      <Icon name="phone" size={12} /> Verify Number (OTP Required)
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -375,7 +407,7 @@ export default function EmployeeMemberKyc() {
                 KYC Documents (5 Standard Docs)
               </h3>
               <span style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)' }}>
-                Upload enabled for missing/unverified/approved
+                Upload enabled for missing / rejected (approved docs locked)
               </span>
             </div>
 
@@ -476,53 +508,60 @@ export default function EmployeeMemberKyc() {
                         onChange={(e) => handleReupload(docFieldKey, e.target.files?.[0])}
                       />
 
-                      {/* Upload / Re-Upload button: Available if missing, rejected, unverified OTP, or even approved */}
-                      <button
-                        type="button"
-                        className={isRejected ? 'emp-btn-primary' : 'emp-btn-secondary'}
-                        style={{
-                          padding: '6px 12px',
-                          fontSize: '0.78rem',
-                          background: isRejected ? '#dc2626' : undefined,
-                          color: isRejected ? '#fff' : undefined,
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 6,
-                        }}
-                        onClick={() => document.getElementById(`file-${doc.type}`).click()}
-                        disabled={reuploadBusy}
-                      >
-                        <Icon name="upload" size={13} />
-                        {reuploadBusy
-                          ? 'Uploading...'
-                          : isRejected
-                          ? 'Re-Upload Document'
-                          : isMissing
-                          ? 'Upload Missing Doc'
-                          : 'Update / Re-Upload Doc'}
-                      </button>
+                      {/* Point 5: If approved, upload option is locked and hidden */}
+                      {isApproved ? (
+                        <span style={{ fontSize: '0.78rem', color: '#166534', background: '#dcfce7', padding: '6px 12px', borderRadius: 6, display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700 }}>
+                          <Icon name="checkcircle" size={13} /> ✓ Document Approved (Upload Locked)
+                        </span>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            className={isRejected ? 'emp-btn-primary' : 'emp-btn-secondary'}
+                            style={{
+                              padding: '6px 12px',
+                              fontSize: '0.78rem',
+                              background: isRejected ? '#dc2626' : undefined,
+                              color: isRejected ? '#fff' : undefined,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 6,
+                            }}
+                            onClick={() => document.getElementById(`file-${doc.type}`).click()}
+                            disabled={reuploadBusy}
+                          >
+                            <Icon name="upload" size={13} />
+                            {reuploadBusy
+                              ? 'Uploading...'
+                              : isRejected
+                              ? 'Re-Upload Document'
+                              : isMissing
+                              ? 'Upload Missing Doc'
+                              : 'Update / Re-Upload Doc'}
+                          </button>
 
-                      {/* Reject Document button: allows employee/admin to mark rejected and request re-upload */}
-                      {!isRejected && (
-                        <button
-                          type="button"
-                          className="emp-btn-secondary"
-                          style={{
-                            padding: '6px 12px',
-                            fontSize: '0.78rem',
-                            color: '#dc2626',
-                            borderColor: '#fca5a5',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: 6,
-                          }}
-                          onClick={() => {
-                            setRejectingDoc(doc);
-                            setRejectReason('');
-                          }}
-                        >
-                          <Icon name="cross" size={12} /> Reject KYC
-                        </button>
+                          {!isRejected && (
+                            <button
+                              type="button"
+                              className="emp-btn-secondary"
+                              style={{
+                                padding: '6px 12px',
+                                fontSize: '0.78rem',
+                                color: '#dc2626',
+                                borderColor: '#fca5a5',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 6,
+                              }}
+                              onClick={() => {
+                                setRejectingDoc(doc);
+                                setRejectReason('');
+                              }}
+                            >
+                              <Icon name="cross" size={12} /> Reject KYC
+                            </button>
+                          )}
+                        </>
                       )}
                     </div>
                   </div>
