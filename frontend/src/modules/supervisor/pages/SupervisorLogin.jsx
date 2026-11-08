@@ -167,6 +167,42 @@ export default function SupervisorLogin() {
           </button>
         </div>
 
+        {/* Quick Demo Credentials Box */}
+        <div
+          style={{
+            background: 'rgba(15, 118, 110, 0.08)',
+            border: '1px dashed var(--sup-primary)',
+            borderRadius: 10,
+            padding: '10px 12px',
+            marginBottom: 16,
+            fontSize: '0.8rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 8,
+          }}
+        >
+          <div>
+            <div style={{ fontWeight: 700, color: 'var(--sup-primary)' }}>Demo Supervisor Account:</div>
+            <div style={{ color: 'var(--sup-text-muted)', marginTop: 2 }}>
+              Mobile: <strong>9876543210</strong> &bull; mPIN: <strong>1234</strong>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="sup-btn sm"
+            style={{ padding: '4px 10px', fontSize: '0.75rem', whiteSpace: 'nowrap' }}
+            onClick={() => {
+              setTab('phone');
+              setIdentifier('9876543210');
+              setMpin('1234');
+              setError('');
+            }}
+          >
+            Auto-Fill
+          </button>
+        </div>
+
         {error && (
           <div
             style={{

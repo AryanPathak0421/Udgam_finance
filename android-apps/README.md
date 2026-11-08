@@ -28,3 +28,4 @@ This directory contains standalone Android native wrapper configurations for:
 ### Method 2: Android Studio / Gradle APK Build
 1. Open `android-apps/UdgamStaff` in Android Studio -> Click **Build > Build Bundle(s) / APK(s) > Build APK(s)** to generate `Udgam_Staff.apk`.
 2. Open `android-apps/UdgamSupervisor` in Android Studio -> Click **Build > Build Bundle(s) / APK(s) > Build APK(s)** to generate `Udgam_Supervisor.apk`.
+

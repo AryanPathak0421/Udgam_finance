@@ -14,6 +14,7 @@ import { kycFlags } from './models/Member.js';
 import { startOfToday } from './utils/http.js';
 import { RoomRent } from './models/HrExtra.js';
 import { CashEntry } from './models/CashEntry.js';
+import { ensureSupervisorSeed } from './services/seedSupervisorHelper.js';
 
 const port = process.env.PORT || 5000;
 
@@ -83,6 +84,9 @@ async function migrate() {
     }
   }
   if (indexed) console.log(`Indexed KYC documents of ${indexed} member(s)`);
+
+  // Ensure default supervisor dummy credentials are ready
+  await ensureSupervisorSeed();
 }
 
 connectDB()
