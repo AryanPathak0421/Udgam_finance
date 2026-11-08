@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import Icon from '../../../components/Icon.jsx';
 
 export default function PwaInstallBanner() {
-  const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const [deferredPrompt, setDeferredPrompt] = useState(() => window.__pwaInstallPrompt || null);
   const [isStandalone, setIsStandalone] = useState(false);
   const [dismissed, setDismissed] = useState(() => {
     return sessionStorage.getItem('udgam_pwa_dismissed') === 'true';
@@ -15,24 +15,53 @@ export default function PwaInstallBanner() {
       window.navigator.standalone === true;
     setIsStandalone(standalone);
 
+    const onPromptAvailable = (e) => {
+      setDeferredPrompt(e.detail || window.__pwaInstallPrompt);
+    };
+
     const handler = (e) => {
       e.preventDefault();
+      window.__pwaInstallPrompt = e;
       setDeferredPrompt(e);
     };
 
+    const onInstalled = () => {
+      setDeferredPrompt(null);
+      setIsStandalone(true);
+    };
+
+    window.addEventListener('pwa-prompt-available', onPromptAvailable);
     window.addEventListener('beforeinstallprompt', handler);
+    window.addEventListener('pwa-installed', onInstalled);
+    window.addEventListener('appinstalled', onInstalled);
+
+    if (window.__pwaInstallPrompt) {
+      setDeferredPrompt(window.__pwaInstallPrompt);
+    }
 
     return () => {
+      window.removeEventListener('pwa-prompt-available', onPromptAvailable);
       window.removeEventListener('beforeinstallprompt', handler);
+      window.removeEventListener('pwa-installed', onInstalled);
+      window.removeEventListener('appinstalled', onInstalled);
     };
   }, []);
 
   const handleInstallClick = async () => {
-    if (!deferredPrompt) return;
-    deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
-    if (outcome === 'accepted') {
-      setDeferredPrompt(null);
+    const promptEvent = deferredPrompt || window.__pwaInstallPrompt;
+    if (!promptEvent) {
+      alert('To install:\n• Android Chrome: Tap menu (⋮) -> "Install app" or "Add to Home screen"\n• iPhone Safari: Tap Share (⎋) -> "Add to Home Screen"');
+      return;
+    }
+    try {
+      promptEvent.prompt();
+      const { outcome } = await promptEvent.userChoice;
+      if (outcome === 'accepted') {
+        setDeferredPrompt(null);
+        window.__pwaInstallPrompt = null;
+      }
+    } catch (err) {
+      console.warn('Install error:', err);
     }
   };
 

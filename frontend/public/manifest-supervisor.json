@@ -1,4 +1,5 @@
 {
+  "id": "/supervisor/",
   "name": "Udgam Microfinance - Supervisor App",
   "short_name": "Udgam Supervisor",
   "description": "Udgam Microfinance Field Supervisor, Branch Auditing & Monitoring Portal",
@@ -61,3 +62,4 @@
     }
   ]
 }
+

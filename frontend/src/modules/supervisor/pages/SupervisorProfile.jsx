@@ -11,8 +11,9 @@ export default function SupervisorProfile() {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const [deferredPrompt, setDeferredPrompt] = useState(() => window.__pwaInstallPrompt || null);
   const [isStandalone, setIsStandalone] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
 
   useEffect(() => {
     loadProfile();
@@ -22,21 +23,53 @@ export default function SupervisorProfile() {
       window.navigator.standalone === true;
     setIsStandalone(standalone);
 
+    const onPromptAvailable = (e) => {
+      setDeferredPrompt(e.detail || window.__pwaInstallPrompt);
+    };
+
     const handler = (e) => {
       e.preventDefault();
+      window.__pwaInstallPrompt = e;
       setDeferredPrompt(e);
     };
+
+    const onInstalled = () => {
+      setDeferredPrompt(null);
+      setIsStandalone(true);
+    };
+
+    window.addEventListener('pwa-prompt-available', onPromptAvailable);
     window.addEventListener('beforeinstallprompt', handler);
-    return () => window.removeEventListener('beforeinstallprompt', handler);
+    window.addEventListener('pwa-installed', onInstalled);
+    window.addEventListener('appinstalled', onInstalled);
+
+    if (window.__pwaInstallPrompt) {
+      setDeferredPrompt(window.__pwaInstallPrompt);
+    }
+
+    return () => {
+      window.removeEventListener('pwa-prompt-available', onPromptAvailable);
+      window.removeEventListener('beforeinstallprompt', handler);
+      window.removeEventListener('pwa-installed', onInstalled);
+      window.removeEventListener('appinstalled', onInstalled);
+    };
   }, []);
 
   const handleInstallApp = async () => {
-    if (deferredPrompt) {
-      deferredPrompt.prompt();
-      const { outcome } = await deferredPrompt.userChoice;
-      if (outcome === 'accepted') setDeferredPrompt(null);
+    const promptEvent = deferredPrompt || window.__pwaInstallPrompt;
+    if (promptEvent) {
+      try {
+        promptEvent.prompt();
+        const { outcome } = await promptEvent.userChoice;
+        if (outcome === 'accepted') {
+          setDeferredPrompt(null);
+          window.__pwaInstallPrompt = null;
+        }
+      } catch (err) {
+        setShowGuide(true);
+      }
     } else {
-      alert('To install this Supervisor App:\n\n• On Android Chrome: Tap the 3 dots menu (⋮) and tap "Install app" or "Add to Home screen".\n• On iPhone Safari: Tap the Share button (⎋) and select "Add to Home Screen".');
+      setShowGuide(true);
     }
   };
 
@@ -276,12 +309,110 @@ export default function SupervisorProfile() {
               <Icon name="download" size={16} />
               <span>Install Supervisor App on this Phone</span>
             </button>
-            <div style={{ fontSize: '0.72rem', color: 'var(--sup-text-muted)', textAlign: 'center', marginTop: 4 }}>
-              Installs icon on home screen with instant offline startup
+            <div style={{ fontSize: '0.72rem', color: 'var(--sup-text-muted)', textAlign: 'center', marginTop: 6, lineHeight: 1.4 }}>
+              <strong>Note:</strong> Yeh Web App (PWA) hai. Install karne par seedhe aapke phone ki home screen par app ban kar jud jati hai (kisi alag se .apk file download kiye bina).
             </div>
           </div>
         )}
       </div>
+
+      {/* Installation Guide Modal */}
+      {showGuide && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.75)',
+            zIndex: 99999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+            backdropFilter: 'blur(3px)',
+          }}
+          onClick={() => setShowGuide(false)}
+        >
+          <div
+            style={{
+              background: '#0b131f',
+              color: '#f8fafc',
+              borderRadius: 16,
+              padding: 20,
+              maxWidth: 420,
+              width: '100%',
+              border: '1px solid rgba(15, 118, 110, 0.5)',
+              boxShadow: '0 20px 40px rgba(0,0,0,0.5)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ width: 32, height: 32, borderRadius: 8, background: '#0f766e', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Icon name="shield" size={18} />
+                </div>
+                <div style={{ fontWeight: 800, fontSize: '1rem' }}>Install Supervisor App</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowGuide(false)}
+                style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: 4 }}
+              >
+                <Icon name="cross" size={18} />
+              </button>
+            </div>
+
+            <div style={{ fontSize: '0.82rem', color: '#94a3b8', marginBottom: 16, lineHeight: 1.4 }}>
+              PWA app phone me install karne ke aasan steps:
+            </div>
+
+            {/iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream ? (
+              <div style={{ background: '#131e2e', padding: 14, borderRadius: 12, border: '1px solid #1e293b' }}>
+                <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#38bdf8', marginBottom: 8 }}>
+                  iPhone / Safari me install kaise karein:
+                </div>
+                <ol style={{ margin: 0, paddingLeft: 20, fontSize: '0.82rem', lineHeight: 1.6, color: '#e2e8f0' }}>
+                  <li>Neeche Safari ke <strong>Share icon</strong> (⬆️) par tap karein.</li>
+                  <li>Menu me scroll karke <strong>"Add to Home Screen"</strong> (➕) chunein.</li>
+                  <li>Upar right me <strong>"Add"</strong> tap karein. App screen par install ho jayegi!</li>
+                </ol>
+              </div>
+            ) : (
+              <div style={{ background: '#131e2e', padding: 14, borderRadius: 12, border: '1px solid #1e293b' }}>
+                <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#10b981', marginBottom: 8 }}>
+                  Android / Chrome me install kaise karein:
+                </div>
+                <ol style={{ margin: 0, paddingLeft: 20, fontSize: '0.82rem', lineHeight: 1.6, color: '#e2e8f0' }}>
+                  <li>Chrome browser me upar right me <strong>3 dots (⋮)</strong> par tap karein.</li>
+                  <li>Menu me se <strong>"Install app"</strong> ya <strong>"Add to Home screen"</strong> par tap karein.</li>
+                  <li><strong>"Install"</strong> par click karein. App aapke phone ke icon list me add ho jayegi!</li>
+                </ol>
+              </div>
+            )}
+
+            <div style={{ marginTop: 16, textAlign: 'right' }}>
+              <button
+                type="button"
+                onClick={() => setShowGuide(false)}
+                style={{
+                  background: '#0f766e',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: 8,
+                  padding: '8px 18px',
+                  fontSize: '0.85rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                Theek Hai
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Logout button */}
       <div style={{ marginTop: 8 }}>
