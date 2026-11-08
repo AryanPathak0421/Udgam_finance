@@ -263,11 +263,11 @@ export default function SupervisorProfile() {
       <div className="sup-card">
         <div className="sup-card-title" style={{ marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Icon name="shield" size={16} />
-            <span>Udgam Supervisor App (PWA)</span>
+            <img src="/icon-supervisor-192.png" alt="Supervisor" style={{ width: 24, height: 24, borderRadius: 6 }} />
+            <span>Udgam Supervisor App (Alag App)</span>
           </div>
           <span style={{ fontSize: '0.68rem', background: 'var(--sup-primary-light)', color: 'var(--sup-primary)', padding: '2px 8px', borderRadius: 8, fontWeight: 800 }}>
-            v2.0 PWA
+            Dedicated App
           </span>
         </div>
 

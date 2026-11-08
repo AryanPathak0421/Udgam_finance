@@ -4,7 +4,7 @@
   "short_name": "Udgam Staff",
   "description": "Udgam Microfinance Field Officer & Staff Operations Portal",
   "start_url": "/employee/login",
-  "scope": "/",
+  "scope": "/employee/",
   "display": "standalone",
   "background_color": "#107870",
   "theme_color": "#107870",

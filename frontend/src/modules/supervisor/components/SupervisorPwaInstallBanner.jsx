@@ -97,29 +97,25 @@ export default function SupervisorPwaInstallBanner() {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
-          <div
+          <img
+            src="/icon-supervisor-192.png"
+            alt="Udgam Supervisor"
             style={{
-              width: 40,
-              height: 40,
+              width: 42,
+              height: 42,
               borderRadius: 10,
-              background: 'rgba(255, 255, 255, 0.15)',
-              color: '#fef08a',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
               flexShrink: 0,
-              border: '1px solid rgba(254, 240, 138, 0.3)',
+              border: '1px solid rgba(245, 158, 11, 0.5)',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
             }}
-          >
-            <Icon name="shield" size={22} />
-          </div>
+          />
           <div style={{ minWidth: 0 }}>
             <div style={{ fontWeight: 800, fontSize: '0.92rem', lineHeight: 1.2, display: 'flex', alignItems: 'center', gap: 6 }}>
               <span>Supervisor App</span>
               <span style={{ fontSize: '0.62rem', background: '#f59e0b', color: '#000', padding: '1px 6px', borderRadius: 6, fontWeight: 800 }}>PWA</span>
             </div>
             <div style={{ fontSize: '0.72rem', opacity: 0.9, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              Phone me App install karein (Fast access)
+              Phone me alag Supervisor App install karein
             </div>
           </div>
         </div>

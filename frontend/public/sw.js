@@ -1,5 +1,5 @@
 // Udgam Microfinance - PWA Service Worker (Staff & Supervisor)
-const CACHE_NAME = 'udgam-pwa-v3';
+const CACHE_NAME = 'udgam-pwa-v4';
 const PRECACHE_URLS = [
   '/',
   '/index.html',
@@ -11,6 +11,9 @@ const PRECACHE_URLS = [
   '/icon-192.png',
   '/icon-512.png',
   '/icon-maskable.png',
+  '/icon-supervisor-192.png',
+  '/icon-supervisor-512.png',
+  '/icon-supervisor-maskable.png',
 ];
 
 // Install: Cache core app shell

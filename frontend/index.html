@@ -4,7 +4,6 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <link rel="icon" type="image/png" href="/logo.png" />
-    <link rel="apple-touch-icon" href="/icon-192.png" />
     <script>
       (function() {
         var isSupervisor = window.location.pathname.startsWith('/supervisor');
@@ -13,6 +12,11 @@
         link.rel = 'manifest';
         link.href = isSupervisor ? '/manifest-supervisor.webmanifest' : '/manifest.webmanifest';
         document.head.appendChild(link);
+
+        var appleIcon = document.createElement('link');
+        appleIcon.rel = 'apple-touch-icon';
+        appleIcon.href = isSupervisor ? '/icon-supervisor-192.png' : '/icon-192.png';
+        document.head.appendChild(appleIcon);
 
         var metaTheme = document.createElement('meta');
         metaTheme.name = 'theme-color';
