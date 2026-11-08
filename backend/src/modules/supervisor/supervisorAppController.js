@@ -161,7 +161,7 @@ export async function lookupSupervisor(req, res) {
   const emp = await findSupervisor(identifier);
   if (!emp) throw new HttpError(404, 'Supervisor record not found in system. Please contact Admin/HR to register you first.');
 
-  const mpinRecord = await EmployeeMpin.findOne({ employeeCode: emp.employeeCode });
+  const mpinRecord = await EmployeeMpin.findOne({ employeeCode: emp.employeeCode }).select('+mpinHash');
   res.json({
     found: true,
     employeeCode: emp.employeeCode,
