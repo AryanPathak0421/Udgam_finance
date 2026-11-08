@@ -11,10 +11,34 @@ export default function SupervisorProfile() {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const [isStandalone, setIsStandalone] = useState(false);
 
   useEffect(() => {
     loadProfile();
+
+    const standalone =
+      window.matchMedia('(display-mode: standalone)').matches ||
+      window.navigator.standalone === true;
+    setIsStandalone(standalone);
+
+    const handler = (e) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
   }, []);
+
+  const handleInstallApp = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') setDeferredPrompt(null);
+    } else {
+      alert('To install this Supervisor App:\n\n• On Android Chrome: Tap the 3 dots menu (⋮) and tap "Install app" or "Add to Home screen".\n• On iPhone Safari: Tap the Share button (⎋) and select "Add to Home Screen".');
+    }
+  };
 
   async function loadProfile() {
     setLoading(true);
@@ -200,6 +224,63 @@ export default function SupervisorProfile() {
             </div>
           )}
         </div>
+      </div>
+
+      {/* App & Device Info Card (PWA) */}
+      <div className="sup-card">
+        <div className="sup-card-title" style={{ marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Icon name="shield" size={16} />
+            <span>Udgam Supervisor App (PWA)</span>
+          </div>
+          <span style={{ fontSize: '0.68rem', background: 'var(--sup-primary-light)', color: 'var(--sup-primary)', padding: '2px 8px', borderRadius: 8, fontWeight: 800 }}>
+            v2.0 PWA
+          </span>
+        </div>
+
+        <div style={{ fontSize: '0.85rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--sup-border)' }}>
+            <span style={{ color: 'var(--sup-text-muted)' }}>Platform:</span>
+            <strong>Progressive Web App (PWA)</strong>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--sup-border)' }}>
+            <span style={{ color: 'var(--sup-text-muted)' }}>Offline &amp; Precache:</span>
+            <span style={{ color: '#059669', display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 700 }}>
+              <Icon name="checkcircle" size={13} /> Active
+            </span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--sup-border)' }}>
+            <span style={{ color: 'var(--sup-text-muted)' }}>Display Mode:</span>
+            <span style={{ fontWeight: 700, color: isStandalone ? '#059669' : 'var(--sup-text)' }}>
+              {isStandalone ? '✓ Installed Standalone App' : 'Web Browser (Installable)'}
+            </span>
+          </div>
+        </div>
+
+        {!isStandalone && (
+          <div style={{ marginTop: 12 }}>
+            <button
+              type="button"
+              className="sup-btn"
+              style={{
+                background: 'linear-gradient(135deg, #0f766e, #0d5f58)',
+                borderColor: '#0f766e',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                fontWeight: 700,
+              }}
+              onClick={handleInstallApp}
+            >
+              <Icon name="download" size={16} />
+              <span>Install Supervisor App on this Phone</span>
+            </button>
+            <div style={{ fontSize: '0.72rem', color: 'var(--sup-text-muted)', textAlign: 'center', marginTop: 4 }}>
+              Installs icon on home screen with instant offline startup
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Logout button */}

@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { SupervisorAppProvider, useSupervisorApp } from './SupervisorAppContext.jsx';
 import SupervisorHeader from './components/SupervisorHeader.jsx';
 import SupervisorBottomNav from './components/SupervisorBottomNav.jsx';
+import SupervisorPwaInstallBanner from './components/SupervisorPwaInstallBanner.jsx';
 
 import SupervisorLogin from './pages/SupervisorLogin.jsx';
 import SupervisorRegistration from './pages/SupervisorRegistration.jsx';
@@ -36,6 +37,37 @@ function SupervisorAppRoutes() {
   const { supUser } = useSupervisorApp();
   const location = useLocation();
 
+  // Dynamic PWA manifest, theme color, and title switcher for Supervisor
+  useEffect(() => {
+    let manifestLink = document.querySelector('link[rel="manifest"]');
+    const prevManifest = manifestLink ? manifestLink.getAttribute('href') : '/manifest.webmanifest';
+    if (manifestLink) {
+      manifestLink.setAttribute('href', '/manifest-supervisor.webmanifest');
+    }
+
+    let themeColorMeta = document.querySelector('meta[name="theme-color"]');
+    const prevTheme = themeColorMeta ? themeColorMeta.getAttribute('content') : '#107870';
+    if (themeColorMeta) {
+      themeColorMeta.setAttribute('content', '#0f766e');
+    }
+
+    let appleTitleMeta = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+    const prevAppleTitle = appleTitleMeta ? appleTitleMeta.getAttribute('content') : 'Udgam Staff';
+    if (appleTitleMeta) {
+      appleTitleMeta.setAttribute('content', 'Udgam Supervisor');
+    }
+
+    const prevTitle = document.title;
+    document.title = 'Udgam Microfinance - Supervisor Portal';
+
+    return () => {
+      if (manifestLink) manifestLink.setAttribute('href', prevManifest);
+      if (themeColorMeta) themeColorMeta.setAttribute('content', prevTheme);
+      if (appleTitleMeta) appleTitleMeta.setAttribute('content', prevAppleTitle);
+      document.title = prevTitle;
+    };
+  }, []);
+
   const isAuthPage =
     location.pathname.includes('/login') ||
     location.pathname.includes('/register') ||
@@ -47,6 +79,10 @@ function SupervisorAppRoutes() {
         {!isAuthPage && <SupervisorHeader />}
 
         <main style={{ flex: 1, paddingBottom: !isAuthPage ? 80 : 0 }}>
+          <div style={{ padding: '10px 16px 0', maxWidth: 480, margin: '0 auto' }}>
+            <SupervisorPwaInstallBanner />
+          </div>
+
           <Routes>
             <Route path="login" element={supUser ? <Navigate to="/supervisor" replace /> : <SupervisorLogin />} />
             <Route path="register" element={<SupervisorRegistration />} />
