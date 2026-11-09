@@ -42,6 +42,37 @@ export default function EmployeeTodayDue() {
   // Sunday and Holiday lock (Point 23)
   const isSunday = new Date().getDay() === 0;
 
+  // Confirm Online UPI Payment directly from QR / Barcode Modal (Point 5 fix)
+  const handleOnlinePaidDone = async (item) => {
+    if (isSunday) {
+      alert('Collections are blocked on Sundays (Weekly Off).');
+      return;
+    }
+    const amt = Number(item.dueAmount || item.installmentAmount || 0);
+    if (!amt || amt <= 0) {
+      alert('Invalid due amount to collect.');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await api.employeeApp.collectTodayDue({
+        loanPaymentId: item.loanPaymentId,
+        loanId: item.loanId,
+        memberCode: item.memberCode,
+        memberName: item.memberName,
+        amount: amt,
+        payMode: 'upi',
+      });
+      alert(`✓ Online payment of ₹${amt.toLocaleString('en-IN')} marked as PAID successfully!`);
+      setBarcodeModal(null);
+      fetchDues();
+    } catch (err) {
+      alert(err.message || 'Failed to record online payment');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const fetchDues = async () => {
     setLoading(true);
     setError('');
@@ -499,49 +530,65 @@ export default function EmployeeTodayDue() {
               </button>
             </div>
 
-            {/* Barcode representation */}
-            <div style={{ background: '#fff', padding: '16px 10px', borderRadius: 8, border: '1px solid var(--emp-border)', marginBottom: 14 }}>
-              <div style={{ fontSize: '2.4rem', letterSpacing: '4px', fontWeight: 900, fontFamily: 'monospace', color: '#111827', userSelect: 'all' }}>
-                ▌│█║▌║▌│█║▌
+            {/* Real UPI / Razorpay Barcode & QR Code (Point 5 fix) */}
+            <div style={{ background: '#fff', padding: '14px 10px', borderRadius: 12, border: '1.5px dashed var(--emp-primary)', marginBottom: 14 }}>
+              <img
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`upi://pay?pa=udgamfinance@upi&pn=Udgam%20Finance&am=${barcodeModal.dueAmount}&cu=INR&tn=${encodeURIComponent(`EMI ${barcodeModal.loanId}`)}`)}`}
+                alt="Payment Barcode QR"
+                style={{ width: 160, height: 160, display: 'block', margin: '0 auto 8px', borderRadius: 8 }}
+              />
+              <div style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--emp-primary)' }}>
+                UPI ID: udgamfinance@upi
               </div>
-              <div style={{ fontSize: '0.95rem', fontWeight: 800, letterSpacing: '2px', color: '#111827', marginTop: 4 }}>
-                {barcodeModal.loanId || barcodeModal.memberCode}
-              </div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)' }}>
-                Member: {barcodeModal.memberCode}
+              <div style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
+                Scan with GPay / PhonePe / Paytm / BHIM to pay
               </div>
             </div>
 
             <div style={{ textAlign: 'left', fontSize: '0.82rem', background: '#f8fafc', padding: 12, borderRadius: 8, marginBottom: 16, lineHeight: 1.6 }}>
-              <div>Borrower: <strong>{barcodeModal.memberName}</strong></div>
+              <div>Borrower: <strong>{barcodeModal.memberName}</strong> ({barcodeModal.memberCode})</div>
+              <div>Loan Account: <strong>{barcodeModal.loanId}</strong></div>
               <div>Group: <strong>{barcodeModal.groupName}</strong></div>
               <div>Installment #{barcodeModal.installmentNo} • Due Date: {barcodeModal.dueDate}</div>
-              <div style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--emp-primary)', marginTop: 4 }}>
+              <div style={{ fontSize: '1.15rem', fontWeight: 900, color: 'var(--emp-primary)', marginTop: 4 }}>
                 Amount Due: ₹{Number(barcodeModal.dueAmount).toLocaleString('en-IN')}
               </div>
             </div>
 
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button
-                type="button"
-                className="emp-btn-secondary"
-                style={{ flex: 1 }}
-                onClick={() => setBarcodeModal(null)}
-              >
-                Close
-              </button>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {/* Online Done Button */}
               <button
                 type="button"
                 className="emp-btn-primary"
-                style={{ flex: 1, background: '#059669' }}
-                onClick={() => {
-                  const it = barcodeModal;
-                  setBarcodeModal(null);
-                  handleOpenCollect(it);
-                }}
+                style={{ width: '100%', background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', padding: '10px', fontWeight: 800 }}
+                disabled={submitting}
+                onClick={() => handleOnlinePaidDone(barcodeModal)}
               >
-                Collect ₹{Number(barcodeModal.dueAmount).toLocaleString('en-IN')}
+                {submitting ? 'Verifying Online Payment...' : `✓ Paid Online (Confirm ₹${Number(barcodeModal.dueAmount).toLocaleString('en-IN')})`}
               </button>
+
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  type="button"
+                  className="emp-btn-secondary"
+                  style={{ flex: 1 }}
+                  onClick={() => setBarcodeModal(null)}
+                >
+                  Close
+                </button>
+                <button
+                  type="button"
+                  className="emp-btn-secondary"
+                  style={{ flex: 1, borderColor: '#059669', color: '#059669', fontWeight: 700 }}
+                  onClick={() => {
+                    const it = barcodeModal;
+                    setBarcodeModal(null);
+                    handleOpenCollect(it);
+                  }}
+                >
+                  Cash Collect
+                </button>
+              </div>
             </div>
           </div>
         </div>

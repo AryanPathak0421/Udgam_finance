@@ -625,19 +625,19 @@ export default function EmployeeNewMember() {
     need('aadhaarPhoto', 'Aadhaar front photo is required');
     need('aadhaarBackPhoto', 'Aadhaar back photo is required');
 
-    // Section 5: Mandatory Guarantor Details
-    need('guarantorName', 'Guarantor name is required');
-    need('guarantorRelation', 'Select guarantor relation');
-    if (!/^[6-9]\d{9}$/.test(form.guarantorMobile)) {
-      found.guarantorMobile = 'Enter a valid 10-digit guarantor mobile';
-    } else if (form.guarantorMobile === form.mobile) {
-      found.guarantorMobile = 'Guarantor mobile cannot be the same as member mobile number';
-    }
-    if (form.guarantorAadhaar) {
-      if (!/^\d{12}$/.test(form.guarantorAadhaar)) {
-        found.guarantorAadhaar = 'Guarantor Aadhaar must be 12 digits';
-      } else if (form.guarantorAadhaar === form.aadhaar) {
-        found.guarantorAadhaar = 'Guarantor Aadhaar cannot be the same as member Aadhaar number';
+    // Section 5: Guarantor Details (Optional during member registration - Point 7 fix)
+    if (form.guarantorName || form.guarantorMobile) {
+      if (form.guarantorMobile && !/^[6-9]\d{9}$/.test(form.guarantorMobile)) {
+        found.guarantorMobile = 'Enter a valid 10-digit guarantor mobile';
+      } else if (form.guarantorMobile && form.guarantorMobile === form.mobile) {
+        found.guarantorMobile = 'Guarantor mobile cannot be the same as member mobile number';
+      }
+      if (form.guarantorAadhaar) {
+        if (!/^\d{12}$/.test(form.guarantorAadhaar)) {
+          found.guarantorAadhaar = 'Guarantor Aadhaar must be 12 digits';
+        } else if (form.guarantorAadhaar === form.aadhaar) {
+          found.guarantorAadhaar = 'Guarantor Aadhaar cannot be the same as member Aadhaar number';
+        }
       }
     }
 
@@ -1491,14 +1491,14 @@ export default function EmployeeNewMember() {
                   }}
                 >
                   <Icon name="shieldcheck" size={18} style={{ color: 'var(--emp-primary)' }} />
-                  <span>5. Mandatory Guarantor Details</span>
+                  <span>5. Guarantor Details (Optional)</span>
                 </h3>
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
                   {/* Guarantor Name */}
                   <div>
                     <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>
-                      Guarantor Full Name <span style={{ color: '#ef4444' }}>*</span>
+                      Guarantor Full Name <span style={{ color: '#64748b', fontWeight: 400 }}>(Optional)</span>
                     </label>
                     <input
                       className="emp-input"
@@ -1514,7 +1514,7 @@ export default function EmployeeNewMember() {
                   {/* Guarantor Relation */}
                   <div>
                     <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>
-                      Relation with Member <span style={{ color: '#ef4444' }}>*</span>
+                      Relation with Member <span style={{ color: '#64748b', fontWeight: 400 }}>(Optional)</span>
                     </label>
                     <select
                       className="emp-input"
@@ -1537,7 +1537,7 @@ export default function EmployeeNewMember() {
                   {/* Guarantor Mobile */}
                   <div>
                     <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>
-                      Guarantor Mobile Number <span style={{ color: '#ef4444' }}>*</span>
+                      Guarantor Mobile Number <span style={{ color: '#64748b', fontWeight: 400 }}>(Optional)</span>
                     </label>
                     <input
                       className="emp-input"

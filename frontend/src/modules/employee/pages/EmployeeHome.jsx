@@ -88,12 +88,18 @@ export default function EmployeeHome() {
             </span>
           </div>
           <div style={{ fontSize: '1.3rem', fontWeight: 800, margin: '6px 0 2px', color: 'var(--emp-danger)' }}>
-            ₹{summary.todayDue.toLocaleString('en-IN')}
+            ₹{(summary.todayTotalDue || summary.todayDue || 0).toLocaleString('en-IN')}
           </div>
           <div style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)', lineHeight: 1.3 }}>
-            Total Due: <strong>₹{(summary.todayTotalDue ?? summary.todayTargetDue ?? summary.todayDue).toLocaleString('en-IN')}</strong>
+            {summary.todayRemainingDue !== undefined && summary.todayRemainingDue > 0 ? (
+              <span style={{ color: '#dc2626', fontWeight: 700 }}>Remaining: ₹{summary.todayRemainingDue.toLocaleString('en-IN')}</span>
+            ) : summary.todayCollected > 0 ? (
+              <span style={{ color: '#16a34a', fontWeight: 700 }}>✓ All Dues Collected</span>
+            ) : (
+              <span>Target: ₹{(summary.todayTotalDue || summary.todayDue || 0).toLocaleString('en-IN')}</span>
+            )}
             {summary.todayCollected > 0 && <span style={{ color: '#16a34a' }}> • Collect: ₹{summary.todayCollected.toLocaleString('en-IN')}</span>}
-            <div>{summary.dueCount} pending installments</div>
+            <div>{summary.dueCount || summary.totalDueCount || 0} installments scheduled</div>
           </div>
         </div>
 

@@ -80,9 +80,11 @@ export default function EmployeeEmiPayment() {
   const [qrLoading, setQrLoading] = useState(false);
 
   // 1. Fetch Groups when loanType === 'group' or mode/date changes
-  const fetchGroups = async () => {
+  const fetchGroups = async (keepActive = false) => {
     setLoadingGroups(true);
-    setActiveGroup(null);
+    if (!keepActive) {
+      setActiveGroup(null);
+    }
     try {
       const res = await api.employeeApp.emiGroups({ mode, date });
       setGroups(res.groups || []);
@@ -112,9 +114,9 @@ export default function EmployeeEmiPayment() {
         ...prev,
         ...group,
         actualCollection: actualCol,
-        totalDueAmount: actualCol,
+        totalDueAmount: res.totalDueAmount ?? actualCol,
         totalCollectedToday: colToday,
-        pendingDue: Math.max(0, actualCol - colToday),
+        pendingDue: res.pendingDue ?? Math.max(0, actualCol - colToday),
       }));
 
       // Pre-fill collection map
@@ -122,10 +124,11 @@ export default function EmployeeEmiPayment() {
       members.forEach((m) => {
         const isFullyPaid = m.isAdvancePaid || (m.todayPaidAmount >= m.totalDue && m.dueAmount <= 0);
         const canCollect = !isFullyPaid && (m.dueAmount > 0 || !m.alreadyPaidToday);
-        const pendingAmount = m.dueAmount > 0 ? m.dueAmount : (m.alreadyPaidToday ? 0 : m.emiAmount);
+        // Item 4 Fix: Default to regular installment EMI amount, NOT total due!
+        const defaultEmi = m.emiAmount || m.suggestedAmount || 0;
         initialMap[m.memberCode] = {
           selected: canCollect,
-          amount: pendingAmount || m.suggestedAmount || m.emiAmount || 0,
+          amount: defaultEmi,
           loanPaymentId: m.loanPaymentId,
           memberId: m.memberId,
           isAdvancePaid: m.isAdvancePaid,
@@ -152,10 +155,11 @@ export default function EmployeeEmiPayment() {
       items.forEach((item) => {
         const isFullyPaid = item.isAdvancePaid || (item.todayPaidAmount >= item.totalDue && item.dueAmount <= 0);
         const canCollect = !isFullyPaid && (item.dueAmount > 0 || !item.alreadyPaidToday);
-        const pendingAmount = item.dueAmount > 0 ? item.dueAmount : (item.alreadyPaidToday ? 0 : item.emiAmount);
+        // Item 4 Fix: Default to regular installment EMI amount
+        const defaultEmi = item.emiAmount || item.suggestedAmount || 0;
         initialMap[item.memberCode] = {
           selected: canCollect,
-          amount: pendingAmount || item.suggestedAmount || item.emiAmount || 0,
+          amount: defaultEmi,
           loanPaymentId: item.loanPaymentId,
           memberId: item.memberId,
           isAdvancePaid: item.isAdvancePaid,
@@ -283,10 +287,10 @@ export default function EmployeeEmiPayment() {
         type: 'success',
       });
 
-      // Refresh list to update 100% green status
+      // Refresh list to update 100% green status without resetting active group (Item 3 fix)
       if (loanType === 'group') {
         setTimeout(() => {
-          fetchGroups();
+          fetchGroups(true);
           if (activeGroup) openGroup(activeGroup);
         }, 1200);
       } else {

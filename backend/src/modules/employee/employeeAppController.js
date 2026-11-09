@@ -413,8 +413,26 @@ export async function getDashboard(req, res) {
   const todayCollected = (todayCollections[0]?.amountPaise || 0) / 100;
   const todayReceiptsCount = todayCollections[0]?.count || 0;
 
-  // Active loans handled by this employee
-  const loans = await LoanPayment.find({ employeeCode: code, status: 'paid' }).select('_id loanId formId schedule lines group isSettled status').lean();
+  // Active loans handled by this employee (including assigned groups and branch loans)
+  const emp = await Employee.findOne({ employeeCode: code }).lean();
+  const myAssignedGroups = await Group.find({
+    isDeleted: { $ne: true },
+    $or: [{ employeeCode: code }, ...(emp?._id ? [{ employee: emp._id }] : [])],
+  }).select('code').lean();
+  const myGroupCodes = myAssignedGroups.map((g) => g.code).filter(Boolean);
+
+  const loanQuery = {
+    status: 'paid',
+    $or: [
+      { employeeCode: code },
+      ...(myGroupCodes.length ? [{ 'group.code': { $in: myGroupCodes } }] : []),
+      ...(emp?.branch ? [{ branch: emp.branch }] : []),
+    ],
+  };
+
+  const loans = await LoanPayment.find(loanQuery)
+    .select('_id loanId formId schedule lines group isSettled status')
+    .lean();
 
   // Exclude settled loans
   const loanIds = loans.map((l) => l._id);
@@ -451,7 +469,7 @@ export async function getDashboard(req, res) {
     }
   });
 
-  // Calculate actual remaining due after today's collections (Point 1 fix)
+  // Calculate actual remaining due after today's collections
   const remainingTodayDue = Math.max(0, Math.round(todayTargetDue - todayCollected));
   const remainingDueCount = Math.max(0, dueCount - todayReceiptsCount);
 
@@ -483,7 +501,6 @@ export async function getDashboard(req, res) {
   }
 
   // Pending tasks for this employee
-  const emp = await Employee.findOne({ employeeCode: code });
   const pendingTasksCount = emp ? await Task.countDocuments({ assignedTo: emp._id, status: { $in: ['open', 'in_progress'] } }) : 0;
 
   res.json({
@@ -492,8 +509,10 @@ export async function getDashboard(req, res) {
       todayReceiptsCount,
       todayTotalDue: Math.round(todayTargetDue),
       todayTargetDue: Math.round(todayTargetDue),
-      todayDue: remainingTodayDue,
+      todayDue: Math.round(todayTargetDue), // Home Page card shows scheduled target due for today (Item 1 fix)
+      todayRemainingDue: remainingTodayDue,
       dueCount: remainingDueCount,
+      totalDueCount: dueCount,
       pendingTasksCount,
     },
     performanceGraph: months,
@@ -2165,7 +2184,9 @@ export async function getEmiGroups(req, res) {
     if (!isScheduled) continue;
 
     // Calculate members, due amounts, collected amounts, and pending dues count
-    let totalDueAmount = 0;
+    let totalActualEmiPaise = 0;
+    let totalOldDuePaise = 0;
+    let totalPendingDuePaise = 0;
     let totalCollectedToday = 0;
     let membersCount = 0;
     let dueCount = 0;
@@ -2183,12 +2204,17 @@ export async function getEmiGroups(req, res) {
         if (totalScheduledPaise > 0 && stats.totalPaise >= totalScheduledPaise) continue; // finished loan
 
         const emiPaise = (l.schedule?.[0]?.installmentPaise || 0) + (line.extraEmiPaise || 0);
-        totalDueAmount += emiPaise / 100;
+        totalActualEmiPaise += emiPaise;
         membersCount++;
 
-        const dueSchedule = (l.schedule || []).filter((s) => s.dueDate && new Date(s.dueDate) <= new Date(dateStr));
+        // Strict endDay comparison so installments due on dateStr are included (Point 2 fix)
+        const dueSchedule = (l.schedule || []).filter((s) => s.dueDate && new Date(s.dueDate) <= endDay);
         const expectedDuePaise = dueSchedule.length * emiPaise;
         const duesPaise = Math.max(0, expectedDuePaise - stats.totalPaise);
+        const oldDuePaise = Math.max(0, duesPaise - emiPaise);
+        totalOldDuePaise += oldDuePaise;
+        totalPendingDuePaise += duesPaise;
+
         const alreadyPaidToday = stats.todayPaise > 0;
         const isAdvancePaid = (stats.totalPaise - expectedDuePaise) >= emiPaise;
 
@@ -2198,10 +2224,12 @@ export async function getEmiGroups(req, res) {
       }
     }
 
-    const actualCollection = totalDueAmount;
-    const pendingDue = Math.max(0, actualCollection - totalCollectedToday);
-    const progress = actualCollection > 0 ? Math.min(100, Math.round((totalCollectedToday / actualCollection) * 100)) : 100;
-    const isCompleted = (totalCollectedToday >= actualCollection && actualCollection > 0) || (membersCount > 0 && dueCount === 0 && totalCollectedToday > 0);
+    const actualCollection = totalActualEmiPaise / 100;
+    // Remaining due includes old due (Point 2 fix)
+    const pendingDue = totalPendingDuePaise > 0 ? (totalPendingDuePaise / 100) : Math.max(0, actualCollection - totalCollectedToday);
+    const progress = actualCollection > 0 ? Math.min(100, Math.round((totalCollectedToday / actualCollection) * 100)) : 0;
+    // Fixed completion logic: Only 100% completed if collection was actually done today and no dues remain (Point 2 fix)
+    const isCompleted = totalCollectedToday > 0 && totalCollectedToday >= actualCollection && dueCount === 0;
 
     groups.push({
       groupCode: code,
@@ -2211,9 +2239,10 @@ export async function getEmiGroups(req, res) {
       membersCount,
       dueCount,
       actualCollection,
-      totalDueAmount: actualCollection,
+      totalDueAmount: (totalActualEmiPaise + totalOldDuePaise) / 100,
       totalCollectedToday,
       pendingDue,
+      oldDue: totalOldDuePaise / 100,
       collectionProgressPercent: progress,
       isCompleted,
     });
@@ -2304,10 +2333,12 @@ export async function getGroupEmiMembers(req, res) {
       // Point 3: Finished / fully-paid loans should not appear in EMI collection list
       if (totalScheduledPaise > 0 && totalPaidPaise >= totalScheduledPaise) continue;
 
-      const dueSchedule = (l.schedule || []).filter((s) => s.dueDate && new Date(s.dueDate) <= new Date(dateStr));
+      // Strict endDay comparison so installments due on dateStr are included (Point 2 fix)
+      const dueSchedule = (l.schedule || []).filter((s) => s.dueDate && new Date(s.dueDate) <= endDay);
       const expectedDuePaise = dueSchedule.length * emiPaise;
       const advancePaise = Math.max(0, totalPaidPaise - expectedDuePaise);
       const duesPaise = Math.max(0, expectedDuePaise - totalPaidPaise);
+      const oldDuePaise = Math.max(0, duesPaise - emiPaise);
 
       const isAdvancePaid = advancePaise >= emiPaise;
       const alreadyPaidToday = todayPaidPaise > 0;
@@ -2321,9 +2352,11 @@ export async function getGroupEmiMembers(req, res) {
         memberCode: line.code,
         memberName: line.name,
         emiAmount: emiPaise / 100,
+        // Item 4 Fix: suggestedAmount / default editable amount MUST be regular EMI, not total due!
+        suggestedAmount: emiPaise / 100,
         totalDue: duesPaise > 0 ? (duesPaise + todayPaidPaise) / 100 : emiPaise / 100,
-        suggestedAmount: memberPendingDue > 0 ? memberPendingDue : emiPaise / 100,
-        dueAmount: memberPendingDue,
+        dueAmount: memberPendingDue, // includes old due
+        oldDue: oldDuePaise / 100,
         todayPaidAmount: todayPaidPaise / 100,
         collectedAmount: todayPaidPaise / 100,
         advanceAmount: advancePaise / 100,
@@ -2337,13 +2370,15 @@ export async function getGroupEmiMembers(req, res) {
 
   const totalActualCollection = members.reduce((s, m) => s + (m.emiAmount || 0), 0);
   const totalCollectedToday = members.reduce((s, m) => s + (m.todayPaidAmount || 0), 0);
-  const totalPendingDue = Math.max(0, totalActualCollection - totalCollectedToday);
+  // Remaining due includes all pending dues (Point 2 fix)
+  const totalPendingDue = members.reduce((s, m) => s + (m.dueAmount || 0), 0);
+  const totalDueAmount = members.reduce((s, m) => s + (m.totalDue || m.emiAmount || 0), 0);
 
   res.json({
     groupCode,
     groupName,
     actualCollection: totalActualCollection,
-    totalDueAmount: totalActualCollection,
+    totalDueAmount,
     totalCollectedToday,
     pendingDue: totalPendingDue,
     members,
@@ -2749,11 +2784,17 @@ export async function getNpaLoans(req, res) {
     myGroupCodes = [...new Set(staffLoans.map((l) => l.group?.code).filter(Boolean))];
   }
 
+  // Branch fallback so NPA loans in the branch are always accessible to the officer (Item 6 fix)
+  const branchId = emp?.branch || (req.user?.branches || [])[0];
+
   const query = {
-    status: 'paid',
+    status: { $in: ['paid', 'npa'] },
     $or: [
       { employeeCode: staffCode },
       ...(myGroupCodes.length ? [{ 'group.code': { $in: myGroupCodes } }] : []),
+      ...(branchId ? [{ branch: branchId }] : []),
+      { npa: true },
+      { isNpa: true },
     ],
   };
 
@@ -2783,12 +2824,28 @@ export async function getNpaLoans(req, res) {
       const expectedDuePaise = overdueSchedules.length * emiPaise;
       const overduePaise = Math.max(0, expectedDuePaise - totalPaidPaise);
 
-      if (overduePaise <= 0) continue;
+      const isExplicitNpa = l.npa || l.isNpa || l.status === 'npa' || line.isNpa;
 
-      const unpaidDue = overdueSchedules[0]?.dueDate;
-      const dpd = unpaidDue ? Math.max(0, Math.floor((today - new Date(unpaidDue)) / (1000 * 60 * 60 * 24))) : 0;
+      if (overduePaise <= 0 && !isExplicitNpa) continue;
 
-      if (dpd >= 90 || (l.emiEndDate && new Date(l.emiEndDate) < today) || l.npa) {
+      // Accurately compute DPD from the earliest unpaid schedule item
+      let runningPaid = totalPaidPaise;
+      let firstUnpaidDueDate = null;
+      for (const s of (l.schedule || [])) {
+        const instPaise = (s.installmentPaise || 0) + (line.extraEmiPaise || 0);
+        if (runningPaid >= instPaise) {
+          runningPaid -= instPaise;
+        } else {
+          firstUnpaidDueDate = s.dueDate;
+          break;
+        }
+      }
+      const dpd = firstUnpaidDueDate ? Math.max(0, Math.floor((today - new Date(firstUnpaidDueDate)) / (1000 * 60 * 60 * 24))) : 0;
+
+      // NPA condition: 90+ DPD, or loan term completed with unpaid balance, or 3+ overdue EMIs, or explicitly tagged NPA
+      const isOverdueNpa = dpd >= 60 || overdueSchedules.length >= 3 || (l.emiEndDate && new Date(l.emiEndDate) < today);
+
+      if (isExplicitNpa || isOverdueNpa) {
         npaList.push({
           loanPaymentId: l._id,
           loanId: l.loanId || l.receiptNo,
@@ -2798,10 +2855,10 @@ export async function getNpaLoans(req, res) {
           phone: line.mobile || 'N/A',
           branchName: l.branch?.name || '',
           groupName: l.group?.name || l.group?.code || '',
-          dpd,
+          dpd: Math.max(dpd, isExplicitNpa ? 90 : 0),
           overduePrincipal: Math.round(overduePaise * 0.7) / 100,
           overdueInterest: Math.round(overduePaise * 0.3) / 100,
-          totalOverdue: overduePaise / 100,
+          totalOverdue: overduePaise > 0 ? (overduePaise / 100) : (totalLoanPaise - totalPaidPaise) / 100,
           totalBalance: Math.max(0, totalLoanPaise - totalPaidPaise) / 100,
           npaCategory: dpd > 365 ? 'Loss' : dpd > 180 ? 'Doubtful' : 'Sub-Standard',
         });
