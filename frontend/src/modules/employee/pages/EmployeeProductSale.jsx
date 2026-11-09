@@ -86,9 +86,14 @@ export default function EmployeeProductSale() {
         <h2 style={{ fontSize: '1.2rem', fontWeight: 800, margin: '0 0 6px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
           <Icon name="product" size={20} style={{ color: 'var(--emp-primary)' }} /> Product Booking
         </h2>
-        <p style={{ fontSize: '0.8rem', color: 'var(--emp-text-muted)', margin: '0 0 14px 0' }}>
+        <p style={{ fontSize: '0.8rem', color: 'var(--emp-text-muted)', margin: '0 0 10px 0' }}>
           Book consumer products, electronics, or solar goods from branch stock for members.
         </p>
+
+        {/* Note on Actual Sales vs Booking (Item 11) */}
+        <div style={{ background: '#f8fafc', border: '1px solid var(--emp-border)', borderRadius: 8, padding: '8px 12px', fontSize: '0.75rem', color: 'var(--emp-text-muted)', marginBottom: 12 }}>
+          ℹ️ <strong>Note on Target:</strong> Booked products are submitted for BM verification &amp; delivery. Once delivered/approved, they count towards your monthly <strong>Actual Product Sales Target</strong>.
+        </div>
 
         {error && (
           <div style={{ background: '#fee2e2', color: '#991b1b', padding: '10px 14px', borderRadius: 8, fontSize: '0.85rem', marginBottom: 12 }}>

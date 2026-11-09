@@ -202,14 +202,17 @@ export default function EmployeeMemberKyc() {
         </div>
       )}
 
-      {/* When no member selected, show list of members with tab filters (Point 22) */}
+      {/* When no member selected, show list of members with tab filters (Point 22 & Item 9 Fix) */}
       {!member && (() => {
-        const rejectedMembers = recentMembers.filter((m) => m.kycRejected || m.documents?.some((d) => d.status === 'rejected'));
-        const pendingMembers = recentMembers.filter((m) => !m.kycRejected && m.kycPending);
-        const verifiedMembers = recentMembers.filter((m) => !m.kycRejected && !m.kycPending);
+        const rejectedMembers = recentMembers.filter((m) => m.kycRejected || m.kycStatus === 'rejected' || m.documents?.some((d) => d.status === 'rejected'));
+        const missingMembers = recentMembers.filter((m) => !m.kycRejected && m.kycStatus !== 'rejected' && (m.isMissing || m.kycStatus === 'missing' || (m.missingCount && m.missingCount > 0)));
+        const pendingMembers = recentMembers.filter((m) => !m.kycRejected && !m.isMissing && m.kycStatus !== 'missing' && (m.kycPending || m.kycStatus === 'pending'));
+        const verifiedMembers = recentMembers.filter((m) => !m.kycRejected && !m.isMissing && !m.kycPending && (m.isVerified || m.kycStatus === 'verified'));
 
         const displayedMembers = filterTab === 'rejected'
           ? rejectedMembers
+          : filterTab === 'missing'
+          ? missingMembers
           : filterTab === 'pending'
           ? pendingMembers
           : filterTab === 'verified'
@@ -219,11 +222,12 @@ export default function EmployeeMemberKyc() {
         return (
           <div className="emp-card">
             {/* Filter Tabs */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6, marginBottom: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 4, marginBottom: 12 }}>
               {[
                 { id: 'all', label: `All (${recentMembers.length})`, color: 'var(--emp-text)' },
                 { id: 'rejected', label: `⚠️ Rejected (${rejectedMembers.length})`, color: '#dc2626', bg: '#fee2e2' },
-                { id: 'pending', label: `⏳ Pending (${pendingMembers.length})`, color: '#d97706', bg: '#fef3c7' },
+                { id: 'missing', label: `⚠️ Missing (${missingMembers.length})`, color: '#b45309', bg: '#fef3c7' },
+                { id: 'pending', label: `⏳ Pending (${pendingMembers.length})`, color: '#d97706', bg: '#fffbeb' },
                 { id: 'verified', label: `✓ Verified (${verifiedMembers.length})`, color: '#16a34a', bg: '#dcfce7' },
               ].map((tab) => (
                 <button
@@ -231,8 +235,8 @@ export default function EmployeeMemberKyc() {
                   type="button"
                   onClick={() => setFilterTab(tab.id)}
                   style={{
-                    padding: '8px 4px',
-                    fontSize: '0.72rem',
+                    padding: '8px 2px',
+                    fontSize: '0.68rem',
                     fontWeight: filterTab === tab.id ? 800 : 600,
                     borderRadius: 6,
                     border: filterTab === tab.id ? `2px solid ${tab.color}` : '1px solid var(--emp-border)',
@@ -240,6 +244,7 @@ export default function EmployeeMemberKyc() {
                     color: filterTab === tab.id ? tab.color : 'var(--emp-text-muted)',
                     cursor: 'pointer',
                     transition: 'all 0.15s',
+                    textAlign: 'center',
                   }}
                 >
                   {tab.label}
@@ -249,7 +254,15 @@ export default function EmployeeMemberKyc() {
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
               <h3 style={{ fontSize: '0.92rem', fontWeight: 700, margin: 0, color: 'var(--emp-text)' }}>
-                {filterTab === 'rejected' ? 'Rejected KYC Members (Re-Upload Required)' : filterTab === 'pending' ? 'Pending Verification' : filterTab === 'verified' ? 'Verified KYC Members' : 'Recent Members'} ({displayedMembers.length})
+                {filterTab === 'rejected'
+                  ? 'Rejected KYC Members (Re-Upload Required)'
+                  : filterTab === 'missing'
+                  ? 'Incomplete / Missing Documents'
+                  : filterTab === 'pending'
+                  ? 'Pending Verification'
+                  : filterTab === 'verified'
+                  ? 'Verified KYC Members'
+                  : 'Recent Members'} ({displayedMembers.length})
               </h3>
               <span style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)' }}>Tap member to view/re-upload</span>
             </div>
@@ -258,47 +271,61 @@ export default function EmployeeMemberKyc() {
               <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--emp-text-muted)' }}>Loading members...</div>
             ) : displayedMembers.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--emp-text-muted)', fontSize: '0.85rem' }}>
-                {filterTab === 'rejected' ? '✓ No rejected KYC members found. All members are verified or pending.' : 'No members found in this tab. Search above to check any member.'}
+                {filterTab === 'rejected'
+                  ? '✓ No rejected KYC members found.'
+                  : filterTab === 'missing'
+                  ? '✓ No members with missing documents.'
+                  : 'No members found in this tab. Search above to check any member.'}
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {displayedMembers.map((m) => (
-                  <div
-                    key={m.id || m.code}
-                    onClick={() => {
-                      setQuery(m.code);
-                      loadMemberKyc(m.code);
-                    }}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      padding: '10px 12px',
-                      borderRadius: 8,
-                      border: m.kycRejected ? '1.5px solid #f87171' : '1px solid var(--emp-border)',
-                      cursor: 'pointer',
-                      background: m.kycRejected ? '#fef2f2' : 'var(--emp-card-bg)',
-                    }}
-                  >
-                    <div>
-                      <strong style={{ fontSize: '0.9rem', color: m.kycRejected ? '#991b1b' : 'var(--emp-text)', display: 'block' }}>
-                        {m.name}
-                      </strong>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)' }}>
-                        Code: {m.code} • {m.mobile}
-                      </span>
+                {displayedMembers.map((m) => {
+                  const isRej = Boolean(m.kycRejected || m.kycStatus === 'rejected');
+                  const isMiss = Boolean(!isRej && (m.isMissing || m.kycStatus === 'missing' || (m.missingCount && m.missingCount > 0)));
+                  const isPend = Boolean(!isRej && !isMiss && (m.kycPending || m.kycStatus === 'pending'));
+
+                  return (
+                    <div
+                      key={m.id || m.code}
+                      onClick={() => {
+                        setQuery(m.code);
+                        loadMemberKyc(m.code);
+                      }}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '10px 12px',
+                        borderRadius: 8,
+                        border: isRej ? '1.5px solid #f87171' : isMiss ? '1.5px solid #f59e0b' : '1px solid var(--emp-border)',
+                        cursor: 'pointer',
+                        background: isRej ? '#fef2f2' : isMiss ? '#fffbeb' : 'var(--emp-card-bg)',
+                      }}
+                    >
+                      <div>
+                        <strong style={{ fontSize: '0.9rem', color: isRej ? '#991b1b' : isMiss ? '#92400e' : 'var(--emp-text)', display: 'block' }}>
+                          {m.name}
+                        </strong>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)' }}>
+                          Code: {m.code} • {m.mobile}
+                        </span>
+                      </div>
+                      <div>
+                        {isRej ? (
+                          <span className="emp-badge emp-badge-danger" style={{ fontSize: '0.72rem', fontWeight: 800 }}>⚠️ Rejected • Tap to Re-Upload</span>
+                        ) : isMiss ? (
+                          <span className="emp-badge emp-badge-warning" style={{ fontSize: '0.72rem', fontWeight: 800, background: '#fef3c7', color: '#b45309', border: '1px solid #f59e0b' }}>
+                            ⚠️ {m.missingCount ? `${m.missingCount} Missing Docs` : 'Incomplete Docs'}
+                          </span>
+                        ) : isPend ? (
+                          <span className="emp-badge emp-badge-warning" style={{ fontSize: '0.72rem' }}>⏳ Pending</span>
+                        ) : (
+                          <span className="emp-badge emp-badge-success" style={{ fontSize: '0.72rem' }}>✓ Verified</span>
+                        )}
+                      </div>
                     </div>
-                    <div>
-                      {m.kycRejected ? (
-                        <span className="emp-badge emp-badge-danger" style={{ fontSize: '0.72rem', fontWeight: 800 }}>⚠️ Rejected • Tap to Re-Upload</span>
-                      ) : m.kycPending ? (
-                        <span className="emp-badge emp-badge-warning" style={{ fontSize: '0.72rem' }}>Pending</span>
-                      ) : (
-                        <span className="emp-badge emp-badge-success" style={{ fontSize: '0.72rem' }}>Verified</span>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -440,10 +467,25 @@ export default function EmployeeMemberKyc() {
                   )}
                 </div>
                 <div style={{ fontSize: '0.7rem', color: 'var(--emp-text-muted)', marginTop: 4 }}>
-                  Status: <strong>{member.joiningApproval?.status || (member.kycRejected ? 'Rejected' : member.kycPending ? 'Pending Review' : 'Active')}</strong>
+                  KYC Status: <strong style={{ color: member.overallKycStatus === 'rejected' || member.kycRejected ? '#dc2626' : (member.overallKycStatus === 'missing' || member.missingCount > 0) ? '#d97706' : member.overallKycStatus === 'pending' || member.kycPending ? '#2563eb' : '#16a34a' }}>
+                    {member.overallKycLabel || (member.kycRejected ? '⚠️ Rejected' : (member.missingCount > 0 ? `⚠️ Incomplete (${member.missingCount} Missing)` : member.kycPending ? '⏳ Pending Review' : '✓ Verified'))}
+                  </strong>
                 </div>
               </div>
             </div>
+
+            {/* Incomplete / Missing Documents Alert Banner (Item 9 Fix) */}
+            {(member.missingCount > 0 || member.overallKycStatus === 'missing') && (
+              <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 8, background: '#fffbeb', border: '1.5px solid #f59e0b', color: '#92400e', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Icon name="alerttriangle" size={18} style={{ color: '#d97706', flexShrink: 0 }} />
+                <div>
+                  <strong>Mandatory Documents Missing:</strong> Member has {member.missingCount || 1} required document(s) missing.
+                  <div style={{ fontSize: '0.72rem', marginTop: 2, color: '#b45309' }}>
+                    Status is marked <strong>Incomplete</strong>. Member will NOT be verified until all mandatory documents are uploaded and approved.
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Documents Section */}

@@ -92,14 +92,19 @@ export default function EmployeeReports() {
           </div>
         </div>
 
-        {/* Point 16: Product Sell Requests Metric */}
+        {/* Point 16 & Item 11: Product Sales Metric */}
         <div className="emp-card" style={{ margin: 0, padding: 12, background: 'linear-gradient(135deg, #7c3aed, #a855f7)', color: '#fff' }}>
-          <div style={{ fontSize: '0.72rem', opacity: 0.9 }}>Product Sales</div>
+          <div style={{ fontSize: '0.72rem', opacity: 0.9 }}>Actual Product Sales</div>
           <div style={{ fontSize: '1.25rem', fontWeight: 800, marginTop: 2 }}>
             ₹{Number(summary.totalProductSales || 0).toLocaleString('en-IN')}
           </div>
           <div style={{ fontSize: '0.7rem', opacity: 0.85, marginTop: 2 }}>
-            {summary.productSalesCount || 0} Orders Sold
+            {summary.productSalesCount || 0} Delivered / Completed
+            {Boolean(summary.pendingBookingsCount) && (
+              <span style={{ display: 'block', opacity: 0.9, marginTop: 2, fontSize: '0.68rem' }}>
+                • {summary.pendingBookingsCount} Bookings Pending Approval
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -310,8 +315,11 @@ export default function EmployeeReports() {
                       <div style={{ fontWeight: 800, color: '#7c3aed', fontSize: '1rem' }}>
                         ₹{Number(p.totalAmount).toLocaleString('en-IN')}
                       </div>
-                      <span className={`emp-badge emp-badge-${p.status === 'approved' ? 'success' : p.status === 'delivered' ? 'info' : 'warning'}`} style={{ fontSize: '0.68rem', textTransform: 'capitalize' }}>
-                        {p.status || 'Pending'}
+                      <span
+                        className={`emp-badge ${p.isActualSale || p.status === 'completed' || p.status === 'approved' ? 'emp-badge-success' : 'emp-badge-warning'}`}
+                        style={{ fontSize: '0.68rem', textTransform: 'capitalize' }}
+                      >
+                        {p.isActualSale || p.status === 'completed' || p.status === 'approved' ? '✓ Completed Sale' : '⏳ Booking (Pending)'}
                       </span>
                     </div>
                   </div>
@@ -354,14 +362,17 @@ export default function EmployeeReports() {
                       </div>
                     </div>
 
-                    {/* Point 16: Product Sell Target */}
+                    {/* Point 16 & Item 11: Product Sell Target */}
                     <div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: 2 }}>
-                        <span>Product Sell Target:</span>
+                        <span>Product Sell Target (Actual Completed Sales):</span>
                         <strong>₹{t.achieved?.productSales || 0} / ₹{t.targets?.productSales || 10000}</strong>
                       </div>
                       <div style={{ height: 6, borderRadius: 3, background: 'var(--emp-border)', overflow: 'hidden' }}>
                         <div style={{ height: '100%', width: `${Math.min(100, Math.round(((t.achieved?.productSales || 0) / (t.targets?.productSales || 10000)) * 100))}%`, background: '#7c3aed' }} />
+                      </div>
+                      <div style={{ fontSize: '0.68rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
+                        * Target counts actual completed product sales only. Booked orders are counted once delivered/approved.
                       </div>
                     </div>
                   </div>

@@ -1,9 +1,11 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../../../api/client.js';
 import { useEmployeeApp } from '../EmployeeAppContext.jsx';
 import Icon from '../../../components/Icon.jsx';
 
 export default function EmployeeMemberSynopsis() {
+  const navigate = useNavigate();
   const { t } = useEmployeeApp();
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
@@ -138,12 +140,51 @@ export default function EmployeeMemberSynopsis() {
           {/* Address & Bank Details */}
           <div className="emp-card">
             <h4 style={{ fontSize: '0.92rem', fontWeight: 700, margin: '0 0 10px 0', color: 'var(--emp-text)' }}>
-              Bank & Guarantor Information
+              Bank &amp; Contact Information
             </h4>
             <div style={{ fontSize: '0.82rem', display: 'flex', flexDirection: 'column', gap: 6 }}>
               <div><strong>Address:</strong> {data.address || ''}, {data.area || ''}, {data.district || ''} - {data.pincode || ''}</div>
               <div><strong>Bank:</strong> {data.bankName || 'N/A'} (A/C: {data.accountNumber || 'N/A'}, IFSC: {data.ifsc || 'N/A'})</div>
-              <div><strong>Guarantor:</strong> {data.guarantorName || data.guarantor?.name || 'None'} ({data.guarantorRelation || data.guarantor?.relation || 'N/A'}, Phone: {data.guarantorMobile || data.guarantor?.phone || 'N/A'})</div>
+            </div>
+          </div>
+
+          {/* Guarantor & Nominee Card (Item 8) */}
+          <div className="emp-card" style={{ borderLeft: '4px solid var(--emp-primary)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <h4 style={{ fontSize: '0.92rem', fontWeight: 700, margin: 0, color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Icon name="shieldcheck" size={16} style={{ color: 'var(--emp-primary)' }} />
+                <span>Guarantor &amp; Nominee Information</span>
+              </h4>
+              <button
+                type="button"
+                className="emp-btn-secondary"
+                style={{ fontSize: '0.72rem', padding: '4px 8px' }}
+                onClick={() => navigate(`/employee/guarantor-nominee?code=${data.code}`)}
+              >
+                ✏️ Manage Details
+              </button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, fontSize: '0.82rem', background: '#f8fafc', padding: 10, borderRadius: 6 }}>
+              <div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)' }}>Guarantor:</div>
+                <strong>{data.guarantorName || data.guarantor?.name || 'Not Added'}</strong>
+                <div style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)' }}>
+                  Relation: {data.guarantorRelation || data.guarantor?.relation || 'N/A'}
+                </div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)' }}>
+                  Mobile: {data.guarantorMobile || data.guarantor?.mobile || data.guarantor?.phone || 'N/A'}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)' }}>Nominee:</div>
+                <strong>{data.nominee?.name || (data.nominee?.sameAsGuarantor ? `${data.guarantor?.name} (Same)` : 'Not Added')}</strong>
+                <div style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)' }}>
+                  Relation: {data.nominee?.relation || 'N/A'}
+                </div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)' }}>
+                  Mobile: {data.nominee?.mobile || 'N/A'}
+                </div>
+              </div>
             </div>
           </div>
 

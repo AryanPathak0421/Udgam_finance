@@ -960,27 +960,51 @@ export async function getStaffRecentMembers(req, res) {
 
   const members = await Member.find(query)
     .sort({ createdAt: -1 })
-    .limit(30)
-    .select('code name mobile branch memberPhoto signaturePhoto aadhaarPhoto panPhoto kycDocs kycPending kycRejected createdAt')
+    .limit(40)
+    .select('+memberPhoto +signaturePhoto +aadhaarPhoto +aadhaarBackPhoto +panPhoto')
     .populate('branch', 'name code')
     .lean();
 
   res.json({
     items: members.map((m) => {
+      const hasPhoto = Boolean(m.memberPhoto);
+      const hasSignature = Boolean(m.signaturePhoto);
+      const hasAadhaarFront = Boolean(m.aadhaarPhoto);
+      const hasAadhaarBack = Boolean(m.aadhaarBackPhoto);
+      const hasPan = Boolean(m.panPhoto);
+
+      // Point 9 Fix: Check if any mandatory document is missing. If even 1 doc is missing, NEVER show verified!
+      const missingMandatoryDocs = [];
+      if (!hasPhoto) missingMandatoryDocs.push('Member Photo');
+      if (!hasSignature) missingMandatoryDocs.push('Signature');
+      if (!hasAadhaarFront) missingMandatoryDocs.push('Aadhaar Front');
+      if (!hasAadhaarBack) missingMandatoryDocs.push('Aadhaar Back');
+
+      const isMissing = missingMandatoryDocs.length > 0;
       const isRejected = Boolean(m.kycRejected || (m.kycDocs || []).some((d) => d.status === 'rejected'));
-      const isPending = Boolean(!isRejected && (m.kycPending || (m.kycDocs || []).some((d) => d.status === 'pending')));
+      const isPending = Boolean(!isRejected && !isMissing && (m.kycPending || (m.kycDocs || []).some((d) => d.status === 'pending')));
+      const isVerified = Boolean(!isRejected && !isMissing && !isPending);
+
+      const kycStatus = isRejected ? 'rejected' : isMissing ? 'missing' : isPending ? 'pending' : 'verified';
+
       return {
         id: m._id,
         code: m.code,
         name: m.name,
         mobile: m.mobile,
         branchName: m.branch?.name || '',
-        hasPhoto: Boolean(m.memberPhoto),
-        hasSignature: Boolean(m.signaturePhoto),
-        hasAadhaar: Boolean(m.aadhaarPhoto),
-        hasPan: Boolean(m.panPhoto),
+        hasPhoto,
+        hasSignature,
+        hasAadhaar: hasAadhaarFront,
+        hasAadhaarBack,
+        hasPan,
+        isMissing,
+        missingCount: missingMandatoryDocs.length,
+        missingDocs: missingMandatoryDocs,
+        kycStatus,
         kycPending: isPending,
         kycRejected: isRejected,
+        isVerified,
         rejectedDocsCount: (m.kycDocs || []).filter((d) => d.status === 'rejected').length,
         documents: (m.kycDocs || []).map((d) => ({ key: d.key || d.field, status: d.status, reason: d.reason || '' })),
         createdAt: m.createdAt,
@@ -998,7 +1022,10 @@ export async function getMemberKyc(req, res) {
       { mobile: q },
       { aadhaar: q },
     ],
-  }).populate('branch', 'code name').lean();
+  })
+    .select('+memberPhoto +signaturePhoto +aadhaarPhoto +aadhaarBackPhoto +panPhoto +guarantor.photo +guarantor.signature +guarantor.aadhaarPhoto +guarantor.aadhaarBackPhoto +guarantor.panPhoto +guarantor.jointPhoto')
+    .populate('branch', 'code name')
+    .lean();
   if (!m) throw new HttpError(404, 'Member not found');
 
   const docStatus = (key, hasFile) => {
@@ -1026,19 +1053,41 @@ export async function getMemberKyc(req, res) {
   const gName = m.guarantor?.name || 'Guarantor';
 
   const documents = [
-    { type: 'photo', field: 'memberPhoto', name: 'Member Photo', status: photoDoc.status, rejectReason: photoDoc.reason, uploadedAt: m.memberPhoto ? m.createdAt : null, image: m.memberPhoto || null },
-    { type: 'signature', field: 'signaturePhoto', name: 'Member Signature', status: signDoc.status, rejectReason: signDoc.reason, uploadedAt: m.signaturePhoto ? m.createdAt : null, image: m.signaturePhoto || null },
-    { type: 'aadhaar', field: 'aadhaarPhoto', name: 'Aadhaar Card (Front)', status: aadhaarFrontDoc.status, rejectReason: aadhaarFrontDoc.reason, uploadedAt: m.aadhaarPhoto ? m.createdAt : null, image: m.aadhaarPhoto || null },
-    { type: 'aadhaarBack', field: 'aadhaarBackPhoto', name: 'Aadhaar Card (Back)', status: aadhaarBackDoc.status, rejectReason: aadhaarBackDoc.reason, uploadedAt: m.aadhaarBackPhoto ? m.createdAt : null, image: m.aadhaarBackPhoto || null },
-    { type: 'pan', field: 'panPhoto', name: 'PAN Card Photo', status: panDoc.status, rejectReason: panDoc.reason, uploadedAt: m.panPhoto ? m.createdAt : null, image: m.panPhoto || null },
+    { type: 'photo', field: 'memberPhoto', name: 'Member Photo', status: photoDoc.status, rejectReason: photoDoc.reason, uploadedAt: m.memberPhoto ? m.createdAt : null, image: m.memberPhoto || null, required: true },
+    { type: 'signature', field: 'signaturePhoto', name: 'Member Signature', status: signDoc.status, rejectReason: signDoc.reason, uploadedAt: m.signaturePhoto ? m.createdAt : null, image: m.signaturePhoto || null, required: true },
+    { type: 'aadhaar', field: 'aadhaarPhoto', name: 'Aadhaar Card (Front)', status: aadhaarFrontDoc.status, rejectReason: aadhaarFrontDoc.reason, uploadedAt: m.aadhaarPhoto ? m.createdAt : null, image: m.aadhaarPhoto || null, required: true },
+    { type: 'aadhaarBack', field: 'aadhaarBackPhoto', name: 'Aadhaar Card (Back)', status: aadhaarBackDoc.status, rejectReason: aadhaarBackDoc.reason, uploadedAt: m.aadhaarBackPhoto ? m.createdAt : null, image: m.aadhaarBackPhoto || null, required: true },
+    { type: 'pan', field: 'panPhoto', name: 'PAN Card Photo', status: panDoc.status, rejectReason: panDoc.reason, uploadedAt: m.panPhoto ? m.createdAt : null, image: m.panPhoto || null, required: false },
     // Point 12: Old/Current Guarantor Documents
-    { type: 'guarantorPhoto', field: 'guarantor.photo', name: `Guarantor Photo (${gName})`, status: gPhotoDoc.status, rejectReason: gPhotoDoc.reason, uploadedAt: m.guarantor?.photo ? m.createdAt : null, image: m.guarantor?.photo || null },
-    { type: 'guarantorSignature', field: 'guarantor.signature', name: `Guarantor Signature (${gName})`, status: gSignDoc.status, rejectReason: gSignDoc.reason, uploadedAt: m.guarantor?.signature ? m.createdAt : null, image: m.guarantor?.signature || null },
-    { type: 'guarantorAadhaar', field: 'guarantor.aadhaarPhoto', name: `Guarantor Aadhaar Front (${gName})`, status: gAadhaarDoc.status, rejectReason: gAadhaarDoc.reason, uploadedAt: m.guarantor?.aadhaarPhoto ? m.createdAt : null, image: m.guarantor?.aadhaarPhoto || null },
-    { type: 'guarantorAadhaarBack', field: 'guarantor.aadhaarBackPhoto', name: `Guarantor Aadhaar Back (${gName})`, status: gAadhaarBackDoc.status, rejectReason: gAadhaarBackDoc.reason, uploadedAt: m.guarantor?.aadhaarBackPhoto ? m.createdAt : null, image: m.guarantor?.aadhaarBackPhoto || null },
-    ...(m.guarantor?.panPhoto ? [{ type: 'guarantorPan', field: 'guarantor.panPhoto', name: `Guarantor PAN Card (${gName})`, status: gPanDoc.status, rejectReason: gPanDoc.reason, uploadedAt: m.createdAt, image: m.guarantor.panPhoto }] : []),
-    ...(m.guarantor?.jointPhoto ? [{ type: 'guarantorJoint', field: 'guarantor.jointPhoto', name: `Member & Guarantor Joint Photo`, status: gJointDoc.status, rejectReason: gJointDoc.reason, uploadedAt: m.createdAt, image: m.guarantor.jointPhoto }] : []),
+    { type: 'guarantorPhoto', field: 'guarantor.photo', name: `Guarantor Photo (${gName})`, status: gPhotoDoc.status, rejectReason: gPhotoDoc.reason, uploadedAt: m.guarantor?.photo ? m.createdAt : null, image: m.guarantor?.photo || null, required: false },
+    { type: 'guarantorSignature', field: 'guarantor.signature', name: `Guarantor Signature (${gName})`, status: gSignDoc.status, rejectReason: gSignDoc.reason, uploadedAt: m.guarantor?.signature ? m.createdAt : null, image: m.guarantor?.signature || null, required: false },
+    { type: 'guarantorAadhaar', field: 'guarantor.aadhaarPhoto', name: `Guarantor Aadhaar Front (${gName})`, status: gAadhaarDoc.status, rejectReason: gAadhaarDoc.reason, uploadedAt: m.guarantor?.aadhaarPhoto ? m.createdAt : null, image: m.guarantor?.aadhaarPhoto || null, required: false },
+    { type: 'guarantorAadhaarBack', field: 'guarantor.aadhaarBackPhoto', name: `Guarantor Aadhaar Back (${gName})`, status: gAadhaarBackDoc.status, rejectReason: gAadhaarBackDoc.reason, uploadedAt: m.guarantor?.aadhaarBackPhoto ? m.createdAt : null, image: m.guarantor?.aadhaarBackPhoto || null, required: false },
+    ...(m.guarantor?.panPhoto ? [{ type: 'guarantorPan', field: 'guarantor.panPhoto', name: `Guarantor PAN Card (${gName})`, status: gPanDoc.status, rejectReason: gPanDoc.reason, uploadedAt: m.createdAt, image: m.guarantor.panPhoto, required: false }] : []),
+    ...(m.guarantor?.jointPhoto ? [{ type: 'guarantorJoint', field: 'guarantor.jointPhoto', name: `Member & Guarantor Joint Photo`, status: gJointDoc.status, rejectReason: gJointDoc.reason, uploadedAt: m.createdAt, image: m.guarantor.jointPhoto, required: false }] : []),
   ];
+
+  // Point 9 Fix: Calculate strict overall KYC status
+  const mandatoryDocs = [photoDoc, signDoc, aadhaarFrontDoc, aadhaarBackDoc];
+  const missingCount = mandatoryDocs.filter((d) => d.status === 'missing').length;
+  const rejectedCount = documents.filter((d) => d.status === 'rejected').length;
+  const pendingCount = mandatoryDocs.filter((d) => d.status === 'pending').length;
+
+  let overallKycStatus = 'verified';
+  let overallKycLabel = 'Verified';
+  if (rejectedCount > 0 || m.kycRejected) {
+    overallKycStatus = 'rejected';
+    overallKycLabel = '⚠️ Rejected';
+  } else if (missingCount > 0) {
+    overallKycStatus = 'missing';
+    overallKycLabel = `⚠️ Incomplete (${missingCount} Required Docs Missing)`;
+  } else if (pendingCount > 0 || m.kycPending) {
+    overallKycStatus = 'pending';
+    overallKycLabel = '⏳ Pending Verification';
+  } else {
+    overallKycStatus = 'verified';
+    overallKycLabel = '✓ Verified';
+  }
 
   res.json({
     member: {
@@ -1053,6 +1102,9 @@ export async function getMemberKyc(req, res) {
       branch: m.branch?.name || '',
       branchName: m.branch?.name || '',
       joiningStatus: m.joiningApproval?.status || 'approved',
+      overallKycStatus,
+      overallKycLabel,
+      missingCount,
       documents,
       docs: {
         photo: photoDoc,
@@ -1499,6 +1551,135 @@ export async function decideGuarantorChange(req, res) {
 }
 
 // -----------------------------------------------------------------------------
+// 7.1 GUARANTOR & NOMINEE DETAILS MODULE (Item 8)
+// -----------------------------------------------------------------------------
+
+export async function getMemberGuarantorAndNominee(req, res) {
+  const q = cleanStr(req.params.id);
+  const m = await Member.findOne({
+    $or: [
+      { _id: mongoose.isValidObjectId(q) ? q : null },
+      { code: q.toUpperCase() },
+      { mobile: q },
+      { aadhaar: q },
+    ],
+  })
+    .select('+photo +memberPhoto +guarantor.photo +guarantor.signature +guarantor.aadhaarPhoto +guarantor.aadhaarBackPhoto +guarantor.panPhoto +guarantor.jointPhoto +nominee.photo +nominee.signature +nominee.aadhaarPhoto +nominee.aadhaarBackPhoto +nominee.panPhoto')
+    .populate('branch', 'code name')
+    .lean();
+  if (!m) throw new HttpError(404, 'Member not found');
+
+  res.json({
+    member: {
+      id: m._id,
+      _id: m._id,
+      code: m.code,
+      name: m.name,
+      mobile: m.mobile,
+      aadhaar: m.aadhaar,
+      branch: m.branch?.name || '',
+      branchName: m.branch?.name || '',
+      guarantor: m.guarantor || null,
+      nominee: m.nominee || null,
+      guarantorHistory: m.guarantorHistory || [],
+    },
+  });
+}
+
+export async function saveGuarantorAndNominee(req, res) {
+  const { memberId, memberCode, guarantor, nominee } = req.body || {};
+  const q = cleanStr(memberId || memberCode);
+  if (!q) throw new HttpError(400, 'Member ID or code is required');
+
+  const m = await Member.findOne({
+    $or: [
+      { _id: mongoose.isValidObjectId(q) ? q : null },
+      { code: q.toUpperCase() },
+    ],
+  }).select('+photo +memberPhoto +guarantor.photo +guarantor.signature +guarantor.aadhaarPhoto +guarantor.aadhaarBackPhoto +guarantor.panPhoto +guarantor.jointPhoto +nominee.photo +nominee.signature +nominee.aadhaarPhoto +nominee.aadhaarBackPhoto +nominee.panPhoto');
+  if (!m) throw new HttpError(404, 'Member not found');
+
+  if (guarantor) {
+    if (m.guarantor?.name && m.guarantor.name !== guarantor.name) {
+      if (!m.guarantorHistory) m.guarantorHistory = [];
+      m.guarantorHistory.push({
+        ...(m.guarantor.toObject ? m.guarantor.toObject() : m.guarantor),
+        replacedAt: new Date(),
+        replacedBy: req.user?._id,
+        replacedByCode: req.user?.employeeCode || '',
+        reason: guarantor.reason || 'Guarantor updated via Employee App',
+      });
+    }
+
+    m.guarantor = {
+      ...(m.guarantor?.toObject ? m.guarantor.toObject() : (m.guarantor || {})),
+      name: cleanStr(guarantor.name) || m.guarantor?.name,
+      mobile: cleanStr(guarantor.mobile) || m.guarantor?.mobile,
+      aadhaar: cleanStr(guarantor.aadhaar) || m.guarantor?.aadhaar,
+      pan: cleanStr(guarantor.pan)?.toUpperCase() || m.guarantor?.pan,
+      relation: cleanStr(guarantor.relation) || m.guarantor?.relation || 'Spouse',
+      address: cleanStr(guarantor.address) || m.guarantor?.address,
+      photo: guarantor.photo || m.guarantor?.photo,
+      signature: guarantor.signature || m.guarantor?.signature,
+      aadhaarPhoto: guarantor.aadhaarPhoto || m.guarantor?.aadhaarPhoto,
+      aadhaarBackPhoto: guarantor.aadhaarBackPhoto || m.guarantor?.aadhaarBackPhoto,
+      panPhoto: guarantor.panPhoto || m.guarantor?.panPhoto,
+      jointPhoto: guarantor.jointPhoto || m.guarantor?.jointPhoto,
+      employeeCode: req.user?.employeeCode || m.employeeCode,
+      savedAt: new Date(),
+      savedBy: req.user?._id,
+    };
+  }
+
+  if (nominee) {
+    if (nominee.sameAsGuarantor && m.guarantor) {
+      m.nominee = {
+        name: m.guarantor.name,
+        mobile: m.guarantor.mobile,
+        aadhaar: m.guarantor.aadhaar,
+        pan: m.guarantor.pan,
+        relation: cleanStr(nominee.relation) || m.guarantor.relation || 'Nominee',
+        sameAsGuarantor: true,
+        photo: m.guarantor.photo,
+        signature: m.guarantor.signature,
+        aadhaarPhoto: m.guarantor.aadhaarPhoto,
+        aadhaarBackPhoto: m.guarantor.aadhaarBackPhoto,
+        employeeCode: req.user?.employeeCode || m.employeeCode,
+        savedAt: new Date(),
+        savedBy: req.user?._id,
+      };
+    } else {
+      m.nominee = {
+        ...(m.nominee?.toObject ? m.nominee.toObject() : (m.nominee || {})),
+        name: cleanStr(nominee.name) || m.nominee?.name,
+        mobile: cleanStr(nominee.mobile) || m.nominee?.mobile,
+        aadhaar: cleanStr(nominee.aadhaar) || m.nominee?.aadhaar,
+        pan: cleanStr(nominee.pan)?.toUpperCase() || m.nominee?.pan,
+        relation: cleanStr(nominee.relation) || m.nominee?.relation || 'Nominee',
+        sameAsGuarantor: Boolean(nominee.sameAsGuarantor),
+        photo: nominee.photo || m.nominee?.photo,
+        signature: nominee.signature || m.nominee?.signature,
+        aadhaarPhoto: nominee.aadhaarPhoto || m.nominee?.aadhaarPhoto,
+        aadhaarBackPhoto: nominee.aadhaarBackPhoto || m.nominee?.aadhaarBackPhoto,
+        panPhoto: nominee.panPhoto || m.nominee?.panPhoto,
+        employeeCode: req.user?.employeeCode || m.employeeCode,
+        savedAt: new Date(),
+        savedBy: req.user?._id,
+      };
+    }
+  }
+
+  await m.save();
+
+  res.json({
+    success: true,
+    message: 'Guarantor & Nominee details saved successfully!',
+    guarantor: m.guarantor,
+    nominee: m.nominee,
+  });
+}
+
+// -----------------------------------------------------------------------------
 // 8. BORROWER SYNOPSIS (MEMBER DETAIL REPORT)
 // -----------------------------------------------------------------------------
 
@@ -1511,7 +1692,9 @@ export async function getMemberSynopsis(req, res) {
       { mobile: q },
       { aadhaar: q },
     ],
-  }).select('+photo +memberPhoto').populate('branch', 'code name city pincode');
+  })
+    .select('+photo +memberPhoto +guarantor.photo +guarantor.signature +guarantor.aadhaarPhoto +guarantor.aadhaarBackPhoto +guarantor.panPhoto +guarantor.jointPhoto +nominee.photo +nominee.signature +nominee.aadhaarPhoto +nominee.aadhaarBackPhoto +nominee.panPhoto')
+    .populate('branch', 'code name city pincode');
   if (!m) throw new HttpError(404, 'Member not found');
 
   const groupDoc = await Group.findOne({ 'members.member': m._id, isDeleted: false }).lean();
@@ -1552,6 +1735,7 @@ export async function getMemberSynopsis(req, res) {
     occupation: m.occupation || 'Self Employed',
     createdAt: m.createdAt,
     guarantor: m.guarantor,
+    nominee: m.nominee,
     totalBorrowed,
     loansCount: loans.length,
     loans: loans.map((l) => ({
@@ -1671,6 +1855,98 @@ export async function createLoanRequisition(req, res) {
   // Point 23: Block Loan Requisition on Sundays and Company Holidays
   await assertNotSundayOrHoliday(new Date(), branchId);
 
+  let kind = b.kind || b.loanType || 'group';
+  if (kind === 'msme' || kind === 'business_msme') kind = 'business';
+
+  // Support Multi-Member Group Requisition (Matching the full system)
+  if (kind === 'group' && (!b.borrowerCode && !b.borrower?.code) && ((Array.isArray(b.memberIds) && b.memberIds.length > 0) || b.group)) {
+    const groupId = b.group || b.groupId;
+    const groupDoc = await Group.findOne({
+      $or: [
+        { _id: mongoose.isValidObjectId(groupId) ? groupId : null },
+        { code: String(groupId || '').toUpperCase() },
+      ],
+      isDeleted: false,
+    }).populate('members.member', 'code name mobile isBlocked guarantor kycRejected mobileVerifiedAt isMobileVerified');
+    if (!groupDoc) throw new HttpError(404, 'Group not found');
+
+    const mIds = Array.isArray(b.memberIds) && b.memberIds.length > 0
+      ? b.memberIds
+      : (groupDoc.members || []).map((x) => x.member?._id || x.member).filter(Boolean);
+
+    const chosenMembers = await Member.find({
+      _id: { $in: mIds },
+      isDeleted: false,
+    }).select('+photo +memberPhoto +signaturePhoto +aadhaarPhoto +aadhaarBackPhoto');
+
+    if (!chosenMembers.length) throw new HttpError(400, 'No members selected for group requisition');
+
+    // Auto-derive Scheme parameters
+    let rate = Number(b.annualRate || b.rate) || 24;
+    let term = Number(b.term) || 52;
+    let mode = b.mode || 'weekly';
+
+    if (b.schemeId && mongoose.isValidObjectId(b.schemeId)) {
+      const schemeDoc = await LoanScheme.findById(b.schemeId);
+      if (schemeDoc) {
+        rate = schemeDoc.roiMinBp ? schemeDoc.roiMinBp / 100 : (schemeDoc.roiMaxBp ? schemeDoc.roiMaxBp / 100 : rate);
+        term = schemeDoc.termMin || schemeDoc.termMax || term;
+        mode = (Array.isArray(schemeDoc.modes) && schemeDoc.modes[0]?.value) || schemeDoc.modes?.[0] || mode;
+      }
+    }
+
+    let formId;
+    try {
+      formId = await generateCode('form');
+    } catch {
+      const count = await LoanRequisition.countDocuments({});
+      formId = `REQ${String(count + 1001).padStart(6, '0')}`;
+    }
+
+    const amountPerMember = Number(b.amount) || 30000;
+    const totalAmount = amountPerMember * chosenMembers.length;
+    const totalInterest = Math.round((amountPerMember * rate * (term / 52)) / 100);
+    const installment = Math.round((amountPerMember + totalInterest) / term);
+
+    const reqDoc = await LoanRequisition.create({
+      formId,
+      kind: 'group',
+      branch: branchId,
+      loanDate: startOfToday(),
+      schemeName: b.schemeName || 'Group Loan Scheme',
+      scheme: b.schemeId || new mongoose.Types.ObjectId(),
+      amountPaise: amountPerMember * 100,
+      totalAmountPaise: totalAmount * 100,
+      requestedAmountPaise: totalAmount * 100,
+      installmentPaise: installment * 100,
+      mode,
+      term,
+      annualRateBp: rate * 100,
+      employeeCode: code,
+      group: groupDoc._id,
+      groupInfo: {
+        code: groupDoc.code,
+        name: groupDoc.name,
+        leaderName: groupDoc.leaderName || chosenMembers[0]?.name || 'Leader',
+        employeeCode: code,
+        meetingType: groupDoc.meetingType || mode,
+        members: chosenMembers.map((m) => ({ code: m.code, name: m.name })),
+      },
+      members: chosenMembers.map((m) => m._id),
+      memberCount: chosenMembers.length,
+      memberForms: Array.isArray(b.memberForms) ? b.memberForms : [],
+      additionalProducts: Array.isArray(b.additional || b.additionalProducts) ? (b.additional || b.additionalProducts) : [],
+      status: 'pending',
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: `Group Loan Requisition ${formId} created for ${chosenMembers.length} members!`,
+      requisition: reqDoc,
+      formId,
+    });
+  }
+
   const borrowerCode = cleanStr(b.borrowerCode || b.borrower?.code);
   if (!borrowerCode) throw new HttpError(400, 'Borrower member code is required');
 
@@ -1688,9 +1964,6 @@ export async function createLoanRequisition(req, res) {
   if (!guarantorName) {
     throw new HttpError(400, 'Guarantor details are required for loan requisition. Please add a guarantor.');
   }
-
-  let kind = b.kind || b.loanType || 'group';
-  if (kind === 'msme' || kind === 'business_msme') kind = 'business';
 
   // Point 6: Double loan check in same group/scheme
   // 1 group में 1 member को 1 loan. Loan settlement या auto-settlement के बाद ही दूसरा loan मिल सकता है (या 25% product loan).
@@ -3207,13 +3480,17 @@ export async function getEmployeeReports(req, res) {
     ...dateFilter,
   }).sort({ visitDate: -1 }).limit(100).lean();
 
-  // Point 16: Product Sell Requests & Orders for Report & Target
+  // Point 16 & Item 11 Fix: Separate Actual Completed Product Sales from Pending Bookings
+  // Target must show ACTUAL PRODUCT SELL, not product bookings!
   const productSales = await ProductSaleOrder.find({
     employeeCode: code,
     ...dateFilter,
   }).sort({ createdAt: -1 }).limit(100).lean();
 
-  const totalProductSales = productSales.reduce((sum, p) => sum + (p.totalAmount || 0), 0);
+  const actualProductSales = productSales.filter((p) => p.status === 'completed' || p.status === 'approved');
+  const pendingProductBookings = productSales.filter((p) => p.status === 'pending');
+  const totalActualProductSales = actualProductSales.reduce((sum, p) => sum + (p.totalAmount || 0), 0);
+  const totalBookingsAmount = pendingProductBookings.reduce((sum, p) => sum + (p.totalAmount || 0), 0);
 
   const targetTasks = await TargetTask.find({
     status: 'active',
@@ -3229,8 +3506,10 @@ export async function getEmployeeReports(req, res) {
       totalNpaRecovered,
       npaRecoveryCount: npaPayments.length,
       centerSurveyCount: centerSurveys.length,
-      totalProductSales,
-      productSalesCount: productSales.length,
+      totalProductSales: totalActualProductSales, // Item 11 Fix: Actual Product Sales for Target
+      productSalesCount: actualProductSales.length, // Actual completed sales count
+      pendingBookingsCount: pendingProductBookings.length,
+      pendingBookingsAmount: totalBookingsAmount,
     },
     disbursements: disbursements.map((d) => ({
       loanId: d.loanId || d.receiptNo,
@@ -3269,7 +3548,7 @@ export async function getEmployeeReports(req, res) {
       date: p.paidOn ? new Date(p.paidOn).toLocaleDateString() : 'N/A',
       payMode: p.payMode,
     })),
-    // Point 16: Product Sell Requests list in Reports
+    // Point 16 & Item 11: Product Sell Requests list in Reports with clear status
     productSales: productSales.map((p) => ({
       id: p._id,
       orderId: p.orderId || p._id,
@@ -3281,6 +3560,7 @@ export async function getEmployeeReports(req, res) {
       memberCode: p.memberCode,
       memberName: p.memberName,
       status: p.status || 'pending',
+      isActualSale: p.status === 'completed' || p.status === 'approved',
       date: p.createdAt ? new Date(p.createdAt).toLocaleDateString() : 'N/A',
     })),
     targets: targetTasks.map((t) => ({
@@ -3291,7 +3571,7 @@ export async function getEmployeeReports(req, res) {
       achieved: {
         d6: totalDisbursed,
         npaRecovery: totalNpaRecovered,
-        productSales: totalProductSales,
+        productSales: totalActualProductSales, // Item 11: Actual completed sales only
       },
     })),
   });
@@ -4048,29 +4328,50 @@ export async function getMyTasks(req, res) {
     ],
   }).sort({ toDate: -1 }).limit(10).lean();
 
-  const formattedTargetTasks = targetTasks.map((tt) => {
-    const tg = tt.targets || {};
-    const descParts = [];
-    if (tg.newMember) descParts.push(`New Members: ${tg.newMember}`);
-    if (tg.newGroup) descParts.push(`New Groups: ${tg.newGroup}`);
-    if (tg.d6) descParts.push(`D6 Collection: ${tg.d6}`);
-    if (tg.productSell) descParts.push(`Product Sales: ${tg.productSell}`);
-    if (tg.npaRecoveryPaise) descParts.push(`NPA Recovery: ₹${tg.npaRecoveryPaise / 100}`);
+  const formattedTargetTasks = await Promise.all(
+    targetTasks.map(async (tt) => {
+      const tg = tt.targets || {};
+      const fromDate = tt.fromDate ? new Date(tt.fromDate) : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+      const toDate = tt.toDate ? new Date(tt.toDate) : new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0, 23, 59, 59);
 
-    return {
-      _id: tt._id,
-      id: tt._id,
-      title: `Monthly Target: ${tt.rankName || 'Operations'}`,
-      description: descParts.join(' • ') + (tt.remark ? ` (${tt.remark})` : ''),
-      priority: 'high',
-      dueDate: tt.toDate,
-      status: new Date() > new Date(tt.toDate) ? 'done' : 'open',
-      isTargetTask: true,
-      targets: tg,
-      branch: tt.branch,
-      createdAt: tt.createdAt,
-    };
-  });
+      // Item 11: Actual completed product sales count vs pending bookings
+      const actualSalesCount = await ProductSaleOrder.countDocuments({
+        employeeCode: new RegExp(`^${employeeCode}$`, 'i'),
+        status: { $in: ['completed', 'approved'] },
+        createdAt: { $gte: fromDate, $lte: toDate },
+      });
+      const pendingBookingsCount = await ProductSaleOrder.countDocuments({
+        employeeCode: new RegExp(`^${employeeCode}$`, 'i'),
+        status: 'pending',
+        createdAt: { $gte: fromDate, $lte: toDate },
+      });
+
+      const descParts = [];
+      if (tg.newMember) descParts.push(`New Members: ${tg.newMember}`);
+      if (tg.newGroup) descParts.push(`New Groups: ${tg.newGroup}`);
+      if (tg.d6) descParts.push(`D6 Collection: ${tg.d6}`);
+      if (tg.productSell) descParts.push(`Actual Product Sales: ${actualSalesCount}/${tg.productSell}${pendingBookingsCount > 0 ? ` (${pendingBookingsCount} bookings pending delivery)` : ''}`);
+      if (tg.npaRecoveryPaise) descParts.push(`NPA Recovery: ₹${tg.npaRecoveryPaise / 100}`);
+
+      return {
+        _id: tt._id,
+        id: tt._id,
+        title: `Monthly Target: ${tt.rankName || 'Operations'}`,
+        description: descParts.join(' • ') + (tt.remark ? ` (${tt.remark})` : ''),
+        priority: 'high',
+        dueDate: tt.toDate,
+        status: new Date() > new Date(tt.toDate) ? 'done' : 'open',
+        isTargetTask: true,
+        targets: tg,
+        achieved: {
+          productSales: actualSalesCount,
+          pendingBookings: pendingBookingsCount,
+        },
+        branch: tt.branch,
+        createdAt: tt.createdAt,
+      };
+    })
+  );
 
   const allItems = [...tasks.map((t) => ({ ...t, id: t._id, _id: t._id })), ...formattedTargetTasks];
 

@@ -930,6 +930,23 @@ export default function EmployeeLoanRequisition() {
           groupCode: pickedGroup?.code,
           groupName: pickedGroup?.name,
           memberIds: effMembers.map((m) => m.id || m._id),
+          entries: effMembers.map((m) => {
+            const mid = m.id || m._id;
+            const f = memberForms[mid] || {};
+            const ext = extras[mid];
+            return {
+              member: mid,
+              civilScore: m.civilScore != null ? String(m.civilScore) : '',
+              schemeId: form.schemeId,
+              amount: form.amount,
+              mode: form.mode,
+              term: Number(installments),
+              rate: form.rate,
+              front: f.front || formFrontPhoto || '',
+              back: f.back || formBackPhoto || '',
+              ...(ext?.id ? { additional: { stockProduct: ext.id, quantity: Number(ext.qty) || 1 } } : {}),
+            };
+          }),
           memberForms: effMembers.map((m) => ({
             member: m.id || m._id,
             memberCode: m.code,

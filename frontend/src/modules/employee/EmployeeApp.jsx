@@ -14,6 +14,7 @@ import EmployeeTodayDue from './pages/EmployeeTodayDue.jsx';
 import EmployeeNewMember from './pages/EmployeeNewMember.jsx';
 import EmployeeMemberKyc from './pages/EmployeeMemberKyc.jsx';
 import EmployeeGuarantorChange from './pages/EmployeeGuarantorChange.jsx';
+import EmployeeGuarantorNominee from './pages/EmployeeGuarantorNominee.jsx';
 import EmployeeMemberSynopsis from './pages/EmployeeMemberSynopsis.jsx';
 import EmployeeLoanRequisition from './pages/EmployeeLoanRequisition.jsx';
 import EmployeeEmiPayment from './pages/EmployeeEmiPayment.jsx';
@@ -72,7 +73,8 @@ function EmployeeAppRoutes() {
             <Route path="today-due" element={empUser ? <EmployeeTodayDue /> : <Navigate to="/employee/login" replace />} />
             <Route path="new-member" element={empUser ? <EmployeeNewMember /> : <Navigate to="/employee/login" replace />} />
             <Route path="kyc" element={empUser ? <EmployeeMemberKyc /> : <Navigate to="/employee/login" replace />} />
-            <Route path="guarantor-change" element={empUser ? <EmployeeGuarantorChange /> : <Navigate to="/employee/login" replace />} />
+            <Route path="guarantor-nominee" element={empUser ? <EmployeeGuarantorNominee /> : <Navigate to="/employee/login" replace />} />
+            <Route path="guarantor-change" element={empUser ? <EmployeeGuarantorNominee /> : <Navigate to="/employee/login" replace />} />
             <Route path="synopsis" element={empUser ? <EmployeeMemberSynopsis /> : <Navigate to="/employee/login" replace />} />
             <Route path="requisition" element={empUser ? <EmployeeLoanRequisition /> : <Navigate to="/employee/login" replace />} />
             <Route path="emi-payment" element={empUser ? <EmployeeEmiPayment /> : <Navigate to="/employee/login" replace />} />

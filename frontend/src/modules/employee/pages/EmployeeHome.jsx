@@ -234,11 +234,11 @@ export default function EmployeeHome() {
           <div className="tile-title">{t('due_list')}</div>
         </div>
 
-        <div className="emp-action-tile" onClick={() => navigate('/employee/guarantor-change')}>
+        <div className="emp-action-tile" onClick={() => navigate('/employee/guarantor-nominee')}>
           <div className="tile-icon" style={{ color: 'var(--emp-primary)' }}>
-            <Icon name="refresh" size={22} />
+            <Icon name="shieldcheck" size={22} />
           </div>
-          <div className="tile-title">{t('guarantor_change')}</div>
+          <div className="tile-title">Guarantor &amp; Nominee</div>
         </div>
 
         <div className="emp-action-tile" onClick={() => navigate('/employee/synopsis')}>

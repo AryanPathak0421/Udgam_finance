@@ -26,6 +26,8 @@ import {
   requestGuarantorChange,
   listGuarantorRequests,
   decideGuarantorChange,
+  getMemberGuarantorAndNominee,
+  saveGuarantorAndNominee,
   getMemberSynopsis,
   getEmployeeLoanSchemes,
   calculateLoanEmi,
@@ -103,6 +105,10 @@ router.post('/members/:id/kyc/reject', requireAuth, h(rejectMemberKycDoc));
 router.post('/members/:id/phone/send-otp', requireAuth, h(sendMemberPhoneChangeOtp));
 router.post('/members/:id/phone/verify-change', requireAuth, h(verifyMemberPhoneChange));
 router.get('/groups', requireAuth, h(getStaffGroups));
+
+// Guarantor & Nominee Details Module (Item 8)
+router.get('/members/:id/guarantor-nominee', requireAuth, h(getMemberGuarantorAndNominee));
+router.post('/members/guarantor-nominee/save', requireAuth, h(saveGuarantorAndNominee));
 
 // Guarantor Change & Verification
 router.post('/members/guarantor/send-otp', requireAuth, h(sendGuarantorOtp));
