@@ -2255,9 +2255,14 @@ export async function getGroupEmiMembers(req, res) {
   const groupCode = cleanStr(req.params.groupCode);
   const dateStr = cleanStr(req.query.date) || todayDateString();
 
+  const escapedCode = groupCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const loans = await LoanPayment.find({
     status: 'paid',
-    'group.code': new RegExp(`^${groupCode}$`, 'i'),
+    $or: [
+      { 'group.code': new RegExp(`^${escapedCode}$`, 'i') },
+      { 'group.name': new RegExp(`^${escapedCode}$`, 'i') },
+      { group: groupCode },
+    ],
   }).populate('lines.member').lean();
 
   if (!loans.length) throw new HttpError(404, `No loans found for group ${groupCode}`);

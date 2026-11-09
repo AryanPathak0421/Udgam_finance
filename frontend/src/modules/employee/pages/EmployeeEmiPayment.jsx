@@ -493,7 +493,7 @@ export default function EmployeeEmiPayment() {
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {filteredGroups.map((g) => {
-                const is100Percent = g.isCompleted || g.collectionProgressPercent >= 100;
+                const is100Percent = (g.isCompleted || g.collectionProgressPercent >= 100) && (g.totalCollectedToday > 0);
 
                 return (
                   <div
@@ -701,6 +701,12 @@ export default function EmployeeEmiPayment() {
           {/* Members Collection List / Table */}
           {loadingMembers ? (
             <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--emp-text-muted)' }}>Loading group members...</div>
+          ) : filteredGroupMembers.length === 0 ? (
+            <div className="emp-card" style={{ textAlign: 'center', padding: '30px 16px', color: 'var(--emp-text-muted)' }}>
+              <Icon name="group" size={36} style={{ opacity: 0.4, marginBottom: 8 }} />
+              <div style={{ fontWeight: 700 }}>No active members found in this group</div>
+              <div style={{ fontSize: '0.8rem', marginTop: 4 }}>All members might be settled or have no pending schedule.</div>
+            </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 4px' }}>
