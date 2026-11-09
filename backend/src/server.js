@@ -15,6 +15,7 @@ import { startOfToday } from './utils/http.js';
 import { RoomRent } from './models/HrExtra.js';
 import { CashEntry } from './models/CashEntry.js';
 import { ensureSupervisorSeed } from './services/seedSupervisorHelper.js';
+import { ensureMemberSeed } from './services/seedMemberHelper.js';
 
 const port = process.env.PORT || 5000;
 
@@ -87,6 +88,9 @@ async function migrate() {
 
   // Ensure default supervisor dummy credentials are ready
   await ensureSupervisorSeed();
+
+  // Ensure default member dummy credentials are ready
+  await ensureMemberSeed();
 }
 
 connectDB()

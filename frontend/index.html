@@ -7,6 +7,7 @@
     <script>
       (function() {
         var isSupervisor = window.location.pathname.startsWith('/supervisor');
+        var isMember = window.location.pathname.startsWith('/member');
         var link = document.createElement('link');
         link.id = 'app-manifest-link';
         link.rel = 'manifest';
@@ -20,12 +21,12 @@
 
         var metaTheme = document.createElement('meta');
         metaTheme.name = 'theme-color';
-        metaTheme.content = isSupervisor ? '#0f766e' : '#107870';
+        metaTheme.content = isSupervisor ? '#0f766e' : (isMember ? '#059669' : '#107870');
         document.head.appendChild(metaTheme);
 
         var metaTitle = document.createElement('meta');
         metaTitle.name = 'apple-mobile-web-app-title';
-        metaTitle.content = isSupervisor ? 'Udgam Supervisor' : 'Udgam Staff';
+        metaTitle.content = isSupervisor ? 'Udgam Supervisor' : (isMember ? 'Udgam Member' : 'Udgam Staff');
         document.head.appendChild(metaTitle);
       })();
 

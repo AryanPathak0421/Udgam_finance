@@ -8,7 +8,8 @@
     "start": "node init && node src/server.js",
     "seed": "node src/scripts/seed.js",
     "seed:employee": "node src/scripts/seed_employee.js",
-    "seed:supervisor": "node src/scripts/seed_supervisor.js"
+    "seed:supervisor": "node src/scripts/seed_supervisor.js",
+    "seed:member": "node src/scripts/seed_member.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

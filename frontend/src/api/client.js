@@ -654,6 +654,20 @@ export const api = {
     reports: (params) => request(`/employee/reports${qs(params)}`),
     holidays: (params) => request(`/employee/holidays${qs(params)}`),
   },
+  memberApp: {
+    lookup: (identifier) => request('/member/auth/lookup', { method: 'POST', body: { identifier } }),
+    createMpin: (data) => request('/member/auth/create-mpin', { method: 'POST', body: data }),
+    login: (data) => request('/member/auth/login', { method: 'POST', body: data }),
+    forgotMpinSendOtp: (identifier) => request('/member/auth/forgot-mpin/send-otp', { method: 'POST', body: { identifier } }),
+    forgotMpinVerify: (data) => request('/member/auth/forgot-mpin/reset', { method: 'POST', body: data }),
+    profile: () => request('/member/profile'),
+    dashboard: () => request('/member/dashboard'),
+    loans: () => request('/member/loans'),
+    loanDetail: (id) => request(`/member/loans/${encodeURIComponent(id)}`),
+    passbook: () => request('/member/passbook'),
+    applyLoan: (data) => request('/member/apply-loan', { method: 'POST', body: data }),
+    branchContact: () => request('/member/branch-contact'),
+  },
 };
 
 

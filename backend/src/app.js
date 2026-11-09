@@ -29,6 +29,7 @@ import dashboardRoutes from './routes/dashboardRoutes.js';
 import bankAccountOptionsRoutes from './routes/bankAccountOptionsRoutes.js';
 import employeeAppRoutes from './modules/employee/employeeAppRoutes.js';
 import supervisorAppRoutes from './modules/supervisor/supervisorAppRoutes.js';
+import memberAppRoutes from './modules/member/memberAppRoutes.js';
 
 const app = express();
 
@@ -87,6 +88,8 @@ app.use('/api/employee', employeeAppRoutes);
 app.use('/api/employee-app', employeeAppRoutes);
 app.use('/api/supervisor', supervisorAppRoutes);
 app.use('/api/supervisor-app', supervisorAppRoutes);
+app.use('/api/member', memberAppRoutes);
+app.use('/api/member-app', memberAppRoutes);
 
 app.use((_req, res) => res.status(404).json({ message: 'Not found' }));
 

@@ -1,0 +1,378 @@
+/* ==========================================================================
+   Udgam Finance - Member App Stylesheet (Customer Portal)
+   Mobile-First, Touch-Friendly, Modern Microfinance Experience
+   ========================================================================== */
+
+:root {
+  --mem-bg: #f8fafc;
+  --mem-card-bg: #ffffff;
+  --mem-text: #0f172a;
+  --mem-text-muted: #64748b;
+  --mem-border: #e2e8f0;
+  --mem-primary: #059669;
+  --mem-primary-hover: #047857;
+  --mem-primary-light: #ecfdf5;
+  --mem-primary-dark: #064e3b;
+  --mem-accent: #f59e0b;
+  --mem-accent-light: #fef3c7;
+  --mem-badge-bg: #064e3b;
+  --mem-badge-text: #6ee7b7;
+  --mem-success: #10b981;
+  --mem-success-light: #d1fae5;
+  --mem-warning: #f59e0b;
+  --mem-warning-light: #fef3c7;
+  --mem-danger: #ef4444;
+  --mem-danger-light: #fee2e2;
+  --mem-header-bg: #ffffff;
+  --mem-nav-bg: #ffffff;
+  --mem-shadow: 0 4px 14px -2px rgba(5, 150, 105, 0.08), 0 2px 6px -1px rgba(0, 0, 0, 0.04);
+}
+
+.mem-dark {
+  --mem-bg: #0b1320;
+  --mem-card-bg: #131e30;
+  --mem-text: #f8fafc;
+  --mem-text-muted: #94a3b8;
+  --mem-border: #1e293b;
+  --mem-primary: #10b981;
+  --mem-primary-hover: #34d399;
+  --mem-primary-light: #064e3b;
+  --mem-header-bg: #0e1726;
+  --mem-nav-bg: #0e1726;
+  --mem-shadow: 0 4px 16px -2px rgba(0, 0, 0, 0.5);
+}
+
+/* App Shell container */
+.mem-app-shell {
+  min-height: 100vh;
+  background-color: #041f1a;
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: var(--mem-text);
+}
+
+.mem-app-container {
+  width: 100%;
+  max-width: 480px;
+  background-color: var(--mem-bg);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  box-shadow: 0 0 40px rgba(0, 0, 0, 0.4);
+}
+
+.mem-main-content {
+  flex: 1;
+  padding: 16px;
+  padding-bottom: 92px; /* space for bottom nav */
+  overflow-y: auto;
+}
+
+/* Header */
+.mem-header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background-color: var(--mem-header-bg);
+  border-bottom: 1px solid var(--mem-border);
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: var(--mem-shadow);
+}
+
+.mem-header-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mem-header-logo {
+  height: 34px;
+  width: 34px;
+  object-fit: contain;
+  border-radius: 8px;
+}
+
+.mem-header-title {
+  font-weight: 800;
+  font-size: 1.05rem;
+  color: var(--mem-primary);
+  line-height: 1.15;
+}
+
+.mem-header-subtitle {
+  font-size: 0.72rem;
+  color: var(--mem-text-muted);
+}
+
+/* Bottom Navigation */
+.mem-bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 480px;
+  background-color: var(--mem-nav-bg);
+  border-top: 1px solid var(--mem-border);
+  display: flex;
+  justify-content: space-around;
+  padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
+  z-index: 50;
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.06);
+}
+
+.mem-nav-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 2px;
+  color: var(--mem-text-muted);
+  text-decoration: none;
+  font-size: 0.72rem;
+  font-weight: 500;
+  transition: all 0.15s ease;
+  border-radius: 8px;
+  min-height: 48px;
+}
+
+.mem-nav-item.active {
+  color: var(--mem-primary);
+  font-weight: 700;
+}
+
+.mem-nav-item.active svg {
+  stroke: var(--mem-primary);
+  transform: scale(1.08);
+}
+
+/* Cards */
+.mem-card {
+  background-color: var(--mem-card-bg);
+  border: 1px solid var(--mem-border);
+  border-radius: 16px;
+  padding: 16px;
+  margin-bottom: 14px;
+  box-shadow: var(--mem-shadow);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.mem-card-title {
+  font-weight: 800;
+  font-size: 0.96rem;
+  color: var(--mem-text);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* Stat row */
+.mem-stat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--mem-border);
+  font-size: 0.88rem;
+}
+
+.mem-stat-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.mem-stat-label {
+  color: var(--mem-text-muted);
+}
+
+.mem-stat-val {
+  font-weight: 700;
+  color: var(--mem-text);
+}
+
+/* Buttons */
+.mem-btn {
+  background-color: var(--mem-primary);
+  color: #ffffff;
+  border: 1px solid var(--mem-primary);
+  border-radius: 12px;
+  padding: 12px 18px;
+  font-weight: 700;
+  font-size: 0.92rem;
+  width: 100%;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.15s ease;
+  text-decoration: none;
+  min-height: 46px;
+}
+
+.mem-btn:hover:not(:disabled) {
+  background-color: var(--mem-primary-hover);
+  border-color: var(--mem-primary-hover);
+  transform: translateY(-1px);
+}
+
+.mem-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.mem-btn.secondary {
+  background-color: transparent;
+  color: var(--mem-text);
+  border-color: var(--mem-border);
+}
+
+.mem-btn.secondary:hover:not(:disabled) {
+  background-color: rgba(0, 0, 0, 0.04);
+}
+
+.mem-btn.sm {
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  min-height: 32px;
+  border-radius: 8px;
+}
+
+/* Input Fields */
+.mem-input-group {
+  margin-bottom: 14px;
+}
+
+.mem-label {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--mem-text);
+  margin-bottom: 6px;
+}
+
+.mem-input, .mem-select, .mem-textarea {
+  width: 100%;
+  padding: 12px 14px;
+  background-color: var(--mem-card-bg);
+  border: 1.5px solid var(--mem-border);
+  border-radius: 12px;
+  font-size: 0.95rem;
+  color: var(--mem-text);
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  box-sizing: border-box;
+}
+
+.mem-input:focus, .mem-select:focus, .mem-textarea:focus {
+  border-color: var(--mem-primary);
+  box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.15);
+}
+
+/* Badges */
+.mem-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 8px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.mem-badge.active {
+  background-color: var(--mem-primary-light);
+  color: var(--mem-primary);
+}
+
+.mem-badge.completed {
+  background-color: var(--mem-success-light);
+  color: var(--mem-success);
+}
+
+.mem-badge.pending {
+  background-color: var(--mem-warning-light);
+  color: var(--mem-warning);
+}
+
+/* Alert Boxes */
+.mem-alert {
+  padding: 12px 14px;
+  border-radius: 12px;
+  margin-bottom: 14px;
+  font-size: 0.86rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  line-height: 1.4;
+}
+
+.mem-alert.danger {
+  background-color: var(--mem-danger-light);
+  color: var(--mem-danger);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.mem-alert.success {
+  background-color: var(--mem-success-light);
+  color: var(--mem-success);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.mem-alert.warning {
+  background-color: var(--mem-warning-light);
+  color: var(--mem-warning);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+/* Quick Action Grid */
+.mem-quick-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.mem-quick-item {
+  background-color: var(--mem-card-bg);
+  border: 1px solid var(--mem-border);
+  border-radius: 14px;
+  padding: 12px 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  color: var(--mem-text);
+  font-size: 0.74rem;
+  font-weight: 600;
+  text-align: center;
+  box-shadow: var(--mem-shadow);
+  transition: transform 0.15s ease, border-color 0.15s ease;
+  min-height: 76px;
+}
+
+.mem-quick-item:hover {
+  transform: translateY(-2px);
+  border-color: var(--mem-primary);
+}
+
+.mem-quick-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 6px;
+}
