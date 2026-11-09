@@ -1,11 +1,9 @@
-import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../../../api/client.js';
 import Icon from '../../../components/Icon.jsx';
 
 export default function MemberApplyLoan() {
-  const navigate = useNavigate();
-
   const [loanType, setLoanType] = useState('personal');
   const [requestedAmount, setRequestedAmount] = useState('25000');
   const [purpose, setPurpose] = useState('');
@@ -14,7 +12,26 @@ export default function MemberApplyLoan() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
+  const [requisitions, setRequisitions] = useState([]);
+  const [loadingReqs, setLoadingReqs] = useState(false);
+
   const PRESETS = [10000, 25000, 40000, 50000, 75000, 100000];
+
+  useEffect(() => {
+    loadPastRequisitions();
+  }, []);
+
+  async function loadPastRequisitions() {
+    setLoadingReqs(true);
+    try {
+      const res = await api.memberApp.requisitions();
+      setRequisitions(res.requisitions || []);
+    } catch (err) {
+      // non-fatal
+    } finally {
+      setLoadingReqs(false);
+    }
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -40,10 +57,9 @@ export default function MemberApplyLoan() {
         tenureMonths: Number(tenureMonths),
       });
 
-      setSuccess(res.message || 'Loan request submitted successfully!');
-      setTimeout(() => {
-        navigate('/member/loans');
-      }, 2000);
+      setSuccess(res.message || 'Loan request submitted successfully! Awaiting branch approval.');
+      setPurpose('');
+      await loadPastRequisitions();
     } catch (err) {
       setError(err.message || 'Failed to submit loan request');
     } finally {
@@ -71,10 +87,10 @@ export default function MemberApplyLoan() {
 
       <div className="mem-card" style={{ borderTop: '4px solid var(--mem-accent)' }}>
         <h2 style={{ fontSize: '1.15rem', fontWeight: 800, margin: '0 0 4px', color: 'var(--mem-text)' }}>
-          Apply for New Loan
+          Loan Requisition (Loan Apply)
         </h2>
         <p style={{ margin: '0 0 16px', fontSize: '0.8rem', color: 'var(--mem-text-muted)' }}>
-          Direct loan requisition to your branch officer for evaluation.
+          Submit an instant digital requisition directly to your branch manager.
         </p>
 
         {error && (
@@ -173,9 +189,51 @@ export default function MemberApplyLoan() {
 
           <button type="submit" className="mem-btn" disabled={busy} style={{ marginTop: 8 }}>
             <Icon name="checkcircle" size={16} />
-            <span>{busy ? 'Submitting Application…' : 'Submit Loan Request'}</span>
+            <span>{busy ? 'Submitting Application…' : 'Submit Loan Requisition'}</span>
           </button>
         </form>
+      </div>
+
+      {/* Loan Approval Report Notification / Status List */}
+      <div className="mem-card" style={{ marginTop: 14 }}>
+        <div className="mem-card-title">
+          <span>Loan Approval Status Reports ({requisitions.length})</span>
+        </div>
+
+        {loadingReqs ? (
+          <div style={{ textAlign: 'center', padding: '16px 0', color: 'var(--mem-text-muted)' }}>
+            <Icon name="loader" size={20} className="spin" />
+            <p style={{ marginTop: 4, fontSize: '0.78rem' }}>Loading applications…</p>
+          </div>
+        ) : requisitions.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '16px 0', color: 'var(--mem-text-muted)', fontSize: '0.82rem' }}>
+            No past loan requisitions submitted.
+          </div>
+        ) : (
+          <div>
+            {requisitions.map((r) => {
+              const st = r.status?.toLowerCase() || 'pending';
+              const badgeClass = st === 'approved' ? 'completed' : st === 'rejected' ? 'rejected' : 'pending';
+              return (
+                <div key={r.id || r._id} className="mem-stat-row">
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: '0.86rem' }}>
+                      Requisition #{r.requisitionNo || r.code || 'REQ'}
+                    </div>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--mem-text-muted)' }}>
+                      ₹{((r.requestedAmountPaise || 0) / 100).toLocaleString('en-IN')} &bull; Applied: {new Date(r.createdAt).toLocaleDateString('en-IN')}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <span className={`mem-badge ${badgeClass}`} style={{ textTransform: 'capitalize' }}>
+                      {r.status || 'Pending'}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );

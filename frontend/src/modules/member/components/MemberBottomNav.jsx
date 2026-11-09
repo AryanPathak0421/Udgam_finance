@@ -1,11 +1,10 @@
 import React from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
 import { useMemberApp } from '../MemberAppContext.jsx';
 import Icon from '../../../components/Icon.jsx';
 
 export default function MemberBottomNav() {
   const { memUser } = useMemberApp();
-  const location = useLocation();
 
   if (!memUser) return null;
 
@@ -29,11 +28,19 @@ export default function MemberBottomNav() {
       </NavLink>
 
       <NavLink
-        to="/member/passbook"
+        to="/member/emi-pay"
         className={({ isActive }) => `mem-nav-item ${isActive ? 'active' : ''}`}
       >
-        <Icon name="bookopen" size={20} />
-        <span>Passbook</span>
+        <Icon name="dollar" size={20} />
+        <span>Pay EMI</span>
+      </NavLink>
+
+      <NavLink
+        to="/member/security"
+        className={({ isActive }) => `mem-nav-item ${isActive ? 'active' : ''}`}
+      >
+        <Icon name="shield" size={20} />
+        <span>Security</span>
       </NavLink>
 
       <NavLink

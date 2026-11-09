@@ -305,6 +305,82 @@
   color: var(--mem-warning);
 }
 
+.mem-badge.rejected {
+  background-color: var(--mem-danger-light);
+  color: var(--mem-danger);
+}
+
+.mem-badge.approved {
+  background-color: var(--mem-success-light);
+  color: var(--mem-success);
+}
+
+/* Financial Progress & Bar Graph */
+.mem-graph-container {
+  background: var(--mem-card-bg);
+  border: 1px solid var(--mem-border);
+  border-radius: 16px;
+  padding: 16px;
+  margin-bottom: 14px;
+}
+
+.mem-stacked-bar {
+  display: flex;
+  height: 14px;
+  border-radius: 7px;
+  overflow: hidden;
+  background-color: #e2e8f0;
+  margin: 12px 0 8px;
+}
+
+.mem-bar-segment {
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+.mem-legend-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 0.74rem;
+  margin-top: 8px;
+}
+
+.mem-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.mem-legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+/* Printable NOC Certificate */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .mem-noc-printable, .mem-noc-printable * {
+    visibility: visible;
+  }
+  .mem-noc-printable {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 24px;
+    box-shadow: none;
+    border: none;
+  }
+  .mem-no-print {
+    display: none !important;
+  }
+}
+
 /* Alert Boxes */
 .mem-alert {
   padding: 12px 14px;
@@ -376,3 +452,4 @@
   justify-content: center;
   margin-bottom: 6px;
 }
+

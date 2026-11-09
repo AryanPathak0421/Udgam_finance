@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useMemberApp } from '../MemberAppContext.jsx';
 import { api } from '../../../api/client.js';
 import Icon from '../../../components/Icon.jsx';
@@ -9,6 +9,7 @@ export default function MemberProfile() {
   const navigate = useNavigate();
 
   const [profile, setProfile] = useState(null);
+  const [dashboardData, setDashboardData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [deferredPrompt, setDeferredPrompt] = useState(() => window.__pwaInstallPrompt || null);
@@ -16,7 +17,7 @@ export default function MemberProfile() {
   const [showGuide, setShowGuide] = useState(false);
 
   useEffect(() => {
-    loadProfile();
+    loadProfileAndSummary();
 
     const standalone =
       window.matchMedia('(display-mode: standalone)').matches ||
@@ -37,12 +38,16 @@ export default function MemberProfile() {
     };
   }, []);
 
-  async function loadProfile() {
+  async function loadProfileAndSummary() {
     setLoading(true);
     setError('');
     try {
-      const res = await api.memberApp.profile();
-      setProfile(res.profile);
+      const [pRes, dRes] = await Promise.all([
+        api.memberApp.profile(),
+        api.memberApp.dashboard().catch(() => null),
+      ]);
+      setProfile(pRes.profile);
+      setDashboardData(dRes);
     } catch (err) {
       setError(err.message || 'Failed to load member profile');
     } finally {
@@ -85,17 +90,28 @@ export default function MemberProfile() {
   }
 
   const p = profile || memUser || {};
+  const graph = dashboardData?.graph || {};
+  const summary = dashboardData?.summary || {};
+
+  const totalBorrowed = (graph.totalBorrowedPaise || 0) / 100;
+  const totalPaid = (graph.totalPaidPaise || 0) / 100;
+  const remaining = (graph.remainingPrincipalPaise || 0) / 100;
+  const securityBalance = (summary.totalSecurityBalancePaise || 0) / 100;
+  const securityInterest = (summary.securityInterestPaise || 0) / 100;
+  const repaidPct = totalBorrowed > 0 ? Math.min(100, Math.round((totalPaid / totalBorrowed) * 100)) : 0;
+  const remainingPct = 100 - repaidPct;
 
   return (
     <div>
-      {/* Header Profile Card */}
+      {/* Header Profile Card - matches home design as per note */}
       <div
-        className="mem-card"
         style={{
           background: 'linear-gradient(135deg, #059669, #065f46)',
           color: '#ffffff',
           borderRadius: 18,
-          padding: '20px',
+          padding: '18px 20px',
+          marginBottom: 14,
+          boxShadow: '0 8px 24px rgba(5, 150, 105, 0.25)',
           display: 'flex',
           alignItems: 'center',
           gap: 16,
@@ -103,9 +119,9 @@ export default function MemberProfile() {
       >
         <div
           style={{
-            width: 58,
-            height: 58,
-            borderRadius: 29,
+            width: 54,
+            height: 54,
+            borderRadius: 27,
             background: 'rgba(255, 255, 255, 0.2)',
             border: '2px solid rgba(255, 255, 255, 0.4)',
             color: '#ffffff',
@@ -123,7 +139,7 @@ export default function MemberProfile() {
         <div>
           <div style={{ fontSize: '1.2rem', fontWeight: 800 }}>{p.name}</div>
           <div style={{ fontSize: '0.8rem', opacity: 0.9, marginTop: 2 }}>
-            Member Code: <strong>{p.code}</strong>
+            Member ID: <strong>{p.code}</strong>
           </div>
           <div style={{ fontSize: '0.74rem', opacity: 0.85, marginTop: 2 }}>
             {p.branch?.name ? `${p.branch.name} Branch` : 'Udgam Finance'}
@@ -131,9 +147,152 @@ export default function MemberProfile() {
         </div>
       </div>
 
+      {/* Financial Health Graph */}
+      <div className="mem-card" style={{ marginBottom: 14 }}>
+        <div className="mem-card-title">
+          <span>Financial Distribution Graph</span>
+          <span style={{ fontSize: '0.74rem', color: 'var(--mem-text-muted)' }}>{repaidPct}% Cleared</span>
+        </div>
+
+        {/* Stacked Bar */}
+        <div className="mem-stacked-bar">
+          <div
+            className="mem-bar-segment"
+            style={{ width: `${repaidPct}%`, backgroundColor: 'var(--mem-primary)' }}
+          />
+          <div
+            className="mem-bar-segment"
+            style={{ width: `${remainingPct}%`, backgroundColor: '#cbd5e1' }}
+          />
+        </div>
+
+        {/* Legend */}
+        <div className="mem-legend-row">
+          <div className="mem-legend-item">
+            <span className="mem-legend-dot" style={{ backgroundColor: 'var(--mem-primary)' }} />
+            <span>Repaid: ₹{totalPaid.toLocaleString('en-IN')}</span>
+          </div>
+          <div className="mem-legend-item">
+            <span className="mem-legend-dot" style={{ backgroundColor: '#94a3b8' }} />
+            <span>Remaining: ₹{remaining.toLocaleString('en-IN')}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Saving & Security Amount Card */}
+      <div
+        className="mem-card"
+        style={{
+          background: 'linear-gradient(135deg, #f0fdf4, #dcfce7)',
+          borderColor: '#bbf7d0',
+          borderLeft: '5px solid #10b981',
+          marginBottom: 14,
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Icon name="shield" size={18} style={{ color: '#059669' }} />
+            <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#065f46', textTransform: 'uppercase' }}>
+              Saving & Security Deposit
+            </span>
+          </div>
+          <span style={{ fontSize: '0.72rem', background: '#059669', color: '#ffffff', padding: '2px 8px', borderRadius: 10, fontWeight: 700 }}>
+            10% Interest
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 8 }}>
+          <div>
+            <div style={{ fontSize: '1.45rem', fontWeight: 900, color: '#064e3b' }}>
+              ₹{securityBalance.toLocaleString('en-IN')}
+            </div>
+            <div style={{ fontSize: '0.72rem', color: '#047857' }}>
+              Includes ₹{securityInterest.toLocaleString('en-IN')} simple annual interest
+            </div>
+          </div>
+          <Link to="/member/security" className="mem-btn sm" style={{ width: 'auto', background: '#059669', borderColor: '#059669', color: '#ffffff' }}>
+            Withdrawal Request &rarr;
+          </Link>
+        </div>
+      </div>
+
+      {/* Profile Navigation Links */}
+      <div className="mem-card" style={{ padding: 6, marginBottom: 14 }}>
+        <Link
+          to="/member/synopsis"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '12px 10px',
+            borderBottom: '1px solid var(--mem-border)',
+            textDecoration: 'none',
+            color: 'inherit',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ width: 32, height: 32, borderRadius: 8, background: '#ecfdf5', color: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Icon name="creditcard" size={16} />
+            </div>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: '0.86rem' }}>Member Credit Synopsis</div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--mem-text-muted)' }}>Credit rating, on-time percentage & loan history</div>
+            </div>
+          </div>
+          <Icon name="chevronright" size={16} style={{ color: 'var(--mem-text-muted)' }} />
+        </Link>
+
+        <Link
+          to="/member/kyc"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '12px 10px',
+            borderBottom: '1px solid var(--mem-border)',
+            textDecoration: 'none',
+            color: 'inherit',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ width: 32, height: 32, borderRadius: 8, background: '#eff6ff', color: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Icon name="user" size={16} />
+            </div>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: '0.86rem' }}>KYC Report & Documents</div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--mem-text-muted)' }}>Pending, Approved or Rejected verification status</div>
+            </div>
+          </div>
+          <Icon name="chevronright" size={16} style={{ color: 'var(--mem-text-muted)' }} />
+        </Link>
+
+        <Link
+          to="/member/complaints"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '12px 10px',
+            textDecoration: 'none',
+            color: 'inherit',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ width: 32, height: 32, borderRadius: 8, background: '#fee2e2', color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Icon name="alert" size={16} />
+            </div>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: '0.86rem' }}>Grievance & Complaints</div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--mem-text-muted)' }}>Raise an issue or track resolution status</div>
+            </div>
+          </div>
+          <Icon name="chevronright" size={16} style={{ color: 'var(--mem-text-muted)' }} />
+        </Link>
+      </div>
+
       {/* Personal Details */}
       <div className="mem-card">
-        <div className="mem-card-title">Personal &amp; Contact Information</div>
+        <div className="mem-card-title">Personal &amp; Contact Details</div>
         <div className="mem-stat-row">
           <span className="mem-stat-label">Mobile Number</span>
           <span className="mem-stat-val">{p.mobile || '—'}</span>
@@ -147,18 +306,14 @@ export default function MemberProfile() {
           <span className="mem-stat-val">{p.occupation || '—'}</span>
         </div>
         <div className="mem-stat-row">
-          <span className="mem-stat-label">Village / Address</span>
+          <span className="mem-stat-label">Address</span>
           <span className="mem-stat-val">{p.address || '—'}</span>
-        </div>
-        <div className="mem-stat-row">
-          <span className="mem-stat-label">District, State</span>
-          <span className="mem-stat-val">{p.district ? `${p.district}, ${p.state}` : '—'} ({p.pincode || ''})</span>
         </div>
       </div>
 
       {/* Banking & Identity */}
       <div className="mem-card">
-        <div className="mem-card-title">Bank &amp; KYC Verification</div>
+        <div className="mem-card-title">Bank Account Details</div>
         <div className="mem-stat-row">
           <span className="mem-stat-label">Bank Name</span>
           <span className="mem-stat-val">{p.bankName || '—'}</span>
@@ -171,49 +326,18 @@ export default function MemberProfile() {
           <span className="mem-stat-label">IFSC Code</span>
           <span className="mem-stat-val">{p.ifsc || '—'}</span>
         </div>
-        <div className="mem-stat-row">
-          <span className="mem-stat-label">Aadhaar Card</span>
-          <span className="mem-stat-val">{p.aadhaarMasked || '••••••••'}</span>
-        </div>
-        <div className="mem-stat-row">
-          <span className="mem-stat-label">PAN Card</span>
-          <span className="mem-stat-val">{p.panMasked || '—'}</span>
-        </div>
       </div>
 
-      {/* Guarantor Info */}
-      {p.guarantor && (
-        <div className="mem-card">
-          <div className="mem-card-title">Nominee &amp; Guarantor</div>
-          <div className="mem-stat-row">
-            <span className="mem-stat-label">Guarantor Name</span>
-            <span className="mem-stat-val">{p.guarantor.name}</span>
-          </div>
-          <div className="mem-stat-row">
-            <span className="mem-stat-label">Relationship</span>
-            <span className="mem-stat-val">{p.guarantor.relation || 'Family / Relative'}</span>
-          </div>
-          <div className="mem-stat-row">
-            <span className="mem-stat-label">Guarantor Mobile</span>
-            <span className="mem-stat-val">{p.guarantor.mobile || '—'}</span>
-          </div>
-        </div>
-      )}
-
-      {/* App & PWA Info */}
+      {/* PWA Info */}
       <div className="mem-card">
         <div className="mem-card-title">
           <span>Udgam Member App (PWA)</span>
-          <span className="mem-badge active">v1.0 Customer</span>
-        </div>
-        <div className="mem-stat-row">
-          <span className="mem-stat-label">Platform</span>
-          <span className="mem-stat-val">Progressive Web App</span>
+          <span className="mem-badge active">Customer Portal</span>
         </div>
         <div className="mem-stat-row">
           <span className="mem-stat-label">Display Mode</span>
           <span className="mem-stat-val" style={{ color: isStandalone ? 'var(--mem-success)' : 'inherit' }}>
-            {isStandalone ? '✓ Installed Standalone App' : 'Web Browser (Installable)'}
+            {isStandalone ? '✓ Installed Standalone App' : 'Web Browser'}
           </span>
         </div>
 
@@ -228,9 +352,6 @@ export default function MemberProfile() {
               <Icon name="download" size={16} />
               <span>Install Member App on this Phone</span>
             </button>
-            <div style={{ fontSize: '0.72rem', color: 'var(--mem-text-muted)', textAlign: 'center', marginTop: 6 }}>
-              Instant home screen icon for checking loans anytime
-            </div>
           </div>
         )}
       </div>

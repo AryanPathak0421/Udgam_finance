@@ -219,3 +219,4 @@ export async function ensureMemberSeed() {
     console.warn('[Seed] Member auto-seed notice:', err.message);
   }
 }
+

@@ -10,6 +10,13 @@ import MemberRegisterMpin from './pages/MemberRegisterMpin.jsx';
 import MemberHome from './pages/MemberHome.jsx';
 import MemberLoans from './pages/MemberLoans.jsx';
 import MemberLoanDetail from './pages/MemberLoanDetail.jsx';
+import MemberEmiPay from './pages/MemberEmiPay.jsx';
+import MemberNoc from './pages/MemberNoc.jsx';
+import MemberSecurity from './pages/MemberSecurity.jsx';
+import MemberComplaints from './pages/MemberComplaints.jsx';
+import MemberKyc from './pages/MemberKyc.jsx';
+import MemberSynopsis from './pages/MemberSynopsis.jsx';
+import MemberHolidays from './pages/MemberHolidays.jsx';
 import MemberPassbook from './pages/MemberPassbook.jsx';
 import MemberApplyLoan from './pages/MemberApplyLoan.jsx';
 import MemberProfile from './pages/MemberProfile.jsx';
@@ -87,6 +94,38 @@ function MemberAppRoutes() {
             <Route
               path="loans/:id"
               element={memUser ? <MemberLoanDetail /> : <Navigate to="/member/login" replace />}
+            />
+            <Route
+              path="emi-pay"
+              element={memUser ? <MemberEmiPay /> : <Navigate to="/member/login" replace />}
+            />
+            <Route
+              path="noc"
+              element={memUser ? <MemberNoc /> : <Navigate to="/member/login" replace />}
+            />
+            <Route
+              path="noc/:id"
+              element={memUser ? <MemberNoc /> : <Navigate to="/member/login" replace />}
+            />
+            <Route
+              path="security"
+              element={memUser ? <MemberSecurity /> : <Navigate to="/member/login" replace />}
+            />
+            <Route
+              path="complaints"
+              element={memUser ? <MemberComplaints /> : <Navigate to="/member/login" replace />}
+            />
+            <Route
+              path="kyc"
+              element={memUser ? <MemberKyc /> : <Navigate to="/member/login" replace />}
+            />
+            <Route
+              path="synopsis"
+              element={memUser ? <MemberSynopsis /> : <Navigate to="/member/login" replace />}
+            />
+            <Route
+              path="holidays"
+              element={memUser ? <MemberHolidays /> : <Navigate to="/member/login" replace />}
             />
             <Route
               path="passbook"

@@ -8,32 +8,33 @@ export default function MemberLogin() {
   const { login } = useMemberApp();
   const navigate = useNavigate();
 
-  const [tab, setTab] = useState('phone'); // 'phone' | 'code'
+  // Login Mode: 'mpin' or 'otp'
+  const [loginMode, setLoginMode] = useState('mpin');
   const [identifier, setIdentifier] = useState('');
   const [mpin, setMpin] = useState('');
+  const [otp, setOtp] = useState('');
+  const [otpSent, setOtpSent] = useState(false);
+  const [maskedMobile, setMaskedMobile] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  // Forgot mPIN states
+  // Forgot mPIN modal
   const [forgotOpen, setForgotOpen] = useState(false);
   const [forgotId, setForgotId] = useState('');
-  const [otp, setOtp] = useState('');
+  const [forgotOtp, setForgotOtp] = useState('');
   const [newMpin, setNewMpin] = useState('');
   const [step, setStep] = useState(1);
   const [forgotMsg, setForgotMsg] = useState('');
   const [forgotBusy, setForgotBusy] = useState(false);
 
-  async function handleLogin(e) {
+  // mPIN Login
+  async function handleMpinLogin(e) {
     e.preventDefault();
     setError('');
 
     const id = identifier.trim();
     if (!id) {
       setError('Please enter your Registered Mobile or Member Code');
-      return;
-    }
-    if (tab === 'phone' && !/^\d{10}$/.test(id)) {
-      setError('Please enter a valid 10-digit mobile number');
       return;
     }
     if (!/^\d{4}$/.test(mpin)) {
@@ -53,6 +54,58 @@ export default function MemberLogin() {
     }
   }
 
+  // OTP Login: Step 1 - Send OTP
+  async function handleSendLoginOtp(e) {
+    e.preventDefault();
+    setError('');
+
+    const id = identifier.trim();
+    if (!id) {
+      setError('Please enter your registered mobile number or Member Code');
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const res = await api.memberApp.sendLoginOtp(id);
+      setMaskedMobile(res.maskedMobile || id);
+      setOtpSent(true);
+      if (res.simulatedOtp) {
+        setOtp(res.simulatedOtp);
+      }
+    } catch (err) {
+      setError(err.message || 'Failed to send OTP');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // OTP Login: Step 2 - Verify OTP & Login
+  async function handleVerifyLoginOtp(e) {
+    e.preventDefault();
+    setError('');
+
+    if (!otp || otp.trim().length < 4) {
+      setError('Please enter a valid OTP');
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const res = await api.memberApp.verifyLoginOtp({
+        identifier: identifier.trim(),
+        otp: otp.trim(),
+      });
+      login(res.user, res.token);
+      navigate('/member', { replace: true });
+    } catch (err) {
+      setError(err.message || 'OTP verification failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Forgot mPIN handlers
   async function handleSendForgotOtp(e) {
     e.preventDefault();
     setForgotBusy(true);
@@ -61,9 +114,7 @@ export default function MemberLogin() {
     try {
       const r = await api.memberApp.forgotMpinSendOtp(forgotId.trim());
       setForgotMsg(r.message || 'OTP sent successfully');
-      if (r.simulatedOtp) {
-        setOtp(r.simulatedOtp);
-      }
+      if (r.simulatedOtp) setForgotOtp(r.simulatedOtp);
       setStep(2);
     } catch (err) {
       setError(err.message || 'Failed to send OTP');
@@ -83,7 +134,7 @@ export default function MemberLogin() {
     try {
       await api.memberApp.forgotMpinVerify({
         identifier: forgotId.trim(),
-        otp: otp.trim(),
+        otp: forgotOtp.trim(),
         newMpin: newMpin.trim(),
       });
       setForgotMsg('mPIN reset successful! Please login with your new mPIN.');
@@ -107,7 +158,7 @@ export default function MemberLogin() {
           Udgam Member App
         </h2>
         <p style={{ margin: '4px 0 0', color: 'var(--mem-text-muted)', fontSize: '0.85rem' }}>
-          Customer & Borrower Digital Passbook
+          Customer &amp; Borrower Digital Passbook
         </p>
       </div>
 
@@ -138,7 +189,7 @@ export default function MemberLogin() {
             className="mem-btn sm"
             style={{ padding: '4px 10px', fontSize: '0.75rem', width: 'auto', whiteSpace: 'nowrap' }}
             onClick={() => {
-              setTab('phone');
+              setLoginMode('mpin');
               setIdentifier('9876501234');
               setMpin('1234');
               setError('');
@@ -148,43 +199,46 @@ export default function MemberLogin() {
           </button>
         </div>
 
-        {/* Tab selection */}
+        {/* Mode Switcher: mPIN vs OTP Login */}
         <div style={{ display: 'flex', borderBottom: '1px solid var(--mem-border)', marginBottom: 16 }}>
           <button
             type="button"
             className="mem-btn secondary sm"
             style={{
               flex: 1,
-              borderBottom: tab === 'phone' ? '2px solid var(--mem-primary)' : 'none',
+              borderBottom: loginMode === 'mpin' ? '2.5px solid var(--mem-primary)' : 'none',
               borderRadius: 0,
-              fontWeight: tab === 'phone' ? 700 : 500,
+              fontWeight: loginMode === 'mpin' ? 700 : 500,
+              color: loginMode === 'mpin' ? 'var(--mem-primary)' : 'var(--mem-text-muted)',
               display: 'inline-flex',
               alignItems: 'center',
               justifyContent: 'center',
               gap: 6,
             }}
-            onClick={() => { setTab('phone'); setIdentifier(''); setError(''); }}
+            onClick={() => { setLoginMode('mpin'); setError(''); setOtpSent(false); }}
           >
-            <Icon name="phone" size={15} />
-            <span>Mobile</span>
+            <Icon name="lock" size={15} />
+            <span>Login with mPIN</span>
           </button>
+
           <button
             type="button"
             className="mem-btn secondary sm"
             style={{
               flex: 1,
-              borderBottom: tab === 'code' ? '2px solid var(--mem-primary)' : 'none',
+              borderBottom: loginMode === 'otp' ? '2.5px solid var(--mem-primary)' : 'none',
               borderRadius: 0,
-              fontWeight: tab === 'code' ? 700 : 500,
+              fontWeight: loginMode === 'otp' ? 700 : 500,
+              color: loginMode === 'otp' ? 'var(--mem-primary)' : 'var(--mem-text-muted)',
               display: 'inline-flex',
               alignItems: 'center',
               justifyContent: 'center',
               gap: 6,
             }}
-            onClick={() => { setTab('code'); setIdentifier(''); setError(''); }}
+            onClick={() => { setLoginMode('otp'); setError(''); setOtpSent(false); }}
           >
-            <Icon name="hash" size={15} />
-            <span>Member Code</span>
+            <Icon name="phone" size={15} />
+            <span>Login with OTP</span>
           </button>
         </div>
 
@@ -195,56 +249,111 @@ export default function MemberLogin() {
           </div>
         )}
 
-        <form onSubmit={handleLogin}>
-          <div className="mem-input-group">
-            <label className="mem-label">
-              {tab === 'phone' ? 'Registered 10-Digit Mobile' : 'Member Code (e.g. MEM001)'}
-            </label>
-            <input
-              type={tab === 'phone' ? 'tel' : 'text'}
-              className="mem-input"
-              required
-              placeholder={tab === 'phone' ? '9876543210' : 'MEM001'}
-              value={identifier}
-              onChange={(e) => {
-                if (tab === 'phone') {
-                  setIdentifier(e.target.value.replace(/\D/g, '').slice(0, 10));
-                } else {
-                  setIdentifier(e.target.value.toUpperCase());
-                }
-              }}
-            />
-          </div>
-
-          <div className="mem-input-group">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-              <label className="mem-label" style={{ margin: 0 }}>4-Digit Secret mPIN</label>
-              <button
-                type="button"
-                onClick={() => { setForgotOpen(true); setForgotId(identifier); }}
-                style={{ background: 'none', border: 'none', color: 'var(--mem-primary)', fontSize: '0.8rem', cursor: 'pointer', padding: 0 }}
-              >
-                Forgot mPIN?
-              </button>
+        {/* Mode 1: mPIN Login Form */}
+        {loginMode === 'mpin' && (
+          <form onSubmit={handleMpinLogin}>
+            <div className="mem-input-group">
+              <label className="mem-label">Registered Mobile or Member Code</label>
+              <input
+                type="text"
+                className="mem-input"
+                required
+                placeholder="e.g. 9876501234 or MEM001"
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value)}
+              />
             </div>
-            <input
-              type="password"
-              inputMode="numeric"
-              maxLength={4}
-              pattern="[0-9]{4}"
-              className="mem-input"
-              required
-              placeholder="••••"
-              value={mpin}
-              onChange={(e) => setMpin(e.target.value.replace(/\D/g, '').slice(0, 4))}
-            />
-          </div>
 
-          <button type="submit" className="mem-btn" disabled={busy} style={{ marginTop: 8 }}>
-            <Icon name="lock" size={16} />
-            <span>{busy ? 'Logging in…' : 'Secure Login'}</span>
-          </button>
-        </form>
+            <div className="mem-input-group">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <label className="mem-label" style={{ margin: 0 }}>4-Digit Secret mPIN</label>
+                <button
+                  type="button"
+                  onClick={() => { setForgotOpen(true); setForgotId(identifier); }}
+                  style={{ background: 'none', border: 'none', color: 'var(--mem-primary)', fontSize: '0.8rem', cursor: 'pointer', padding: 0 }}
+                >
+                  Forgot mPIN?
+                </button>
+              </div>
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={4}
+                pattern="[0-9]{4}"
+                className="mem-input"
+                required
+                placeholder="••••"
+                value={mpin}
+                onChange={(e) => setMpin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+              />
+            </div>
+
+            <button type="submit" className="mem-btn" disabled={busy} style={{ marginTop: 8 }}>
+              <Icon name="lock" size={16} />
+              <span>{busy ? 'Logging in…' : 'Secure Login'}</span>
+            </button>
+          </form>
+        )}
+
+        {/* Mode 2: OTP Login Form */}
+        {loginMode === 'otp' && (
+          <div>
+            {!otpSent ? (
+              <form onSubmit={handleSendLoginOtp}>
+                <div className="mem-input-group">
+                  <label className="mem-label">Registered Mobile or Member Code</label>
+                  <input
+                    type="text"
+                    className="mem-input"
+                    required
+                    placeholder="e.g. 9876501234 or MEM001"
+                    value={identifier}
+                    onChange={(e) => setIdentifier(e.target.value)}
+                  />
+                </div>
+                <button type="submit" className="mem-btn" disabled={busy} style={{ marginTop: 8 }}>
+                  <Icon name="phone" size={16} />
+                  <span>{busy ? 'Sending OTP…' : 'Send Verification OTP'}</span>
+                </button>
+              </form>
+            ) : (
+              <form onSubmit={handleVerifyLoginOtp}>
+                <div style={{ background: 'var(--mem-primary-light)', padding: 10, borderRadius: 10, marginBottom: 14, fontSize: '0.82rem', color: 'var(--mem-primary)' }}>
+                  OTP sent to <strong>{maskedMobile}</strong>
+                </div>
+
+                <div className="mem-input-group">
+                  <label className="mem-label">Enter 6-Digit OTP</label>
+                  <input
+                    type="tel"
+                    inputMode="numeric"
+                    maxLength={6}
+                    className="mem-input"
+                    required
+                    placeholder="123456"
+                    value={otp}
+                    onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  />
+                </div>
+
+                <button type="submit" className="mem-btn" disabled={busy} style={{ marginTop: 8 }}>
+                  <Icon name="checkcircle" size={16} />
+                  <span>{busy ? 'Verifying…' : 'Verify & Enter Portal'}</span>
+                </button>
+
+                <div style={{ textAlign: 'center', marginTop: 10 }}>
+                  <button
+                    type="button"
+                    style={{ background: 'none', border: 'none', color: 'var(--mem-text-muted)', fontSize: '0.78rem', cursor: 'pointer' }}
+                    onClick={() => setOtpSent(false)}
+                  >
+                    Change Number / Resend
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        )}
 
         <div style={{ marginTop: 18, textAlign: 'center', borderTop: '1px solid var(--mem-border)', paddingTop: 14 }}>
           <span style={{ fontSize: '0.85rem', color: 'var(--mem-text-muted)' }}>First time using Member App? </span>
@@ -317,8 +426,8 @@ export default function MemberLogin() {
                     maxLength={6}
                     className="mem-input"
                     required
-                    value={otp}
-                    onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    value={forgotOtp}
+                    onChange={(e) => setForgotOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
                   />
                 </div>
                 <div className="mem-input-group">

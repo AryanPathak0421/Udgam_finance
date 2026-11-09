@@ -20,3 +20,4 @@ console.log('  Sample Loan   : 1 Active Micro Loan with 2 EMIs paid');
 console.log('======================================================\n');
 
 await mongoose.disconnect();
+

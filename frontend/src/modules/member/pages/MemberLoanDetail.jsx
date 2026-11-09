@@ -112,6 +112,36 @@ export default function MemberLoanDetail() {
             <div style={{ width: `${pct}%`, height: '100%', background: 'var(--mem-primary)', borderRadius: 4 }} />
           </div>
         </div>
+
+        {/* Action Button: NOC or Pay EMI */}
+        <div style={{ marginTop: 14, display: 'flex', gap: 10 }}>
+          {loan.paidCount >= loan.totalInstallments && loan.totalInstallments > 0 ? (
+            <Link
+              to={`/member/noc/${loan.id}`}
+              className="mem-btn sm"
+              style={{
+                background: 'linear-gradient(135deg, #059669, #047857)',
+                textDecoration: 'none',
+              }}
+            >
+              <Icon name="file" size={16} />
+              <span>Download NOC (Clearance Certificate)</span>
+            </Link>
+          ) : (
+            <Link
+              to="/member/emi-pay"
+              className="mem-btn sm"
+              style={{
+                background: '#f59e0b',
+                borderColor: '#f59e0b',
+                textDecoration: 'none',
+              }}
+            >
+              <Icon name="dollar" size={16} />
+              <span>Pay Next EMI Now</span>
+            </Link>
+          )}
+        </div>
       </div>
 
       {/* Repayment Schedule */}
@@ -215,3 +245,4 @@ export default function MemberLoanDetail() {
     </div>
   );
 }
+

@@ -49,3 +49,4 @@ memberLoanInquirySchema.index({ member: 1, createdAt: -1 });
 memberLoanInquirySchema.index({ branch: 1, status: 1 });
 
 export const MemberLoanInquiry = mongoose.model('MemberLoanInquiry', memberLoanInquirySchema);
+
