@@ -50,9 +50,27 @@ export default function EmployeeHome() {
               Operational Workspace
             </span>
             <h3 style={{ margin: '3px 0 2px', fontSize: '1.25rem', fontWeight: 800 }}>{empUser?.name || 'Staff Officer'}</h3>
-            <span style={{ fontSize: '0.76rem', color: 'rgba(255,255,255,0.85)' }}>
-              Staff ID: <strong>{empUser?.employeeCode || '—'}</strong> · {empUser?.branch?.name || 'Main Branch'}
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '0.76rem', color: 'rgba(255,255,255,0.85)' }}>
+                Staff ID: <strong>{empUser?.employeeCode || '—'}</strong> · {empUser?.branch?.name || 'Main Branch'}
+              </span>
+              <span
+                style={{
+                  background: 'rgba(254, 240, 138, 0.25)',
+                  color: '#fef08a',
+                  border: '1px solid rgba(254, 240, 138, 0.5)',
+                  padding: '1px 7px',
+                  borderRadius: 10,
+                  fontSize: '0.72rem',
+                  fontWeight: 700,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 3,
+                }}
+              >
+                ★ {Number(summary.averageRating || 5).toFixed(1)} Rating
+              </span>
+            </div>
           </div>
           <div
             style={{

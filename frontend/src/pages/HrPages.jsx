@@ -843,7 +843,14 @@ export function EmployeeRegistration() {
                 <tbody>
                   {items.map((e) => (
                     <tr key={e.id}>
-                      <td data-label="Employee"><strong>{e.employeeCode}</strong> {e.name}<div className="muted small">{e.mobile || '—'}{e.hasLogin ? ' · has login' : ''}</div>{e.supervisedBranches?.length > 0 && <div className="muted small">Supervises: {e.supervisedBranches.map((b) => b.code).join(', ')}</div>}</td>
+                      <td data-label="Employee">
+                        <strong>{e.employeeCode}</strong> {e.name}
+                        <span style={{ marginLeft: 6, background: '#fef3c7', color: '#92400e', padding: '1px 6px', borderRadius: 6, fontSize: '0.75rem', fontWeight: 700 }}>
+                          ★ {Number(e.averageRating || 5).toFixed(1)}
+                        </span>
+                        <div className="muted small">{e.mobile || '—'}{e.hasLogin ? ' · has login' : ''}</div>
+                        {e.supervisedBranches?.length > 0 && <div className="muted small">Supervises: {e.supervisedBranches.map((b) => b.code).join(', ')}</div>}
+                      </td>
                       <td data-label="Department">{e.department?.name || '—'}<div className="muted small">{e.designation?.name || '—'}</div></td>
                       <td data-label="Branch">{branchLabel(e.branch)}</td>
                       <td data-label="Supervisor">{e.supervisor ? `${e.supervisor.code} ${e.supervisor.name}` : '—'}</td>

@@ -162,6 +162,8 @@ const presentEmployee = (e, user) => ({
   supervisedBranches: (e.supervisedBranches || []).map((b) => ({ id: b._id || b, code: b.code || '', name: b.name || '' })),
   pfNumber: e.pfNumber || '', uanNumber: e.uanNumber || '', esiNumber: e.esiNumber || '',
   mobileVerified: Boolean(e.mobileVerifiedAt), emailVerified: Boolean(e.emailVerifiedAt), documentsVerified: Boolean(e.documentsVerifiedAt), verified: isVerified(e),
+  averageRating: e.averageRating || 5,
+  ratings: e.ratings || [],
   monthlySalary: rupees(sum(Object.values(fixedOf(e, todayDateString().slice(0, 7))))) || rupees(e.monthlySalaryPaise),
   salarySetup: {
     ...Object.fromEntries(EARN_FIXED.map(([k]) => [k, rupees(fixedOf(e, todayDateString().slice(0, 7))[k])])), pfPercent: e.pfPercent ?? 12, esiPercent: e.esiPercent ?? 0.75, professionalTax: rupees(e.professionalTaxPaise),

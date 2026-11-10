@@ -5,14 +5,16 @@ import { api } from '../../../api/client.js';
 import Icon from '../../../components/Icon.jsx';
 
 export default function SupervisorHome() {
-  const { supUser, t } = useSupApp();
+  const { supUser, t = (k) => k } = useSupApp() || {};
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState('staff'); // 'staff' | 'branch'
+  const [notifications, setNotifications] = useState([]);
 
   useEffect(() => {
     loadDashboard();
+    loadNotifications();
   }, []);
 
   async function loadDashboard() {
@@ -28,6 +30,13 @@ export default function SupervisorHome() {
     }
   }
 
+  async function loadNotifications() {
+    try {
+      const res = await api.supervisorApp.notifications();
+      setNotifications(res?.notifications || []);
+    } catch {}
+  }
+
   const metrics = data?.metrics || {
     totalDueToday: 0,
     totalDueCount: 0,
@@ -38,7 +47,12 @@ export default function SupervisorHome() {
     npaCount: 0,
     npaTotalAmount: 0,
     newMembersCount: 0,
+    pendingTasksCount: 0,
+    branchVisitsCount: 0,
   };
+
+  const branchVisits = data?.branchVisits || [];
+  const pendingTasks = data?.pendingTasks || [];
 
   return (
     <div className="sup-page-container">
@@ -93,6 +107,44 @@ export default function SupervisorHome() {
         </div>
       )}
 
+      {/* Notifications / Alerts Banner */}
+      {notifications.length > 0 && (
+        <div style={{ marginBottom: 14, background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 12, padding: '10px 12px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ color: '#2563eb' }}>🔔</span>
+              <strong style={{ fontSize: '0.85rem', color: '#1e40af' }}>Supervisor Alerts &amp; Updates ({notifications.length})</strong>
+            </div>
+            <span style={{ fontSize: '0.72rem', color: '#3b82f6', fontWeight: 700 }}>Live Feed</span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {notifications.slice(0, 3).map((n) => (
+              <Link
+                key={n.id}
+                to={n.link || '/supervisor'}
+                style={{
+                  textDecoration: 'none',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  background: '#fff',
+                  padding: '6px 10px',
+                  borderRadius: 8,
+                  fontSize: '0.78rem',
+                  border: '1px solid #e2e8f0',
+                }}
+              >
+                <div>
+                  <strong style={{ color: '#0f172a' }}>{n.title}: </strong>
+                  <span style={{ color: '#475569' }}>{n.message}</span>
+                </div>
+                <span style={{ fontSize: '0.7rem', color: '#94a3b8', whiteSpace: 'nowrap', marginLeft: 8 }}>{n.time}</span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Top 2 KPI Metric Cards */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 14 }}>
         <Link to="/supervisor/today-due" className="sup-metric-card" style={{ textDecoration: 'none', color: 'inherit', borderLeft: '4px solid var(--sup-danger)' }}>
@@ -126,11 +178,33 @@ export default function SupervisorHome() {
         </Link>
       </div>
 
-      {/* Secondary KPI Bar: NPA & New Members */}
-      <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+      {/* Secondary KPI Bar: NPA, New Members, Tasks & Branch Visits */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, marginBottom: 16 }}>
+        <Link to="/supervisor/tasks" className="sup-metric-card" style={{ textDecoration: 'none', color: 'inherit', borderLeft: '4px solid #e11d48' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--sup-text-muted)' }}>Pending Tasks</span>
+            <span style={{ fontSize: '0.8rem' }}>📌</span>
+          </div>
+          <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#e11d48', marginTop: 4 }}>
+            {metrics.pendingTasksCount || 0}
+          </div>
+          <div style={{ fontSize: '0.72rem', color: 'var(--sup-text-muted)' }}>Action items due</div>
+        </Link>
+
+        <Link to="/supervisor/center-visits" className="sup-metric-card" style={{ textDecoration: 'none', color: 'inherit', borderLeft: '4px solid #7c3aed' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--sup-text-muted)' }}>Branch Visits</span>
+            <span style={{ fontSize: '0.8rem' }}>🏢</span>
+          </div>
+          <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#7c3aed', marginTop: 4 }}>
+            {metrics.branchVisitsCount || branchVisits.length || 0}
+          </div>
+          <div style={{ fontSize: '0.72rem', color: 'var(--sup-text-muted)' }}>System scheduled</div>
+        </Link>
+
         <Link to="/supervisor/npa-recovery" className="sup-metric-card" style={{ textDecoration: 'none', color: 'inherit', borderLeft: '4px solid var(--sup-accent)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--sup-text-muted)' }}>NPA Recovery</span>
+            <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--sup-text-muted)' }}>NPA Recovery</span>
             <Icon name="alerttriangle" size={16} color="var(--sup-accent)" />
           </div>
           <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--sup-accent)', marginTop: 4 }}>
@@ -141,7 +215,7 @@ export default function SupervisorHome() {
 
         <Link to="/supervisor/new-member-report" className="sup-metric-card" style={{ textDecoration: 'none', color: 'inherit', borderLeft: '4px solid var(--sup-primary)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--sup-text-muted)' }}>New Members</span>
+            <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--sup-text-muted)' }}>New Members</span>
             <Icon name="users" size={16} color="var(--sup-primary)" />
           </div>
           <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--sup-primary)', marginTop: 4 }}>
@@ -149,6 +223,118 @@ export default function SupervisorHome() {
           </div>
           <div style={{ fontSize: '0.72rem', color: 'var(--sup-text-muted)' }}>This month</div>
         </Link>
+      </div>
+
+      {/* Point 9: Scheduled Branch Visits from System */}
+      <div className="sup-card" style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: '1rem' }}>🏢</span>
+            <strong style={{ fontSize: '0.95rem' }}>Scheduled Branch Visits (System)</strong>
+          </div>
+          <Link to="/supervisor/center-visits" style={{ fontSize: '0.76rem', color: 'var(--sup-primary)', fontWeight: 700, textDecoration: 'none' }}>
+            Manage All →
+          </Link>
+        </div>
+
+        {branchVisits.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '16px 0', color: 'var(--sup-text-muted)', fontSize: '0.82rem' }}>
+            No upcoming branch visits scheduled in system
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {branchVisits.slice(0, 3).map((v) => (
+              <div
+                key={v._id}
+                style={{
+                  padding: '10px 12px',
+                  background: 'var(--sup-bg)',
+                  borderRadius: 8,
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}
+              >
+                <div>
+                  <strong style={{ fontSize: '0.88rem', color: 'var(--sup-text)' }}>
+                    {v.branchName || v.branch?.name || 'Branch'} ({v.branchCode || v.branch?.code})
+                  </strong>
+                  <div style={{ fontSize: '0.74rem', color: 'var(--sup-text-muted)', marginTop: 2 }}>
+                    Date: <strong>{v.visitDate ? new Date(v.visitDate).toISOString().slice(0, 10) : 'Today'}</strong> • City: {v.branchCity || v.branch?.city || '—'}
+                    {v.branchPincode || v.branch?.pincode ? ` (Pin: ${v.branchPincode || v.branch?.pincode})` : ''}
+                  </div>
+                </div>
+                <span
+                  style={{
+                    background: v.status === 'completed' ? 'var(--sup-success-light)' : '#fef3c7',
+                    color: v.status === 'completed' ? 'var(--sup-success)' : '#b45309',
+                    padding: '3px 8px',
+                    borderRadius: 8,
+                    fontSize: '0.72rem',
+                    fontWeight: 700,
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  {v.status || 'Scheduled'}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Point 12: Pending Team Tasks Follow-up */}
+      <div className="sup-card" style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: '1rem' }}>📌</span>
+            <strong style={{ fontSize: '0.95rem' }}>Pending Follow-up Tasks ({pendingTasks.length})</strong>
+          </div>
+          <Link to="/supervisor/tasks" style={{ fontSize: '0.76rem', color: '#e11d48', fontWeight: 700, textDecoration: 'none' }}>
+            View All Tasks →
+          </Link>
+        </div>
+
+        {pendingTasks.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '16px 0', color: 'var(--sup-text-muted)', fontSize: '0.82rem' }}>
+            ✓ No pending tasks! All team assignments up to date.
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {pendingTasks.slice(0, 3).map((t) => (
+              <div
+                key={t._id}
+                style={{
+                  padding: '10px 12px',
+                  background: 'var(--sup-bg)',
+                  borderRadius: 8,
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}
+              >
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                    <span style={{ background: '#fef2f2', color: '#b91c1c', padding: '2px 6px', borderRadius: 6, fontSize: '0.68rem', fontWeight: 700 }}>
+                      {t.category || 'General'}
+                    </span>
+                    <strong style={{ fontSize: '0.88rem' }}>{t.title}</strong>
+                  </div>
+                  <div style={{ fontSize: '0.74rem', color: 'var(--sup-text-muted)' }}>
+                    Assigned: {t.assignedToName || t.assignedToCode} • Due: {t.dueDate ? new Date(t.dueDate).toLocaleDateString() : 'Immediate'}
+                  </div>
+                </div>
+                <Link
+                  to="/supervisor/tasks"
+                  className="sup-btn sm"
+                  style={{ width: 'auto', padding: '4px 8px', fontSize: '0.72rem', textDecoration: 'none' }}
+                >
+                  Action →
+                </Link>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Staff-wise & Branch-wise Overview Section */}
@@ -250,7 +436,7 @@ export default function SupervisorHome() {
 
       {/* SECTION 1: FINANCIAL & FIELD OPERATIONS */}
       <div style={{ marginBottom: 8, fontWeight: 700, fontSize: '0.88rem', color: 'var(--sup-text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-        Financial & Field Operations
+        Financial &amp; Field Operations
       </div>
       <div className="sup-grid-3" style={{ marginBottom: 16 }}>
         <Link to="/supervisor/today-due" className="sup-action-card">
@@ -292,13 +478,13 @@ export default function SupervisorHome() {
           <div className="sup-action-icon" style={{ background: '#faf5ff', color: '#9333ea' }}>
             <Icon name="map" size={20} />
           </div>
-          <span style={{ fontSize: '0.76rem', fontWeight: 600 }}>Center Visits</span>
+          <span style={{ fontSize: '0.76rem', fontWeight: 600 }}>Branch &amp; Visits</span>
         </Link>
       </div>
 
-      {/* SECTION 2: HR & STAFF SUPERVISION (Items 18, 20-23, 28, 30 & Sheet Points 1, 3) */}
+      {/* SECTION 2: HR & STAFF SUPERVISION */}
       <div style={{ marginBottom: 8, fontWeight: 700, fontSize: '0.88rem', color: 'var(--sup-text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-        HR & Staff Supervision
+        HR &amp; Staff Supervision
       </div>
       <div className="sup-grid-3" style={{ marginBottom: 16 }}>
         <Link to="/supervisor/team-staff" className="sup-action-card" style={{ border: '2px solid var(--sup-primary)' }}>
@@ -358,51 +544,51 @@ export default function SupervisorHome() {
         </Link>
       </div>
 
-      {/* SECTION 3: REPORTS & WORKFLOWS (Items 24, 25, 26, 27) */}
+      {/* SECTION 3: SUPERVISORY AUDITS & COMPLIANCE */}
       <div style={{ marginBottom: 8, fontWeight: 700, fontSize: '0.88rem', color: 'var(--sup-text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-        Reports & Workflows
+        Supervisory Audits &amp; Compliance
       </div>
-      <div className="sup-grid-3" style={{ marginBottom: 16 }}>
+      <div className="sup-grid-3" style={{ marginBottom: 20 }}>
         <Link to="/supervisor/complaints" className="sup-action-card">
-          <div className="sup-action-icon" style={{ background: '#fee2e2', color: '#dc2626' }}>
-            <Icon name="alerttriangle" size={20} />
+          <div className="sup-action-icon" style={{ background: '#fef2f2', color: '#ef4444' }}>
+            <Icon name="phone" size={20} />
           </div>
           <span style={{ fontSize: '0.76rem', fontWeight: 600 }}>Complaints</span>
         </Link>
 
-        <Link to="/supervisor/resignation" className="sup-action-card">
-          <div className="sup-action-icon" style={{ background: '#fef2f2', color: '#991b1b' }}>
-            <Icon name="cross" size={20} />
+        <Link to="/supervisor/products/sales-report" className="sup-action-card">
+          <div className="sup-action-icon" style={{ background: '#fffbeb', color: '#f59e0b' }}>
+            <Icon name="shoppingbag" size={20} />
           </div>
-          <span style={{ fontSize: '0.76rem', fontWeight: 600 }}>Resignation</span>
+          <span style={{ fontSize: '0.76rem', fontWeight: 600 }}>Product Report</span>
         </Link>
 
-        <Link to="/supervisor/branch-transfers" className="sup-action-card">
-          <div className="sup-action-icon" style={{ background: '#f3e8ff', color: '#6b21a8' }}>
+        <Link to="/supervisor/branch-transfers/report" className="sup-action-card">
+          <div className="sup-action-icon" style={{ background: '#f0fdf4', color: '#10b981' }}>
             <Icon name="arrowright" size={20} />
           </div>
           <span style={{ fontSize: '0.76rem', fontWeight: 600 }}>Transfers</span>
         </Link>
 
-        <Link to="/supervisor/product-sales" className="sup-action-card">
-          <div className="sup-action-icon" style={{ background: '#ecfdf5', color: '#047857' }}>
-            <Icon name="chart" size={20} />
+        <Link to="/supervisor/resignation" className="sup-action-card">
+          <div className="sup-action-icon" style={{ background: '#f8fafc', color: '#64748b' }}>
+            <Icon name="filetext" size={20} />
           </div>
-          <span style={{ fontSize: '0.76rem', fontWeight: 600 }}>Product Booking</span>
+          <span style={{ fontSize: '0.76rem', fontWeight: 600 }}>Resignation</span>
         </Link>
 
-        <Link to="/supervisor/new-member-report" className="sup-action-card">
-          <div className="sup-action-icon" style={{ background: '#eff6ff', color: '#1d4ed8' }}>
-            <Icon name="users" size={20} />
-          </div>
-          <span style={{ fontSize: '0.76rem', fontWeight: 600 }}>Member Report</span>
-        </Link>
-
-        <Link to="/supervisor/calculator" className="sup-action-card">
-          <div className="sup-action-icon" style={{ background: '#f8fafc', color: '#475569' }}>
+        <Link to="/supervisor/loan-calculator" className="sup-action-card">
+          <div className="sup-action-icon" style={{ background: '#eff6ff', color: '#3b82f6' }}>
             <Icon name="calculator" size={20} />
           </div>
           <span style={{ fontSize: '0.76rem', fontWeight: 600 }}>Calculator</span>
+        </Link>
+
+        <Link to="/supervisor/reports" className="sup-action-card">
+          <div className="sup-action-icon" style={{ background: '#f5f3ff', color: '#8b5cf6' }}>
+            <Icon name="download" size={20} />
+          </div>
+          <span style={{ fontSize: '0.76rem', fontWeight: 600 }}>Reports</span>
         </Link>
       </div>
     </div>

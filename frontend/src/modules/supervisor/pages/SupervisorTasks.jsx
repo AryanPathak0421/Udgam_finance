@@ -2,8 +2,18 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../../../api/client.js';
 import Icon from '../../../components/Icon.jsx';
 
+const TASK_CATEGORIES = [
+  'Disbursement',
+  'Collections',
+  'New Member',
+  'Product',
+  'NPA Report',
+  'General',
+];
+
 export default function SupervisorTasks() {
   const [filter, setFilter] = useState('pending'); // 'pending' | 'completed' | 'all'
+  const [categoryFilter, setCategoryFilter] = useState('all');
   const [data, setData] = useState({ summary: {}, tasks: [], pendingTasks: [], completedTasks: [], staff: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -13,6 +23,7 @@ export default function SupervisorTasks() {
   const [showModal, setShowModal] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [category, setCategory] = useState('Collections');
   const [assignedToId, setAssignedToId] = useState('');
   const [dueDate, setDueDate] = useState(() => {
     const d = new Date();
@@ -24,13 +35,13 @@ export default function SupervisorTasks() {
 
   useEffect(() => {
     loadTasks();
-  }, []);
+  }, [categoryFilter]);
 
   async function loadTasks() {
     setLoading(true);
     setError('');
     try {
-      const res = await api.supervisorApp.tasks();
+      const res = await api.supervisorApp.tasks({ category: categoryFilter !== 'all' ? categoryFilter : undefined });
       setData(res || { summary: {}, tasks: [], pendingTasks: [], completedTasks: [], staff: [] });
       if (res.staff && res.staff.length > 0 && !assignedToId) {
         setAssignedToId(res.staff[0].id);
@@ -58,6 +69,7 @@ export default function SupervisorTasks() {
       const res = await api.supervisorApp.createTask({
         title: title.trim(),
         description: description.trim(),
+        category,
         assignedToId,
         dueDate,
         priority,
@@ -86,7 +98,21 @@ export default function SupervisorTasks() {
   }
 
   const { summary = {}, tasks = [], pendingTasks = [], completedTasks = [], staff = [] } = data;
-  const displayTasks = filter === 'pending' ? pendingTasks : filter === 'completed' ? completedTasks : tasks;
+  let baseTasks = filter === 'pending' ? pendingTasks : filter === 'completed' ? completedTasks : tasks;
+  if (categoryFilter !== 'all') {
+    baseTasks = baseTasks.filter((t) => (t.category || 'General') === categoryFilter);
+  }
+
+  const getCategoryColor = (cat) => {
+    switch (cat) {
+      case 'Disbursement': return { bg: '#eff6ff', color: '#1d4ed8' };
+      case 'Collections': return { bg: '#ecfdf5', color: '#047857' };
+      case 'New Member': return { bg: '#faf5ff', color: '#7e22ce' };
+      case 'Product': return { bg: '#fff7ed', color: '#c2410c' };
+      case 'NPA Report': return { bg: '#fef2f2', color: '#b91c1c' };
+      default: return { bg: '#f1f5f9', color: '#475569' };
+    }
+  };
 
   return (
     <div className="sup-page-container">
@@ -142,6 +168,26 @@ export default function SupervisorTasks() {
             {summary.totalTasks || 0}
           </div>
         </div>
+      </div>
+
+      {/* Point 7: Module / Category Dropdown Filter */}
+      <div style={{ marginBottom: 12 }}>
+        <label style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--sup-text-muted)', display: 'block', marginBottom: 4 }}>
+          FILTER BY MODULE / REPORT
+        </label>
+        <select
+          className="sup-select"
+          value={categoryFilter}
+          onChange={(e) => setCategoryFilter(e.target.value)}
+          style={{ width: '100%', fontSize: '0.85rem', fontWeight: 600 }}
+        >
+          <option value="all">All Modules & Reports</option>
+          {TASK_CATEGORIES.map((cat) => (
+            <option key={cat} value={cat}>
+              {cat} Tasks
+            </option>
+          ))}
+        </select>
       </div>
 
       {/* Filter Tabs */}
@@ -204,78 +250,95 @@ export default function SupervisorTasks() {
         <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--sup-text-muted)' }}>
           Loading team tasks…
         </div>
-      ) : displayTasks.length === 0 ? (
+      ) : baseTasks.length === 0 ? (
         <div className="sup-card" style={{ textAlign: 'center', padding: '24px 0', color: 'var(--sup-text-muted)' }}>
-          No {filter} tasks found
+          No {filter} {categoryFilter !== 'all' ? `(${categoryFilter})` : ''} tasks found
         </div>
       ) : (
-        displayTasks.map((t) => (
-          <div key={t._id} className="sup-card" style={{ padding: 14 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <div>
-                <strong style={{ fontSize: '0.96rem' }}>{t.title}</strong>
-                <div style={{ fontSize: '0.75rem', color: 'var(--sup-text-muted)' }}>
-                  Assigned to: <strong>{t.assignedToName || t.assignedToCode}</strong>
+        baseTasks.map((t) => {
+          const isDone = t.status === 'completed' || t.status === 'done';
+          const catStyle = getCategoryColor(t.category);
+          return (
+            <div key={t._id} className="sup-card" style={{ padding: 14 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                    <span
+                      style={{
+                        background: catStyle.bg,
+                        color: catStyle.color,
+                        padding: '2px 8px',
+                        borderRadius: 8,
+                        fontSize: '0.72rem',
+                        fontWeight: 700,
+                      }}
+                    >
+                      {t.category || 'General'}
+                    </span>
+                    <span
+                      style={{
+                        background: isDone ? 'var(--sup-success-light)' : '#fef3c7',
+                        color: isDone ? 'var(--sup-success)' : '#b45309',
+                        padding: '2px 8px',
+                        borderRadius: 8,
+                        fontSize: '0.72rem',
+                        fontWeight: 700,
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      {isDone ? 'Completed' : t.status === 'in_progress' ? 'In Progress' : 'Pending'}
+                    </span>
+                  </div>
+                  <strong style={{ fontSize: '0.96rem' }}>{t.title}</strong>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--sup-text-muted)', marginTop: 2 }}>
+                    Assigned to: <strong>{t.assignedToName || t.assignedToCode}</strong>
+                  </div>
                 </div>
               </div>
 
-              <span
-                style={{
-                  background: t.status === 'completed' ? 'var(--sup-success-light)' : '#fef3c7',
-                  color: t.status === 'completed' ? 'var(--sup-success)' : '#b45309',
-                  padding: '2px 8px',
-                  borderRadius: 10,
-                  fontSize: '0.72rem',
-                  fontWeight: 700,
-                  textTransform: 'uppercase',
-                }}
-              >
-                {t.status}
-              </span>
-            </div>
-
-            {t.description && (
-              <div style={{ marginTop: 8, fontSize: '0.82rem', color: 'var(--sup-text)' }}>
-                {t.description}
-              </div>
-            )}
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--sup-border)', fontSize: '0.75rem' }}>
-              <span style={{ color: 'var(--sup-text-muted)' }}>
-                Due Date: <strong>{t.dueDate ? new Date(t.dueDate).toLocaleDateString() : 'Immediate'}</strong>
-              </span>
-
-              {t.status !== 'completed' && (
-                <div style={{ display: 'flex', gap: 6 }}>
-                  {t.status === 'open' && (
-                    <button
-                      type="button"
-                      className="sup-btn sm secondary"
-                      style={{ width: 'auto', padding: '2px 8px', fontSize: '0.72rem' }}
-                      onClick={() => handleUpdateStatus(t._id, 'in_progress')}
-                    >
-                      In Progress
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="sup-btn sm"
-                    style={{ width: 'auto', padding: '2px 8px', fontSize: '0.72rem', background: 'var(--sup-success)', borderColor: 'var(--sup-success)' }}
-                    onClick={() => handleUpdateStatus(t._id, 'completed')}
-                  >
-                    ✓ Complete
-                  </button>
+              {t.description && (
+                <div style={{ marginTop: 8, fontSize: '0.82rem', color: 'var(--sup-text)' }}>
+                  {t.description}
                 </div>
               )}
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--sup-border)', fontSize: '0.75rem' }}>
+                <span style={{ color: 'var(--sup-text-muted)' }}>
+                  Due Date: <strong>{t.dueDate ? new Date(t.dueDate).toLocaleDateString() : 'Immediate'}</strong>
+                </span>
+
+                {!isDone && (
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    {t.status === 'open' && (
+                      <button
+                        type="button"
+                        className="sup-btn sm secondary"
+                        style={{ width: 'auto', padding: '2px 8px', fontSize: '0.72rem' }}
+                        onClick={() => handleUpdateStatus(t._id, 'in_progress')}
+                      >
+                        In Progress
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="sup-btn sm"
+                      style={{ width: 'auto', padding: '3px 10px', fontSize: '0.74rem', background: 'var(--sup-success)', borderColor: 'var(--sup-success)' }}
+                      onClick={() => handleUpdateStatus(t._id, 'completed')}
+                    >
+                      ✓ Complete
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        ))
+          );
+        })
       )}
 
       {/* Assign Task Modal */}
       {showModal && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div style={{ background: 'var(--sup-card-bg)', width: '100%', maxWidth: 400, borderRadius: 16, padding: 20 }}>
+          <div style={{ background: 'var(--sup-card-bg)', width: '100%', maxWidth: 420, borderRadius: 16, padding: 20 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
               <strong style={{ fontSize: '1.05rem', color: 'var(--sup-primary)' }}>Assign Task to Staff</strong>
               <button className="sup-icon-btn" onClick={() => setShowModal(false)}>
@@ -284,6 +347,23 @@ export default function SupervisorTasks() {
             </div>
 
             <form onSubmit={handleAssignTask}>
+              {/* Point 7: Module / Category Selection Dropdown */}
+              <div className="sup-input-group">
+                <label className="sup-label">Task Module / Category *</label>
+                <select
+                  className="sup-select"
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  required
+                >
+                  {TASK_CATEGORIES.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat} Task
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <div className="sup-input-group">
                 <label className="sup-label">Assign To Staff Member *</label>
                 <select
@@ -306,7 +386,7 @@ export default function SupervisorTasks() {
                   type="text"
                   required
                   className="sup-input"
-                  placeholder="e.g. Visit Rampur Center for NPA recovery"
+                  placeholder="e.g. Complete NPA collection & verification"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                 />

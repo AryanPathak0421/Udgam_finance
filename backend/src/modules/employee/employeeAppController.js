@@ -503,6 +503,11 @@ export async function getDashboard(req, res) {
   // Pending tasks for this employee
   const pendingTasksCount = emp ? await Task.countDocuments({ assignedTo: emp._id, status: { $in: ['open', 'in_progress'] } }) : 0;
 
+  // Point 11: Employee Rating from Supervisor
+  const mpinDoc = await EmployeeMpin.findOne({ employeeCode: code });
+  const averageRating = emp?.averageRating || mpinDoc?.averageRating || 5;
+  const ratingsCount = emp?.ratings?.length || mpinDoc?.ratings?.length || 0;
+
   res.json({
     summary: {
       todayCollected,
@@ -514,6 +519,8 @@ export async function getDashboard(req, res) {
       dueCount: remainingDueCount,
       totalDueCount: dueCount,
       pendingTasksCount,
+      averageRating,
+      ratingsCount,
     },
     performanceGraph: months,
   });

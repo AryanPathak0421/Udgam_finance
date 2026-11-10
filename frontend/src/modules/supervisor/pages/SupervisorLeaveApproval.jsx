@@ -9,10 +9,14 @@ export default function SupervisorLeaveApproval() {
   const [success, setSuccess] = useState('');
   const [filter, setFilter] = useState('pending'); // 'pending' | 'approved' | 'rejected'
 
-  // Modal for rejection
+  // Modal for Leave Decision (with editable dates)
   const [selectedLeave, setSelectedLeave] = useState(null);
-  const [rejectReason, setRejectReason] = useState('');
-  const [rejectDate, setRejectDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [decisionAction, setDecisionAction] = useState('approved'); // 'approved' | 'rejected'
+  const [editFrom, setEditFrom] = useState('');
+  const [editTo, setEditTo] = useState('');
+  const [editDays, setEditDays] = useState(1);
+  const [decisionRemark, setDecisionRemark] = useState('');
+  const [decisionDate, setDecisionDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -32,41 +36,61 @@ export default function SupervisorLeaveApproval() {
     }
   }
 
-  async function handleApprove(leave) {
-    if (!window.confirm(`Approve leave for ${leave.employee?.name || leave.employeeName}?`)) return;
-    setBusy(true);
+  function openDecisionModal(leave, action = 'approved') {
+    setSelectedLeave(leave);
+    setDecisionAction(action);
+    const fDate = leave.from ? new Date(leave.from).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
+    const tDate = leave.to ? new Date(leave.to).toISOString().slice(0, 10) : fDate;
+    setEditFrom(fDate);
+    setEditTo(tDate);
+    setEditDays(leave.days || 1);
+    setDecisionRemark(action === 'approved' ? 'Approved by Supervisor' : '');
+    setDecisionDate(new Date().toISOString().slice(0, 10));
     setError('');
-    try {
-      await api.supervisorApp.decideLeave(leave._id, { action: 'approved', remark: 'Approved by Supervisor' });
-      setSuccess('Leave application approved successfully!');
-      loadLeaves();
-    } catch (err) {
-      setError(err.message || 'Failed to approve leave');
-    } finally {
-      setBusy(false);
-    }
   }
 
-  async function handleConfirmReject(e) {
+  // Auto-calculate days when dates change
+  useEffect(() => {
+    if (editFrom && editTo) {
+      const d1 = new Date(editFrom);
+      const d2 = new Date(editTo);
+      if (d2 >= d1) {
+        const diff = Math.round((d2 - d1) / (24 * 60 * 60 * 1000)) + 1;
+        setEditDays(diff);
+      }
+    }
+  }, [editFrom, editTo]);
+
+  async function handleSubmitDecision(e) {
     e.preventDefault();
-    if (!rejectReason.trim()) {
+    if (!selectedLeave) return;
+
+    if (decisionAction === 'rejected' && !decisionRemark.trim()) {
       setError('Please provide a reason for rejecting the leave');
       return;
     }
+    if (new Date(editTo) < new Date(editFrom)) {
+      setError('To Date cannot be earlier than From Date');
+      return;
+    }
+
     setBusy(true);
     setError('');
     try {
       await api.supervisorApp.decideLeave(selectedLeave._id, {
-        action: 'rejected',
-        rejectReason: rejectReason.trim(),
-        rejectDate,
+        action: decisionAction,
+        fromDate: editFrom,
+        toDate: editTo,
+        days: editDays,
+        remark: decisionRemark.trim(),
+        rejectReason: decisionRemark.trim(),
+        decisionDate,
       });
-      setSuccess('Leave application rejected with rejection date and reason recorded.');
+      setSuccess(`Leave application ${decisionAction} with updated dates successfully!`);
       setSelectedLeave(null);
-      setRejectReason('');
       loadLeaves();
     } catch (err) {
-      setError(err.message || 'Failed to reject leave');
+      setError(err.message || 'Failed to submit leave decision');
     } finally {
       setBusy(false);
     }
@@ -82,7 +106,7 @@ export default function SupervisorLeaveApproval() {
     <div className="sup-page-container">
       <div style={{ marginBottom: 14 }}>
         <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800 }}>Staff Leave Approvals</h2>
-        <div style={{ fontSize: '0.8rem', color: 'var(--sup-text-muted)' }}>Permission & Leave Decision Portal</div>
+        <div style={{ fontSize: '0.8rem', color: 'var(--sup-text-muted)' }}>Permission &amp; Leave Decision Portal</div>
       </div>
 
       {/* Filter Tabs */}
@@ -203,6 +227,11 @@ export default function SupervisorLeaveApproval() {
                     <span>{leave.reason}</span>
                   </div>
                 )}
+                {leave.decisionRemark && (
+                  <div style={{ marginTop: 4, color: 'var(--sup-primary)', fontWeight: 600 }}>
+                    Decision Note: {leave.decisionRemark}
+                  </div>
+                )}
               </div>
 
               {leave.status === 'rejected' && (
@@ -219,20 +248,17 @@ export default function SupervisorLeaveApproval() {
                     className="sup-btn sm"
                     style={{ background: 'var(--sup-success)', borderColor: 'var(--sup-success)' }}
                     disabled={busy}
-                    onClick={() => handleApprove(leave)}
+                    onClick={() => openDecisionModal(leave, 'approved')}
                   >
                     <Icon name="check" size={14} />
-                    <span>Approve</span>
+                    <span>Approve (Edit Dates)</span>
                   </button>
                   <button
                     type="button"
                     className="sup-btn sm secondary"
                     style={{ color: 'var(--sup-danger)', borderColor: 'var(--sup-danger)' }}
                     disabled={busy}
-                    onClick={() => {
-                      setSelectedLeave(leave);
-                      setRejectReason('');
-                    }}
+                    onClick={() => openDecisionModal(leave, 'rejected')}
                   >
                     <Icon name="cross" size={14} />
                     <span>Reject</span>
@@ -244,47 +270,126 @@ export default function SupervisorLeaveApproval() {
         })
       )}
 
-      {/* Rejection Modal */}
+      {/* Point 10: Interactive Leave Decision Modal with Editable Dates */}
       {selectedLeave && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div style={{ background: 'var(--sup-card-bg)', width: '100%', maxWidth: 380, borderRadius: 16, padding: 20 }}>
+          <div style={{ background: 'var(--sup-card-bg)', width: '100%', maxWidth: 420, borderRadius: 16, padding: 20 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <strong style={{ fontSize: '1.05rem', color: 'var(--sup-danger)' }}>Reject Leave Application</strong>
+              <strong style={{ fontSize: '1.05rem', color: decisionAction === 'approved' ? 'var(--sup-success)' : 'var(--sup-danger)' }}>
+                {decisionAction === 'approved' ? 'Approve & Edit Leave Dates' : 'Reject Leave Application'}
+              </strong>
               <button className="sup-icon-btn" onClick={() => setSelectedLeave(null)}>
                 <Icon name="cross" size={16} />
               </button>
             </div>
 
-            <div style={{ fontSize: '0.85rem', marginBottom: 12 }}>
-              Staff: <strong>{selectedLeave.employee?.name || selectedLeave.employeeName}</strong>
+            <div style={{ fontSize: '0.85rem', marginBottom: 12, padding: '8px 10px', background: 'var(--sup-bg)', borderRadius: 8 }}>
+              Staff: <strong>{selectedLeave.employee?.name || selectedLeave.employeeName}</strong> ({selectedLeave.employee?.employeeCode || selectedLeave.employeeCode})
+              <div style={{ fontSize: '0.75rem', color: 'var(--sup-text-muted)', marginTop: 2 }}>
+                Applied Reason: {selectedLeave.reason || 'N/A'}
+              </div>
             </div>
 
-            <form onSubmit={handleConfirmReject}>
+            <form onSubmit={handleSubmitDecision}>
+              {/* Decision Toggle */}
+              <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                <button
+                  type="button"
+                  style={{
+                    flex: 1,
+                    padding: '8px 0',
+                    border: 'none',
+                    borderRadius: 8,
+                    fontWeight: 700,
+                    fontSize: '0.85rem',
+                    background: decisionAction === 'approved' ? 'var(--sup-success)' : 'var(--sup-border)',
+                    color: decisionAction === 'approved' ? '#fff' : 'var(--sup-text)',
+                    cursor: 'pointer',
+                  }}
+                  onClick={() => setDecisionAction('approved')}
+                >
+                  ✓ Approve
+                </button>
+                <button
+                  type="button"
+                  style={{
+                    flex: 1,
+                    padding: '8px 0',
+                    border: 'none',
+                    borderRadius: 8,
+                    fontWeight: 700,
+                    fontSize: '0.85rem',
+                    background: decisionAction === 'rejected' ? 'var(--sup-danger)' : 'var(--sup-border)',
+                    color: decisionAction === 'rejected' ? '#fff' : 'var(--sup-text)',
+                    cursor: 'pointer',
+                  }}
+                  onClick={() => setDecisionAction('rejected')}
+                >
+                  ✕ Reject
+                </button>
+              </div>
+
+              {/* Editable From & To Dates */}
+              <div style={{ display: 'flex', gap: 10 }}>
+                <div className="sup-input-group" style={{ flex: 1 }}>
+                  <label className="sup-label">From Date (Editable) *</label>
+                  <input
+                    type="date"
+                    required
+                    className="sup-input"
+                    value={editFrom}
+                    onChange={(e) => setEditFrom(e.target.value)}
+                  />
+                </div>
+                <div className="sup-input-group" style={{ flex: 1 }}>
+                  <label className="sup-label">To Date (Editable) *</label>
+                  <input
+                    type="date"
+                    required
+                    className="sup-input"
+                    value={editTo}
+                    onChange={(e) => setEditTo(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '4px 0 12px 0', fontSize: '0.8rem' }}>
+                <span style={{ color: 'var(--sup-text-muted)' }}>Approved Leave Duration:</span>
+                <strong style={{ color: 'var(--sup-primary)' }}>{editDays} Day{editDays === 1 ? '' : 's'}</strong>
+              </div>
+
               <div className="sup-input-group">
-                <label className="sup-label">Rejection Date</label>
+                <label className="sup-label">Decision Date</label>
                 <input
                   type="date"
                   required
                   className="sup-input"
-                  value={rejectDate}
-                  onChange={(e) => setRejectDate(e.target.value)}
+                  value={decisionDate}
+                  onChange={(e) => setDecisionDate(e.target.value)}
                 />
               </div>
 
               <div className="sup-input-group">
-                <label className="sup-label">Rejection Reason / Remarks</label>
+                <label className="sup-label">
+                  {decisionAction === 'approved' ? 'Approval Remark' : 'Rejection Reason *'}
+                </label>
                 <textarea
-                  rows={3}
-                  required
+                  rows={2}
+                  required={decisionAction === 'rejected'}
                   className="sup-textarea"
-                  placeholder="Explain why this leave is rejected (e.g. Field audits scheduled, insufficient leave balance)…"
-                  value={rejectReason}
-                  onChange={(e) => setRejectReason(e.target.value)}
+                  placeholder={decisionAction === 'approved' ? 'e.g. Leave approved for 2 days due to field schedule' : 'Explain reason for rejection…'}
+                  value={decisionRemark}
+                  onChange={(e) => setDecisionRemark(e.target.value)}
                 />
               </div>
 
-              <button type="submit" className="sup-btn" style={{ background: 'var(--sup-danger)' }} disabled={busy}>
-                {busy ? 'Rejecting…' : 'Confirm Rejection'}
+              <button
+                type="submit"
+                className="sup-btn"
+                style={{ background: decisionAction === 'approved' ? 'var(--sup-success)' : 'var(--sup-danger)' }}
+                disabled={busy}
+              >
+                {busy ? 'Saving…' : decisionAction === 'approved' ? 'Confirm Approval with Edited Dates' : 'Confirm Rejection'}
               </button>
             </form>
           </div>
@@ -293,4 +398,3 @@ export default function SupervisorLeaveApproval() {
     </div>
   );
 }
-

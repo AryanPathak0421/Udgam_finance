@@ -16,13 +16,14 @@ import { EmiPayment } from '../../models/EmiPayment.js';
 import { AppEmiCollection } from '../../models/AppEmiCollection.js';
 import { LoanSettlement } from '../../models/LoanSettlement.js';
 import { Group } from '../../models/Group.js';
-import { Task, Complaint, Leave, Resignation, Requirement, EmployeeChange } from '../../models/HrExtra.js';
+import { Task, Complaint, Leave, Resignation, Requirement, EmployeeChange, SupervisorVisit, TASK_CATEGORIES } from '../../models/HrExtra.js';
 import { Holiday } from '../../models/SuperAdmin.js';
 import { Company } from '../../models/Company.js';
 import { BankAccount } from '../../models/BankAccount.js';
 import { generateCode } from '../../services/codeSequence.js';
 import { issueOtp, takeVerified, consumeChallenge } from '../../services/otpChallenges.js';
 import { sendSms } from '../../services/sms.js';
+import { notifyEmployee } from '../../services/hrNotify.js';
 import { asString, parseDateOnly, HttpError, startOfToday, todayDateString } from '../../utils/http.js';
 import { audit } from '../../utils/audit.js';
 
@@ -603,6 +604,35 @@ export async function getSupervisorDashboard(req, res) {
     createdAt: { $gte: monthStart },
   });
 
+  // Scheduled / upcoming branch visits from system software (SupervisorVisit)
+  const branchVisits = await SupervisorVisit.find({
+    $or: [{ supervisor: emp._id }, { supervisorCode: code }, { branch: { $in: branchIds } }],
+    visitDate: { $gte: startOfToday() },
+    status: { $ne: 'cancelled' },
+  })
+    .populate('branch', 'code name city pincode')
+    .sort({ visitDate: 1 })
+    .limit(10)
+    .lean();
+
+  // Pending tasks for supervisor and supervised staff
+  const staffCodes = staffMembers.map((s) => s.employeeCode);
+  const staffIds = staffMembers.map((s) => s._id);
+  const pendingTasks = await Task.find({
+    $or: [
+      { assignedTo: { $in: staffIds } },
+      { assignedToCode: { $in: staffCodes } },
+      { branch: { $in: branchIds } },
+      { createdByCode: code },
+      { assignedTo: emp._id },
+      { assignedToCode: code },
+    ],
+    status: { $in: ['open', 'in_progress'] },
+  })
+    .sort({ dueDate: 1 })
+    .limit(10)
+    .lean();
+
   res.json({
     metrics: {
       totalDueToday: Math.round(totalDueToday),
@@ -614,11 +644,15 @@ export async function getSupervisorDashboard(req, res) {
       npaCount: npaLoans.length,
       npaTotalAmount: Math.round(npaTotalAmount),
       newMembersCount,
+      pendingTasksCount: pendingTasks.length,
+      branchVisitsCount: branchVisits.length,
     },
     staffWiseDues: Object.values(staffDueMap),
     branchWiseDues: Object.values(branchDueMap),
     branches,
     staffMembers,
+    branchVisits,
+    pendingTasks,
   });
 }
 
@@ -1267,10 +1301,12 @@ const locationsOf = (e) => {
 
 export async function markSupervisorFirstMeetingAttendance(req, res) {
   const code = req.user?.employeeCode;
-  const { photo, location } = req.body || {};
+  const { photo, location, pincode } = req.body || {};
   if (!photo) throw new HttpError(400, 'First meeting live photo upload is required');
 
-  const emp = await Employee.findOne({ employeeCode: code, isDeleted: false });
+  const emp = await Employee.findOne({ employeeCode: code, isDeleted: false })
+    .populate('branch')
+    .populate('supervisedBranches');
   if (!emp) throw new HttpError(404, 'Supervisor record not found');
 
   const today = startOfToday();
@@ -1290,28 +1326,57 @@ export async function markSupervisorFirstMeetingAttendance(req, res) {
     }
   }
 
-  // 3. Validate geofence location radius if places are configured
+  // Point 8: Pincode-wise attendance verification
+  const cleanPin = String(pincode || location?.pincode || '').replace(/\D/g, '').slice(0, 6);
+  let pincodeVerified = false;
+  if (cleanPin.length === 6) {
+    // Check against supervisor's branch, supervised branches, or active branch network
+    const allowedPins = [
+      emp.branch?.pincode,
+      ...(emp.supervisedBranches || []).map((b) => b.pincode),
+    ].filter(Boolean);
+
+    if (allowedPins.length > 0) {
+      if (allowedPins.includes(cleanPin)) {
+        pincodeVerified = true;
+      } else {
+        // Also verify if it exists as an active branch pincode in company
+        const branchMatch = await Branch.findOne({ pincode: cleanPin, isActive: true });
+        if (branchMatch) pincodeVerified = true;
+      }
+    } else {
+      pincodeVerified = true;
+    }
+  }
+
+  // 3. Validate geofence location radius if places are configured and pincode is not already verified
   const places = locationsOf(emp);
-  if (places.length) {
+  if (places.length && !pincodeVerified) {
     const lat = Number(location?.lat);
     const lng = Number(location?.lng);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-      throw new HttpError(422, 'GPS location coordinates are required for attendance verification.');
+      throw new HttpError(422, 'GPS location coordinates or valid 6-digit branch Pincode is required for attendance verification.');
     }
     const measured = places.map((p) => ({ ...p, distance: Math.round(metresBetween(p.lat, p.lng, lat, lng)) })).sort((a, b) => a.distance - b.distance);
     const nearest = measured[0];
     if (measured.every((p) => p.distance > (p.radius || 500))) {
-      throw new HttpError(422, `You are ${nearest.distance}m away from ${nearest.name || 'attendance location'}. Attendance allowed within ${nearest.radius || 500}m.`);
+      throw new HttpError(422, `You are ${nearest.distance}m away from ${nearest.name || 'attendance location'}. Please mark attendance from your assigned branch or enter branch pincode.`);
     }
   }
+
+  const resolvedLocation = {
+    ...(location || {}),
+    pincode: cleanPin || emp.branch?.pincode || '',
+    address: location?.address || (cleanPin ? `Pincode: ${cleanPin}` : ''),
+  };
 
   const meetingRecord = await FirstMeetingAttendance.create({
     employeeCode: code,
     employeeName: emp.name,
-    branch: emp.branch,
+    branch: emp.branch?._id || emp.branch,
     date: today,
     photo,
-    location,
+    location: resolvedLocation,
     status: 'present',
   });
 
@@ -1326,14 +1391,14 @@ export async function markSupervisorFirstMeetingAttendance(req, res) {
       lng: location?.lng,
       firstActivity: new Date(),
       lastActivity: new Date(),
-      remark: 'Supervisor first meeting marked with photo in app',
+      remark: cleanPin ? `Supervisor attendance marked with Pincode ${cleanPin}` : 'Supervisor first meeting marked with photo in app',
     },
     { upsert: true }
   );
 
   res.status(201).json({
     success: true,
-    message: 'First meeting attendance marked successfully with live photo!',
+    message: cleanPin ? `Attendance marked successfully for Pincode ${cleanPin}!` : 'First meeting attendance marked successfully with live photo!',
     item: meetingRecord,
   });
 }
@@ -1458,7 +1523,7 @@ export async function getStaffLeaves(req, res) {
 export async function decideStaffLeave(req, res) {
   const code = req.user?.employeeCode;
   const { id } = req.params;
-  const { action, rejectReason, remark } = req.body || {};
+  const { action, rejectReason, remark, fromDate, toDate, from, to, days, decisionDate, rejectDate } = req.body || {};
 
   if (!['approved', 'rejected'].includes(action)) {
     throw new HttpError(400, "Action must be 'approved' or 'rejected'");
@@ -1467,9 +1532,21 @@ export async function decideStaffLeave(req, res) {
   const leave = await Leave.findById(id);
   if (!leave) throw new HttpError(404, 'Leave request not found');
 
+  // Point 10: Allow supervisor to edit leave dates upon decision
+  const resolvedFrom = fromDate || from;
+  const resolvedTo = toDate || to;
+  if (resolvedFrom) leave.from = new Date(resolvedFrom);
+  if (resolvedTo) leave.to = new Date(resolvedTo);
+  if (days && Number(days) > 0) {
+    leave.days = Number(days);
+  } else if (leave.from && leave.to) {
+    const diffDays = Math.max(1, Math.round((new Date(leave.to) - new Date(leave.from)) / (24 * 60 * 60 * 1000)) + 1);
+    leave.days = diffDays;
+  }
+
   leave.status = action;
   leave.decidedByCode = code;
-  leave.decidedAt = new Date();
+  leave.decidedAt = decisionDate ? new Date(decisionDate) : rejectDate ? new Date(rejectDate) : new Date();
 
   if (action === 'rejected') {
     leave.rejectReason = rejectReason || remark || 'Rejected by Supervisor';
@@ -1478,6 +1555,14 @@ export async function decideStaffLeave(req, res) {
   }
 
   await leave.save();
+
+  // Notify employee of leave decision and updated dates
+  notifyEmployee(
+    leave.employee,
+    `Leave Application ${action.toUpperCase()}`,
+    `Your leave application from ${leave.from ? new Date(leave.from).toISOString().slice(0, 10) : ''} to ${leave.to ? new Date(leave.to).toISOString().slice(0, 10) : ''} (${leave.days} day${leave.days === 1 ? '' : 's'}) has been ${action} by Supervisor ${code}.`
+  ).catch(() => {});
+
   res.json({
     status: 'ok',
     message: `Leave request has been ${action} successfully.`,
@@ -1645,8 +1730,16 @@ export async function rateStaffMember(req, res) {
   mpinDoc.averageRating = Math.round((total / mpinDoc.ratings.length) * 10) / 10;
   await mpinDoc.save();
 
-  // Also save averageRating on targetEmp model for Admin HR visibility
+  // Also save averageRating and rating entry on targetEmp model for Admin HR & Staff App visibility
   targetEmp.averageRating = mpinDoc.averageRating;
+  if (!Array.isArray(targetEmp.ratings)) targetEmp.ratings = [];
+  targetEmp.ratings.unshift({
+    stars,
+    review,
+    supervisorCode,
+    supervisorName: supervisor?.name || supervisorCode,
+    date: new Date(),
+  });
   await targetEmp.save();
 
   res.json({
@@ -1662,7 +1755,14 @@ export async function getStaffRatingsList(req, res) {
   if (!emp) throw new HttpError(404, 'Supervisor not found');
 
   const branchIds = await getSupervisorBranchIds(emp, req.user);
-  const staff = await Employee.find({ branch: { $in: branchIds }, isDeleted: false, status: 'active' })
+  // Point 11: Strictly exclude the supervisor themselves so their own name doesn't appear
+  const staff = await Employee.find({
+    branch: { $in: branchIds },
+    employeeCode: { $ne: code },
+    _id: { $ne: emp._id },
+    isDeleted: false,
+    status: 'active',
+  })
     .populate('branch', 'code name')
     .populate('designation', 'name');
 
@@ -1673,6 +1773,8 @@ export async function getStaffRatingsList(req, res) {
   res.json({
     staff: staff.map((s) => {
       const doc = mpinMap.get(s.employeeCode);
+      const avg = s.averageRating || doc?.averageRating || 5;
+      const allRatings = (s.ratings?.length ? s.ratings : doc?.ratings) || [];
       return {
         id: s._id,
         code: s.employeeCode,
@@ -1680,8 +1782,8 @@ export async function getStaffRatingsList(req, res) {
         designation: s.designation?.name || 'Field Officer',
         branchName: s.branch?.name || '',
         photo: s.photo || '',
-        averageRating: doc?.averageRating || 5,
-        ratings: doc?.ratings || [],
+        averageRating: avg,
+        ratings: allRatings,
       };
     }),
   });
@@ -1964,6 +2066,28 @@ export async function getSupervisorNotifications(req, res) {
     });
   });
 
+  // 5. Scheduled Branch Visits (Point 9: SupervisorVisit)
+  const branchVisits = await SupervisorVisit.find({
+    $or: [{ supervisor: emp._id }, { supervisorCode: code }, { branch: { $in: branchIds } }],
+    visitDate: { $gte: startOfToday() },
+    status: { $ne: 'cancelled' },
+  })
+    .populate('branch', 'code name city pincode')
+    .sort({ visitDate: 1 })
+    .limit(5);
+
+  branchVisits.forEach((v) => {
+    notifications.push({
+      id: `visit_${v._id}`,
+      type: 'branch_visit',
+      title: 'Scheduled Branch Visit',
+      message: `Branch visit scheduled at ${v.branchCode} - ${v.branchName} (${v.branchCity || ''}) on ${v.visitDate ? new Date(v.visitDate).toISOString().slice(0, 10) : 'Today'}`,
+      link: '/supervisor/center-visits',
+      time: v.visitDate ? new Date(v.visitDate).toLocaleDateString() : 'Today',
+      read: false,
+    });
+  });
+
   res.json({
     total: notifications.length,
     notifications,
@@ -1976,8 +2100,8 @@ export async function dismissSupervisorNotification(req, res) {
 }
 
 // -----------------------------------------------------------------------------
-// 22. SUPERVISOR TASKS: PENDING & ASSIGNED (Handwritten Sheet: Point 3)
-// "Task show and Pending"
+// 22. SUPERVISOR TASKS: PENDING & ASSIGNED (Points 7 & 12)
+// "Task show and Pending" + Module Categories Dropdown
 // -----------------------------------------------------------------------------
 
 export async function getSupervisorTasks(req, res) {
@@ -1990,19 +2114,28 @@ export async function getSupervisorTasks(req, res) {
   const staffIds = staff.map((s) => s._id);
   const staffCodes = staff.map((s) => s.employeeCode);
 
-  const tasks = await Task.find({
+  const { category } = req.query;
+  const query = {
     $or: [
       { assignedTo: { $in: staffIds } },
       { assignedToCode: { $in: staffCodes } },
       { branch: { $in: branchIds } },
       { createdByCode: code },
+      { assignedTo: emp._id },
+      { assignedToCode: code },
     ],
-  })
+  };
+
+  if (category && category !== 'all') {
+    query.category = category;
+  }
+
+  const tasks = await Task.find(query)
     .sort({ dueDate: 1, createdAt: -1 })
     .lean();
 
   const pendingTasks = tasks.filter((t) => t.status === 'open' || t.status === 'in_progress');
-  const completedTasks = tasks.filter((t) => t.status === 'completed');
+  const completedTasks = tasks.filter((t) => t.status === 'completed' || t.status === 'done');
 
   res.json({
     summary: {
@@ -2013,13 +2146,14 @@ export async function getSupervisorTasks(req, res) {
     tasks,
     pendingTasks,
     completedTasks,
+    categories: ['Disbursement', 'Collections', 'New Member', 'Product', 'NPA Report', 'General'],
     staff: staff.map((s) => ({ id: s._id, code: s.employeeCode, name: s.name, designation: s.designation?.name })),
   });
 }
 
 export async function createSupervisorTask(req, res) {
   const code = req.user?.employeeCode;
-  const { title, description, assignedToId, dueDate, priority = 'medium' } = req.body || {};
+  const { title, description, assignedToId, dueDate, priority = 'medium', category = 'General' } = req.body || {};
 
   if (!title) throw new HttpError(400, 'Task title is required');
   if (!assignedToId) throw new HttpError(400, 'Please select employee to assign task');
@@ -2030,6 +2164,7 @@ export async function createSupervisorTask(req, res) {
   const task = await Task.create({
     title: cleanStr(title),
     description: cleanStr(description),
+    category: cleanStr(category) || 'General',
     branch: assignedEmp.branch?._id || assignedEmp.branch,
     assignedTo: assignedEmp._id,
     assignedToCode: assignedEmp.employeeCode,
@@ -2039,6 +2174,13 @@ export async function createSupervisorTask(req, res) {
     status: 'open',
     createdByCode: code,
   });
+
+  // Notify staff member in Employee App
+  notifyEmployee(
+    assignedEmp._id,
+    `New Task Assigned: ${task.title}`,
+    `Supervisor ${code} has assigned you a task (${task.category}): ${task.title}. Due date: ${task.dueDate ? task.dueDate.toISOString().slice(0, 10) : 'Immediate'}.`
+  ).catch(() => {});
 
   res.status(201).json({
     status: 'ok',
@@ -2055,10 +2197,13 @@ export async function updateSupervisorTaskStatus(req, res) {
   const task = await Task.findById(id);
   if (!task) throw new HttpError(404, 'Task not found');
 
-  task.status = status;
+  // Accept both 'completed' and 'done' without schema validation failures
+  const cleanStatus = status === 'completed' ? 'done' : status;
+  task.status = cleanStatus;
+
   if (!task.history) task.history = [];
   task.history.push({
-    status,
+    status: cleanStatus,
     remark: remark || `Updated by Supervisor ${code}`,
     byCode: code,
     at: new Date(),
@@ -2066,5 +2211,97 @@ export async function updateSupervisorTaskStatus(req, res) {
   await task.save();
 
   res.json({ status: 'ok', message: `Task status updated to ${status}!`, task });
+}
+
+// -----------------------------------------------------------------------------
+// 23. BRANCH VISITS (SUPERVISOR VISIT SYSTEM LINKAGE - Point 9)
+// "New Branch Visit system se update ke baad Home Page se show nahi ho raha hai"
+// -----------------------------------------------------------------------------
+
+export async function getSupervisorBranchVisits(req, res) {
+  const code = req.user?.employeeCode;
+  const emp = await Employee.findOne({ employeeCode: code, isDeleted: false });
+  if (!emp) throw new HttpError(404, 'Supervisor not found');
+
+  const branchIds = await getSupervisorBranchIds(emp, req.user);
+  const visits = await SupervisorVisit.find({
+    $or: [{ supervisor: emp._id }, { supervisorCode: code }, { branch: { $in: branchIds } }],
+  })
+    .populate('branch', 'code name city pincode state address')
+    .sort({ visitDate: -1, createdAt: -1 })
+    .limit(100)
+    .lean();
+
+  res.json({
+    total: visits.length,
+    visits,
+  });
+}
+
+export async function recordSupervisorBranchVisit(req, res) {
+  const code = req.user?.employeeCode;
+  const emp = await Employee.findOne({ employeeCode: code, isDeleted: false }).populate('branch');
+  if (!emp) throw new HttpError(404, 'Supervisor not found');
+
+  const { branchId, visitDate, roomRentCharged = true, notes = '' } = req.body || {};
+  if (!branchId) throw new HttpError(400, 'Branch selection is required for Branch Visit');
+
+  const targetBranch = await Branch.findById(branchId);
+  if (!targetBranch) throw new HttpError(404, 'Target branch not found');
+
+  const parsedDate = visitDate ? new Date(visitDate) : new Date();
+
+  // Point 9: Persist directly into the system's SupervisorVisit collection
+  const visit = await SupervisorVisit.create({
+    supervisor: emp._id,
+    supervisorCode: emp.employeeCode,
+    supervisorName: emp.name,
+    supervisorMobile: emp.mobile || '',
+    branch: targetBranch._id,
+    branchCode: targetBranch.code,
+    branchName: targetBranch.name,
+    branchCity: targetBranch.city || '',
+    branchPincode: targetBranch.pincode || '',
+    visitDate: parsedDate,
+    roomRentCharged: Boolean(roomRentCharged),
+    notes: cleanStr(notes),
+    status: 'scheduled',
+    createdByCode: code,
+  });
+
+  const msg = `Branch visit scheduled on ${parsedDate.toISOString().slice(0, 10)} for branch ${targetBranch.code} - ${targetBranch.name} (${targetBranch.city || ''}, Pincode: ${targetBranch.pincode || ''}).`;
+  notifyEmployee(emp._id, 'Branch Visit Scheduled', msg).catch(() => {});
+
+  await audit(req, {
+    action: 'supervisorApp.branchVisit',
+    entity: 'SupervisorVisit',
+    entityId: visit._id,
+    after: { supervisor: emp.employeeCode, branch: targetBranch.code, date: parsedDate.toISOString().slice(0, 10) },
+  });
+
+  res.status(201).json({
+    status: 'ok',
+    message: `Branch visit for ${targetBranch.name} recorded into system successfully!`,
+    visit,
+  });
+}
+
+export async function updateSupervisorBranchVisitStatus(req, res) {
+  const code = req.user?.employeeCode;
+  const { id } = req.params;
+  const { status, notes } = req.body || {};
+
+  const visit = await SupervisorVisit.findById(id);
+  if (!visit) throw new HttpError(404, 'Branch visit record not found');
+
+  if (status) visit.status = status;
+  if (notes) visit.notes = (visit.notes ? `${visit.notes} | ` : '') + cleanStr(notes);
+  await visit.save();
+
+  res.json({
+    status: 'ok',
+    message: `Branch visit status updated to ${visit.status}!`,
+    visit,
+  });
 }
 

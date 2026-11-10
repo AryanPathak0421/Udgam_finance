@@ -41,6 +41,9 @@ import {
   getSupervisorTasks,
   createSupervisorTask,
   updateSupervisorTaskStatus,
+  getSupervisorBranchVisits,
+  recordSupervisorBranchVisit,
+  updateSupervisorBranchVisitStatus,
 } from './supervisorAppController.js';
 
 const router = Router();
@@ -102,5 +105,10 @@ router.post('/notifications/dismiss', requireAuth, h(dismissSupervisorNotificati
 router.get('/tasks', requireAuth, h(getSupervisorTasks));
 router.post('/tasks', requireAuth, h(createSupervisorTask));
 router.patch('/tasks/:id', requireAuth, h(updateSupervisorTaskStatus));
+
+// Branch Visits (Point 9)
+router.get('/branch-visits', requireAuth, h(getSupervisorBranchVisits));
+router.post('/branch-visits', requireAuth, h(recordSupervisorBranchVisit));
+router.patch('/branch-visits/:id/status', requireAuth, h(updateSupervisorBranchVisitStatus));
 
 export default router;

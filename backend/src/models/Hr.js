@@ -122,6 +122,16 @@ const employeeSchema = new mongoose.Schema(
     blockedByCode: String,
     isDeleted: { type: Boolean, default: false },
     createdByCode: String,
+    averageRating: { type: Number, default: 5 },
+    ratings: [
+      {
+        stars: { type: Number, default: 5 },
+        review: String,
+        supervisorCode: String,
+        supervisorName: String,
+        date: { type: Date, default: Date.now },
+      },
+    ],
   },
   { timestamps: true }
 );

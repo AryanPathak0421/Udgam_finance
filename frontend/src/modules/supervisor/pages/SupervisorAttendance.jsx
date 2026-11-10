@@ -35,14 +35,30 @@ export default function SupervisorAttendance() {
   const [personalList, setPersonalList] = useState([]);
   const [teamList, setTeamList] = useState([]);
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [teamBranchFilter, setTeamBranchFilter] = useState('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  // First meeting punch state
+  // First meeting punch state + Pincode
   const [photo, setPhoto] = useState('');
+  const [pincode, setPincode] = useState('');
   const [punching, setPunching] = useState(false);
   const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    loadProfilePincode();
+  }, []);
+
+  async function loadProfilePincode() {
+    try {
+      const res = await api.supervisorApp.profile();
+      if (res.profile?.branch) {
+        const digits = (res.profile.address || '').match(/\b\d{6}\b/);
+        if (digits) setPincode(digits[0]);
+      }
+    } catch {}
+  }
 
   useEffect(() => {
     if (mode === 'personal') {
@@ -94,6 +110,12 @@ export default function SupervisorAttendance() {
       setError('Live photo is required to mark First Meeting attendance');
       return;
     }
+    const cleanPin = pincode.replace(/\D/g, '').slice(0, 6);
+    if (!cleanPin || cleanPin.length !== 6) {
+      setError('Please enter a valid 6-digit branch Pincode for attendance verification');
+      return;
+    }
+
     setPunching(true);
     setError('');
     setSuccess('');
@@ -107,16 +129,17 @@ export default function SupervisorAttendance() {
         });
         location = { lat: pos.coords.latitude, lng: pos.coords.longitude };
       } catch {
-        // Fallback if permission blocked
+        // Fallback to pincode verification if GPS blocked
       }
     }
 
     try {
       const res = await api.supervisorApp.markFirstMeetingAttendance({
         photo,
-        location,
+        pincode: cleanPin,
+        location: { ...(location || {}), pincode: cleanPin },
       });
-      setSuccess(res.message || 'First meeting attendance marked successfully!');
+      setSuccess(res.message || 'First meeting attendance marked successfully with Pincode!');
       setPhoto('');
       loadPersonalAttendance();
     } catch (err) {
@@ -125,6 +148,11 @@ export default function SupervisorAttendance() {
       setPunching(false);
     }
   };
+
+  const uniqueTeamBranches = [...new Set(teamList.map((t) => t.branchName).filter(Boolean))];
+  const displayedTeamList = teamBranchFilter === 'all'
+    ? teamList
+    : teamList.filter((t) => t.branchName === teamBranchFilter);
 
   return (
     <div className="sup-page-container">
@@ -187,15 +215,30 @@ export default function SupervisorAttendance() {
         </div>
       )}
 
-      {/* First Meeting Attendance Punch Card (Item 18 on sheet) */}
+      {/* First Meeting Attendance Punch Card with Pincode (Point 8) */}
       {mode === 'personal' && (
         <div className="sup-card" style={{ marginBottom: 14, border: '1px solid var(--sup-primary-light)', background: '#f0fdf4' }}>
           <h3 style={{ margin: '0 0 6px 0', fontSize: '1rem', fontWeight: 800, color: 'var(--sup-primary)' }}>
             📷 First Meeting Attendance (Branch Present)
           </h3>
           <p style={{ margin: '0 0 10px 0', fontSize: '0.78rem', color: 'var(--sup-text-muted)' }}>
-            Take a live photo at branch / morning meeting to record your official presence for today.
+            Take a live photo at branch / morning meeting and verify with Pincode to record official presence.
           </p>
+
+          {/* Point 8: Branch Pincode input */}
+          <div className="sup-input-group" style={{ marginBottom: 10 }}>
+            <label className="sup-label" style={{ fontSize: '0.78rem' }}>Branch Pincode *</label>
+            <input
+              type="text"
+              inputMode="numeric"
+              maxLength={6}
+              className="sup-input"
+              placeholder="Enter 6-digit branch pincode (e.g. 800001)"
+              value={pincode}
+              onChange={(e) => setPincode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              style={{ background: '#fff' }}
+            />
+          </div>
 
           <input
             ref={fileInputRef}
@@ -212,27 +255,27 @@ export default function SupervisorAttendance() {
               <div style={{ marginTop: 6, display: 'flex', gap: 8, justifyContent: 'center' }}>
                 <button
                   type="button"
-                  className="sup-btn"
-                  style={{ fontSize: '0.75rem', padding: '4px 10px' }}
+                  className="sup-btn secondary"
+                  style={{ fontSize: '0.75rem', padding: '4px 10px', width: 'auto' }}
                   onClick={() => fileInputRef.current?.click()}
                 >
-                  Retake
+                  Retake Photo
                 </button>
                 <button
                   type="button"
-                  className="sup-btn sup-btn-primary"
-                  style={{ fontSize: '0.78rem', padding: '6px 14px' }}
+                  className="sup-btn"
+                  style={{ fontSize: '0.78rem', padding: '6px 14px', width: 'auto' }}
                   onClick={handlePunchAttendance}
                   disabled={punching}
                 >
-                  {punching ? 'Recording...' : '✓ Confirm & Punch'}
+                  {punching ? 'Recording…' : '✓ Confirm & Punch'}
                 </button>
               </div>
             </div>
           ) : (
             <button
               type="button"
-              className="sup-btn sup-btn-primary"
+              className="sup-btn"
               style={{ width: '100%', fontSize: '0.85rem', padding: '10px 0' }}
               onClick={() => fileInputRef.current?.click()}
             >
@@ -243,15 +286,33 @@ export default function SupervisorAttendance() {
       )}
 
       {mode === 'team' && (
-        <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <label style={{ fontSize: '0.82rem', fontWeight: 600 }}>Date:</label>
-          <input
-            type="date"
-            className="sup-input"
-            style={{ width: 'auto', padding: '6px 10px', fontSize: '0.85rem' }}
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-          />
+        <div style={{ marginBottom: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <label style={{ fontSize: '0.82rem', fontWeight: 600, minWidth: 40 }}>Date:</label>
+            <input
+              type="date"
+              className="sup-input"
+              style={{ width: 'auto', padding: '6px 10px', fontSize: '0.85rem', flex: 1 }}
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+            />
+          </div>
+
+          {/* Point 8: Team attendance Branch dropdown filter */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <label style={{ fontSize: '0.82rem', fontWeight: 600, minWidth: 40 }}>Branch:</label>
+            <select
+              className="sup-select"
+              value={teamBranchFilter}
+              onChange={(e) => setTeamBranchFilter(e.target.value)}
+              style={{ flex: 1, fontSize: '0.85rem' }}
+            >
+              <option value="all">All Branches ({teamList.length} staff)</option>
+              {uniqueTeamBranches.map((b) => (
+                <option key={b} value={b}>{b}</option>
+              ))}
+            </select>
+          </div>
         </div>
       )}
 
@@ -290,12 +351,12 @@ export default function SupervisorAttendance() {
           ))
         )
       ) : (
-        teamList.length === 0 ? (
+        displayedTeamList.length === 0 ? (
           <div className="sup-card" style={{ textAlign: 'center', padding: '24px 0', color: 'var(--sup-text-muted)' }}>
-            No staff attendance recorded for selected date
+            No staff attendance recorded for selected filter
           </div>
         ) : (
-          teamList.map((staff) => (
+          displayedTeamList.map((staff) => (
             <div key={staff.id} className="sup-card" style={{ padding: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <strong style={{ fontSize: '0.92rem' }}>{staff.name}</strong>

@@ -57,11 +57,13 @@ rentPartySchema.index({ branch: 1, kind: 1, isDeleted: 1 });
 export const RentParty = mongoose.model('RentParty', rentPartySchema);
 export const RoomRent = mongoose.model('RoomRent', roomRentSchema);
 
-export const TASK_STATUS = ['open', 'in_progress', 'done', 'cancelled'];
+export const TASK_STATUS = ['open', 'in_progress', 'done', 'completed', 'cancelled'];
+export const TASK_CATEGORIES = ['Disbursement', 'Collections', 'New Member', 'Product', 'NPA Report', 'General'];
 const taskSchema = new mongoose.Schema(
   {
     title: { type: String, required: true, trim: true },
     description: String,
+    category: { type: String, default: 'General' },
     branch: ref('Branch'),
     assignedTo: { ...ref('Employee'), required: true },
     assignedToCode: String,
