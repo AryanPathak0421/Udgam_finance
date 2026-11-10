@@ -287,17 +287,18 @@ export async function loginWithMpin(req, res) {
   if (!ok) throw new HttpError(401, 'Incorrect mPIN');
 
   const ensuredUser = await ensureUserForSupervisor(emp);
+  const activeUser = ensuredUser || user;
   mpinDoc.lastLoginAt = new Date();
   mpinDoc.isSupervisor = true;
   await mpinDoc.save();
 
   const token = jwt.sign(
     {
-      id: user._id,
-      userId: user._id,
-      role: user.role,
+      id: activeUser._id,
+      userId: activeUser._id,
+      role: activeUser.role,
       employeeCode: emp.employeeCode,
-      branchId: emp.branch?._id || user.branches?.[0] || null,
+      branchId: emp.branch?._id || activeUser.branches?.[0] || null,
       isSupervisor: true,
     },
     JWT_SECRET,
@@ -317,7 +318,7 @@ export async function loginWithMpin(req, res) {
   res.json({
     token,
     user: {
-      id: user._id,
+      id: activeUser._id,
       employeeId: emp._id,
       employeeCode: emp.employeeCode,
       name: emp.name,
