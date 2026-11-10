@@ -13,6 +13,8 @@ import { Branch } from '../../models/Branch.js';
 import { Member } from '../../models/Member.js';
 import { LoanPayment } from '../../models/LoanPayment.js';
 import { EmiPayment } from '../../models/EmiPayment.js';
+import { AppEmiCollection } from '../../models/AppEmiCollection.js';
+import { LoanSettlement } from '../../models/LoanSettlement.js';
 import { Group } from '../../models/Group.js';
 import { Task, Complaint, Leave, Resignation, Requirement, EmployeeChange } from '../../models/HrExtra.js';
 import { Holiday } from '../../models/SuperAdmin.js';
@@ -28,6 +30,22 @@ const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-key-udgam-2026';
 const COOKIE_NAME = process.env.COOKIE_NAME || 'udgam_token';
 
 const cleanStr = (s) => String(s || '').trim();
+
+// Strictly checks if employee / user is authorized as a Supervisor or Manager
+export function isEmployeeSupervisor(emp, user = null) {
+  if (!emp) return false;
+  if (emp.isSupervisor === true) return true;
+  if (Array.isArray(emp.supervisedBranches) && emp.supervisedBranches.length > 0) return true;
+  const desigName = (emp.designation?.name || '').toLowerCase();
+  if (/supervisor|manager|branch manager|area manager|coordinator|regional|director|admin|head/i.test(desigName)) {
+    return true;
+  }
+  const role = (user?.role || '').toLowerCase();
+  if (['supervisor', 'branch_manager', 'area_manager', 'admin', 'super_admin', 'manager'].includes(role)) {
+    return true;
+  }
+  return false;
+}
 
 // Finds matching Employee record for Supervisor by code, mobile or email
 async function findSupervisor(identifier) {
@@ -161,6 +179,18 @@ export async function lookupSupervisor(req, res) {
   const emp = await findSupervisor(identifier);
   if (!emp) throw new HttpError(404, 'Supervisor record not found in system. Please contact Admin/HR to register you first.');
 
+  const user = await User.findOne({
+    $or: [
+      { employeeCode: emp.employeeCode },
+      ...(emp.user ? [{ _id: emp.user }] : []),
+      ...(emp.email ? [{ email: emp.email.toLowerCase() }] : []),
+    ],
+  }).lean();
+
+  if (!isEmployeeSupervisor(emp, user)) {
+    throw new HttpError(403, 'Access denied: You are registered as field staff, not a Supervisor. Please use the Employee App.');
+  }
+
   const mpinRecord = await EmployeeMpin.findOne({ employeeCode: emp.employeeCode }).select('+mpinHash');
   res.json({
     found: true,
@@ -183,10 +213,25 @@ export async function createMpin(req, res) {
   if (!code) throw new HttpError(400, 'Supervisor code is required');
   if (!/^\d{4,6}$/.test(mpin)) throw new HttpError(400, 'mPIN must be 4 to 6 digits');
 
-  const emp = await Employee.findOne({ employeeCode: code, isDeleted: false }).populate('designation');
+  const emp = await Employee.findOne({ employeeCode: code, isDeleted: false })
+    .populate('designation')
+    .populate('supervisedBranches')
+    .populate('branch');
   if (!emp) throw new HttpError(404, 'Supervisor not found');
 
-  const user = await ensureUserForSupervisor(emp);
+  const user = await User.findOne({
+    $or: [
+      { employeeCode: emp.employeeCode },
+      ...(emp.user ? [{ _id: emp.user }] : []),
+      ...(emp.email ? [{ email: emp.email.toLowerCase() }] : []),
+    ],
+  });
+
+  if (!isEmployeeSupervisor(emp, user)) {
+    throw new HttpError(403, 'Access denied: Only designated Supervisors and Branch Managers can create an mPIN for the Supervisor App.');
+  }
+
+  const ensuredUser = await ensureUserForSupervisor(emp);
   const mpinHash = await EmployeeMpin.hashMpin(mpin);
 
   let record = await EmployeeMpin.findOne({ employeeCode: code });
@@ -195,13 +240,13 @@ export async function createMpin(req, res) {
     record.mobile = emp.mobile;
     record.email = emp.email;
     record.isSupervisor = true;
-    record.user = user._id;
+    record.user = ensuredUser._id;
     record.employee = emp._id;
     await record.save();
   } else {
     record = await EmployeeMpin.create({
       employee: emp._id,
-      user: user._id,
+      user: ensuredUser._id,
       employeeCode: code,
       mobile: emp.mobile,
       email: emp.email,
@@ -223,13 +268,25 @@ export async function loginWithMpin(req, res) {
   if (!emp) throw new HttpError(401, 'Invalid credentials');
   if (emp.status !== 'active' || emp.isBlocked) throw new HttpError(403, 'Your account is inactive or blocked');
 
+  const user = await User.findOne({
+    $or: [
+      { employeeCode: emp.employeeCode },
+      ...(emp.user ? [{ _id: emp.user }] : []),
+      ...(emp.email ? [{ email: emp.email.toLowerCase() }] : []),
+    ],
+  });
+
+  if (!isEmployeeSupervisor(emp, user)) {
+    throw new HttpError(403, 'Access denied: This portal is strictly for Supervisors. Please use the Employee App.');
+  }
+
   const mpinDoc = await EmployeeMpin.findOne({ employeeCode: emp.employeeCode }).select('+mpinHash');
   if (!mpinDoc) throw new HttpError(401, 'mPIN not set. Please create your mPIN first.');
 
   const ok = await mpinDoc.compareMpin(mpin);
   if (!ok) throw new HttpError(401, 'Incorrect mPIN');
 
-  const user = await ensureUserForSupervisor(emp);
+  const ensuredUser = await ensureUserForSupervisor(emp);
   mpinDoc.lastLoginAt = new Date();
   mpinDoc.isSupervisor = true;
   await mpinDoc.save();
@@ -279,6 +336,18 @@ export async function forgotMpinSendOtp(req, res) {
   const id = cleanStr(req.body?.identifier);
   const emp = await findSupervisor(id);
   if (!emp || !emp.mobile) throw new HttpError(404, 'Supervisor not found or mobile not registered');
+
+  const user = await User.findOne({
+    $or: [
+      { employeeCode: emp.employeeCode },
+      ...(emp.user ? [{ _id: emp.user }] : []),
+      ...(emp.email ? [{ email: emp.email.toLowerCase() }] : []),
+    ],
+  }).lean();
+
+  if (!isEmployeeSupervisor(emp, user)) {
+    throw new HttpError(403, 'Access denied: You are registered as field staff, not a Supervisor.');
+  }
 
   const challenge = await issueOtp('supervisor_mpin_reset', emp.mobile);
   let smsSent = false;
@@ -424,10 +493,57 @@ export async function getSupervisorDashboard(req, res) {
     };
   }
 
+  const groupCodes = [...new Set(loans.map((l) => l.group?.code).filter(Boolean))];
+  const groupDocs = groupCodes.length
+    ? await Group.find({ code: { $in: groupCodes } }).select('code meetingType collectionDay dayOfWeek').lean()
+    : [];
+  const groupMap = new Map(groupDocs.map((g) => [g.code, g]));
+
+  const jsDay = todayStart.getUTCDay();
+  const isoDay = jsDay === 0 ? 7 : jsDay;
+  const dayOfMonth = todayStart.getUTCDate();
+  const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  const todayDateStr = todayDateString();
+
   loans.forEach((l) => {
+    // Point 2: Filter strictly to loans scheduled for today's meeting day / due date
+    let meetsToday = false;
+    const mode = (l.mode || l.modeLabel || 'weekly').toLowerCase();
+    const g = l.group?.code ? groupMap.get(l.group.code) : null;
+    const meetingType = (g?.meetingType || mode).toLowerCase();
+
+    if (meetingType === 'daily') {
+      meetsToday = jsDay !== 0; // Daily: Mon-Sat
+    } else if (meetingType === 'weekly') {
+      let gDayNum = null;
+      if (g?.collectionDay !== undefined && g?.collectionDay !== null) {
+        gDayNum = Number(g.collectionDay);
+      } else if (g?.dayOfWeek) {
+        const idx = dayNames.indexOf(String(g.dayOfWeek).toLowerCase().trim());
+        if (idx >= 0) gDayNum = idx === 0 ? 7 : idx;
+      }
+      if (gDayNum !== null) {
+        meetsToday = gDayNum === isoDay;
+      } else {
+        meetsToday = (l.schedule || []).some((s) => s.dueDate && new Date(s.dueDate).toISOString().slice(0, 10) === todayDateStr);
+      }
+    } else if (meetingType === 'monthly') {
+      const gMonthDay = g?.collectionDay ? Number(g.collectionDay) : null;
+      if (gMonthDay !== null) {
+        meetsToday = gMonthDay === dayOfMonth;
+      } else {
+        meetsToday = (l.schedule || []).some((s) => s.dueDate && new Date(s.dueDate).toISOString().slice(0, 10) === todayDateStr);
+      }
+    } else {
+      meetsToday = (l.schedule || []).some((s) => s.dueDate && new Date(s.dueDate).toISOString().slice(0, 10) === todayDateStr);
+    }
+
+    if (!meetsToday) return;
+
+    const exactInst = (l.schedule || []).find((s) => s.dueDate && new Date(s.dueDate).toISOString().slice(0, 10) === todayDateStr);
     const dueInst = (l.schedule || []).filter((s) => s.dueDate && new Date(s.dueDate) <= todayEnd);
-    if (!dueInst.length) return;
-    const latest = dueInst[dueInst.length - 1];
+    if (!exactInst && !dueInst.length) return;
+    const latest = exactInst || dueInst[dueInst.length - 1];
     const bId = String(l.branch?._id || l.branch);
     const sCode = l.employeeCode || 'OFFICER';
 
@@ -524,7 +640,14 @@ export async function getSupervisorTodayDue(req, res) {
     filterBranchIds = [new mongoose.Types.ObjectId(branchId)];
   }
 
-  const todayEnd = new Date(`${todayDateString()}T23:59:59.999Z`);
+  const dateStr = asString(req.query.date) || todayDateString();
+  const targetDate = new Date(`${dateStr}T12:00:00.000Z`);
+  const jsDay = targetDate.getUTCDay();
+  const isoDay = jsDay === 0 ? 7 : jsDay;
+  const dayOfMonth = targetDate.getUTCDate();
+  const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  const todayEnd = new Date(`${dateStr}T23:59:59.999Z`);
+
   const loans = await LoanPayment.find({
     branch: { $in: filterBranchIds },
     status: 'paid',
@@ -532,6 +655,12 @@ export async function getSupervisorTodayDue(req, res) {
     .select('loanId formId mode modeLabel group lines schedule branch employeeCode')
     .populate('branch', 'code name')
     .lean();
+
+  const groupCodes = [...new Set(loans.map((l) => l.group?.code).filter(Boolean))];
+  const groupDocs = groupCodes.length
+    ? await Group.find({ code: { $in: groupCodes } }).select('code meetingType collectionDay dayOfWeek').lean()
+    : [];
+  const groupMap = new Map(groupDocs.map((g) => [g.code, g]));
 
   const branches = await Branch.find({ _id: { $in: branchIds } }).select('code name');
   const staffList = await Employee.find({ branch: { $in: branchIds }, isDeleted: false, status: 'active' }).select('employeeCode name designation branch');
@@ -547,9 +676,44 @@ export async function getSupervisorTodayDue(req, res) {
   }
 
   loans.forEach((l) => {
+    // Point 2: Filter strictly to loans scheduled for today's meeting day / due date
+    let meetsToday = false;
+    const mode = (l.mode || l.modeLabel || 'weekly').toLowerCase();
+    const g = l.group?.code ? groupMap.get(l.group.code) : null;
+    const meetingType = (g?.meetingType || mode).toLowerCase();
+
+    if (meetingType === 'daily') {
+      meetsToday = jsDay !== 0; // Daily: Mon-Sat
+    } else if (meetingType === 'weekly') {
+      let gDayNum = null;
+      if (g?.collectionDay !== undefined && g?.collectionDay !== null) {
+        gDayNum = Number(g.collectionDay);
+      } else if (g?.dayOfWeek) {
+        const idx = dayNames.indexOf(String(g.dayOfWeek).toLowerCase().trim());
+        if (idx >= 0) gDayNum = idx === 0 ? 7 : idx;
+      }
+      if (gDayNum !== null) {
+        meetsToday = gDayNum === isoDay;
+      } else {
+        meetsToday = (l.schedule || []).some((s) => s.dueDate && new Date(s.dueDate).toISOString().slice(0, 10) === dateStr);
+      }
+    } else if (meetingType === 'monthly') {
+      const gMonthDay = g?.collectionDay ? Number(g.collectionDay) : null;
+      if (gMonthDay !== null) {
+        meetsToday = gMonthDay === dayOfMonth;
+      } else {
+        meetsToday = (l.schedule || []).some((s) => s.dueDate && new Date(s.dueDate).toISOString().slice(0, 10) === dateStr);
+      }
+    } else {
+      meetsToday = (l.schedule || []).some((s) => s.dueDate && new Date(s.dueDate).toISOString().slice(0, 10) === dateStr);
+    }
+
+    if (!meetsToday) return;
+
+    const exactInst = (l.schedule || []).find((s) => s.dueDate && new Date(s.dueDate).toISOString().slice(0, 10) === dateStr);
     const dueInst = (l.schedule || []).filter((s) => s.dueDate && new Date(s.dueDate) <= todayEnd);
-    if (!dueInst.length) return;
-    const latest = dueInst[dueInst.length - 1];
+    if (!exactInst && !dueInst.length) return;
+    const latest = exactInst || dueInst[dueInst.length - 1];
     const bId = String(l.branch?._id || l.branch);
     const sCode = l.employeeCode || 'OFFICER';
 
@@ -565,6 +729,7 @@ export async function getSupervisorTodayDue(req, res) {
         emiAmount: emi,
         branchName: branchMap[bId]?.branchName || l.branch?.name || '',
         staffCode: sCode,
+        dueDate: latest.dueDate ? new Date(latest.dueDate).toISOString().slice(0, 10) : dateStr,
       };
 
       if (branchMap[bId]) {
@@ -734,6 +899,7 @@ export async function getSupervisorNpaOverview(req, res) {
 
   const branchMap = {};
   const centerMap = {};
+  const staffMap = {};
   const today = new Date();
   const npaList = [];
 
@@ -750,18 +916,22 @@ export async function getSupervisorNpaOverview(req, res) {
       const bId = String(l.branch?._id || l.branch);
       const center = l.group?.code ? `Center ${l.group.code}` : (l.branch?.name ? `${l.branch.name} Center` : 'Main Center');
       const amount = Math.round(emi * overdueSchedules.length) || (l.totalAmountPaise || 0) / 100;
+      const staffCode = l.employeeCode || 'OFFICER';
 
       const item = {
         loanPaymentId: l._id,
-        loanId: l._id,
+        loanId: l.loanId || l.formId || String(l._id),
         loanNo: l.loanId || l.formId || String(l._id).slice(-6).toUpperCase(),
         memberCode: line.code || '',
         memberName: line.name || 'Borrower',
-        memberMobile: '',
+        memberMobile: line.mobile || '',
         centerName: center,
+        branchId: bId,
         branchName: branchMap[bId]?.branchName || l.branch?.name || '',
+        staffCode,
         overdueDays: Math.min(365, overdueSchedules.length * 7 || 90),
         balanceAmount: amount,
+        isSettlement: false,
       };
 
       npaList.push(item);
@@ -778,56 +948,162 @@ export async function getSupervisorNpaOverview(req, res) {
       centerMap[center].totalNpaAmount += amount;
       centerMap[center].loanCount += 1;
       centerMap[center].loans.push(item);
+
+      if (!staffMap[staffCode]) {
+        staffMap[staffCode] = { staffCode, totalNpaAmount: 0, loanCount: 0, loans: [] };
+      }
+      staffMap[staffCode].totalNpaAmount += amount;
+      staffMap[staffCode].loanCount += 1;
+      staffMap[staffCode].loans.push(item);
     }
+  }
+
+  // Point 4: Include active / pending settlement loans in NPA Recovery list
+  const settlements = await LoanSettlement.find({
+    branch: { $in: branchIds },
+    status: { $in: ['active', 'pending'] },
+  }).populate('branch', 'code name').lean();
+
+  for (const s of settlements) {
+    const remainingSettlement = Math.max(0, (s.outstandingPaise - (s.amountPaise || 0)) / 100);
+    const bId = String(s.branch?._id || s.branch);
+    const center = s.group ? `Center ${s.group}` : (s.branch?.name ? `${s.branch.name} Center` : 'Main Center');
+    const staffCode = s.createdByCode || 'OFFICER';
+    const balAmt = remainingSettlement > 0 ? remainingSettlement : (s.outstandingPaise / 100);
+
+    const item = {
+      loanPaymentId: s.loanPayment || s._id,
+      loanId: s.loanId || String(s._id),
+      loanNo: s.loanId || s.receiptNo || 'SETTLED',
+      memberCode: s.memberCode || '',
+      memberName: s.memberName || 'Borrower',
+      memberMobile: '',
+      centerName: center,
+      branchId: bId,
+      branchName: branchMap[bId]?.branchName || s.branch?.name || '',
+      staffCode,
+      overdueDays: 90,
+      balanceAmount: balAmt,
+      isSettlement: true,
+      settlementKind: s.kind,
+      settlementReceiptNo: s.receiptNo,
+    };
+
+    npaList.push(item);
+
+    if (branchMap[bId]) {
+      branchMap[bId].totalNpaAmount += balAmt;
+      branchMap[bId].loanCount += 1;
+      branchMap[bId].loans.push(item);
+    }
+
+    if (!centerMap[center]) {
+      centerMap[center] = { centerName: center, branchName: branchMap[bId]?.branchName || '', totalNpaAmount: 0, loanCount: 0, loans: [] };
+    }
+    centerMap[center].totalNpaAmount += balAmt;
+    centerMap[center].loanCount += 1;
+    centerMap[center].loans.push(item);
+
+    if (!staffMap[staffCode]) {
+      staffMap[staffCode] = { staffCode, totalNpaAmount: 0, loanCount: 0, loans: [] };
+    }
+    staffMap[staffCode].totalNpaAmount += balAmt;
+    staffMap[staffCode].loanCount += 1;
+    staffMap[staffCode].loans.push(item);
   }
 
   res.json({
     totalNpaLoans: npaList.length,
     totalNpaAmount: npaList.reduce((sum, l) => sum + l.balanceAmount, 0),
+    items: npaList,
     branchWise: Object.values(branchMap),
     centerWise: Object.values(centerMap),
+    staffWise: Object.values(staffMap),
+    branches,
   });
 }
 
 export async function recoverNpaLoan(req, res) {
-  const { loanPaymentId, memberCode, amount, payMode = 'Cash', reference = '' } = req.body || {};
+  const { loanPaymentId, loanId: bodyLoanId, memberCode, amount, payMode = 'cash', paymentMode, reference = '' } = req.body || {};
   const payAmount = Number(amount);
   if (!payAmount || payAmount < 1) throw new HttpError(400, 'Enter recovery amount of ₹1 or more');
 
-  const loan = await LoanPayment.findById(loanPaymentId);
-  if (!loan) throw new HttpError(404, 'Loan record not found');
+  const searchId = loanPaymentId || bodyLoanId;
+  if (!searchId) throw new HttpError(400, 'Loan ID or Payment ID is required');
 
-  const line = (loan.lines || []).find((l) => l.code === memberCode) || loan.lines?.[0] || { code: 'N/A', name: 'Borrower' };
+  let loan = null;
+  if (mongoose.isValidObjectId(searchId)) {
+    loan = await LoanPayment.findById(searchId);
+  }
+  if (!loan) {
+    loan = await LoanPayment.findOne({
+      $or: [
+        { loanId: searchId },
+        { formId: searchId },
+        { receiptNo: searchId },
+      ],
+    });
+  }
+
+  let settlementDoc = null;
+  if (!loan) {
+    if (mongoose.isValidObjectId(searchId)) {
+      settlementDoc = await LoanSettlement.findById(searchId);
+    }
+    if (!settlementDoc) {
+      settlementDoc = await LoanSettlement.findOne({
+        $or: [{ loanId: searchId }, { receiptNo: searchId }],
+      });
+    }
+    if (settlementDoc?.loanPayment) {
+      loan = await LoanPayment.findById(settlementDoc.loanPayment);
+    }
+  }
+
+  if (!loan && !settlementDoc) {
+    throw new HttpError(404, 'Loan record not found in system');
+  }
+
+  const line = (loan?.lines || []).find((l) => l.code === memberCode)
+    || loan?.lines?.[0]
+    || { code: memberCode || settlementDoc?.memberCode || 'N/A', name: settlementDoc?.memberName || 'Borrower' };
+
+  const resolvedBranch = loan?.branch?._id || loan?.branch || settlementDoc?.branch || (req.user?.branches || [])[0];
   const receiptNo = await generateCode('emiReceipt').catch(() => `NPA${Date.now().toString().slice(-8)}`);
 
-  const doc = await EmiPayment.create({
-    receiptNo,
-    loanPayment: loan._id,
-    loanId: loan.loanId,
-    formId: loan.formId,
-    branch: loan.branch,
+  const modeClean = ['cash', 'bank', 'upi', 'cheque'].includes(String(payMode || paymentMode).toLowerCase())
+    ? String(payMode || paymentMode).toLowerCase()
+    : 'cash';
+
+  // Point 4: Record in AppEmiCollection with status: 'pending' so it strictly appears in System EMI Approval (/app/emi-approval)
+  await AppEmiCollection.create({
+    loanPayment: loan?._id || null,
+    loanId: loan?.loanId || loan?.formId || settlementDoc?.loanId || searchId,
+    branch: resolvedBranch,
+    memberCode: line.code || memberCode || 'MEMBER',
+    memberName: line.name || 'Borrower',
+    group: loan?.group?.code ? `${loan.group.code} — ${loan.group.name}` : (settlementDoc?.group || ''),
+    amountPaise: Math.round(payAmount * 100),
+    collectedOn: new Date(),
     type: 'regular',
     npa: true,
-    member: line.member || null,
-    memberCode: line.code,
-    memberName: line.name,
-    amountPaise: Math.round(payAmount * 100),
-    paidOn: new Date(),
-    payMode: payMode || 'Cash',
-    reference,
-    employeeCode: req.user?.employeeCode || '',
-    createdBy: req.user._id,
-    createdByCode: req.user?.employeeCode || '',
-    status: 'paid',
+    payMode: modeClean,
+    reference: reference || '',
+    collectedBy: req.user._id,
+    collectedByCode: req.user?.employeeCode || '',
+    status: 'pending',
+    receiptNo,
   });
 
   res.status(201).json({
     success: true,
-    receiptNo: doc.receiptNo,
+    receiptNo,
     amount: payAmount,
-    loanId: loan.loanId,
+    loanId: loan?.loanId || searchId,
     memberCode: line.code,
     memberName: line.name,
+    pendingApproval: true,
+    message: `NPA recovery payment of ₹${payAmount} collected and submitted for System EMI Approval (Receipt ${receiptNo})`,
   });
 }
 
@@ -1134,6 +1410,30 @@ export async function getTeamCenterVisits(req, res) {
     .limit(100);
 
   res.json({ visits });
+}
+
+export async function updateCenterVisitStatus(req, res) {
+  const { id } = req.params;
+  const { status, remark = '' } = req.body || {};
+  if (!['done', 'not_done', 'cancelled'].includes(status)) {
+    throw new HttpError(400, 'Status must be done, not_done, or cancelled');
+  }
+
+  const visit = await CenterVisit.findById(id);
+  if (!visit) throw new HttpError(404, 'Center visit record not found');
+
+  visit.status = status;
+  if (remark) {
+    visit.notes = (visit.notes ? `${visit.notes} | ` : '') + `[Status Update: ${status.toUpperCase()}] ${remark}`;
+  }
+  await visit.save();
+
+  res.json({
+    status: 'ok',
+    visitId: visit._id,
+    newStatus: status,
+    message: `Center visit marked as ${status === 'not_done' ? 'NOT Done' : status === 'cancelled' ? 'Cancelled' : 'Done'}`,
+  });
 }
 
 // -----------------------------------------------------------------------------

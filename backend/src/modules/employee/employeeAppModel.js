@@ -100,6 +100,7 @@ const centerVisitSchema = new mongoose.Schema(
     image: String,
     visitDate: { type: Date, default: Date.now },
     notes: String,
+    status: { type: String, enum: ['done', 'not_done', 'cancelled'], default: 'done' },
   },
   { timestamps: true }
 );

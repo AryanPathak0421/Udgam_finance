@@ -12,6 +12,11 @@ export default function EmployeeNpaRecovery() {
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
 
+  // Point 4: Dropdown filters (Branch-wise, Center-wise, Staff-wise)
+  const [selectedBranch, setSelectedBranch] = useState('all');
+  const [selectedCenter, setSelectedCenter] = useState('all');
+  const [selectedStaff, setSelectedStaff] = useState('all');
+
   // Inline Pay State (Point 9: Opens directly under the member card)
   const [activeNpa, setActiveNpa] = useState(null);
   const [recoveryAmount, setRecoveryAmount] = useState('');
@@ -109,8 +114,16 @@ export default function EmployeeNpaRecovery() {
     }
   };
 
-  // Filter NPA loans by search and category
+  // Filter options for dropdowns
+  const branchOptions = Array.from(new Set(npaLoans.map((i) => i.branchName).filter(Boolean)));
+  const centerOptions = Array.from(new Set(npaLoans.map((i) => i.groupName).filter(Boolean)));
+  const staffOptions = Array.from(new Set(npaLoans.map((i) => i.staffCode).filter(Boolean)));
+
+  // Filter NPA loans by dropdowns, search and category
   const filteredNpa = npaLoans.filter((item) => {
+    if (selectedBranch !== 'all' && item.branchName !== selectedBranch) return false;
+    if (selectedCenter !== 'all' && item.groupName !== selectedCenter) return false;
+    if (selectedStaff !== 'all' && item.staffCode !== selectedStaff) return false;
     if (categoryFilter !== 'all' && (item.npaCategory || '').toLowerCase() !== categoryFilter.toLowerCase()) {
       return false;
     }
@@ -136,7 +149,7 @@ export default function EmployeeNpaRecovery() {
               <span>NPA Recovery Management</span>
             </h2>
             <p style={{ fontSize: '0.8rem', color: 'var(--emp-text-muted)', margin: '4px 0 0 0' }}>
-              Overdue defaulted loans (DPD &gt; 90). Fast lookup & inline recovery collection.
+              Overdue defaulted & settlement loans (DPD &gt; 90). Fast lookup & inline recovery collection.
             </p>
           </div>
           <span className="emp-badge emp-badge-danger" style={{ fontWeight: 800 }}>
@@ -144,8 +157,54 @@ export default function EmployeeNpaRecovery() {
           </span>
         </div>
 
+        {/* Dropdown Filters (Point 4) */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8, marginTop: 12, padding: '10px 12px', background: '#f8fafc', borderRadius: 8, border: '1px solid var(--emp-border)' }}>
+          <div>
+            <label style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--emp-text-muted)' }}>Branch</label>
+            <select
+              className="emp-select"
+              value={selectedBranch}
+              onChange={(e) => setSelectedBranch(e.target.value)}
+              style={{ fontSize: '0.8rem', padding: '6px 8px', width: '100%' }}
+            >
+              <option value="all">All Branches</option>
+              {branchOptions.map((b) => (
+                <option key={b} value={b}>{b}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--emp-text-muted)' }}>Center</label>
+            <select
+              className="emp-select"
+              value={selectedCenter}
+              onChange={(e) => setSelectedCenter(e.target.value)}
+              style={{ fontSize: '0.8rem', padding: '6px 8px', width: '100%' }}
+            >
+              <option value="all">All Centers</option>
+              {centerOptions.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--emp-text-muted)' }}>Staff</label>
+            <select
+              className="emp-select"
+              value={selectedStaff}
+              onChange={(e) => setSelectedStaff(e.target.value)}
+              style={{ fontSize: '0.8rem', padding: '6px 8px', width: '100%' }}
+            >
+              <option value="all">All Staff</option>
+              {staffOptions.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
         {/* Search Option Bar */}
-        <div style={{ marginTop: 14 }}>
+        <div style={{ marginTop: 12 }}>
           <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
             <span style={{ position: 'absolute', left: 12, color: 'var(--emp-text-muted)' }}>
               <Icon name="search" size={16} />

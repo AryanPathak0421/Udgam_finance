@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { api } from '../../../api/client.js';
 import Icon from '../../../components/Icon.jsx';
 
@@ -8,6 +8,16 @@ export default function SupervisorCenterVisits() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  // Dropdown Filters (Point 6: Filter by Center, Staff, Status)
+  const [centerFilter, setCenterFilter] = useState('all');
+  const [staffFilter, setStaffFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+
+  // Status Action Modal (Point 6: Done, Not Done, Cancel with remark)
+  const [activeVisitAction, setActiveVisitAction] = useState(null); // { visit, targetStatus }
+  const [actionRemark, setActionRemark] = useState('');
+  const [actionBusy, setActionBusy] = useState(false);
 
   // Submit Visit Report state
   const [centerName, setCenterName] = useState('');
@@ -34,6 +44,50 @@ export default function SupervisorCenterVisits() {
       setError(err.message || 'Failed to load team center visits');
     } finally {
       setLoading(false);
+    }
+  }
+
+  // Extract unique options for filters
+  const centerOptions = useMemo(() => {
+    const set = new Set(teamVisits.map((v) => v.centerName).filter(Boolean));
+    return ['all', ...Array.from(set)];
+  }, [teamVisits]);
+
+  const staffOptions = useMemo(() => {
+    const set = new Set(teamVisits.map((v) => v.employeeName || v.employeeCode).filter(Boolean));
+    return ['all', ...Array.from(set)];
+  }, [teamVisits]);
+
+  // Filtered visits
+  const filteredVisits = useMemo(() => {
+    return teamVisits.filter((v) => {
+      if (centerFilter !== 'all' && v.centerName !== centerFilter) return false;
+      const staffVal = v.employeeName || v.employeeCode;
+      if (staffFilter !== 'all' && staffVal !== staffFilter) return false;
+      const curStatus = v.status || 'done';
+      if (statusFilter !== 'all' && curStatus !== statusFilter) return false;
+      return true;
+    });
+  }, [teamVisits, centerFilter, staffFilter, statusFilter]);
+
+  async function handleConfirmStatusAction(e) {
+    e.preventDefault();
+    if (!activeVisitAction) return;
+    setActionBusy(true);
+    setError('');
+    try {
+      await api.supervisorApp.updateCenterVisitStatus(activeVisitAction.visit._id, {
+        status: activeVisitAction.targetStatus,
+        remark: actionRemark.trim(),
+      });
+      setSuccess(`✓ Center visit status updated to ${activeVisitAction.targetStatus.replace('_', ' ').toUpperCase()}`);
+      setActiveVisitAction(null);
+      setActionRemark('');
+      loadTeamVisits();
+    } catch (err) {
+      setError(err.message || 'Failed to update visit status');
+    } finally {
+      setActionBusy(false);
     }
   }
 
@@ -96,7 +150,7 @@ export default function SupervisorCenterVisits() {
         location: location.lat ? location : { lat: 25.5647, lng: 83.9777, address: 'Buxar Center Locus (Auto-captured)' },
         notes: notes.trim(),
       });
-      setSuccess('Center visit report submitted successfully with photo and GPS coordinates!');
+      setSuccess('✓ Center visit report submitted successfully with photo and GPS coordinates!');
       setCenterName('');
       setGroupName('');
       setContactName('');
@@ -118,7 +172,7 @@ export default function SupervisorCenterVisits() {
       <div style={{ marginBottom: 14 }}>
         <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800 }}>Center Visits & Inspection</h2>
         <div style={{ fontSize: '0.8rem', color: 'var(--sup-text-muted)' }}>
-          Photo & GPS Auto-Capture • Team-wise Visit Requests
+          Photo & GPS Auto-Capture • Team-wise Visit Requests & Actions
         </div>
       </div>
 
@@ -139,7 +193,7 @@ export default function SupervisorCenterVisits() {
           }}
           onClick={() => setTab('report')}
         >
-          Team Visits ({teamVisits.length})
+          Team Visits ({filteredVisits.length})
         </button>
         <button
           type="button"
@@ -164,20 +218,264 @@ export default function SupervisorCenterVisits() {
       </div>
 
       {error && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', background: 'var(--sup-danger-light)', color: 'var(--sup-danger)', borderRadius: 10, fontSize: '0.85rem', marginBottom: 14 }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '10px 12px',
+            background: 'var(--sup-danger-light)',
+            color: 'var(--sup-danger)',
+            borderRadius: 10,
+            fontSize: '0.85rem',
+            marginBottom: 14,
+          }}
+        >
           <Icon name="alertcircle" size={16} />
           <span>{error}</span>
         </div>
       )}
 
       {success && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', background: 'var(--sup-success-light)', color: 'var(--sup-success)', borderRadius: 10, fontSize: '0.85rem', marginBottom: 14 }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '10px 12px',
+            background: 'var(--sup-success-light)',
+            color: 'var(--sup-success)',
+            borderRadius: 10,
+            fontSize: '0.85rem',
+            marginBottom: 14,
+          }}
+        >
           <Icon name="checkcircle" size={16} />
           <span>{success}</span>
         </div>
       )}
 
-      {tab === 'submit' ? (
+      {tab === 'report' ? (
+        <div>
+          {/* Point 6: Top Filter Dropdowns for Center, Staff & Status */}
+          <div
+            className="sup-card"
+            style={{
+              padding: 12,
+              marginBottom: 14,
+              background: 'var(--sup-bg)',
+              border: '1px solid var(--sup-border)',
+            }}
+          >
+            <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--sup-text-muted)', marginBottom: 8 }}>
+              FILTER VISITS BY CENTER, STAFF & STATUS:
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8 }}>
+              <div>
+                <label style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--sup-text-muted)' }}>Center</label>
+                <select
+                  className="sup-select"
+                  value={centerFilter}
+                  onChange={(e) => setCenterFilter(e.target.value)}
+                  style={{ fontSize: '0.8rem', padding: '6px 8px' }}
+                >
+                  <option value="all">All Centers</option>
+                  {centerOptions
+                    .filter((c) => c !== 'all')
+                    .map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--sup-text-muted)' }}>Staff</label>
+                <select
+                  className="sup-select"
+                  value={staffFilter}
+                  onChange={(e) => setStaffFilter(e.target.value)}
+                  style={{ fontSize: '0.8rem', padding: '6px 8px' }}
+                >
+                  <option value="all">All Staff</option>
+                  {staffOptions
+                    .filter((s) => s !== 'all')
+                    .map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--sup-text-muted)' }}>Status</label>
+                <select
+                  className="sup-select"
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  style={{ fontSize: '0.8rem', padding: '6px 8px' }}
+                >
+                  <option value="all">All Statuses</option>
+                  <option value="done">Done / Completed</option>
+                  <option value="not_done">NOT Done</option>
+                  <option value="cancelled">Cancelled</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--sup-text-muted)' }}>
+              Loading team center visits…
+            </div>
+          ) : filteredVisits.length === 0 ? (
+            <div className="sup-card" style={{ textAlign: 'center', padding: '24px 0', color: 'var(--sup-text-muted)' }}>
+              No center visits found matching filters
+            </div>
+          ) : (
+            filteredVisits.map((v) => {
+              const curStatus = v.status || 'done';
+              return (
+                <div key={v._id} className="sup-card" style={{ padding: 14, marginBottom: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <strong style={{ fontSize: '0.98rem' }}>{v.centerName}</strong>
+                        {/* Status Badge */}
+                        <span
+                          style={{
+                            fontSize: '0.72rem',
+                            fontWeight: 700,
+                            padding: '2px 8px',
+                            borderRadius: 12,
+                            background:
+                              curStatus === 'done'
+                                ? 'var(--sup-success-light)'
+                                : curStatus === 'not_done'
+                                ? 'var(--sup-warning-light)'
+                                : 'var(--sup-danger-light)',
+                            color:
+                              curStatus === 'done'
+                                ? 'var(--sup-success)'
+                                : curStatus === 'not_done'
+                                ? 'var(--sup-warning)'
+                                : 'var(--sup-danger)',
+                          }}
+                        >
+                          {curStatus === 'done' ? '✓ Done' : curStatus === 'not_done' ? '✕ NOT Done' : '⊘ Cancelled'}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--sup-text-muted)', marginTop: 2 }}>
+                        Contact: {v.contactName || 'Center Leader'} ({v.contactNumber || '—'}) • {v.branch?.name || 'Branch'}
+                      </div>
+                    </div>
+                    <span style={{ fontSize: '0.72rem', color: 'var(--sup-text-muted)' }}>
+                      {v.visitDate ? new Date(v.visitDate).toLocaleDateString() : new Date(v.createdAt).toLocaleDateString()}
+                    </span>
+                  </div>
+
+                  {v.image && (
+                    <div style={{ marginTop: 8, borderRadius: 8, overflow: 'hidden', border: '1px solid var(--sup-border)' }}>
+                      <img src={v.image} alt="Center" style={{ width: '100%', maxHeight: 160, objectFit: 'cover' }} />
+                    </div>
+                  )}
+
+                  <div style={{ marginTop: 8, fontSize: '0.78rem', padding: '6px 10px', background: 'var(--sup-bg)', borderRadius: 6 }}>
+                    <div>
+                      <span style={{ color: 'var(--sup-text-muted)' }}>Logged By: </span>
+                      <strong>{v.employeeName || v.employeeCode || 'Supervisor'}</strong>
+                    </div>
+                    {v.location && v.location.lat ? (
+                      <div style={{ fontSize: '0.72rem', color: 'var(--sup-primary)', marginTop: 2 }}>
+                        📍 GPS: {v.location.lat}, {v.location.lng}
+                      </div>
+                    ) : null}
+                    {v.notes && (
+                      <div style={{ marginTop: 4, fontStyle: 'italic', color: 'var(--sup-text)' }}>
+                        "{v.notes}"
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Point 6: Action Buttons to change status to Done, NOT Done, or Cancel */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      gap: 8,
+                      marginTop: 10,
+                      paddingTop: 8,
+                      borderTop: '1px dashed var(--sup-border)',
+                      justifyContent: 'flex-end',
+                    }}
+                  >
+                    {curStatus !== 'done' && (
+                      <button
+                        type="button"
+                        className="sup-btn sm"
+                        style={{
+                          width: 'auto',
+                          padding: '4px 10px',
+                          fontSize: '0.75rem',
+                          background: 'var(--sup-success-light)',
+                          color: 'var(--sup-success)',
+                          border: '1px solid var(--sup-success)',
+                        }}
+                        onClick={() => {
+                          setActiveVisitAction({ visit: v, targetStatus: 'done' });
+                          setActionRemark('');
+                        }}
+                      >
+                        ✓ Mark Done
+                      </button>
+                    )}
+                    {curStatus !== 'not_done' && (
+                      <button
+                        type="button"
+                        className="sup-btn sm"
+                        style={{
+                          width: 'auto',
+                          padding: '4px 10px',
+                          fontSize: '0.75rem',
+                          background: 'var(--sup-warning-light)',
+                          color: 'var(--sup-warning)',
+                          border: '1px solid var(--sup-warning)',
+                        }}
+                        onClick={() => {
+                          setActiveVisitAction({ visit: v, targetStatus: 'not_done' });
+                          setActionRemark('');
+                        }}
+                      >
+                        ✕ Mark NOT Done
+                      </button>
+                    )}
+                    {curStatus !== 'cancelled' && (
+                      <button
+                        type="button"
+                        className="sup-btn sm"
+                        style={{
+                          width: 'auto',
+                          padding: '4px 10px',
+                          fontSize: '0.75rem',
+                          background: 'var(--sup-danger-light)',
+                          color: 'var(--sup-danger)',
+                          border: '1px solid var(--sup-danger)',
+                        }}
+                        onClick={() => {
+                          setActiveVisitAction({ visit: v, targetStatus: 'cancelled' });
+                          setActionRemark('');
+                        }}
+                      >
+                        ⊘ Cancel Visit
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      ) : (
+        /* Submit Visit Report Tab */
         <div className="sup-card" style={{ borderTop: '4px solid var(--sup-primary)' }}>
           <strong style={{ fontSize: '1rem', display: 'block', marginBottom: 12 }}>
             Record Center Inspection Report
@@ -300,56 +598,98 @@ export default function SupervisorCenterVisits() {
             </button>
           </form>
         </div>
-      ) : (
-        <div>
-          {loading ? (
-            <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--sup-text-muted)' }}>
-              Loading team center visits…
-            </div>
-          ) : teamVisits.length === 0 ? (
-            <div className="sup-card" style={{ textAlign: 'center', padding: '24px 0', color: 'var(--sup-text-muted)' }}>
-              No center visits logged yet
-            </div>
-          ) : (
-            teamVisits.map((v) => (
-              <div key={v._id} className="sup-card" style={{ padding: 14 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div>
-                    <strong style={{ fontSize: '0.95rem' }}>{v.centerName}</strong>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--sup-text-muted)' }}>
-                      Group: {v.contactName || 'Center Group'} • {v.branch?.name || 'Branch'}
-                    </div>
-                  </div>
-                  <span style={{ fontSize: '0.72rem', color: 'var(--sup-text-muted)' }}>
-                    {v.visitDate ? new Date(v.visitDate).toLocaleDateString() : new Date(v.createdAt).toLocaleDateString()}
-                  </span>
-                </div>
+      )}
 
-                {v.image && (
-                  <div style={{ marginTop: 8, borderRadius: 8, overflow: 'hidden', border: '1px solid var(--sup-border)' }}>
-                    <img src={v.image} alt="Center" style={{ width: '100%', maxHeight: 160, objectFit: 'cover' }} />
-                  </div>
-                )}
+      {/* Point 6: Action Modal for Status Update (Done, NOT Done, Cancel) */}
+      {activeVisitAction && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 100,
+            background: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+          }}
+        >
+          <div
+            style={{
+              background: 'var(--sup-card-bg)',
+              width: '100%',
+              maxWidth: 380,
+              borderRadius: 16,
+              padding: 20,
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <strong style={{ fontSize: '1rem' }}>
+                Update Center Visit Status
+              </strong>
+              <button className="sup-icon-btn" onClick={() => setActiveVisitAction(null)}>
+                <Icon name="cross" size={16} />
+              </button>
+            </div>
 
-                <div style={{ marginTop: 8, fontSize: '0.78rem', padding: '6px 10px', background: 'var(--sup-bg)', borderRadius: 6 }}>
-                  <div>
-                    <span style={{ color: 'var(--sup-text-muted)' }}>Logged By: </span>
-                    <strong>{v.employeeName || v.employeeCode || 'Supervisor'}</strong>
-                  </div>
-                  {v.location && v.location.lat ? (
-                    <div style={{ fontSize: '0.72rem', color: 'var(--sup-primary)', marginTop: 2 }}>
-                      📍 GPS: {v.location.lat}, {v.location.lng}
-                    </div>
-                  ) : null}
-                  {v.notes && (
-                    <div style={{ marginTop: 4, fontStyle: 'italic' }}>
-                      "{v.notes}"
-                    </div>
-                  )}
-                </div>
+            <div style={{ fontSize: '0.85rem', marginBottom: 12 }}>
+              <div>Center: <strong>{activeVisitAction.visit.centerName}</strong></div>
+              <div style={{ color: 'var(--sup-text-muted)', fontSize: '0.75rem', marginTop: 2 }}>
+                Officer: {activeVisitAction.visit.employeeName || activeVisitAction.visit.employeeCode}
               </div>
-            ))
-          )}
+              <div style={{ marginTop: 8, fontSize: '0.85rem' }}>
+                New Status:{' '}
+                <strong
+                  style={{
+                    color:
+                      activeVisitAction.targetStatus === 'done'
+                        ? 'var(--sup-success)'
+                        : activeVisitAction.targetStatus === 'not_done'
+                        ? 'var(--sup-warning)'
+                        : 'var(--sup-danger)',
+                  }}
+                >
+                  {activeVisitAction.targetStatus === 'done'
+                    ? '✓ DONE'
+                    : activeVisitAction.targetStatus === 'not_done'
+                    ? '✕ NOT DONE'
+                    : '⊘ CANCELLED'}
+                </strong>
+              </div>
+            </div>
+
+            <form onSubmit={handleConfirmStatusAction}>
+              <div className="sup-input-group">
+                <label className="sup-label">Reason / Observation Remark</label>
+                <textarea
+                  rows={2}
+                  className="sup-textarea"
+                  placeholder="e.g. Members unavailable / Rescheduled / Meeting held successfully"
+                  value={actionRemark}
+                  onChange={(e) => setActionRemark(e.target.value)}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                <button
+                  type="button"
+                  className="sup-btn secondary"
+                  style={{ flex: 1 }}
+                  onClick={() => setActiveVisitAction(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="sup-btn primary"
+                  style={{ flex: 2 }}
+                  disabled={actionBusy}
+                >
+                  {actionBusy ? 'Updating…' : 'Confirm Status'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>

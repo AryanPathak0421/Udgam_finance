@@ -642,6 +642,17 @@ export async function getTodayDueList(req, res) {
     paidTodayMap.set(k, (paidTodayMap.get(k) || 0) + (ap.amountPaise || 0) / 100);
   }
 
+  const groupCodes = [...new Set(loans.map((l) => l.group?.code).filter(Boolean))];
+  const groupDocs = groupCodes.length
+    ? await Group.find({ code: { $in: groupCodes } }).select('code meetingType collectionDay dayOfWeek').lean()
+    : [];
+  const groupMap = new Map(groupDocs.map((g) => [g.code, g]));
+
+  const jsDay = startDay.getUTCDay();
+  const isoDay = jsDay === 0 ? 7 : jsDay;
+  const dayOfMonth = startDay.getUTCDate();
+  const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+
   const dues = [];
   loans.forEach((l) => {
     if (l.isSettled || l.status === 'settled' || settledKeySet.has(String(l._id))) return;
@@ -654,9 +665,44 @@ export async function getTodayDueList(req, res) {
     else if (l.group?.name || l.group?.code) cat = 'group';
     else cat = 'personal';
 
+    // Point 2: Filter strictly to loans scheduled for today's meeting day / due date
+    let meetsToday = false;
+    const mode = (l.mode || l.modeLabel || 'weekly').toLowerCase();
+    const g = l.group?.code ? groupMap.get(l.group.code) : null;
+    const meetingType = (g?.meetingType || mode).toLowerCase();
+
+    if (meetingType === 'daily') {
+      meetsToday = jsDay !== 0;
+    } else if (meetingType === 'weekly') {
+      let gDayNum = null;
+      if (g?.collectionDay !== undefined && g?.collectionDay !== null) {
+        gDayNum = Number(g.collectionDay);
+      } else if (g?.dayOfWeek) {
+        const idx = dayNames.indexOf(String(g.dayOfWeek).toLowerCase().trim());
+        if (idx >= 0) gDayNum = idx === 0 ? 7 : idx;
+      }
+      if (gDayNum !== null) {
+        meetsToday = gDayNum === isoDay;
+      } else {
+        meetsToday = (l.schedule || []).some((s) => s.dueDate && new Date(s.dueDate).toISOString().slice(0, 10) === dateStr);
+      }
+    } else if (meetingType === 'monthly') {
+      const gMonthDay = g?.collectionDay ? Number(g.collectionDay) : null;
+      if (gMonthDay !== null) {
+        meetsToday = gMonthDay === dayOfMonth;
+      } else {
+        meetsToday = (l.schedule || []).some((s) => s.dueDate && new Date(s.dueDate).toISOString().slice(0, 10) === dateStr);
+      }
+    } else {
+      meetsToday = (l.schedule || []).some((s) => s.dueDate && new Date(s.dueDate).toISOString().slice(0, 10) === dateStr);
+    }
+
+    if (!meetsToday) return;
+
+    const exactInst = (l.schedule || []).find((s) => s.dueDate && new Date(s.dueDate).toISOString().slice(0, 10) === dateStr);
     const dueInst = (l.schedule || []).filter((s) => s.dueDate && new Date(s.dueDate) <= asOf);
-    if (!dueInst.length) return;
-    const latest = dueInst[dueInst.length - 1];
+    if (!exactInst && !dueInst.length) return;
+    const latest = exactInst || dueInst[dueInst.length - 1];
 
     (l.lines || []).forEach((line) => {
       const isLineSettled = line.isSettled || settledKeySet.has(`${String(l._id)}_${line.code}`) || settledKeySet.has(`${l.loanId}_${line.code}`);
@@ -2257,16 +2303,49 @@ export async function getEmiGroups(req, res) {
   const targetDayName = dayNames[jsDay];
 
   const emp = await Employee.findOne({ employeeCode: staffCode }).lean();
-  const staffGroupQuery = {
-    isDeleted: { $ne: true },
-    $or: [
-      { employeeCode: staffCode },
-      ...(emp?._id ? [{ employee: emp._id }] : []),
-    ],
-  };
 
-  const myAssignedGroups = await Group.find(staffGroupQuery).select('code name meetingType dayOfWeek collectionDay branch').lean();
+  // Point 3: Check if caller is a Supervisor / Branch Manager
+  const isSupervisorUser = Boolean(
+    req.user?.isSupervisor ||
+    ['supervisor', 'branch_manager', 'area_manager', 'admin', 'super_admin'].includes(req.user?.role) ||
+    (Array.isArray(emp?.supervisedBranches) && emp.supervisedBranches.length > 0) ||
+    emp?.isSupervisor
+  );
+
+  let branchIds = [];
+  if (isSupervisorUser) {
+    if (emp?.branch) branchIds.push(emp.branch._id || emp.branch);
+    if (Array.isArray(emp?.supervisedBranches)) {
+      for (const b of emp.supervisedBranches) branchIds.push(b._id || b);
+    }
+    if (Array.isArray(req.user?.branches)) {
+      for (const b of req.user.branches) branchIds.push(b._id || b);
+    }
+    if (req.query.branchId && mongoose.isValidObjectId(req.query.branchId)) {
+      branchIds = [req.query.branchId];
+    }
+  }
+
+  let myAssignedGroups = [];
   const groupDocMap = new Map();
+
+  if (isSupervisorUser && branchIds.length > 0) {
+    const supGroupQuery = { isDeleted: { $ne: true }, branch: { $in: branchIds } };
+    if (req.query.staffCode) {
+      supGroupQuery.employeeCode = req.query.staffCode.toUpperCase();
+    }
+    myAssignedGroups = await Group.find(supGroupQuery).select('code name meetingType dayOfWeek collectionDay branch center').lean();
+  } else {
+    const staffGroupQuery = {
+      isDeleted: { $ne: true },
+      $or: [
+        { employeeCode: staffCode },
+        ...(emp?._id ? [{ employee: emp._id }] : []),
+      ],
+    };
+    myAssignedGroups = await Group.find(staffGroupQuery).select('code name meetingType dayOfWeek collectionDay branch center').lean();
+  }
+
   for (const g of myAssignedGroups) {
     if (g.code) groupDocMap.set(g.code, g);
   }
@@ -2274,7 +2353,10 @@ export async function getEmiGroups(req, res) {
   let myGroupCodes = myAssignedGroups.map((g) => g.code).filter(Boolean);
 
   if (!myGroupCodes.length) {
-    const staffLoans = await LoanPayment.find({ employeeCode: staffCode, 'group.code': { $exists: true, $ne: '' } })
+    const staffLoans = await LoanPayment.find({
+      ...(isSupervisorUser && branchIds.length ? { branch: { $in: branchIds } } : { employeeCode: staffCode }),
+      'group.code': { $exists: true, $ne: '' },
+    })
       .select('group.code')
       .lean();
     myGroupCodes = [...new Set(staffLoans.map((l) => l.group?.code).filter(Boolean))];
@@ -2282,7 +2364,7 @@ export async function getEmiGroups(req, res) {
 
   if (!myGroupCodes.length && (emp?.branch || req.user?.branches?.length)) {
     const branchId = emp?.branch || req.user?.branches?.[0];
-    const branchGroups = await Group.find({ branch: branchId, isDeleted: { $ne: true } }).select('code name meetingType dayOfWeek collectionDay branch').limit(100).lean();
+    const branchGroups = await Group.find({ branch: branchId, isDeleted: { $ne: true } }).select('code name meetingType dayOfWeek collectionDay branch center').limit(100).lean();
     for (const g of branchGroups) {
       if (g.code) groupDocMap.set(g.code, g);
     }
@@ -2453,8 +2535,8 @@ export async function getEmiGroups(req, res) {
       }
     }
 
-    // If not scheduled for this date and not collecting today, skip
-    if (!isScheduled) continue;
+    // If not scheduled for this date and not collecting today, skip (Supervisors see all groups under their branch)
+    if (!isScheduled && !isSupervisorUser && req.query.showAll !== 'true') continue;
 
     // Calculate members, due amounts, collected amounts, and pending dues count
     let totalActualEmiPaise = 0;
@@ -2505,10 +2587,16 @@ export async function getEmiGroups(req, res) {
     const isCompleted = totalCollectedToday > 0 && totalCollectedToday >= actualCollection && dueCount === 0;
 
     groups.push({
+      _id: groupDoc?._id || code,
+      id: groupDoc?._id || code,
+      code,
+      name: groupDoc?.name || groupLoans[0]?.group?.name || code,
       groupCode: code,
       groupName: groupDoc?.name || groupLoans[0]?.group?.name || code,
+      center: groupDoc?.center || (groupDoc?.name ? `${groupDoc.name} Center` : 'Main Center'),
       mode: meetingType,
       scheduledDay: scheduledDayLabel,
+      isScheduled,
       membersCount,
       dueCount,
       actualCollection,
@@ -2528,13 +2616,26 @@ export async function getGroupEmiMembers(req, res) {
   const groupCode = cleanStr(req.params.groupCode);
   const dateStr = cleanStr(req.query.date) || todayDateString();
 
-  const escapedCode = groupCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  let targetCode = groupCode;
+  let targetName = groupCode;
+  if (mongoose.isValidObjectId(groupCode)) {
+    const gDoc = await Group.findById(groupCode).lean();
+    if (gDoc) {
+      targetCode = gDoc.code || targetCode;
+      targetName = gDoc.name || targetName;
+    }
+  }
+
+  const escapedCode = targetCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const escapedName = targetName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const loans = await LoanPayment.find({
     status: 'paid',
     $or: [
       { 'group.code': new RegExp(`^${escapedCode}$`, 'i') },
-      { 'group.name': new RegExp(`^${escapedCode}$`, 'i') },
+      { 'group.name': new RegExp(`^${escapedName}$`, 'i') },
+      { 'group.code': new RegExp(`^${escapedName}$`, 'i') },
       { group: groupCode },
+      ...(mongoose.isValidObjectId(groupCode) ? [{ _id: groupCode }] : []),
     ],
   }).populate('lines.member').lean();
 
@@ -3133,88 +3234,133 @@ export async function getNpaLoans(req, res) {
           phone: line.mobile || 'N/A',
           branchName: l.branch?.name || '',
           groupName: l.group?.name || l.group?.code || '',
+          staffCode: l.employeeCode || '',
           dpd: Math.max(dpd, isExplicitNpa ? 90 : 0),
           overduePrincipal: Math.round(overduePaise * 0.7) / 100,
           overdueInterest: Math.round(overduePaise * 0.3) / 100,
           totalOverdue: overduePaise > 0 ? (overduePaise / 100) : (totalLoanPaise - totalPaidPaise) / 100,
           totalBalance: Math.max(0, totalLoanPaise - totalPaidPaise) / 100,
           npaCategory: dpd > 365 ? 'Loss' : dpd > 180 ? 'Doubtful' : 'Sub-Standard',
+          isSettlement: false,
         });
       }
     }
+  }
+
+  // Point 4: Include active / pending settlement loans in NPA list
+  const settlements = await LoanSettlement.find({
+    status: { $in: ['active', 'pending'] },
+    ...(branchId ? { branch: branchId } : {}),
+  }).populate('branch', 'name code').lean();
+
+  for (const s of settlements) {
+    const balAmt = Math.max(0, (s.outstandingPaise - (s.amountPaise || 0)) / 100);
+    npaList.push({
+      loanPaymentId: s.loanPayment || s._id,
+      loanId: s.loanId || String(s._id),
+      memberId: s.member,
+      memberCode: s.memberCode,
+      memberName: s.memberName || 'Borrower',
+      phone: 'N/A',
+      branchName: s.branch?.name || '',
+      groupName: s.group || 'Settlement Center',
+      staffCode: s.createdByCode || '',
+      dpd: 90,
+      overduePrincipal: balAmt,
+      overdueInterest: 0,
+      totalOverdue: balAmt > 0 ? balAmt : s.outstandingPaise / 100,
+      totalBalance: balAmt > 0 ? balAmt : s.outstandingPaise / 100,
+      npaCategory: 'Settlement',
+      isSettlement: true,
+      settlementReceiptNo: s.receiptNo,
+    });
   }
 
   res.json({ items: npaList });
 }
 
 export async function recoverNpaLoan(req, res) {
-  const { loanPaymentId, memberCode, amount, payMode = 'cash', reference = '' } = req.body || {};
+  const { loanPaymentId, loanId: bodyLoanId, memberCode, amount, payMode = 'cash', reference = '' } = req.body || {};
   const payAmount = Number(amount);
   if (!payAmount || payAmount < 1) throw new HttpError(400, 'Enter recovery amount of ₹1 or more');
 
-  const loan = await LoanPayment.findById(loanPaymentId);
-  if (!loan) throw new HttpError(404, 'Loan record not found');
+  const searchId = loanPaymentId || bodyLoanId;
+  if (!searchId) throw new HttpError(400, 'Loan ID or Payment ID is required');
+
+  let loan = null;
+  if (mongoose.isValidObjectId(searchId)) {
+    loan = await LoanPayment.findById(searchId);
+  }
+  if (!loan) {
+    loan = await LoanPayment.findOne({
+      $or: [
+        { loanId: searchId },
+        { formId: searchId },
+        { receiptNo: searchId },
+      ],
+    });
+  }
+
+  let settlementDoc = null;
+  if (!loan) {
+    if (mongoose.isValidObjectId(searchId)) {
+      settlementDoc = await LoanSettlement.findById(searchId);
+    }
+    if (!settlementDoc) {
+      settlementDoc = await LoanSettlement.findOne({
+        $or: [{ loanId: searchId }, { receiptNo: searchId }],
+      });
+    }
+    if (settlementDoc?.loanPayment) {
+      loan = await LoanPayment.findById(settlementDoc.loanPayment);
+    }
+  }
+
+  if (!loan && !settlementDoc) {
+    throw new HttpError(404, 'Loan record not found in system');
+  }
+
+  const branchId = loan?.branch?._id || loan?.branch || settlementDoc?.branch || (req.user?.branches || [])[0];
 
   // Point 23: Block NPA recovery collection on Sundays and Holidays
-  await assertNotSundayOrHoliday(new Date(), loan.branch);
+  await assertNotSundayOrHoliday(new Date(), branchId);
 
-  // Point 23: Block EMI collection on Sundays and Holidays
-  await assertNotSundayOrHoliday(new Date(), loan.branch);
-
-  const line = (loan.lines || []).find((l) => l.code === memberCode) || loan.lines?.[0];
-  if (!line) throw new HttpError(404, 'Borrower line not found in loan');
+  const line = (loan?.lines || []).find((l) => l.code === memberCode)
+    || loan?.lines?.[0]
+    || { code: memberCode || settlementDoc?.memberCode || 'N/A', name: settlementDoc?.memberName || 'Borrower' };
 
   const receiptNo = await generateCode('emiReceipt').catch(() => `NPA${Date.now().toString().slice(-8)}`);
-  const doc = await EmiPayment.create({
-    receiptNo,
-    loanPayment: loan._id,
-    loanId: loan.loanId,
-    formId: loan.formId,
-    branch: loan.branch,
-    type: 'regular',
-    npa: true,
-    member: line.member,
-    memberCode: line.code,
-    memberName: line.name,
-    group: loan.group?.code ? `${loan.group.code} — ${loan.group.name}` : '',
-    amountPaise: Math.round(payAmount * 100),
-    paidOn: new Date(),
-    payMode,
-    reference,
-    employeeCode: req.user?.employeeCode || '',
-    createdBy: req.user._id,
-    createdByCode: req.user?.employeeCode || '',
-    status: 'paid',
-  });
+  const modeClean = ['cash', 'bank', 'upi', 'cheque'].includes(payMode.toLowerCase()) ? payMode.toLowerCase() : 'cash';
 
-  // Also record in AppEmiCollection so NPA recovery appears in System/Admin Approval section
+  // Point 4: Record in AppEmiCollection with status: 'pending' so NPA recovery appears in System/Admin Approval section
   await AppEmiCollection.create({
-    loanPayment: loan._id,
-    loanId: loan.loanId || loan.formId,
-    branch: loan.branch?._id || loan.branch,
-    memberCode: line.code,
-    memberName: line.name,
-    group: loan.group?.code ? `${loan.group.code} — ${loan.group.name}` : '',
+    loanPayment: loan?._id || null,
+    loanId: loan?.loanId || loan?.formId || settlementDoc?.loanId || searchId,
+    branch: branchId,
+    memberCode: line.code || memberCode || 'MEMBER',
+    memberName: line.name || 'Borrower',
+    group: loan?.group?.code ? `${loan.group.code} — ${loan.group.name}` : (settlementDoc?.group || ''),
     amountPaise: Math.round(payAmount * 100),
     collectedOn: new Date(),
     type: 'regular',
     npa: true,
-    payMode: ['cash', 'bank', 'upi', 'cheque'].includes(payMode) ? payMode : 'cash',
+    payMode: modeClean,
     reference: reference || '',
     collectedBy: req.user._id,
     collectedByCode: req.user?.employeeCode || '',
     status: 'pending',
-    receiptNo: doc.receiptNo,
-  }).catch(() => {});
+    receiptNo,
+  });
 
   res.status(201).json({
     success: true,
-    receiptNo: doc.receiptNo,
+    receiptNo,
     amount: payAmount,
-    loanId: loan.loanId,
+    loanId: loan?.loanId || searchId,
     memberCode: line.code,
     memberName: line.name,
-    message: `NPA recovery payment of ₹${payAmount} recorded successfully (Receipt ${doc.receiptNo})`,
+    pendingApproval: true,
+    message: `NPA recovery payment of ₹${payAmount} recorded and submitted for System EMI Approval (Receipt ${receiptNo})`,
   });
 }
 

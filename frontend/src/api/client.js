@@ -631,6 +631,7 @@ export const api = {
     recordCenterVisit: (data) => request('/employee/center-visits', { method: 'POST', body: data }),
     recordCenterVisitReport: (data) => request('/supervisor/center-visits/report', { method: 'POST', body: data }),
     teamCenterVisits: () => request('/supervisor/center-visits/team-requests'),
+    updateCenterVisitStatus: (id, data) => request(`/supervisor/center-visits/${encodeURIComponent(id)}/status`, { method: 'POST', body: data }),
     markFirstMeetingAttendance: (data) => request('/supervisor/attendance/meeting', { method: 'POST', body: data }),
     personalAttendance: () => request('/supervisor/attendance/personal'),
     teamAttendance: (params) => request(`/supervisor/attendance/team${qs(params)}`),

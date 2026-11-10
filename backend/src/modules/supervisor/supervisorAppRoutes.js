@@ -20,6 +20,7 @@ import {
   getPersonalAttendance,
   getTeamAttendance,
   getTeamCenterVisits,
+  updateCenterVisitStatus,
   getStaffLeaves,
   decideStaffLeave,
   submitSupervisorComplaint,
@@ -67,6 +68,8 @@ router.post('/attendance/meeting', requireAuth, h(markSupervisorFirstMeetingAtte
 router.get('/attendance/personal', requireAuth, h(getPersonalAttendance));
 router.get('/attendance/team', requireAuth, h(getTeamAttendance));
 router.get('/center-visits/team-requests', requireAuth, h(getTeamCenterVisits));
+router.patch('/center-visits/:id/status', requireAuth, h(updateCenterVisitStatus));
+router.post('/center-visits/:id/status', requireAuth, h(updateCenterVisitStatus));
 router.post('/center-visits/report', requireAuth, h(recordSupervisorCenterVisit));
 
 router.get('/leaves', requireAuth, h(getStaffLeaves));
