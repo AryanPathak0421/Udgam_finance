@@ -1,8 +1,15 @@
 import 'dotenv/config';
+import dns from 'node:dns';
 import mongoose from 'mongoose';
 import { ensureMemberSeed } from '../services/seedMemberHelper.js';
 import { Member } from '../models/Member.js';
 import { MemberMpin } from '../modules/member/memberAppModel.js';
+
+try {
+  dns.setServers(['8.8.8.8', '1.1.1.1', '8.8.4.4']);
+} catch {
+  // ignore
+}
 
 const uri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/udgam_finance';
 console.log('Connecting to MongoDB...');
