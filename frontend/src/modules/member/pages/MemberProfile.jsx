@@ -330,14 +330,27 @@ export default function MemberProfile() {
 
       {/* PWA Info */}
       <div className="mem-card">
-        <div className="mem-card-title">
-          <span>Udgam Member App (PWA)</span>
-          <span className="mem-badge active">Customer Portal</span>
+        <div className="mem-card-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <img src="/icon-member-192.png" alt="Member" style={{ width: 24, height: 24, borderRadius: 6 }} />
+            <span>Udgam Member App (Alag Customer App)</span>
+          </div>
+          <span className="mem-badge active">Dedicated App</span>
+        </div>
+        <div className="mem-stat-row">
+          <span className="mem-stat-label">Platform</span>
+          <span className="mem-stat-val"><strong>Progressive Web App (PWA)</strong></span>
+        </div>
+        <div className="mem-stat-row">
+          <span className="mem-stat-label">Offline &amp; Precache</span>
+          <span className="mem-stat-val" style={{ color: '#059669', display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 700 }}>
+            <Icon name="checkcircle" size={13} /> Active
+          </span>
         </div>
         <div className="mem-stat-row">
           <span className="mem-stat-label">Display Mode</span>
-          <span className="mem-stat-val" style={{ color: isStandalone ? 'var(--mem-success)' : 'inherit' }}>
-            {isStandalone ? '✓ Installed Standalone App' : 'Web Browser'}
+          <span className="mem-stat-val" style={{ color: isStandalone ? 'var(--mem-success)' : 'inherit', fontWeight: 700 }}>
+            {isStandalone ? '✓ Installed Standalone App' : 'Web Browser (Installable)'}
           </span>
         </div>
 

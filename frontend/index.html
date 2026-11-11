@@ -11,12 +11,12 @@
         var link = document.createElement('link');
         link.id = 'app-manifest-link';
         link.rel = 'manifest';
-        link.href = isSupervisor ? '/manifest-supervisor.webmanifest' : '/manifest.webmanifest';
+        link.href = isSupervisor ? '/manifest-supervisor.webmanifest' : (isMember ? '/manifest-member.webmanifest' : '/manifest.webmanifest');
         document.head.appendChild(link);
 
         var appleIcon = document.createElement('link');
         appleIcon.rel = 'apple-touch-icon';
-        appleIcon.href = isSupervisor ? '/icon-supervisor-192.png' : '/icon-192.png';
+        appleIcon.href = isSupervisor ? '/icon-supervisor-192.png' : (isMember ? '/icon-member-192.png' : '/icon-192.png');
         document.head.appendChild(appleIcon);
 
         var metaTheme = document.createElement('meta');

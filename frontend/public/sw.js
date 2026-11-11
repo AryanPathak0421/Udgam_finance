@@ -1,5 +1,5 @@
-// Udgam Microfinance - PWA Service Worker (Staff & Supervisor)
-const CACHE_NAME = 'udgam-pwa-v4';
+// Udgam Microfinance - PWA Service Worker (Staff, Supervisor & Member)
+const CACHE_NAME = 'udgam-pwa-v5';
 const PRECACHE_URLS = [
   '/',
   '/index.html',
@@ -7,6 +7,8 @@ const PRECACHE_URLS = [
   '/manifest.json',
   '/manifest-supervisor.webmanifest',
   '/manifest-supervisor.json',
+  '/manifest-member.webmanifest',
+  '/manifest-member.json',
   '/logo.png',
   '/icon-192.png',
   '/icon-512.png',
@@ -14,6 +16,9 @@ const PRECACHE_URLS = [
   '/icon-supervisor-192.png',
   '/icon-supervisor-512.png',
   '/icon-supervisor-maskable.png',
+  '/icon-member-192.png',
+  '/icon-member-512.png',
+  '/icon-member-maskable.png',
 ];
 
 // Install: Cache core app shell
