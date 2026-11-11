@@ -321,7 +321,11 @@ export default function SupervisorHome() {
                     <strong style={{ fontSize: '0.88rem' }}>{t.title}</strong>
                   </div>
                   <div style={{ fontSize: '0.74rem', color: 'var(--sup-text-muted)' }}>
-                    Assigned: {t.assignedToName || t.assignedToCode} • Due: {t.dueDate ? new Date(t.dueDate).toLocaleDateString() : 'Immediate'}
+                    {t.assignedToCode === supUser?.employeeCode ? (
+                      <strong style={{ color: 'var(--sup-primary)' }}>Assigned to YOU</strong>
+                    ) : (
+                      <span>Assigned: {t.assignedToName || t.assignedToCode}</span>
+                    )} • Due: {t.dueDate ? new Date(t.dueDate).toLocaleDateString() : 'Immediate'}
                   </div>
                 </div>
                 <Link
@@ -556,14 +560,14 @@ export default function SupervisorHome() {
           <span style={{ fontSize: '0.76rem', fontWeight: 600 }}>Complaints</span>
         </Link>
 
-        <Link to="/supervisor/products/sales-report" className="sup-action-card">
+        <Link to="/supervisor/product-sales" className="sup-action-card">
           <div className="sup-action-icon" style={{ background: '#fffbeb', color: '#f59e0b' }}>
             <Icon name="shoppingbag" size={20} />
           </div>
-          <span style={{ fontSize: '0.76rem', fontWeight: 600 }}>Product Report</span>
+          <span style={{ fontSize: '0.76rem', fontWeight: 600 }}>Product Sell Report</span>
         </Link>
 
-        <Link to="/supervisor/branch-transfers/report" className="sup-action-card">
+        <Link to="/supervisor/branch-transfers" className="sup-action-card">
           <div className="sup-action-icon" style={{ background: '#f0fdf4', color: '#10b981' }}>
             <Icon name="arrowright" size={20} />
           </div>
@@ -577,11 +581,18 @@ export default function SupervisorHome() {
           <span style={{ fontSize: '0.76rem', fontWeight: 600 }}>Resignation</span>
         </Link>
 
-        <Link to="/supervisor/loan-calculator" className="sup-action-card">
+        <Link to="/supervisor/calculator" className="sup-action-card">
           <div className="sup-action-icon" style={{ background: '#eff6ff', color: '#3b82f6' }}>
             <Icon name="calculator" size={20} />
           </div>
           <span style={{ fontSize: '0.76rem', fontWeight: 600 }}>Calculator</span>
+        </Link>
+
+        <Link to="/supervisor/death-request" className="sup-action-card">
+          <div className="sup-action-icon" style={{ background: '#fef2f2', color: '#991b1b' }}>
+            <Icon name="shield" size={20} />
+          </div>
+          <span style={{ fontSize: '0.76rem', fontWeight: 600 }}>Death Settlement</span>
         </Link>
 
         <Link to="/supervisor/reports" className="sup-action-card">

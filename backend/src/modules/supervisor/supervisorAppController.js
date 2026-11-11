@@ -6,6 +6,7 @@ import {
   CgtVisit,
   FirstMeetingAttendance,
   ProductSaleOrder,
+  DeathRequest,
 } from '../employee/employeeAppModel.js';
 import { Employee, Department, Designation, Attendance, Salary } from '../../models/Hr.js';
 import { User } from '../../models/User.js';
@@ -24,6 +25,8 @@ import { generateCode } from '../../services/codeSequence.js';
 import { issueOtp, takeVerified, consumeChallenge } from '../../services/otpChallenges.js';
 import { sendSms } from '../../services/sms.js';
 import { notifyEmployee } from '../../services/hrNotify.js';
+import { borrowerState } from '../../controllers/emiController.js';
+import { toMinor } from '../../utils/money.js';
 import { asString, parseDateOnly, HttpError, startOfToday, todayDateString } from '../../utils/http.js';
 import { audit } from '../../utils/audit.js';
 
@@ -410,6 +413,17 @@ export async function getSupervisorProfile(req, res) {
     .populate('branch', 'code name')
     .populate('designation', 'name');
 
+  // Point 17: Supervisor own security deposit money and salary deduction aggregation
+  const cutRow = (await Salary.aggregate([
+    { $match: { employee: emp._id } },
+    { $group: { _id: null, cut: { $sum: { $ifNull: ['$securityCutPaise', 0] } }, slips: { $sum: { $cond: [{ $gt: [{ $ifNull: ['$securityCutPaise', 0] }, 0] }, 1, 0] } } } }
+  ]))[0] || { cut: 0, slips: 0 };
+
+  const securityTotal = (emp.security?.collectedPaise ? emp.security.collectedPaise / 100 : (emp.securityAmountPaise || 0) / 100);
+  const securityCut = (cutRow.cut || 0) / 100;
+  const securityRemaining = emp.securityNeverEnds ? null : Math.max(0, securityTotal - securityCut);
+  const passbook = emp.security?.passbook || [];
+
   res.json({
     profile: {
       photo: emp.photo || '',
@@ -424,6 +438,13 @@ export async function getSupervisorProfile(req, res) {
       designation: emp.designation?.name || 'Supervisor',
       department: emp.department?.name || 'Operations',
       status: emp.status === 'active' ? 'Active' : 'Inactive',
+      monthlySalary: (emp.monthlySalaryPaise ? emp.monthlySalaryPaise / 100 : emp.monthlySalary || 0),
+      securityAmount: securityTotal,
+      securityCut,
+      securityRemaining,
+      securityMonths: emp.securityMonths || 1,
+      securityNeverEnds: Boolean(emp.securityNeverEnds),
+      passbook,
       teamCount: teamStaff.length,
       teamStaff,
     },
@@ -1576,7 +1597,7 @@ export async function decideStaffLeave(req, res) {
 
 export async function submitSupervisorComplaint(req, res) {
   const code = req.user?.employeeCode;
-  const { branchId, category = 'other', description, callerName, callerMobile } = req.body || {};
+  const { branchId, category = 'other', description, callerName, callerMobile, photo } = req.body || {};
 
   if (!description) throw new HttpError(400, 'Complaint description is required');
 
@@ -1589,6 +1610,7 @@ export async function submitSupervisorComplaint(req, res) {
     callerMobile: callerMobile || req.user?.mobile || '',
     category,
     description,
+    photo: photo || '',
     enteredByCode: code,
     status: 'open',
   });
@@ -1686,11 +1708,23 @@ export async function getProductSalesReport(req, res) {
     .populate('branch', 'code name')
     .sort({ createdAt: -1 });
 
+  const actualSales = sales.filter((s) => s.status === 'completed' || s.status === 'approved');
+  const bookings = sales.filter((s) => s.status !== 'completed' && s.status !== 'approved');
+  const actualSoldAmount = actualSales.reduce((acc, s) => acc + (s.totalAmount || 0), 0);
+  const actualSoldUnits = actualSales.reduce((acc, s) => acc + (s.quantity || 0), 0);
   const totalAmount = sales.reduce((acc, s) => acc + (s.totalAmount || 0), 0);
   const totalUnits = sales.reduce((acc, s) => acc + (s.quantity || 0), 0);
 
   res.json({
-    summary: { totalAmount, totalUnits, totalOrders: sales.length },
+    summary: {
+      actualSoldAmount,
+      actualSoldUnits,
+      actualSoldOrders: actualSales.length,
+      totalAmount,
+      totalUnits,
+      totalOrders: sales.length,
+      pendingOrders: bookings.length,
+    },
     sales,
   });
 }
@@ -2134,6 +2168,13 @@ export async function getSupervisorTasks(req, res) {
     .sort({ dueDate: 1, createdAt: -1 })
     .lean();
 
+  const myTasks = tasks.filter(
+    (t) => String(t.assignedTo) === String(emp._id) || (t.assignedToCode && t.assignedToCode.toUpperCase() === code.toUpperCase())
+  );
+  const teamTasks = tasks.filter(
+    (t) => String(t.assignedTo) !== String(emp._id) && (!t.assignedToCode || t.assignedToCode.toUpperCase() !== code.toUpperCase())
+  );
+  const myPendingTasks = myTasks.filter((t) => t.status === 'open' || t.status === 'in_progress');
   const pendingTasks = tasks.filter((t) => t.status === 'open' || t.status === 'in_progress');
   const completedTasks = tasks.filter((t) => t.status === 'completed' || t.status === 'done');
 
@@ -2142,8 +2183,14 @@ export async function getSupervisorTasks(req, res) {
       totalTasks: tasks.length,
       pendingCount: pendingTasks.length,
       completedCount: completedTasks.length,
+      myTasksCount: myTasks.length,
+      myPendingCount: myPendingTasks.length,
+      teamTasksCount: teamTasks.length,
     },
     tasks,
+    myTasks,
+    myPendingTasks,
+    teamTasks,
     pendingTasks,
     completedTasks,
     categories: ['Disbursement', 'Collections', 'New Member', 'Product', 'NPA Report', 'General'],
@@ -2302,6 +2349,188 @@ export async function updateSupervisorBranchVisitStatus(req, res) {
     status: 'ok',
     message: `Branch visit status updated to ${visit.status}!`,
     visit,
+  });
+}
+
+// -----------------------------------------------------------------------------
+// 24. SUPERVISOR DEATH SETTLEMENT REQUEST (Point 16 Item 3)
+// "employee app jaisa death settalment Request option dalna hai same"
+// -----------------------------------------------------------------------------
+
+export async function getSupervisorMemberSynopsis(req, res) {
+  const q = cleanStr(req.params.query);
+  const m = await Member.findOne({
+    $or: [
+      { _id: mongoose.isValidObjectId(q) ? q : null },
+      { code: q.toUpperCase() },
+      { mobile: q },
+      { aadhaar: q },
+    ],
+  })
+    .select('+photo +memberPhoto +guarantor.photo +guarantor.signature +guarantor.aadhaarPhoto +guarantor.aadhaarBackPhoto +guarantor.panPhoto +guarantor.jointPhoto +nominee.photo +nominee.signature +nominee.aadhaarPhoto +nominee.aadhaarBackPhoto +nominee.panPhoto')
+    .populate('branch', 'code name city pincode');
+  if (!m) throw new HttpError(404, 'Member not found');
+
+  res.json({ member: m });
+}
+
+export async function submitSupervisorDeathRequest(req, res) {
+  const code = req.user?.employeeCode;
+  const emp = await Employee.findOne({
+    $or: [{ employeeCode: new RegExp(`^${code}$`, 'i') }, { user: req.user?._id }],
+    isDeleted: false,
+  });
+  if (!emp) throw new HttpError(404, 'Supervisor not found');
+
+  const {
+    memberId,
+    targetType, // 'member' | 'guarantor'
+    deathDate,
+    deathReason,
+    deathPhotos, // array of strings
+    houseVisitPhoto,
+    deathCertificate,
+    guarantorName,
+  } = req.body || {};
+
+  if (!memberId) throw new HttpError(400, 'Member is required');
+  if (!deathDate) throw new HttpError(400, 'Death date is required');
+  if (!deathReason) throw new HttpError(400, 'Death reason is required');
+  if (!houseVisitPhoto) throw new HttpError(400, 'House visit photo is required');
+  if (!deathCertificate) throw new HttpError(400, 'Death certificate photo is required');
+
+  const member = await Member.findById(memberId);
+  if (!member) throw new HttpError(404, 'Member record not found');
+
+  const target = targetType === 'guarantor' ? 'guarantor' : 'member';
+  const cleanDeathDate = parseDateOnly(deathDate) || new Date(deathDate);
+  const receiptNo = `DRQ-${Date.now().toString().slice(-8)}`;
+
+  const cleanDeathPhotos = Array.isArray(deathPhotos) ? deathPhotos.filter(Boolean).slice(0, 3) : (deathPhotos ? [deathPhotos] : []);
+
+  const deathReq = await DeathRequest.create({
+    receiptNo,
+    member: member._id,
+    memberCode: member.code,
+    memberName: member.name,
+    targetType: target,
+    guarantorName: guarantorName || member.guarantor?.name || '',
+    requestDate: new Date(),
+    deathDate: cleanDeathDate,
+    deathReason: cleanStr(deathReason),
+    deathPhotos: cleanDeathPhotos,
+    houseVisitPhoto,
+    deathCertificate,
+    branch: member.branch || emp.branch,
+    employeeCode: emp.employeeCode || code || 'SUP',
+    employeeName: emp.name || 'Supervisor',
+    status: 'pending',
+  });
+
+  // Linkage to LoanSettlement
+  let loanSettlementDoc = null;
+  if (target === 'member') {
+    const loan = await LoanPayment.findOne({
+      $or: [{ 'lines.member': member._id }, { 'lines.code': member.code }],
+      status: 'paid',
+    }).populate('group branch').sort({ createdAt: -1 });
+
+    let outstandingPaise = 0;
+    let loanPaymentId = null;
+    let loanId = member.code;
+    let formId = member.code;
+    let groupStr = '';
+
+    if (loan) {
+      loanPaymentId = loan._id;
+      loanId = loan.loanId || loan.formId;
+      formId = loan.formId || loan.loanId;
+      groupStr = loan.group?.code ? `${loan.group.code} — ${loan.group.name}` : '';
+      const line = (loan.lines || []).find((l) => String(l.member) === String(member._id) || l.code === member.code);
+      if (line) {
+        try {
+          const state = await borrowerState(loan, line, new Date());
+          outstandingPaise = toMinor(state.outstanding || 0);
+        } catch {
+          outstandingPaise = line.amountPaise || 0;
+        }
+      }
+    }
+
+    const dthReceiptNo = `DTH-${Date.now().toString().slice(-8)}`;
+    loanSettlementDoc = await LoanSettlement.create({
+      kind: 'death',
+      receiptNo: dthReceiptNo,
+      loanPayment: loanPaymentId,
+      loanId,
+      formId,
+      branch: loan?.branch?._id || loan?.branch || member.branch || emp.branch,
+      member: member._id,
+      memberCode: member.code,
+      memberName: member.name,
+      group: groupStr,
+      outstandingPaise,
+      amountPaise: 0,
+      waiverPaise: outstandingPaise,
+      settledOn: new Date(),
+      deathDate: cleanDeathDate,
+      certificate: deathCertificate,
+      remark: `[Submitted via Supervisor App: ${emp.name} (${code})] Cause: ${deathReason}`,
+      verifier: { code: emp.employeeCode || code, name: emp.name || 'Supervisor' },
+      status: 'pending',
+      createdBy: req.user?._id,
+    }).catch((e) => {
+      console.error('Failed to auto-create LoanSettlement from DeathRequest:', e.message);
+      return null;
+    });
+  } else if (target === 'guarantor') {
+    member.guarantor = member.guarantor || {};
+    member.guarantor.deceasedOn = cleanDeathDate;
+    member.guarantor.deathCertificate = deathCertificate;
+    member.guarantor.deathReason = cleanStr(deathReason);
+    member.guarantor.deathRemark = cleanStr(deathReason);
+    member.guarantor.deathRecordedAt = new Date();
+    member.guarantor.deathRecordedByCode = emp.employeeCode || code;
+    member.guarantor.verifiedBy = { code: emp.employeeCode || code, name: emp.name || 'Supervisor' };
+    await member.save().catch(() => {});
+  }
+
+  res.status(201).json({
+    success: true,
+    message: `Death request ${receiptNo} submitted successfully. It is now listed in Software Dead Settlement for approval.`,
+    receiptNo,
+    settlementReceiptNo: loanSettlementDoc?.receiptNo,
+    request: deathReq,
+  });
+}
+
+export async function listSupervisorDeathRequests(req, res) {
+  const code = req.user?.employeeCode;
+  const emp = await Employee.findOne({
+    $or: [{ employeeCode: new RegExp(`^${code}$`, 'i') }, { user: req.user?._id }],
+    isDeleted: false,
+  });
+  if (!emp) throw new HttpError(404, 'Supervisor not found');
+
+  const branchIds = await getSupervisorBranchIds(emp, req.user);
+  const items = await DeathRequest.find({
+    $or: [
+      { branch: { $in: branchIds } },
+      { employeeCode: new RegExp(`^${emp.employeeCode || code}$`, 'i') },
+    ],
+  })
+    .populate('member', 'code name mobile')
+    .populate('branch', 'code name')
+    .sort({ createdAt: -1 })
+    .lean();
+
+  res.json({
+    items: items.map((d) => ({
+      ...d,
+      id: d._id,
+      requestDateStr: d.requestDate ? new Date(d.requestDate).toISOString().slice(0, 10) : '',
+      deathDateStr: d.deathDate ? new Date(d.deathDate).toISOString().slice(0, 10) : '',
+    })),
   });
 }
 

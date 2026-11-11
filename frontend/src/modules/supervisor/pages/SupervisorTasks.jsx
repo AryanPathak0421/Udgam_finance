@@ -12,9 +12,19 @@ const TASK_CATEGORIES = [
 ];
 
 export default function SupervisorTasks() {
+  const [taskScope, setTaskScope] = useState('received'); // 'received' (My Tasks from Admin/HO) | 'team' (Staff Tasks)
   const [filter, setFilter] = useState('pending'); // 'pending' | 'completed' | 'all'
   const [categoryFilter, setCategoryFilter] = useState('all');
-  const [data, setData] = useState({ summary: {}, tasks: [], pendingTasks: [], completedTasks: [], staff: [] });
+  const [data, setData] = useState({
+    summary: {},
+    tasks: [],
+    myTasks: [],
+    myPendingTasks: [],
+    teamTasks: [],
+    pendingTasks: [],
+    completedTasks: [],
+    staff: [],
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -97,8 +107,27 @@ export default function SupervisorTasks() {
     }
   }
 
-  const { summary = {}, tasks = [], pendingTasks = [], completedTasks = [], staff = [] } = data;
-  let baseTasks = filter === 'pending' ? pendingTasks : filter === 'completed' ? completedTasks : tasks;
+  const {
+    summary = {},
+    tasks = [],
+    myTasks = [],
+    teamTasks = [],
+    pendingTasks = [],
+    completedTasks = [],
+    staff = [],
+  } = data;
+
+  const activeScopeTasks = taskScope === 'received' ? myTasks : teamTasks;
+  const scopePendingTasks = activeScopeTasks.filter((t) => t.status === 'open' || t.status === 'in_progress');
+  const scopeCompletedTasks = activeScopeTasks.filter((t) => t.status === 'completed' || t.status === 'done');
+
+  let baseTasks =
+    filter === 'pending'
+      ? scopePendingTasks
+      : filter === 'completed'
+      ? scopeCompletedTasks
+      : activeScopeTasks;
+
   if (categoryFilter !== 'all') {
     baseTasks = baseTasks.filter((t) => (t.category || 'General') === categoryFilter);
   }
@@ -118,9 +147,9 @@ export default function SupervisorTasks() {
     <div className="sup-page-container">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800 }}>Team Tasks & Follow-up</h2>
+          <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800 }}>Tasks &amp; Follow-up</h2>
           <div style={{ fontSize: '0.8rem', color: 'var(--sup-text-muted)' }}>
-            Pending Field Actions & Staff Task Tracking
+            Tasks Assigned to Me &amp; Team Tracking
           </div>
         </div>
         <button
@@ -148,24 +177,79 @@ export default function SupervisorTasks() {
         </div>
       )}
 
+      {/* Task Scope Selection Tabs: Point 16 Item 2 */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+        <button
+          type="button"
+          style={{
+            flex: 1,
+            padding: '10px 8px',
+            borderRadius: 10,
+            border: taskScope === 'received' ? '2px solid var(--sup-primary)' : '1px solid var(--sup-border)',
+            background: taskScope === 'received' ? 'var(--sup-primary-light)' : 'var(--sup-card-bg)',
+            color: taskScope === 'received' ? 'var(--sup-primary)' : 'var(--sup-text)',
+            fontWeight: 800,
+            fontSize: '0.84rem',
+            cursor: 'pointer',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 2,
+          }}
+          onClick={() => setTaskScope('received')}
+        >
+          <span>Tasks Assigned to Me</span>
+          <span style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--sup-danger)' }}>
+            {summary.myPendingCount || 0} Pending
+          </span>
+        </button>
+
+        <button
+          type="button"
+          style={{
+            flex: 1,
+            padding: '10px 8px',
+            borderRadius: 10,
+            border: taskScope === 'team' ? '2px solid var(--sup-primary)' : '1px solid var(--sup-border)',
+            background: taskScope === 'team' ? 'var(--sup-primary-light)' : 'var(--sup-card-bg)',
+            color: taskScope === 'team' ? 'var(--sup-primary)' : 'var(--sup-text)',
+            fontWeight: 800,
+            fontSize: '0.84rem',
+            cursor: 'pointer',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 2,
+          }}
+          onClick={() => setTaskScope('team')}
+        >
+          <span>Staff Team Tasks</span>
+          <span style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--sup-text-muted)' }}>
+            {(summary.teamTasksCount ?? (summary.totalTasks || 0) - (summary.myTasksCount || 0))} Assigned
+          </span>
+        </button>
+      </div>
+
       {/* KPI Cards */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
         <div className="sup-metric-card" style={{ flex: 1, borderLeft: '4px solid var(--sup-danger)' }}>
-          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--sup-text-muted)' }}>Pending Tasks</span>
+          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--sup-text-muted)' }}>
+            {taskScope === 'received' ? 'My Pending' : 'Team Pending'}
+          </span>
           <div style={{ fontSize: '1.3rem', fontWeight: 800, color: 'var(--sup-danger)', marginTop: 4 }}>
-            {summary.pendingCount || 0}
+            {taskScope === 'received' ? (summary.myPendingCount || 0) : ((summary.pendingCount || 0) - (summary.myPendingCount || 0))}
           </div>
         </div>
         <div className="sup-metric-card" style={{ flex: 1, borderLeft: '4px solid var(--sup-success)' }}>
           <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--sup-text-muted)' }}>Completed</span>
           <div style={{ fontSize: '1.3rem', fontWeight: 800, color: 'var(--sup-success)', marginTop: 4 }}>
-            {summary.completedCount || 0}
+            {scopeCompletedTasks.length}
           </div>
         </div>
         <div className="sup-metric-card" style={{ flex: 1, borderLeft: '4px solid var(--sup-primary)' }}>
-          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--sup-text-muted)' }}>Total Assigned</span>
+          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--sup-text-muted)' }}>Total In Scope</span>
           <div style={{ fontSize: '1.3rem', fontWeight: 800, color: 'var(--sup-primary)', marginTop: 4 }}>
-            {summary.totalTasks || 0}
+            {activeScopeTasks.length}
           </div>
         </div>
       </div>
@@ -181,7 +265,7 @@ export default function SupervisorTasks() {
           onChange={(e) => setCategoryFilter(e.target.value)}
           style={{ width: '100%', fontSize: '0.85rem', fontWeight: 600 }}
         >
-          <option value="all">All Modules & Reports</option>
+          <option value="all">All Modules &amp; Reports</option>
           {TASK_CATEGORIES.map((cat) => (
             <option key={cat} value={cat}>
               {cat} Tasks
@@ -207,7 +291,7 @@ export default function SupervisorTasks() {
           }}
           onClick={() => setFilter('pending')}
         >
-          Pending ({summary.pendingCount || 0})
+          Pending ({scopePendingTasks.length})
         </button>
         <button
           type="button"
@@ -224,7 +308,7 @@ export default function SupervisorTasks() {
           }}
           onClick={() => setFilter('completed')}
         >
-          Completed ({summary.completedCount || 0})
+          Completed ({scopeCompletedTasks.length})
         </button>
         <button
           type="button"
@@ -241,7 +325,7 @@ export default function SupervisorTasks() {
           }}
           onClick={() => setFilter('all')}
         >
-          All Tasks
+          All ({activeScopeTasks.length})
         </button>
       </div>
 
@@ -291,7 +375,13 @@ export default function SupervisorTasks() {
                   </div>
                   <strong style={{ fontSize: '0.96rem' }}>{t.title}</strong>
                   <div style={{ fontSize: '0.75rem', color: 'var(--sup-text-muted)', marginTop: 2 }}>
-                    Assigned to: <strong>{t.assignedToName || t.assignedToCode}</strong>
+                    {taskScope === 'received' ? (
+                      <span style={{ color: 'var(--sup-primary)', fontWeight: 700 }}>
+                        📌 Assigned to You by Admin/Management
+                      </span>
+                    ) : (
+                      <span>Assigned to: <strong>{t.assignedToName || t.assignedToCode || 'Staff'}</strong></span>
+                    )}
                   </div>
                 </div>
               </div>

@@ -259,6 +259,68 @@ export default function SupervisorProfile() {
         </div>
       </div>
 
+      {/* Security Deposit Money & Deductions Card (Point 17) */}
+      <div className="sup-card" style={{ borderLeft: '4px solid var(--sup-primary)' }}>
+        <div className="sup-card-header">
+          <span className="sup-card-title">
+            <Icon name="shield" size={16} />
+            <span>Supervisor Security Deposit (Security Paisa)</span>
+          </span>
+          <span style={{ fontSize: '0.78rem', background: 'var(--sup-primary-light)', color: 'var(--sup-primary)', padding: '2px 8px', borderRadius: 10, fontWeight: 800 }}>
+            ₹{Number(p.securityCut || 0).toLocaleString('en-IN')} Cut
+          </span>
+        </div>
+
+        <div style={{ fontSize: '0.85rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--sup-border)' }}>
+            <span style={{ color: 'var(--sup-text-muted)' }}>Total Security Agreed:</span>
+            <strong style={{ color: 'var(--sup-primary)' }}>
+              ₹{Number(p.securityAmount || 0).toLocaleString('en-IN')}
+            </strong>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--sup-border)' }}>
+            <span style={{ color: 'var(--sup-text-muted)' }}>Security Deducted (Salary Se Cut):</span>
+            <strong style={{ color: 'var(--sup-success)' }}>
+              ₹{Number(p.securityCut || 0).toLocaleString('en-IN')}
+            </strong>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--sup-border)' }}>
+            <span style={{ color: 'var(--sup-text-muted)' }}>Remaining Security Balance:</span>
+            <strong style={{ color: p.securityNeverEnds ? 'var(--sup-text-muted)' : (p.securityRemaining > 0 ? 'var(--sup-danger)' : 'var(--sup-success)') }}>
+              {p.securityNeverEnds ? 'Ongoing' : `₹${Number(p.securityRemaining || 0).toLocaleString('en-IN')}`}
+            </strong>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--sup-border)' }}>
+            <span style={{ color: 'var(--sup-text-muted)' }}>Deduction Schedule:</span>
+            <span>{p.securityNeverEnds ? 'Never Ends (Monthly)' : `${p.securityMonths || 1} Month(s)`}</span>
+          </div>
+        </div>
+
+        {/* Security Passbook History */}
+        {p.passbook && p.passbook.length > 0 && (
+          <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px dashed var(--sup-border)' }}>
+            <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--sup-text-muted)', display: 'block', marginBottom: 6 }}>
+              SECURITY PASSBOOK TRANSACTIONS
+            </span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {p.passbook.map((tx, idx) => (
+                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem' }}>
+                  <span style={{ color: 'var(--sup-text-muted)' }}>
+                    {tx.date?.slice(0, 10) || ''} {tx.remark || 'Salary Deduction'}
+                  </span>
+                  <strong style={{ color: tx.type === 'refund' ? 'var(--sup-danger)' : 'var(--sup-success)' }}>
+                    {tx.type === 'refund' ? '−' : '+'}₹{((tx.amountPaise || 0) / 100).toLocaleString('en-IN')}
+                  </strong>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* App & Device Info Card (PWA) */}
       <div className="sup-card">
         <div className="sup-card-title" style={{ marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>

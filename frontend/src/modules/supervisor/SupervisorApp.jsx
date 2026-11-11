@@ -30,6 +30,7 @@ import SupervisorStaffRating from './pages/SupervisorStaffRating.jsx';
 import SupervisorStaffRequisition from './pages/SupervisorStaffRequisition.jsx';
 import SupervisorStaffList from './pages/SupervisorStaffList.jsx';
 import SupervisorTasks from './pages/SupervisorTasks.jsx';
+import SupervisorDeathRequest from './pages/SupervisorDeathRequest.jsx';
 
 import './supervisor.css';
 
@@ -93,6 +94,7 @@ function SupervisorAppRoutes() {
             <Route path="" element={supUser ? <SupervisorHome /> : <Navigate to="/supervisor/login" replace />} />
             <Route path="profile" element={supUser ? <SupervisorProfile /> : <Navigate to="/supervisor/login" replace />} />
             <Route path="calculator" element={supUser ? <SupervisorLoanCalculator /> : <Navigate to="/supervisor/login" replace />} />
+            <Route path="loan-calculator" element={supUser ? <SupervisorLoanCalculator /> : <Navigate to="/supervisor/login" replace />} />
             <Route path="today-due" element={supUser ? <SupervisorTodayDue /> : <Navigate to="/supervisor/login" replace />} />
             <Route path="collection-paid" element={supUser ? <SupervisorCollectionReport /> : <Navigate to="/supervisor/login" replace />} />
             <Route path="new-member" element={supUser ? <SupervisorNewMember /> : <Navigate to="/supervisor/login" replace />} />
@@ -110,9 +112,15 @@ function SupervisorAppRoutes() {
             <Route path="complaints" element={supUser ? <SupervisorComplaints /> : <Navigate to="/supervisor/login" replace />} />
             <Route path="resignation" element={supUser ? <SupervisorResignation /> : <Navigate to="/supervisor/login" replace />} />
             <Route path="branch-transfers" element={supUser ? <SupervisorBranchTransferReport /> : <Navigate to="/supervisor/login" replace />} />
+            <Route path="branch-transfers/report" element={supUser ? <SupervisorBranchTransferReport /> : <Navigate to="/supervisor/login" replace />} />
             <Route path="product-sales" element={supUser ? <SupervisorProductSaleReport /> : <Navigate to="/supervisor/login" replace />} />
+            <Route path="products/sales-report" element={supUser ? <SupervisorProductSaleReport /> : <Navigate to="/supervisor/login" replace />} />
             <Route path="staff-rating" element={supUser ? <SupervisorStaffRating /> : <Navigate to="/supervisor/login" replace />} />
             <Route path="staff-requisition" element={supUser ? <SupervisorStaffRequisition /> : <Navigate to="/supervisor/login" replace />} />
+
+            {/* Death Settlement Request (Point 16 Item 3) */}
+            <Route path="death-request" element={supUser ? <SupervisorDeathRequest /> : <Navigate to="/supervisor/login" replace />} />
+            <Route path="death-settlement" element={supUser ? <SupervisorDeathRequest /> : <Navigate to="/supervisor/login" replace />} />
 
             {/* New Special Sheet Requirements */}
             <Route path="team-staff" element={supUser ? <SupervisorStaffList /> : <Navigate to="/supervisor/login" replace />} />

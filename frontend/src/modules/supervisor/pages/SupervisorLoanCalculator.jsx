@@ -10,6 +10,9 @@ export default function SupervisorLoanCalculator() {
   const [tenureWeeks, setTenureWeeks] = useState(50);
   const [frequency, setFrequency] = useState('weekly'); // 'weekly' | 'monthly'
   const [calcType, setCalcType] = useState('flat');
+  const [securityRate, setSecurityRate] = useState(5); // %
+  const [processingRate, setProcessingRate] = useState(2); // %
+  const [insuranceRate, setInsuranceRate] = useState(1.5); // %
 
   useEffect(() => {
     if (api.loanSchemes?.options) {
@@ -35,6 +38,12 @@ export default function SupervisorLoanCalculator() {
     if (scheme.interestType) setCalcType(scheme.interestType.toLowerCase());
     if (scheme.minAmount && amount < scheme.minAmount) setAmount(scheme.minAmount);
     else if (scheme.maxAmount && amount > scheme.maxAmount) setAmount(scheme.maxAmount);
+
+    const sec = scheme.securityDepositBp != null ? (scheme.securityDepositBp / 100) : (scheme.securityDepositPercent != null ? Number(scheme.securityDepositPercent) : 5);
+    setSecurityRate(sec);
+    const proc = scheme.processingFeeBp != null ? (scheme.processingFeeBp / 100) : (scheme.processingFeePercent != null ? Number(scheme.processingFeePercent) : 2);
+    setProcessingRate(proc);
+    if (scheme.insurancePercent != null) setInsuranceRate(Number(scheme.insurancePercent));
   };
 
   const onSchemeChange = (e) => {
@@ -68,10 +77,11 @@ export default function SupervisorLoanCalculator() {
     }
   }
 
-  const processingFee = Math.round(amount * 0.02);
-  const insurance = Math.round(amount * 0.015);
-  const security = Math.round(amount * 0.05);
-  const netDisbursed = Math.max(0, amount - processingFee - insurance - security);
+  const processingFee = Math.round((amount * processingRate) / 100);
+  const insurance = Math.round((amount * insuranceRate) / 100);
+  const security = Math.round((amount * securityRate) / 100);
+  const totalDeductions = processingFee + insurance + security;
+  const netDisbursed = Math.max(0, amount - totalDeductions);
 
   return (
     <div className="sup-page-container">
@@ -146,6 +156,24 @@ export default function SupervisorLoanCalculator() {
             value={tenureWeeks}
             onChange={(e) => setTenureWeeks(Number(e.target.value))}
             style={{ width: '100%', accentColor: 'var(--sup-primary)' }}
+          />
+        </div>
+
+        <div className="sup-input-group">
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+            <label className="sup-label">Security Deposit (%) &amp; In-Hand Amount</label>
+            <strong style={{ color: 'var(--sup-danger)' }}>
+              ₹{security.toLocaleString('en-IN')} ({securityRate}%)
+            </strong>
+          </div>
+          <input
+            type="range"
+            min="0"
+            max="15"
+            step="0.5"
+            value={securityRate}
+            onChange={(e) => setSecurityRate(Number(e.target.value))}
+            style={{ width: '100%', accentColor: 'var(--sup-danger)' }}
           />
         </div>
 
@@ -225,16 +253,16 @@ export default function SupervisorLoanCalculator() {
             <strong>₹{amount.toLocaleString('en-IN')}</strong>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--sup-danger)' }}>
-            <span>- Processing Fee (2%):</span>
+            <span>- Processing Fee ({processingRate}%):</span>
             <strong>-₹{processingFee.toLocaleString('en-IN')}</strong>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--sup-danger)' }}>
-            <span>- Insurance / Verification (1.5%):</span>
+            <span>- Insurance / Verification ({insuranceRate}%):</span>
             <strong>-₹{insurance.toLocaleString('en-IN')}</strong>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--sup-danger)' }}>
-            <span>- Security Deposit (5%):</span>
-            <strong>-₹{security.toLocaleString('en-IN')}</strong>
+            <span>- Security Deposit ({securityRate}%):</span>
+            <strong style={{ fontSize: '0.88rem' }}>-₹{security.toLocaleString('en-IN')}</strong>
           </div>
           <div
             style={{

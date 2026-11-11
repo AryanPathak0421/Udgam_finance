@@ -44,6 +44,9 @@ import {
   getSupervisorBranchVisits,
   recordSupervisorBranchVisit,
   updateSupervisorBranchVisitStatus,
+  getSupervisorMemberSynopsis,
+  submitSupervisorDeathRequest,
+  listSupervisorDeathRequests,
 } from './supervisorAppController.js';
 
 const router = Router();
@@ -110,5 +113,10 @@ router.patch('/tasks/:id', requireAuth, h(updateSupervisorTaskStatus));
 router.get('/branch-visits', requireAuth, h(getSupervisorBranchVisits));
 router.post('/branch-visits', requireAuth, h(recordSupervisorBranchVisit));
 router.patch('/branch-visits/:id/status', requireAuth, h(updateSupervisorBranchVisitStatus));
+
+// Death Settlement Request (Point 16 Item 3)
+router.get('/members/synopsis/:query', requireAuth, h(getSupervisorMemberSynopsis));
+router.post('/death-requests', requireAuth, h(submitSupervisorDeathRequest));
+router.get('/death-requests', requireAuth, h(listSupervisorDeathRequests));
 
 export default router;

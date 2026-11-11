@@ -99,6 +99,7 @@ const complaintSchema = new mongoose.Schema(
     groupName: { type: String, trim: true },
     groupLeaderName: { type: String, trim: true },
     description: { type: String, required: true },
+    photo: String, // optional complaint photo/document attachment
     assignedTo: ref('Employee'),
     assignedToCode: String,
     assignedToName: String,

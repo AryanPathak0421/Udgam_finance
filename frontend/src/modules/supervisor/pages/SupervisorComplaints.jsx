@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../../../api/client.js';
 import Icon from '../../../components/Icon.jsx';
+import { compressImage } from '../../../utils/image.js';
 
 export default function SupervisorComplaints() {
   const [tab, setTab] = useState('report'); // 'report' | 'submit'
@@ -16,6 +17,7 @@ export default function SupervisorComplaints() {
   const [callerName, setCallerName] = useState('');
   const [callerMobile, setCallerMobile] = useState('');
   const [description, setDescription] = useState('');
+  const [photo, setPhoto] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -63,11 +65,13 @@ export default function SupervisorComplaints() {
         callerName: callerName.trim(),
         callerMobile: callerMobile.trim(),
         description: description.trim(),
+        photo: photo || undefined,
       });
       setSuccess('Complaint submitted successfully!');
       setDescription('');
       setCallerName('');
       setCallerMobile('');
+      setPhoto('');
       setTab('report');
       loadComplaints();
     } catch (err) {
@@ -211,6 +215,57 @@ export default function SupervisorComplaints() {
               />
             </div>
 
+            <div className="sup-input-group">
+              <label className="sup-label">Attach Photo / Proof (Optional)</label>
+              <input
+                type="file"
+                accept="image/*"
+                className="sup-input"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  try {
+                    const b64 = await compressImage(file, { maxSide: 1000, quality: 0.8 });
+                    setPhoto(b64);
+                  } catch {
+                    setError('Failed to compress image file');
+                  }
+                }}
+              />
+              {photo && (
+                <div style={{ position: 'relative', marginTop: 8, display: 'inline-block' }}>
+                  <img
+                    src={photo}
+                    alt="Complaint Proof"
+                    style={{ width: 100, height: 100, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--sup-border)' }}
+                  />
+                  <button
+                    type="button"
+                    style={{
+                      position: 'absolute',
+                      top: -6,
+                      right: -6,
+                      background: '#ef4444',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: '50%',
+                      width: 22,
+                      height: 22,
+                      cursor: 'pointer',
+                      fontSize: 13,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                    onClick={() => setPhoto('')}
+                    title="Remove Photo"
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
+            </div>
+
             <button type="submit" className="sup-btn" disabled={submitting}>
               {submitting ? 'Submitting Complaint…' : 'Submit Complaint'}
             </button>
@@ -266,6 +321,26 @@ export default function SupervisorComplaints() {
                     <span style={{ color: 'var(--sup-text-muted)' }}>Description: </span>
                     <span>{c.description}</span>
                   </div>
+
+                  {c.photo && (
+                    <div style={{ marginTop: 8 }}>
+                      <span style={{ color: 'var(--sup-text-muted)', display: 'block', marginBottom: 4, fontSize: '0.72rem' }}>Attached Photo:</span>
+                      <a href={c.photo} target="_blank" rel="noreferrer">
+                        <img
+                          src={c.photo}
+                          alt="Complaint Attachment"
+                          style={{
+                            maxWidth: 140,
+                            maxHeight: 100,
+                            borderRadius: 6,
+                            objectFit: 'cover',
+                            border: '1px solid var(--sup-border)',
+                            cursor: 'pointer',
+                          }}
+                        />
+                      </a>
+                    </div>
+                  )}
                 </div>
 
                 <div style={{ fontSize: '0.72rem', color: 'var(--sup-text-muted)', marginTop: 8, textAlign: 'right' }}>
