@@ -4,7 +4,14 @@
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 
 async function request(path, { method = 'GET', body, headers = {}, retryCount = 0 } = {}) {
-  const token = typeof localStorage !== 'undefined' ? (localStorage.getItem('udgam_token') || localStorage.getItem('token')) : null;
+  let token = null;
+  if (typeof localStorage !== 'undefined') {
+    if (path.startsWith('/member/') || path.startsWith('/member')) {
+      token = localStorage.getItem('udgam_member_token');
+    } else {
+      token = localStorage.getItem('udgam_token') || localStorage.getItem('token');
+    }
+  }
   const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
 
   let res;
@@ -36,8 +43,12 @@ async function request(path, { method = 'GET', body, headers = {}, retryCount = 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     // An expired session on a protected call sends the user back to login.
-    if (res.status === 401 && !path.startsWith('/auth/') && !path.startsWith('/employee/') && !path.startsWith('/supervisor/')) {
-      window.dispatchEvent(new Event('auth:expired'));
+    if (res.status === 401) {
+      if (path.startsWith('/member/') || path.startsWith('/member')) {
+        window.dispatchEvent(new Event('member:auth:expired'));
+      } else if (!path.startsWith('/auth/') && !path.startsWith('/employee/') && !path.startsWith('/supervisor/')) {
+        window.dispatchEvent(new Event('auth:expired'));
+      }
     }
     const fallbackMsg = (res.status >= 502 && res.status <= 504)
       ? 'Backend server is starting up. Please wait a few seconds and try again.'
@@ -667,6 +678,7 @@ export const api = {
     lookup: (identifier) => request('/member/auth/lookup', { method: 'POST', body: { identifier } }),
     register: (data) => request('/member/auth/register', { method: 'POST', body: data }),
     login: (data) => request('/member/auth/login', { method: 'POST', body: data }),
+    logout: () => request('/member/auth/logout', { method: 'POST' }).catch(() => ({})),
     sendLoginOtp: (identifier) => request('/member/auth/login-otp/send', { method: 'POST', body: { identifier } }),
     verifyLoginOtp: (data) => request('/member/auth/login-otp/verify', { method: 'POST', body: data }),
     forgotMpinSendOtp: (identifier) => request('/member/auth/forgot-mpin/send-otp', { method: 'POST', body: { identifier } }),

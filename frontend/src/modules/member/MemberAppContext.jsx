@@ -40,12 +40,21 @@ export function MemberAppProvider({ children }) {
     }
   }, []);
 
+  // Handle unauthorized or expired member session globally
+  useEffect(() => {
+    function handleMemberAuthExpired() {
+      logout();
+    }
+    window.addEventListener('member:auth:expired', handleMemberAuthExpired);
+    return () => window.removeEventListener('member:auth:expired', handleMemberAuthExpired);
+  }, []);
+
   function login(userData, jwtToken) {
     setMemUser(userData);
     setToken(jwtToken);
     localStorage.setItem('udgam_member_token', jwtToken);
     localStorage.setItem('udgam_member_user', JSON.stringify(userData));
-    document.cookie = `token=${jwtToken}; path=/; max-age=${30 * 24 * 60 * 60}; SameSite=Lax`;
+    document.cookie = `udgam_member_token=${jwtToken}; path=/; max-age=${30 * 24 * 60 * 60}; SameSite=Lax`;
   }
 
   function logout() {
@@ -53,7 +62,8 @@ export function MemberAppProvider({ children }) {
     setToken(null);
     localStorage.removeItem('udgam_member_token');
     localStorage.removeItem('udgam_member_user');
-    document.cookie = 'token=; path=/; max-age=0';
+    document.cookie = 'udgam_member_token=; path=/; max-age=0; SameSite=Lax';
+    api.memberApp.logout();
   }
 
   return (

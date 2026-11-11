@@ -5,7 +5,7 @@ import { api } from '../../../api/client.js';
 import Icon from '../../../components/Icon.jsx';
 
 export default function MemberHome() {
-  const { memUser } = useMemberApp();
+  const { memUser, logout } = useMemberApp();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -21,6 +21,10 @@ export default function MemberHome() {
       const res = await api.memberApp.dashboard();
       setData(res);
     } catch (err) {
+      if (err.status === 401 || err.message?.includes('session') || err.message?.includes('signed in')) {
+        logout();
+        return;
+      }
       setError(err.message || 'Failed to load member dashboard');
     } finally {
       setLoading(false);

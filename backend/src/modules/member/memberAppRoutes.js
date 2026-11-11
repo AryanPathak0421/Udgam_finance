@@ -36,15 +36,30 @@ export async function requireMemberAuth(req, res, next) {
   try {
     const authHeader = req.headers.authorization || '';
     const bearer = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
-    const token = bearer || req.cookies?.token || req.cookies?.udgam_token;
+    const token = bearer || req.cookies?.udgam_member_token || req.cookies?.token || req.cookies?.udgam_token;
 
     if (!token) return res.status(401).json({ message: 'Member not signed in' });
 
-    const decoded = jwt.verify(token, JWT_SECRET);
-    if (!decoded.memberId) return res.status(401).json({ message: 'Invalid member session' });
+    let decoded;
+    try {
+      decoded = jwt.verify(token, JWT_SECRET);
+    } catch (e) {
+      return res.status(401).json({ message: 'Session expired or invalid. Please sign in again.' });
+    }
 
-    const member = await Member.findOne({ _id: decoded.memberId, isDeleted: false })
-      .populate('branch', 'code name city pincode state address phone');
+    const memberId = decoded.memberId || (decoded.role === 'member' ? decoded.id : null);
+    if (!memberId && !decoded.memberCode) {
+      return res.status(401).json({ message: 'Invalid member session' });
+    }
+
+    let member = null;
+    if (memberId) {
+      member = await Member.findOne({ _id: memberId, isDeleted: false })
+        .populate('branch', 'code name city pincode state address phone');
+    } else if (decoded.memberCode) {
+      member = await Member.findOne({ code: decoded.memberCode, isDeleted: false })
+        .populate('branch', 'code name city pincode state address phone');
+    }
 
     if (!member || !member.isActive) {
       return res.status(403).json({ message: 'Member account is inactive or not found' });
@@ -66,6 +81,10 @@ const router = Router();
 router.post('/auth/lookup', h(lookupMember));
 router.post('/auth/register', h(registerMemberMpin));
 router.post('/auth/login', h(loginWithMpin));
+router.post('/auth/logout', (req, res) => {
+  res.clearCookie('udgam_member_token');
+  res.json({ status: 'ok', message: 'Signed out successfully' });
+});
 router.post('/auth/login-otp/send', h(sendLoginOtp));
 router.post('/auth/login-otp/verify', h(verifyLoginOtp));
 router.post('/auth/forgot-mpin/send-otp', h(forgotMemberMpinSendOtp));
