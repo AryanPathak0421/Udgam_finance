@@ -134,8 +134,16 @@ async function findEmployee(identifier) {
 
 // Ensure employee has a linked User account for token authentication
 async function ensureUserForEmployee(emp) {
-  let user = await User.findOne({ employeeCode: emp.employeeCode });
+  let user = await User.findOne({ employeeCode: new RegExp(`^${emp.employeeCode}$`, 'i') });
   if (!user && emp.email) user = await User.findOne({ email: emp.email.toLowerCase() });
+  if (!user && emp.mobile) {
+    const last10 = String(emp.mobile).replace(/\D/g, '').slice(-10);
+    if (last10) {
+      user = await User.findOne({
+        $or: [{ mobile: last10 }, { mobile: `+91${last10}` }, { mobile: `91${last10}` }],
+      });
+    }
+  }
   if (!user) {
     const desigName = emp.designation?.name || (typeof emp.designation === 'string' ? emp.designation : '');
     const role = /manager/i.test(desigName) ? 'branch_manager' : 'field_officer';
@@ -146,15 +154,72 @@ async function ensureUserForEmployee(emp) {
       employeeCode: emp.employeeCode,
       password: await EmployeeMpin.hashMpin('123456'), // fallback password
       role,
-      branches: emp.branch?._id ? [emp.branch._id] : [],
+      branches: emp.branch?._id ? [emp.branch._id] : (emp.branch ? [emp.branch] : []),
       isActive: emp.status === 'active',
     });
+  } else {
+    let changed = false;
+    if (!user.employeeCode && emp.employeeCode) {
+      user.employeeCode = emp.employeeCode;
+      changed = true;
+    }
+    const bId = emp.branch?._id || emp.branch;
+    if ((!user.branches || !user.branches.length) && bId) {
+      user.branches = [bId];
+      changed = true;
+    }
+    if (changed) {
+      await user.save();
+    }
   }
-  if (!emp.user) {
+  if (!emp.user || String(emp.user) !== String(user._id)) {
     emp.user = user._id;
     await emp.save();
   }
   return user;
+}
+
+// Robustly resolve employee record, code, branch, and user context for any staff member
+export async function getEmployeeContext(req) {
+  const user = req.user;
+  let code = (user?.employeeCode || '').trim();
+  let emp = null;
+
+  if (code) {
+    emp = await Employee.findOne({
+      employeeCode: new RegExp(`^${code}$`, 'i'),
+      isDeleted: false,
+    }).populate('branch', 'code name city pincode').lean();
+  }
+
+  if (!emp && user?._id) {
+    emp = await Employee.findOne({
+      user: user._id,
+      isDeleted: false,
+    }).populate('branch', 'code name city pincode').lean();
+  }
+
+  if (!emp && user?.email) {
+    emp = await Employee.findOne({
+      email: user.email.toLowerCase(),
+      isDeleted: false,
+    }).populate('branch', 'code name city pincode').lean();
+  }
+
+  if (!emp && user?.mobile) {
+    const last10 = String(user.mobile).replace(/\D/g, '').slice(-10);
+    if (last10) {
+      emp = await Employee.findOne({
+        mobile: { $regex: `${last10}$` },
+        isDeleted: false,
+      }).populate('branch', 'code name city pincode').lean();
+    }
+  }
+
+  const resolvedCode = (emp?.employeeCode || code || '').trim().toUpperCase();
+  const branchId = emp?.branch?._id || emp?.branch || (user?.branches || [])[0] || null;
+
+  return { emp, code: resolvedCode, branchId, user };
 }
 
 // -----------------------------------------------------------------------------
@@ -331,9 +396,14 @@ export async function forgotMpinVerifyAndReset(req, res) {
 // -----------------------------------------------------------------------------
 
 export async function getEmployeeProfile(req, res) {
-  const code = req.user?.employeeCode;
+  const { emp: ctxEmp, code } = await getEmployeeContext(req);
   const emp = await Employee.findOne({
-    $or: [{ employeeCode: new RegExp(`^${code}$`, 'i') }, { user: req.user?._id }],
+    $or: [
+      ...(code ? [{ employeeCode: new RegExp(`^${code}$`, 'i') }] : []),
+      { user: req.user?._id },
+      ...(ctxEmp?._id ? [{ _id: ctxEmp._id }] : []),
+      ...(req.user?.email ? [{ email: req.user.email.toLowerCase() }] : []),
+    ],
     isDeleted: false,
   })
     .select('+photo')
@@ -418,13 +488,24 @@ export async function rateEmployee(req, res) {
 // -----------------------------------------------------------------------------
 
 export async function getDashboard(req, res) {
-  const code = req.user?.employeeCode;
+  const { emp, code, branchId } = await getEmployeeContext(req);
+  const codeRegex = code ? new RegExp(`^${code}$`, 'i') : null;
   const today = startOfToday();
   const todayEnd = new Date(today.getTime() + 24 * 60 * 60 * 1000 - 1);
 
   // Collections by this employee today
   const todayCollections = await EmiPayment.aggregate([
-    { $match: { employeeCode: code, status: 'paid', paidOn: { $gte: today, $lte: todayEnd } } },
+    {
+      $match: {
+        status: 'paid',
+        paidOn: { $gte: today, $lte: todayEnd },
+        $or: [
+          ...(codeRegex ? [{ employeeCode: codeRegex }, { staffCode: codeRegex }] : []),
+          ...(req.user?._id ? [{ collectedBy: req.user._id }] : []),
+          ...(emp?._id ? [{ collectedBy: emp._id }] : []),
+        ],
+      },
+    },
     { $group: { _id: null, amountPaise: { $sum: '$amountPaise' }, count: { $sum: 1 } } },
   ]);
 
@@ -432,19 +513,22 @@ export async function getDashboard(req, res) {
   const todayReceiptsCount = todayCollections[0]?.count || 0;
 
   // Active loans handled by this employee (including assigned groups and branch loans)
-  const emp = await Employee.findOne({ employeeCode: code }).lean();
   const myAssignedGroups = await Group.find({
     isDeleted: { $ne: true },
-    $or: [{ employeeCode: code }, ...(emp?._id ? [{ employee: emp._id }] : [])],
+    $or: [
+      ...(codeRegex ? [{ employeeCode: codeRegex }, { staffCode: codeRegex }] : []),
+      ...(emp?._id ? [{ employee: emp._id }, { staffId: emp._id }] : []),
+      ...(branchId ? [{ branch: branchId }] : []),
+    ],
   }).select('code').lean();
   const myGroupCodes = myAssignedGroups.map((g) => g.code).filter(Boolean);
 
   const loanQuery = {
     status: 'paid',
     $or: [
-      { employeeCode: code },
+      ...(codeRegex ? [{ employeeCode: codeRegex }, { staffCode: codeRegex }] : []),
       ...(myGroupCodes.length ? [{ 'group.code': { $in: myGroupCodes } }] : []),
-      ...(emp?.branch ? [{ branch: emp.branch }] : []),
+      ...(branchId ? [{ branch: branchId }] : []),
     ],
   };
 
@@ -501,12 +585,31 @@ export async function getDashboard(req, res) {
     const endM = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59);
 
     const mColl = await EmiPayment.aggregate([
-      { $match: { employeeCode: code, status: 'paid', paidOn: { $gte: startM, $lte: endM } } },
+      {
+        $match: {
+          status: 'paid',
+          paidOn: { $gte: startM, $lte: endM },
+          $or: [
+            ...(codeRegex ? [{ employeeCode: codeRegex }, { staffCode: codeRegex }] : []),
+            ...(req.user?._id ? [{ collectedBy: req.user._id }] : []),
+            ...(emp?._id ? [{ collectedBy: emp._id }] : []),
+          ],
+        },
+      },
       { $group: { _id: null, total: { $sum: '$amountPaise' } } },
     ]);
 
     const mDisb = await LoanPayment.aggregate([
-      { $match: { employeeCode: code, status: 'paid', paidOn: { $gte: startM, $lte: endM } } },
+      {
+        $match: {
+          status: 'paid',
+          paidOn: { $gte: startM, $lte: endM },
+          $or: [
+            ...(codeRegex ? [{ employeeCode: codeRegex }, { staffCode: codeRegex }] : []),
+            ...(branchId ? [{ branch: branchId }] : []),
+          ],
+        },
+      },
       { $group: { _id: null, total: { $sum: '$totalAmountPaise' } } },
     ]);
 
@@ -519,10 +622,23 @@ export async function getDashboard(req, res) {
   }
 
   // Pending tasks for this employee
-  const pendingTasksCount = emp ? await Task.countDocuments({ assignedTo: emp._id, status: { $in: ['open', 'in_progress'] } }) : 0;
+  const pendingTasksCount = await Task.countDocuments({
+    $or: [
+      ...(codeRegex ? [{ assignedToCode: codeRegex }] : []),
+      ...(emp?._id ? [{ assignedTo: emp._id }] : []),
+      ...(req.user?._id ? [{ assignedTo: req.user._id }] : []),
+      ...(branchId ? [{ branch: branchId, assignedTo: { $exists: false } }] : []),
+    ],
+    status: { $in: ['open', 'in_progress'] },
+  });
 
   // Point 11: Employee Rating from Supervisor
-  const mpinDoc = await EmployeeMpin.findOne({ employeeCode: code });
+  const mpinDoc = await EmployeeMpin.findOne({
+    $or: [
+      ...(codeRegex ? [{ employeeCode: codeRegex }] : []),
+      ...(emp?._id ? [{ employee: emp._id }] : []),
+    ],
+  });
   const averageRating = emp?.averageRating || mpinDoc?.averageRating || 5;
   const ratingsCount = emp?.ratings?.length || mpinDoc?.ratings?.length || 0;
 
@@ -549,16 +665,21 @@ export async function getDashboard(req, res) {
 // -----------------------------------------------------------------------------
 
 export async function getCollectionHistory(req, res) {
-  const code = req.user?.employeeCode;
+  const { emp, code } = await getEmployeeContext(req);
+  const codeRegex = code ? new RegExp(`^${code}$`, 'i') : null;
   const dateStr = asString(req.query.date) || todayDateString();
   const categoryFilter = cleanStr(req.query.category).toLowerCase(); // all, group, personal, msme, product
   const from = new Date(`${dateStr}T00:00:00.000Z`);
   const to = new Date(`${dateStr}T23:59:59.999Z`);
 
   const list = await EmiPayment.find({
-    employeeCode: code,
     status: 'paid',
     paidOn: { $gte: from, $lte: to },
+    $or: [
+      ...(codeRegex ? [{ employeeCode: codeRegex }, { staffCode: codeRegex }] : []),
+      ...(req.user?._id ? [{ collectedBy: req.user._id }] : []),
+      ...(emp?._id ? [{ collectedBy: emp._id }] : []),
+    ],
   })
     .populate('loanPayment', 'loanType mode product group')
     .sort({ createdAt: -1 })
@@ -616,21 +737,18 @@ export async function getCollectionHistory(req, res) {
 }
 
 export async function getTodayDueList(req, res) {
-  const code = req.user?.employeeCode;
+  const { emp, code, branchId } = await getEmployeeContext(req);
+  const codeRegex = code ? new RegExp(`^${code}$`, 'i') : null;
   const dateStr = asString(req.query.date) || todayDateString();
   const categoryFilter = cleanStr(req.query.category).toLowerCase();
   const startDay = new Date(`${dateStr}T00:00:00.000Z`);
   const asOf = new Date(`${dateStr}T23:59:59.999Z`);
 
-  const emp = await Employee.findOne({ employeeCode: code }).select('_id branch name').lean();
-  const branchId = emp?.branch || (req.user?.branches || [])[0];
-
   const myGroups = await Group.find({
     isDeleted: { $ne: true },
     $or: [
-      { employeeCode: code },
+      ...(codeRegex ? [{ employeeCode: codeRegex }, { staffCode: codeRegex }] : []),
       ...(emp?._id ? [{ employee: emp._id }, { staffId: emp._id }] : []),
-      { staffCode: code },
       ...(branchId ? [{ branch: branchId }] : []),
     ],
   }).select('code name meetingType collectionDay dayOfWeek').lean();
@@ -639,7 +757,7 @@ export async function getTodayDueList(req, res) {
   const loanQuery = {
     status: 'paid',
     $or: [
-      { employeeCode: code },
+      ...(codeRegex ? [{ employeeCode: codeRegex }, { staffCode: codeRegex }] : []),
       ...(myGroupCodes.length ? [{ 'group.code': { $in: myGroupCodes } }] : []),
       ...(branchId ? [{ branch: branchId }] : []),
     ],
@@ -1072,16 +1190,18 @@ export async function registerMember(req, res) {
 // -----------------------------------------------------------------------------
 
 export async function getStaffRecentMembers(req, res) {
-  const code = req.user?.employeeCode;
-  const emp = await Employee.findOne({ employeeCode: code }).lean();
-  const rawBranchIds = [emp?.branch, req.user?.branch, ...(req.user?.branches || [])].filter(Boolean);
+  const { emp, code, branchId } = await getEmployeeContext(req);
+  const codeRegex = code ? new RegExp(`^${code}$`, 'i') : null;
+  const rawBranchIds = [branchId, emp?.branch, req.user?.branch, ...(req.user?.branches || [])].filter(Boolean);
   const branchIds = [...new Set(rawBranchIds.map((b) => String(b?.id || b?._id || b)))];
 
   const query = { isDeleted: { $ne: true } };
-  if (branchIds.length > 0) {
+  if (branchIds.length > 0 && codeRegex) {
+    query.$or = [{ branch: { $in: branchIds } }, { employeeCode: codeRegex }];
+  } else if (branchIds.length > 0) {
     query.branch = { $in: branchIds };
-  } else if (code) {
-    query.employeeCode = code;
+  } else if (codeRegex) {
+    query.employeeCode = codeRegex;
   }
 
   const members = await Member.find(query)
@@ -2171,15 +2291,15 @@ export async function calculateLoanEmi(req, res) {
 }
 
 export async function getStaffGroups(req, res) {
-  const code = req.user?.employeeCode;
-  const emp = await Employee.findOne({ employeeCode: code }).lean();
-  const branchId = emp?.branch || (req.user?.branches || [])[0];
+  const { emp, code, branchId } = await getEmployeeContext(req);
+  const codeRegex = code ? new RegExp(`^${code}$`, 'i') : null;
 
   let groups = await Group.find({
     isDeleted: { $ne: true },
     $or: [
-      { employeeCode: code },
-      ...(emp?._id ? [{ employee: emp._id }] : []),
+      ...(codeRegex ? [{ employeeCode: codeRegex }, { staffCode: codeRegex }] : []),
+      ...(emp?._id ? [{ employee: emp._id }, { staffId: emp._id }] : []),
+      ...(branchId ? [{ branch: branchId }] : []),
     ],
   }).populate('branch', 'name code').populate('members.member', 'code name mobile isMobileVerified mobileVerifiedAt isKycApproved kycRejected guarantor').lean();
 
@@ -2664,7 +2784,8 @@ export async function trackLoanHistory(req, res) {
 // 14. GROUP EMI PAYMENT & FILTERS (DAILY, WEEKLY, MONTHLY)
 // -----------------------------------------------------------------------------
 export async function getEmiGroups(req, res) {
-  const staffCode = req.user?.employeeCode || '';
+  const { emp, code: staffCode, branchId } = await getEmployeeContext(req);
+  const codeRegex = staffCode ? new RegExp(`^${staffCode}$`, 'i') : null;
   const mode = cleanStr(req.query.mode || 'all').toLowerCase();
   const dateStr = cleanStr(req.query.date) || todayDateString();
 
@@ -2675,8 +2796,6 @@ export async function getEmiGroups(req, res) {
   const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
   const targetDayName = dayNames[jsDay];
 
-  const emp = await Employee.findOne({ employeeCode: staffCode }).lean();
-
   // Point 3: Check if caller is a Supervisor / Branch Manager
   const isSupervisorUser = Boolean(
     req.user?.isSupervisor ||
@@ -2686,18 +2805,18 @@ export async function getEmiGroups(req, res) {
   );
 
   let branchIds = [];
-  if (isSupervisorUser) {
-    if (emp?.branch) branchIds.push(emp.branch._id || emp.branch);
-    if (Array.isArray(emp?.supervisedBranches)) {
-      for (const b of emp.supervisedBranches) branchIds.push(b._id || b);
-    }
-    if (Array.isArray(req.user?.branches)) {
-      for (const b of req.user.branches) branchIds.push(b._id || b);
-    }
-    if (req.query.branchId && mongoose.isValidObjectId(req.query.branchId)) {
-      branchIds = [req.query.branchId];
-    }
+  if (branchId) branchIds.push(branchId);
+  if (emp?.branch) branchIds.push(emp.branch._id || emp.branch);
+  if (Array.isArray(emp?.supervisedBranches)) {
+    for (const b of emp.supervisedBranches) branchIds.push(b._id || b);
   }
+  if (Array.isArray(req.user?.branches)) {
+    for (const b of req.user.branches) branchIds.push(b._id || b);
+  }
+  if (req.query.branchId && mongoose.isValidObjectId(req.query.branchId)) {
+    branchIds = [req.query.branchId];
+  }
+  branchIds = [...new Set(branchIds.map(String))];
 
   let myAssignedGroups = [];
   const groupDocMap = new Map();
@@ -2712,8 +2831,9 @@ export async function getEmiGroups(req, res) {
     const staffGroupQuery = {
       isDeleted: { $ne: true },
       $or: [
-        { employeeCode: staffCode },
-        ...(emp?._id ? [{ employee: emp._id }] : []),
+        ...(codeRegex ? [{ employeeCode: codeRegex }, { staffCode: codeRegex }] : []),
+        ...(emp?._id ? [{ employee: emp._id }, { staffId: emp._id }] : []),
+        ...(branchId ? [{ branch: branchId }] : []),
       ],
     };
     myAssignedGroups = await Group.find(staffGroupQuery).select('code name meetingType dayOfWeek collectionDay branch center').lean();
@@ -2727,7 +2847,12 @@ export async function getEmiGroups(req, res) {
 
   if (!myGroupCodes.length) {
     const staffLoans = await LoanPayment.find({
-      ...(isSupervisorUser && branchIds.length ? { branch: { $in: branchIds } } : { employeeCode: staffCode }),
+      ...(isSupervisorUser && branchIds.length ? { branch: { $in: branchIds } } : {
+        $or: [
+          ...(codeRegex ? [{ employeeCode: codeRegex }, { staffCode: codeRegex }] : []),
+          ...(branchId ? [{ branch: branchId }] : []),
+        ],
+      }),
       'group.code': { $exists: true, $ne: '' },
     })
       .select('group.code')
@@ -2735,9 +2860,9 @@ export async function getEmiGroups(req, res) {
     myGroupCodes = [...new Set(staffLoans.map((l) => l.group?.code).filter(Boolean))];
   }
 
-  if (!myGroupCodes.length && (emp?.branch || req.user?.branches?.length)) {
-    const branchId = emp?.branch || req.user?.branches?.[0];
-    const branchGroups = await Group.find({ branch: branchId, isDeleted: { $ne: true } }).select('code name meetingType dayOfWeek collectionDay branch center').limit(100).lean();
+  if (!myGroupCodes.length && (branchId || emp?.branch || req.user?.branches?.length)) {
+    const activeBranchId = branchId || emp?.branch || req.user?.branches?.[0];
+    const branchGroups = await Group.find({ branch: activeBranchId, isDeleted: { $ne: true } }).select('code name meetingType dayOfWeek collectionDay branch center').limit(100).lean();
     for (const g of branchGroups) {
       if (g.code) groupDocMap.set(g.code, g);
     }
@@ -3239,7 +3364,8 @@ export async function collectBulkEmi(req, res) {
 // 15. INDIVIDUAL LOAN EMI COLLECTION (PERSONAL, BUSINESS/MSME, PRODUCT)
 // -----------------------------------------------------------------------------
 export async function getIndividualLoans(req, res) {
-  const staffCode = req.user?.employeeCode || '';
+  const { emp, code: staffCode, branchId } = await getEmployeeContext(req);
+  const codeRegex = staffCode ? new RegExp(`^${staffCode}$`, 'i') : null;
   const loanType = cleanStr(req.query.loanType || 'personal').toLowerCase();
   const mode = cleanStr(req.query.mode || 'all').toLowerCase();
   const dateStr = cleanStr(req.query.date) || todayDateString();
@@ -3252,9 +3378,6 @@ export async function getIndividualLoans(req, res) {
     ? { $in: ['business', 'msme', 'business_msme'] }
     : loanType;
 
-  const emp = await Employee.findOne({ employeeCode: staffCode }).lean();
-  const branchId = emp?.branch || (req.user?.branches || [])[0];
-
   const query = {
     status: 'paid',
     $or: [
@@ -3264,7 +3387,7 @@ export async function getIndividualLoans(req, res) {
     $and: [
       {
         $or: [
-          { employeeCode: staffCode },
+          ...(codeRegex ? [{ employeeCode: codeRegex }, { staffCode: codeRegex }] : []),
           ...(branchId ? [{ branch: branchId }] : []),
         ],
       },
@@ -3522,32 +3645,36 @@ export async function advancePayment(req, res) {
 // 17. NPA RECOVERY (NPA MEMBERS & OVERDUE RECOVERY)
 // -----------------------------------------------------------------------------
 export async function getNpaLoans(req, res) {
-  const staffCode = req.user?.employeeCode || '';
-  const emp = await Employee.findOne({ employeeCode: staffCode }).lean();
+  const { emp, code: staffCode, branchId } = await getEmployeeContext(req);
+  const codeRegex = staffCode ? new RegExp(`^${staffCode}$`, 'i') : null;
 
   const myAssignedGroups = await Group.find({
     isDeleted: { $ne: true },
     $or: [
-      { employeeCode: staffCode },
-      ...(emp?._id ? [{ employee: emp._id }] : []),
+      ...(codeRegex ? [{ employeeCode: codeRegex }, { staffCode: codeRegex }] : []),
+      ...(emp?._id ? [{ employee: emp._id }, { staffId: emp._id }] : []),
+      ...(branchId ? [{ branch: branchId }] : []),
     ],
   }).select('code').lean();
   let myGroupCodes = myAssignedGroups.map((g) => g.code).filter(Boolean);
 
   if (!myGroupCodes.length) {
-    const staffLoans = await LoanPayment.find({ employeeCode: staffCode, 'group.code': { $exists: true, $ne: '' } })
+    const staffLoans = await LoanPayment.find({
+      $or: [
+        ...(codeRegex ? [{ employeeCode: codeRegex }, { staffCode: codeRegex }] : []),
+        ...(branchId ? [{ branch: branchId }] : []),
+      ],
+      'group.code': { $exists: true, $ne: '' }
+    })
       .select('group.code')
       .lean();
     myGroupCodes = [...new Set(staffLoans.map((l) => l.group?.code).filter(Boolean))];
   }
 
-  // Branch fallback so NPA loans in the branch are always accessible to the officer (Item 6 fix)
-  const branchId = emp?.branch || (req.user?.branches || [])[0];
-
   const query = {
     status: { $in: ['paid', 'npa'] },
     $or: [
-      { employeeCode: staffCode },
+      ...(codeRegex ? [{ employeeCode: codeRegex }, { staffCode: codeRegex }] : []),
       ...(myGroupCodes.length ? [{ 'group.code': { $in: myGroupCodes } }] : []),
       ...(branchId ? [{ branch: branchId }] : []),
       { npa: true },
@@ -4003,7 +4130,8 @@ export async function requestSavingsWithdrawal(req, res) {
 // 20. EMPLOYEE REPORTS & TARGETS (POINT 17)
 // -----------------------------------------------------------------------------
 export async function getEmployeeReports(req, res) {
-  const code = req.user?.employeeCode;
+  const { emp, code, branchId } = await getEmployeeContext(req);
+  const codeRegex = code ? new RegExp(`^${code}$`, 'i') : null;
   const { dateFrom, dateTo } = req.query;
 
   const dateFilter = {};
@@ -4014,26 +4142,31 @@ export async function getEmployeeReports(req, res) {
     };
   }
 
+  const staffOrBranch = [
+    ...(codeRegex ? [{ employeeCode: codeRegex }, { staffCode: codeRegex }] : []),
+    ...(branchId ? [{ branch: branchId }] : []),
+  ];
+
   const disbursements = await LoanPayment.find({
-    employeeCode: code,
     status: 'paid',
+    $or: staffOrBranch,
     ...dateFilter,
   }).sort({ paidOn: -1 }).limit(100).lean();
 
   const totalDisbursed = disbursements.reduce((sum, d) => sum + (d.totalAmountPaise || d.amountPaise || 0), 0) / 100;
 
   const requisitions = await LoanRequisition.find({
-    employeeCode: code,
     isDeleted: false,
+    $or: staffOrBranch,
     ...dateFilter,
   }).sort({ createdAt: -1 }).limit(100).lean();
 
   const approvals = requisitions.filter((r) => r.status === 'approved');
 
   const npaPayments = await EmiPayment.find({
-    employeeCode: code,
     npa: true,
     status: 'paid',
+    $or: staffOrBranch,
     ...dateFilter,
   }).sort({ paidOn: -1 }).limit(100).lean();
 
@@ -4042,14 +4175,14 @@ export async function getEmployeeReports(req, res) {
   const totalNpaCommission = Math.round(totalNpaRecovered * 0.10 * 100) / 100;
 
   const centerSurveys = await CenterVisit.find({
-    employeeCode: code,
+    $or: staffOrBranch,
     ...dateFilter,
   }).sort({ visitDate: -1 }).limit(100).lean();
 
   // Point 16 & Item 11 Fix: Separate Actual Completed Product Sales from Pending Bookings
   // Target must show ACTUAL PRODUCT SELL, not product bookings!
   const productSales = await ProductSaleOrder.find({
-    employeeCode: code,
+    $or: staffOrBranch,
     ...dateFilter,
   }).sort({ createdAt: -1 }).limit(100).lean();
 
@@ -4253,14 +4386,18 @@ export async function markFirstMeetingAttendance(req, res) {
 // 22. SALARY SLIP MONTH WISE (POINT 19)
 // -----------------------------------------------------------------------------
 export async function getSalarySlips(req, res) {
-  const code = req.user?.employeeCode;
-  const emp = await Employee.findOne({ employeeCode: code });
-  const query = { $or: [{ employeeCode: code }] };
-  if (emp?._id) query.$or.push({ employee: emp._id });
+  const { emp, code } = await getEmployeeContext(req);
+  const codeRegex = code ? new RegExp(`^${code}$`, 'i') : null;
+  const query = {
+    $or: [
+      ...(codeRegex ? [{ employeeCode: codeRegex }] : []),
+      ...(emp?._id ? [{ employee: emp._id }] : []),
+    ],
+  };
 
-  const slips = await Salary.find(query)
+  const slips = query.$or.length ? await Salary.find(query)
     .sort({ month: -1 })
-    .lean();
+    .lean() : [];
 
   res.json({
     items: slips.map((s) => {
@@ -4335,9 +4472,9 @@ export async function getSalarySlips(req, res) {
 // 23. ATTENDANCE HISTORY MONTH WISE (POINT 20)
 // -----------------------------------------------------------------------------
 export async function getAttendanceHistory(req, res) {
-  const code = req.user?.employeeCode;
-  const emp = await Employee.findOne({ employeeCode: code });
+  const { emp, code } = await getEmployeeContext(req);
   if (!emp) throw new HttpError(404, 'Employee not found');
+  const codeRegex = code ? new RegExp(`^${code}$`, 'i') : null;
 
   const monthStr = cleanStr(req.query.month) || new Date().toISOString().slice(0, 7);
   const startMonth = new Date(`${monthStr}-01T00:00:00.000Z`);
@@ -4349,7 +4486,10 @@ export async function getAttendanceHistory(req, res) {
   }).sort({ date: 1 }).lean();
 
   const meetingPhotos = await FirstMeetingAttendance.find({
-    employeeCode: code,
+    $or: [
+      ...(codeRegex ? [{ employeeCode: codeRegex }] : []),
+      ...(emp?._id ? [{ employee: emp._id }] : []),
+    ],
     date: { $gte: startMonth, $lte: endMonth },
   }).lean();
 
@@ -4568,8 +4708,7 @@ export async function updateCgtDayPhoto(req, res) {
 // 26. LEAVE APPLY, HISTORY & BALANCES (POINT 23)
 // -----------------------------------------------------------------------------
 export async function getLeaveOverview(req, res) {
-  const code = req.user?.employeeCode;
-  const emp = await Employee.findOne({ employeeCode: code });
+  const { emp, code } = await getEmployeeContext(req);
   if (!emp) throw new HttpError(404, 'Employee not found');
 
   const leaves = await Leave.find({ employee: emp._id }).sort({ createdAt: -1 }).limit(30).lean();
@@ -4710,8 +4849,14 @@ export async function submitResignation(req, res) {
 }
 
 export async function getResignationStatus(req, res) {
-  const code = req.user?.employeeCode;
-  const item = await Resignation.findOne({ employeeCode: code }).sort({ createdAt: -1 }).lean();
+  const { emp, code } = await getEmployeeContext(req);
+  const codeRegex = code ? new RegExp(`^${code}$`, 'i') : null;
+  const item = await Resignation.findOne({
+    $or: [
+      ...(codeRegex ? [{ employeeCode: codeRegex }] : []),
+      ...(emp?._id ? [{ employee: emp._id }] : []),
+    ],
+  }).sort({ createdAt: -1 }).lean();
   res.json({ item });
 }
 
@@ -4719,8 +4864,7 @@ export async function getResignationStatus(req, res) {
 // 29. BRANCH TRANSFER REQUEST (POINT 26)
 // -----------------------------------------------------------------------------
 export async function requestBranchTransfer(req, res) {
-  const code = req.user?.employeeCode;
-  const emp = await Employee.findOne({ employeeCode: code }).populate('branch');
+  const { emp, code } = await getEmployeeContext(req);
   if (!emp) throw new HttpError(404, 'Employee record not found');
   const { targetBranchId, reason } = req.body || {};
 
@@ -4767,9 +4911,7 @@ export async function listTransferRequests(req, res) {
 // 30. PRODUCT SALE (POINT 27)
 // -----------------------------------------------------------------------------
 export async function getBranchStockProducts(req, res) {
-  const code = req.user?.employeeCode;
-  const emp = await Employee.findOne({ employeeCode: code });
-  const branchId = emp?.branch;
+  const { emp, branchId } = await getEmployeeContext(req);
 
   let products = await StockProduct.find({
     isDeleted: false,
@@ -4874,19 +5016,15 @@ export async function sellStockProduct(req, res) {
 // 31. TASKS (POINT 28)
 // -----------------------------------------------------------------------------
 export async function getMyTasks(req, res) {
-  const code = req.user?.employeeCode;
-  const emp = await Employee.findOne({
-    $or: [{ employeeCode: new RegExp(`^${code}$`, 'i') }, { user: req.user?._id }],
-    isDeleted: false,
-  });
-  const employeeCode = emp?.employeeCode || code;
+  const { emp, code: employeeCode, branchId } = await getEmployeeContext(req);
+  const codeRegex = employeeCode ? new RegExp(`^${employeeCode}$`, 'i') : null;
 
   const orConditions = [
-    { assignedToCode: new RegExp(`^${employeeCode}$`, 'i') },
+    ...(codeRegex ? [{ assignedToCode: codeRegex }] : []),
   ];
   if (emp?._id) orConditions.push({ assignedTo: emp._id });
   if (req.user?._id) orConditions.push({ assignedTo: req.user._id });
-  if (emp?.branch) orConditions.push({ branch: emp.branch, assignedTo: { $exists: false } });
+  if (branchId) orConditions.push({ branch: branchId, assignedTo: { $exists: false } });
 
   const tasks = await Task.find({ $or: orConditions })
     .populate('branch', 'name code')
@@ -5210,12 +5348,7 @@ export async function addCivilCheckedMember(req, res) {
 // 34. NOTIFICATIONS & BROADCASTS (POINTS 21, 23: RELIABLE DELIVERY FOR KYC REJECTIONS)
 // -----------------------------------------------------------------------------
 export async function getEmployeeNotifications(req, res) {
-  const code = req.user?.employeeCode;
-  const emp = await Employee.findOne({
-    $or: [{ employeeCode: new RegExp(`^${code}$`, 'i') }, { user: req.user?._id }],
-    isDeleted: false,
-  });
-  const branchId = emp?.branch || req.user?.branch;
+  const { emp, code, branchId } = await getEmployeeContext(req);
 
   // 1. User specific notifications (check both current auth user and employee user)
   const userIds = [req.user?._id, emp?.user].filter(Boolean);

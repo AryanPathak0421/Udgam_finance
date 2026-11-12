@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import mongoose from 'mongoose';
 import { User } from '../models/User.js';
 import { assertNotRejected } from '../services/dayOpen.js';
 
@@ -20,6 +21,33 @@ export async function requireAuth(req, res, next) {
       return res.status(401).json({ message: 'Session expired. Please sign in again.' });
     }
     req.user = user;
+    if (!req.user.employeeCode && decoded.employeeCode) {
+      req.user.employeeCode = decoded.employeeCode;
+    }
+    if ((!req.user.branches || !req.user.branches.length) && decoded.branchId) {
+      req.user.branches = [decoded.branchId];
+    }
+    if (!req.user.employeeCode) {
+      try {
+        const EmployeeModel = mongoose.models.Employee || mongoose.model('Employee');
+        if (EmployeeModel) {
+          const emp = await EmployeeModel.findOne({
+            $or: [
+              { user: user._id },
+              ...(user.email ? [{ email: user.email.toLowerCase() }] : []),
+              ...(user.mobile ? [{ mobile: user.mobile }] : []),
+            ],
+            isDeleted: false,
+          }).select('employeeCode branch').lean();
+          if (emp?.employeeCode) {
+            req.user.employeeCode = emp.employeeCode;
+            if ((!req.user.branches || !req.user.branches.length) && emp.branch) {
+              req.user.branches = [emp.branch];
+            }
+          }
+        }
+      } catch {}
+    }
   } catch {
     return res.status(401).json({ message: 'Not authenticated' });
   }
