@@ -844,6 +844,22 @@ export function createRequisition(kind) {
     // The same scheme is not offered again to a member until that loan is finished.
     const sameScheme = { isDeleted: false, scheme: scheme._id, status: { $in: RUNNING } };
     if (m) {
+      if (kind === 'personal') {
+        const runningPersonal = (await unfinishedRows(await LoanRequisition.find({ isDeleted: false, kind: 'personal', $or: [{ member: m._id }, { members: m._id }], status: { $in: RUNNING } }).select('formId member members status disbursedAt')))[0];
+        if (runningPersonal) {
+          throw new HttpError(409, `This borrower already has an active personal loan requisition (${runningPersonal.formId}). A member cannot have multiple personal loans simultaneously.`, {
+            member: 'A personal loan is already running for this member',
+          });
+        }
+      }
+      if (kind === 'business') {
+        const runningBiz = (await unfinishedRows(await LoanRequisition.find({ isDeleted: false, kind: { $in: ['business', 'msme'] }, $or: [{ member: m._id }, { members: m._id }], status: { $in: RUNNING } }).select('formId member members status disbursedAt')))[0];
+        if (runningBiz) {
+          throw new HttpError(409, `This borrower already has an active business/MSME loan requisition (${runningBiz.formId}). A member cannot have multiple business loans simultaneously.`, {
+            member: 'A business loan is already running for this member',
+          });
+        }
+      }
       const running = (await unfinishedRows(await LoanRequisition.find({ ...sameScheme, $or: [{ member: m._id }, { members: m._id }] }).select('formId member members status disbursedAt')))[0];
       if (running) {
         throw new HttpError(409, `This borrower already has a loan under ${scheme.name} (requisition ${running.formId}) which is not finished yet`, {

@@ -1787,6 +1787,11 @@ export async function getMemberSynopsis(req, res) {
   const latestCivil = await CivilCheck.findOne({ member: m._id, isDeleted: false }).sort({ reportDate: -1, createdAt: -1 }).lean();
   const actualCivilScore = latestCivil?.score ?? (m.civilScore != null ? m.civilScore : null);
 
+  const isKycRejected = Boolean(m.kycRejected || (m.kycDocs || []).some((d) => d.status === 'rejected'));
+  const isKycPending = Boolean(!isKycRejected && (m.kycPending || (m.kycDocs || []).some((d) => d.status === 'pending')));
+  const isKycApproved = Boolean(!isKycRejected && !isKycPending);
+  const kycStatus = isKycRejected ? 'rejected' : isKycPending ? 'pending' : 'approved';
+
   const memberData = {
     id: m._id,
     code: m.code,
@@ -1805,6 +1810,11 @@ export async function getMemberSynopsis(req, res) {
     groupCode: groupDoc?.code || '',
     groupName: groupDoc ? `${groupDoc.code} — ${groupDoc.name}` : (m.groupName || 'Individual'),
     civilScore: actualCivilScore,
+    isKycApproved,
+    isKycPending,
+    isKycRejected,
+    kycStatus,
+    isBlocked: Boolean(m.isBlocked),
     gender: m.gender || 'Female',
     occupation: m.occupation || 'Self Employed',
     createdAt: m.createdAt,
@@ -2027,6 +2037,11 @@ export async function createLoanRequisition(req, res) {
   const memberDoc = await Member.findOne({ code: new RegExp(`^${borrowerCode}$`, 'i'), isDeleted: false });
   if (!memberDoc) throw new HttpError(404, 'Borrower member record not found');
 
+  // Point 10: Strictly block requisition for blocked members
+  if (memberDoc.isBlocked) {
+    throw new HttpError(400, `Member ${borrowerCode} is blocked. Blocked members cannot apply for loans.`);
+  }
+
   // Point 6: Verify Member KYC is approved/valid before allowing Requisition
   if (memberDoc.kycRejected || (!memberDoc.mobileVerifiedAt && !memberDoc.isMobileVerified)) {
     throw new HttpError(400, 'Member KYC is not verified/approved. KYC verification is mandatory before loan requisition.');
@@ -2062,6 +2077,44 @@ export async function createLoanRequisition(req, res) {
       if (activeRunning.length > 0) {
         throw new HttpError(400, `Member ${borrowerCode} already has an active running group loan (${activeRunning[0].loanId}). A second group loan is only permitted after loan settlement or auto-settlement. (Member can still apply for a Product loan or 25% top-up).`);
       }
+    }
+  }
+
+  // Point 10: Same member personal loan single active loan enforcement (no unlimited loans)
+  if (kind === 'personal') {
+    const runningPersonal = await LoanPayment.findOne({
+      'lines.code': new RegExp(`^${borrowerCode}$`, 'i'),
+      status: 'paid',
+      isSettled: { $ne: true },
+      loanType: 'personal',
+    }).lean();
+    const pendingPersonal = await LoanRequisition.findOne({
+      isDeleted: false,
+      kind: 'personal',
+      $or: [{ member: memberDoc._id }, { memberCode: new RegExp(`^${borrowerCode}$`, 'i') }],
+      status: { $in: ['pending', 'approved'] },
+    }).lean();
+    if (runningPersonal || pendingPersonal) {
+      throw new HttpError(400, `Member ${borrowerCode} already has an active personal loan or pending requisition (${pendingPersonal?.formId || runningPersonal?.loanId}). Unlimited personal loans are not allowed.`);
+    }
+  }
+
+  // Point 11: Same member business/msme loan single active loan enforcement
+  if (kind === 'business') {
+    const runningBiz = await LoanPayment.findOne({
+      'lines.code': new RegExp(`^${borrowerCode}$`, 'i'),
+      status: 'paid',
+      isSettled: { $ne: true },
+      loanType: { $in: ['business', 'msme'] },
+    }).lean();
+    const pendingBiz = await LoanRequisition.findOne({
+      isDeleted: false,
+      kind: { $in: ['business', 'msme'] },
+      $or: [{ member: memberDoc._id }, { memberCode: new RegExp(`^${borrowerCode}$`, 'i') }],
+      status: { $in: ['pending', 'approved'] },
+    }).lean();
+    if (runningBiz || pendingBiz) {
+      throw new HttpError(400, `Member ${borrowerCode} already has an active business/MSME loan or pending requisition (${pendingBiz?.formId || runningBiz?.loanId}).`);
     }
   }
 

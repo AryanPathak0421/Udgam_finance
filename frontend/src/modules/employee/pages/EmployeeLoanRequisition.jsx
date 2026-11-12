@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../../../api/client.js';
 import { useEmployeeApp } from '../EmployeeAppContext.jsx';
 import { compressImage } from '../../../utils/image.js';
@@ -410,6 +411,7 @@ function GroupTopUpSection({ members, stock, onDone }) {
 
 export default function EmployeeLoanRequisition() {
   const { empUser, t } = useEmployeeApp();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('new'); // 'new' | 'list'
   const [loanKind, setLoanKind] = useState('group'); // 'group' | 'personal' | 'business' | 'product'
 
@@ -679,12 +681,15 @@ export default function EmployeeLoanRequisition() {
     setSearchingBorrower(true);
     api.loanRequisitions.borrowers({ branch: selectedBranch, q: debouncedSearch.trim() })
       .then((res) => {
-        if (live) setBorrowerCandidates(res.items || []);
+        if (live) {
+          const okItems = (res.items || []).filter((x) => !x.isBlocked);
+          setBorrowerCandidates(okItems);
+        }
       })
       .catch(async () => {
         const m = await api.employeeApp.memberSynopsis(debouncedSearch.trim()).catch(() => null);
-        if (live && m?.member) {
-          setBorrowerCandidates([{ id: m.member._id, code: m.member.code, name: m.member.name, mobile: m.member.mobile }]);
+        if (live && m?.member && !m.member.isBlocked) {
+          setBorrowerCandidates([{ id: m.member._id, code: m.member.code, name: m.member.name, mobile: m.member.mobile, isBlocked: m.member.isBlocked }]);
         }
       })
       .finally(() => {
@@ -695,6 +700,10 @@ export default function EmployeeLoanRequisition() {
 
   // Pick borrower handler
   const handlePickBorrower = async (b) => {
+    if (b.isBlocked) {
+      alert(`⛔ Member ${b.code} is blocked. Blocked members cannot apply for loans.`);
+      return;
+    }
     setPickedBorrower(b);
     setBorrowerDetail(null);
     setBorrowerSearch('');
@@ -720,6 +729,19 @@ export default function EmployeeLoanRequisition() {
       } else {
         const res = await api.employeeApp.memberSynopsis(b.code || b.id).catch(() => null);
         const m = res?.member || b;
+        const issues = [];
+        if (m.isBlocked) issues.push('⛔ Member is BLOCKED. Cannot apply for loans.');
+        if (!m.isKycApproved && m.kycStatus !== 'approved' && !m.mobileVerifiedAt) {
+          issues.push('Member KYC is pending verification');
+        }
+        const mLoans = m.loans || [];
+        if (loanKind === 'personal' && mLoans.some((l) => (l.kind || '').toLowerCase().includes('personal') || l.loanType === 'personal')) {
+          issues.push('Member already has an active personal loan on record.');
+        }
+        if (loanKind === 'business' && mLoans.some((l) => (l.kind || '').toLowerCase().includes('business') || l.loanType === 'business')) {
+          issues.push('Member already has an active business loan on record.');
+        }
+
         setBorrowerDetail({
           borrower: {
             id: m._id || m.id,
@@ -736,8 +758,10 @@ export default function EmployeeLoanRequisition() {
             pincode: m.pincode || '',
             district: m.district || '',
             state: m.state || '',
+            isBlocked: Boolean(m.isBlocked),
+            loans: mLoans,
           },
-          issues: !m.isKycApproved && !m.mobileVerifiedAt ? ['Member KYC is pending verification'] : [],
+          issues,
         });
         if (m.guarantor) {
           setGuarantor({
@@ -911,18 +935,51 @@ export default function EmployeeLoanRequisition() {
         });
       }
     } else {
-      if (!pickedBorrower) found.borrower = 'Select or search a borrower';
+      if (!pickedBorrower) {
+        found.borrower = 'Select or search a borrower';
+      } else if (pickedBorrower.isBlocked || borrowerDetail?.borrower?.isBlocked) {
+        found.borrower = 'This borrower is blocked. Blocked members cannot apply for loans.';
+      }
       if (!formFrontPhoto) found.formFrontPhoto = 'Upload front photo of application form';
       if (!formBackPhoto) found.formBackPhoto = 'Upload back photo of application form';
 
-      // Mobile OTP check for individual borrower (Point 9.6)
+      // Mobile OTP check for individual borrower (Point 9.6 & 11)
       if (borrowerDetail?.member && borrowerDetail.member.mobileVerified === false && !borrowerOtpVerified) {
         found.borrowerMobile = 'Borrower phone number OTP verification is mandatory before loan requisition!';
       }
 
+      // Point 10: Single personal loan check
+      if (loanKind === 'personal' && borrowerDetail?.borrower) {
+        const hasRunningPersonal = (borrowerDetail.borrower.loans || []).some(
+          (l) => (l.kind || '').toLowerCase().includes('personal') || l.loanType === 'personal'
+        );
+        if (hasRunningPersonal) {
+          found.borrower = 'Member already has an active personal loan. Unlimited personal loans are not permitted.';
+        }
+      }
+      // Point 11: Single business loan check
+      if (loanKind === 'business' && borrowerDetail?.borrower) {
+        const hasRunningBiz = (borrowerDetail.borrower.loans || []).some(
+          (l) => (l.kind || '').toLowerCase().includes('business') || l.loanType === 'business'
+        );
+        if (hasRunningBiz) {
+          found.borrower = 'Member already has an active business loan.';
+        }
+      }
+
       // Mandatory Guarantor (Point 6 & 10)
-      if (!guarantor.name.trim()) found['guarantor.name'] = 'Guarantor full name is required';
-      if (!guarantor.mobile.trim() || guarantor.mobile.trim().length < 10) found['guarantor.mobile'] = 'Valid 10-digit Guarantor mobile required';
+      if (!guarantor.name.trim()) found['guarantor.name'] = 'Guarantor is mandatory. Please add a guarantor using the button.';
+    }
+
+    // Point 11: CIBIL Score Requirement
+    if (scheme?.cibilMin > 0 || scheme?.checkCibil || isBusiness) {
+      const score = Number(form.civilScore || biz.civilScore || 0);
+      const minRequired = scheme?.cibilMin || 650;
+      if (!score) {
+        found.civilScore = 'CIBIL score is required for this loan scheme';
+      } else if (scheme?.cibilMin && score < scheme.cibilMin) {
+        found.civilScore = `CIBIL score (${score}) is lower than minimum required (${scheme.cibilMin}) for ${scheme.name}`;
+      }
     }
 
     if (isProduct) {
@@ -930,6 +987,7 @@ export default function EmployeeLoanRequisition() {
     }
 
     if (isBusiness) {
+      if (!otpChallengeId) found['business.otp'] = 'Registered Mobile OTP verification is mandatory for Business / MSME loan';
       if (!biz.businessName.trim()) found['business.name'] = 'Enter business name';
       if (!biz.gstNumber.trim() || biz.gstNumber.trim().length !== 15) found['business.gst'] = 'Enter valid 15-character GST number';
       if (biz.loanType === 'msme' && !biz.udgamNumber.trim()) found['business.udgam'] = 'Udyam Registration Number is required';
@@ -1196,33 +1254,6 @@ export default function EmployeeLoanRequisition() {
                 />
               </div>
             </div>
-
-            {/* Application Form Front & Back Photo (for non-group loans) */}
-            {!isGroup && (
-              <div style={{ borderTop: '1px solid var(--emp-border)', paddingTop: 10, marginTop: 10 }}>
-                <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--emp-text)', marginBottom: 6 }}>
-                  Physical Application Form Photos *
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                  <EmpPhotoField
-                    id="formFrontPhoto"
-                    label="Form Front Photo"
-                    required
-                    value={formFrontPhoto}
-                    error={errors.formFrontPhoto}
-                    onChange={setFormFrontPhoto}
-                  />
-                  <EmpPhotoField
-                    id="formBackPhoto"
-                    label="Form Back Photo"
-                    required
-                    value={formBackPhoto}
-                    error={errors.formBackPhoto}
-                    onChange={setFormBackPhoto}
-                  />
-                </div>
-              </div>
-            )}
           </div>
 
           {/* SECTION 2: LOAN CATEGORY TABS */}
@@ -1625,90 +1656,80 @@ export default function EmployeeLoanRequisition() {
                       </div>
                     </div>
                   )}
+
+                  {/* Physical Application Form Photos (Appears ONLY after member is picked - Point 10 & 11) */}
+                  <div style={{ borderTop: '1px solid var(--emp-border)', paddingTop: 10, marginTop: 12 }}>
+                    <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--emp-text)', marginBottom: 6 }}>
+                      Physical Application Form Photos for {pickedBorrower.name} *
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                      <EmpPhotoField
+                        id="formFrontPhoto"
+                        label="Form Front Photo"
+                        required
+                        value={formFrontPhoto}
+                        error={errors.formFrontPhoto}
+                        onChange={setFormFrontPhoto}
+                      />
+                      <EmpPhotoField
+                        id="formBackPhoto"
+                        label="Form Back Photo"
+                        required
+                        value={formBackPhoto}
+                        error={errors.formBackPhoto}
+                        onChange={setFormBackPhoto}
+                      />
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
           )}
 
-          {/* SECTION 4: MANDATORY GUARANTOR DETAILS (NON-GROUP) */}
+          {/* SECTION 4: GUARANTOR INFORMATION (READ-ONLY DISPLAY WITH CHANGE BUTTON - Point 10 & 11) */}
           {!isGroup && (
             <div className="emp-card" style={{ marginBottom: 12 }}>
-              <h3 style={{ fontSize: '0.95rem', fontWeight: 800, margin: '0 0 10px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Icon name="user" size={16} />
-                <span>4. Mandatory Guarantor Details</span>
-              </h3>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 8 }}>
-                <div>
-                  <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>
-                    Guarantor Full Name *
-                  </label>
-                  <input
-                    type="text"
-                    className="emp-input"
-                    value={guarantor.name}
-                    onChange={(e) => setGuarantor((g) => ({ ...g, name: e.target.value }))}
-                    placeholder="Full Name"
-                    required
-                  />
-                  {errors['guarantor.name'] && <div style={{ fontSize: '0.7rem', color: '#dc2626', fontWeight: 600 }}>{errors['guarantor.name']}</div>}
-                </div>
-                <div>
-                  <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>
-                    Relation *
-                  </label>
-                  <select
-                    className="emp-input"
-                    value={guarantor.relation}
-                    onChange={(e) => setGuarantor((g) => ({ ...g, relation: e.target.value }))}
-                  >
-                    <option value="Spouse">Spouse</option>
-                    <option value="Father">Father</option>
-                    <option value="Mother">Mother</option>
-                    <option value="Son">Son</option>
-                    <option value="Daughter">Daughter</option>
-                    <option value="Brother">Brother</option>
-                    <option value="Other">Other</option>
-                  </select>
-                </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <h3 style={{ fontSize: '0.95rem', fontWeight: 800, margin: 0, color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Icon name="user" size={16} />
+                  <span>4. Guarantor Information</span>
+                </h3>
+                <button
+                  type="button"
+                  className="emp-btn-primary"
+                  style={{ padding: '5px 12px', fontSize: '0.75rem', fontWeight: 700 }}
+                  onClick={() => {
+                    const mCode = pickedBorrower?.code || borrowerDetail?.borrower?.code || '';
+                    navigate(mCode ? `/employee/guarantor-nominee?member=${encodeURIComponent(mCode)}` : '/employee/guarantor-nominee');
+                  }}
+                >
+                  🔄 Change / Manage Guarantor →
+                </button>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 8 }}>
-                <div>
-                  <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>
-                    Guarantor Mobile (10 Digits) *
-                  </label>
-                  <input
-                    type="tel"
-                    maxLength={10}
-                    className="emp-input"
-                    value={guarantor.mobile}
-                    onChange={(e) => setGuarantor((g) => ({ ...g, mobile: e.target.value.replace(/\D/g, '') }))}
-                    placeholder="10-digit Phone"
-                    required
-                  />
-                  {errors['guarantor.mobile'] && <div style={{ fontSize: '0.7rem', color: '#dc2626', fontWeight: 600 }}>{errors['guarantor.mobile']}</div>}
+              {guarantor.name ? (
+                <div style={{ background: '#f8fafc', border: '1px solid var(--emp-border)', borderRadius: 8, padding: 12 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 14px', fontSize: '0.78rem' }}>
+                    <div><span style={{ color: '#64748b' }}>Guarantor Name:</span> <strong>{guarantor.name}</strong></div>
+                    <div><span style={{ color: '#64748b' }}>Relation:</span> <strong>{guarantor.relation || '—'}</strong></div>
+                    <div><span style={{ color: '#64748b' }}>Mobile:</span> <strong>{guarantor.mobile || '—'}</strong></div>
+                    <div><span style={{ color: '#64748b' }}>Aadhaar:</span> <strong>{guarantor.aadhaar || '—'}</strong></div>
+                  </div>
+                  {guarantor.photo && (
+                    <div style={{ marginTop: 8 }}>
+                      <img src={guarantor.photo} alt="Guarantor" style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 6, border: '1px solid #cbd5e1' }} />
+                    </div>
+                  )}
+                  <div style={{ marginTop: 8, fontSize: '0.72rem', color: '#16a34a', fontWeight: 600 }}>
+                    ✓ Guarantor details are locked on this form. Use the change button above to update.
+                  </div>
                 </div>
-                <div>
-                  <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>
-                    Guarantor Aadhaar
-                  </label>
-                  <input
-                    type="text"
-                    maxLength={12}
-                    className="emp-input"
-                    value={guarantor.aadhaar}
-                    onChange={(e) => setGuarantor((g) => ({ ...g, aadhaar: e.target.value.replace(/\D/g, '') }))}
-                    placeholder="12-digit Aadhaar"
-                  />
+              ) : (
+                <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', color: '#991b1b', padding: 12, borderRadius: 8, fontSize: '0.8rem' }}>
+                  ⚠️ <strong>No Guarantor on record for this member.</strong> A guarantor is mandatory for loan approval. Please add a guarantor using the button above.
                 </div>
-              </div>
-
-              <EmpPhotoField
-                id="guarantorPhoto"
-                label="Guarantor Photo"
-                value={guarantor.photo}
-                onChange={(v) => setGuarantor((g) => ({ ...g, photo: v }))}
-              />
+              )}
+              {errors['guarantor.name'] && <div style={{ fontSize: '0.72rem', color: '#dc2626', marginTop: 6, fontWeight: 700 }}>{errors['guarantor.name']}</div>}
             </div>
           )}
 
@@ -2050,6 +2071,37 @@ export default function EmployeeLoanRequisition() {
                 />
               </div>
             </div>
+
+            {/* CIBIL Score Requirement Box (Point 11) */}
+            {(scheme?.cibilMin > 0 || scheme?.checkCibil || isBusiness) && (
+              <div style={{ marginTop: 10, background: '#f8fafc', padding: 12, borderRadius: 8, border: '1px solid var(--emp-border)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <label style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--emp-text)' }}>
+                    CIBIL Score * {scheme?.cibilMin ? `(Minimum Required: ${scheme.cibilMin})` : '(Required)'}
+                  </label>
+                  {borrowerDetail?.borrower?.civilCheck?.score && (
+                    <span style={{ fontSize: '0.72rem', color: '#16a34a', fontWeight: 600 }}>
+                      Record Score: {borrowerDetail.borrower.civilCheck.score}
+                    </span>
+                  )}
+                </div>
+                <input
+                  type="number"
+                  min="300"
+                  max="900"
+                  className="emp-input"
+                  placeholder="Enter borrower CIBIL score (300 - 900)"
+                  value={form.civilScore || ''}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(/\D/g, '').slice(0, 3);
+                    setForm((f) => ({ ...f, civilScore: val }));
+                    setBiz((z) => ({ ...z, civilScore: val }));
+                  }}
+                  required
+                />
+                {errors.civilScore && <div style={{ fontSize: '0.7rem', color: '#dc2626', fontWeight: 600, marginTop: 4 }}>{errors.civilScore}</div>}
+              </div>
+            )}
           </div>
 
           {/* SECTION 8: REAL-TIME CALCULATIONS & BREAKDOWN TABLES */}
