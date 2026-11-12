@@ -238,6 +238,12 @@ export default function EmployeeGuarantorNominee() {
     if (!gName.trim()) return setError('Please enter Guarantor full name');
     if (!gRelation) return setError('Please select relation with member');
 
+    // Point 14 Mandatory (M) validations for Requisition:
+    if (!gPhoto) return setError('Guarantor Photo (M) is mandatory');
+    if (!gAadhaarPhoto || !gAadhaarBackPhoto) return setError('Guarantor Aadhaar / PAN Front and Back photos (M) are mandatory');
+    if (!gSignature) return setError('Guarantor Signature (M) is mandatory');
+    if (!gJointPhoto) return setError('Member + Guarantor Joint Photo (M) is mandatory');
+
     setSubmitting(true);
     setError('');
     setSuccess('');
@@ -564,56 +570,59 @@ export default function EmployeeGuarantorNominee() {
 
                   {/* Document & Photo Uploads */}
                   <div style={{ borderTop: '1px solid var(--emp-border)', paddingTop: 10, marginTop: 10 }}>
-                    <div style={{ fontSize: '0.8rem', fontWeight: 700, marginBottom: 8 }}>Guarantor Photos &amp; KYC:</div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <span style={{ fontSize: '0.8rem', fontWeight: 700 }}>Guarantor Photos &amp; Documents:</span>
+                      <span style={{ fontSize: '0.72rem', color: '#b91c1c', fontWeight: 700 }}>(M) = Mandatory for Requisition</span>
+                    </div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 10 }}>
                       <div style={{ textAlign: 'center' }}>
                         <input type="file" accept="image/*" ref={gPhotoRef} style={{ display: 'none' }} onChange={(e) => handleFileUpload(e, setGPhoto)} />
-                        <div onClick={() => gPhotoRef.current?.click()} style={{ border: '1px dashed var(--emp-border)', borderRadius: 8, padding: 8, cursor: 'pointer', background: '#f8fafc' }}>
-                          {gPhoto ? <img src={gPhoto} alt="Photo" style={{ width: '100%', height: 60, objectFit: 'cover', borderRadius: 4 }} /> : <div style={{ fontSize: '0.68rem', color: '#64748b', padding: '14px 0' }}>📷 Photo</div>}
+                        <div onClick={() => gPhotoRef.current?.click()} style={{ border: `1px ${gPhoto ? 'solid #10b981' : 'dashed #ef4444'}`, borderRadius: 8, padding: 8, cursor: 'pointer', background: '#f8fafc' }}>
+                          {gPhoto ? <img src={gPhoto} alt="Photo" style={{ width: '100%', height: 60, objectFit: 'cover', borderRadius: 4 }} /> : <div style={{ fontSize: '0.68rem', color: '#b91c1c', padding: '14px 0', fontWeight: 600 }}>📷 Photo (M) *</div>}
                         </div>
-                        <div style={{ fontSize: '0.68rem', marginTop: 2, fontWeight: 600 }}>Photo</div>
+                        <div style={{ fontSize: '0.68rem', marginTop: 2, fontWeight: 700, color: gPhoto ? '#15803d' : '#b91c1c' }}>Photo (M) *</div>
                       </div>
 
                       <div style={{ textAlign: 'center' }}>
                         <input type="file" accept="image/*" ref={gSigRef} style={{ display: 'none' }} onChange={(e) => handleFileUpload(e, setGSignature)} />
-                        <div onClick={() => gSigRef.current?.click()} style={{ border: '1px dashed var(--emp-border)', borderRadius: 8, padding: 8, cursor: 'pointer', background: '#f8fafc' }}>
-                          {gSignature ? <img src={gSignature} alt="Signature" style={{ width: '100%', height: 60, objectFit: 'contain', borderRadius: 4 }} /> : <div style={{ fontSize: '0.68rem', color: '#64748b', padding: '14px 0' }}>✍️ Sign</div>}
+                        <div onClick={() => gSigRef.current?.click()} style={{ border: `1px ${gSignature ? 'solid #10b981' : 'dashed #ef4444'}`, borderRadius: 8, padding: 8, cursor: 'pointer', background: '#f8fafc' }}>
+                          {gSignature ? <img src={gSignature} alt="Signature" style={{ width: '100%', height: 60, objectFit: 'contain', borderRadius: 4 }} /> : <div style={{ fontSize: '0.68rem', color: '#b91c1c', padding: '14px 0', fontWeight: 600 }}>✍️ Sign (M) *</div>}
                         </div>
-                        <div style={{ fontSize: '0.68rem', marginTop: 2, fontWeight: 600 }}>Signature</div>
+                        <div style={{ fontSize: '0.68rem', marginTop: 2, fontWeight: 700, color: gSignature ? '#15803d' : '#b91c1c' }}>Sign (M) *</div>
                       </div>
 
                       <div style={{ textAlign: 'center' }}>
                         <input type="file" accept="image/*" ref={gAadhaarFrontRef} style={{ display: 'none' }} onChange={(e) => handleFileUpload(e, setGAadhaarPhoto)} />
-                        <div onClick={() => gAadhaarFrontRef.current?.click()} style={{ border: '1px dashed var(--emp-border)', borderRadius: 8, padding: 8, cursor: 'pointer', background: '#f8fafc' }}>
-                          {gAadhaarPhoto ? <img src={gAadhaarPhoto} alt="Aadhaar Front" style={{ width: '100%', height: 60, objectFit: 'cover', borderRadius: 4 }} /> : <div style={{ fontSize: '0.68rem', color: '#64748b', padding: '14px 0' }}>🪪 Aadhaar Front</div>}
+                        <div onClick={() => gAadhaarFrontRef.current?.click()} style={{ border: `1px ${gAadhaarPhoto ? 'solid #10b981' : 'dashed #ef4444'}`, borderRadius: 8, padding: 8, cursor: 'pointer', background: '#f8fafc' }}>
+                          {gAadhaarPhoto ? <img src={gAadhaarPhoto} alt="Aadhaar Front" style={{ width: '100%', height: 60, objectFit: 'cover', borderRadius: 4 }} /> : <div style={{ fontSize: '0.68rem', color: '#b91c1c', padding: '14px 0', fontWeight: 600 }}>🪪 Aadhaar Front (M) *</div>}
                         </div>
-                        <div style={{ fontSize: '0.68rem', marginTop: 2, fontWeight: 600 }}>Aadhaar Front</div>
+                        <div style={{ fontSize: '0.68rem', marginTop: 2, fontWeight: 700, color: gAadhaarPhoto ? '#15803d' : '#b91c1c' }}>Aadhaar Front (M) *</div>
                       </div>
                     </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 10 }}>
                       <div style={{ textAlign: 'center' }}>
                         <input type="file" accept="image/*" ref={gAadhaarBackRef} style={{ display: 'none' }} onChange={(e) => handleFileUpload(e, setGAadhaarBackPhoto)} />
-                        <div onClick={() => gAadhaarBackRef.current?.click()} style={{ border: '1px dashed var(--emp-border)', borderRadius: 8, padding: 8, cursor: 'pointer', background: '#f8fafc' }}>
-                          {gAadhaarBackPhoto ? <img src={gAadhaarBackPhoto} alt="Aadhaar Back" style={{ width: '100%', height: 60, objectFit: 'cover', borderRadius: 4 }} /> : <div style={{ fontSize: '0.68rem', color: '#64748b', padding: '14px 0' }}>🪪 Aadhaar Back</div>}
+                        <div onClick={() => gAadhaarBackRef.current?.click()} style={{ border: `1px ${gAadhaarBackPhoto ? 'solid #10b981' : 'dashed #ef4444'}`, borderRadius: 8, padding: 8, cursor: 'pointer', background: '#f8fafc' }}>
+                          {gAadhaarBackPhoto ? <img src={gAadhaarBackPhoto} alt="Aadhaar Back" style={{ width: '100%', height: 60, objectFit: 'cover', borderRadius: 4 }} /> : <div style={{ fontSize: '0.68rem', color: '#b91c1c', padding: '14px 0', fontWeight: 600 }}>🪪 Aadhaar Back (M) *</div>}
                         </div>
-                        <div style={{ fontSize: '0.68rem', marginTop: 2, fontWeight: 600 }}>Aadhaar Back</div>
+                        <div style={{ fontSize: '0.68rem', marginTop: 2, fontWeight: 700, color: gAadhaarBackPhoto ? '#15803d' : '#b91c1c' }}>Aadhaar Back (M) *</div>
                       </div>
 
                       <div style={{ textAlign: 'center' }}>
                         <input type="file" accept="image/*" ref={gPanRef} style={{ display: 'none' }} onChange={(e) => handleFileUpload(e, setGPanPhoto)} />
                         <div onClick={() => gPanRef.current?.click()} style={{ border: '1px dashed var(--emp-border)', borderRadius: 8, padding: 8, cursor: 'pointer', background: '#f8fafc' }}>
-                          {gPanPhoto ? <img src={gPanPhoto} alt="PAN Photo" style={{ width: '100%', height: 60, objectFit: 'cover', borderRadius: 4 }} /> : <div style={{ fontSize: '0.68rem', color: '#64748b', padding: '14px 0' }}>💳 PAN Photo</div>}
+                          {gPanPhoto ? <img src={gPanPhoto} alt="PAN Photo" style={{ width: '100%', height: 60, objectFit: 'cover', borderRadius: 4 }} /> : <div style={{ fontSize: '0.68rem', color: '#64748b', padding: '14px 0' }}>💳 PAN (O)</div>}
                         </div>
-                        <div style={{ fontSize: '0.68rem', marginTop: 2, fontWeight: 600 }}>PAN Card</div>
+                        <div style={{ fontSize: '0.68rem', marginTop: 2, fontWeight: 600, color: '#64748b' }}>PAN (O)</div>
                       </div>
 
                       <div style={{ textAlign: 'center' }}>
                         <input type="file" accept="image/*" ref={gJointRef} style={{ display: 'none' }} onChange={(e) => handleFileUpload(e, setGJointPhoto)} />
-                        <div onClick={() => gJointRef.current?.click()} style={{ border: '1px dashed var(--emp-border)', borderRadius: 8, padding: 8, cursor: 'pointer', background: '#f8fafc' }}>
-                          {gJointPhoto ? <img src={gJointPhoto} alt="Joint Photo" style={{ width: '100%', height: 60, objectFit: 'cover', borderRadius: 4 }} /> : <div style={{ fontSize: '0.68rem', color: '#64748b', padding: '14px 0' }}>👥 Joint Photo</div>}
+                        <div onClick={() => gJointRef.current?.click()} style={{ border: `1px ${gJointPhoto ? 'solid #10b981' : 'dashed #ef4444'}`, borderRadius: 8, padding: 8, cursor: 'pointer', background: '#f8fafc' }}>
+                          {gJointPhoto ? <img src={gJointPhoto} alt="Joint Photo" style={{ width: '100%', height: 60, objectFit: 'cover', borderRadius: 4 }} /> : <div style={{ fontSize: '0.68rem', color: '#b91c1c', padding: '14px 0', fontWeight: 600 }}>👥 Joint Photo (M) *</div>}
                         </div>
-                        <div style={{ fontSize: '0.68rem', marginTop: 2, fontWeight: 600 }}>Joint Photo</div>
+                        <div style={{ fontSize: '0.68rem', marginTop: 2, fontWeight: 700, color: gJointPhoto ? '#15803d' : '#b91c1c' }}>Joint Photo (M) *</div>
                       </div>
                     </div>
                   </div>
@@ -686,8 +695,32 @@ export default function EmployeeGuarantorNominee() {
                     {member.nominee.sameAsGuarantor && (
                       <div style={{ gridColumn: 'span 2' }}>
                         <span style={{ fontSize: '0.72rem', background: '#dcfce7', color: '#166534', padding: '2px 8px', borderRadius: 4, fontWeight: 700 }}>
-                          ✓ Nominee is same person as Guarantor
+                          ✓ Nominee is same person as Guarantor — Photos synced (Point 14)
                         </span>
+                      </div>
+                    )}
+                    {(member.nominee.photo || (member.nominee.sameAsGuarantor && member.guarantor?.photo)) && (
+                      <div style={{ gridColumn: 'span 2', display: 'flex', gap: 8, marginTop: 4, alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)' }}>Photos:</span>
+                        <img
+                          src={member.nominee.photo || member.guarantor?.photo}
+                          alt="Nominee"
+                          style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 6, border: '1px solid #86efac' }}
+                        />
+                        {(member.nominee.signature || (member.nominee.sameAsGuarantor && member.guarantor?.signature)) && (
+                          <img
+                            src={member.nominee.signature || member.guarantor?.signature}
+                            alt="Sign"
+                            style={{ width: 60, height: 44, objectFit: 'contain', borderRadius: 6, border: '1px solid #86efac', background: '#fff' }}
+                          />
+                        )}
+                        {(member.nominee.aadhaarPhoto || (member.nominee.sameAsGuarantor && member.guarantor?.aadhaarPhoto)) && (
+                          <img
+                            src={member.nominee.aadhaarPhoto || member.guarantor?.aadhaarPhoto}
+                            alt="Aadhaar"
+                            style={{ width: 60, height: 44, objectFit: 'cover', borderRadius: 6, border: '1px solid #86efac' }}
+                          />
+                        )}
                       </div>
                     )}
                   </div>
@@ -771,7 +804,38 @@ export default function EmployeeGuarantorNominee() {
                     </div>
                   </div>
 
-                  {!sameAsGuarantor && (
+                  {sameAsGuarantor ? (
+                    <div style={{ borderTop: '1px solid var(--emp-border)', paddingTop: 10, marginTop: 10 }}>
+                      <div style={{ fontSize: '0.8rem', fontWeight: 700, marginBottom: 8, color: '#166534', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span>✓ Nominee Photos (Synced with Guarantor - Point 14):</span>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 10 }}>
+                        <div style={{ textAlign: 'center' }}>
+                          <div style={{ border: '1px solid #86efac', borderRadius: 8, padding: 8, background: '#f0fdf4' }}>
+                            {gPhoto ? <img src={gPhoto} alt="Guarantor Photo" style={{ width: '100%', height: 60, objectFit: 'cover', borderRadius: 4 }} /> : <div style={{ fontSize: '0.68rem', color: '#166534', padding: '14px 0' }}>📷 Photo (Synced)</div>}
+                          </div>
+                          <div style={{ fontSize: '0.68rem', marginTop: 2, fontWeight: 700, color: '#166534' }}>Photo (M) ✓</div>
+                        </div>
+
+                        <div style={{ textAlign: 'center' }}>
+                          <div style={{ border: '1px solid #86efac', borderRadius: 8, padding: 8, background: '#f0fdf4' }}>
+                            {gSignature ? <img src={gSignature} alt="Guarantor Sign" style={{ width: '100%', height: 60, objectFit: 'contain', borderRadius: 4 }} /> : <div style={{ fontSize: '0.68rem', color: '#166534', padding: '14px 0' }}>✍️ Sign (Synced)</div>}
+                          </div>
+                          <div style={{ fontSize: '0.68rem', marginTop: 2, fontWeight: 700, color: '#166534' }}>Sign (M) ✓</div>
+                        </div>
+
+                        <div style={{ textAlign: 'center' }}>
+                          <div style={{ border: '1px solid #86efac', borderRadius: 8, padding: 8, background: '#f0fdf4' }}>
+                            {gAadhaarPhoto ? <img src={gAadhaarPhoto} alt="Guarantor Aadhaar" style={{ width: '100%', height: 60, objectFit: 'cover', borderRadius: 4 }} /> : <div style={{ fontSize: '0.68rem', color: '#166534', padding: '14px 0' }}>🪪 Aadhaar Front (Synced)</div>}
+                          </div>
+                          <div style={{ fontSize: '0.68rem', marginTop: 2, fontWeight: 700, color: '#166534' }}>Aadhaar Front (M) ✓</div>
+                        </div>
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: '#15803d', background: '#dcfce7', padding: '6px 10px', borderRadius: 6, fontWeight: 600 }}>
+                        ✓ अगर Guarantor और Nominee Same है तो Same Photo Nominee में भी Show और Save होगी।
+                      </div>
+                    </div>
+                  ) : (
                     <div style={{ borderTop: '1px solid var(--emp-border)', paddingTop: 10, marginTop: 10 }}>
                       <div style={{ fontSize: '0.8rem', fontWeight: 700, marginBottom: 8 }}>Nominee Photos (Optional):</div>
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 10 }}>

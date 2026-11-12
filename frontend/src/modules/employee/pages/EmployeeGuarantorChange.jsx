@@ -50,6 +50,7 @@ export default function EmployeeGuarantorChange() {
   const [pan, setPan] = useState('');
   const [address, setAddress] = useState('');
   const [reason, setReason] = useState('');
+  const [sameAsGuarantor, setSameAsGuarantor] = useState(false);
 
   // OTP Verification for new guarantor
   const [guarantorOtpVerified, setGuarantorOtpVerified] = useState(false);
@@ -178,8 +179,10 @@ export default function EmployeeGuarantorChange() {
     if (!member) return;
     if (!name.trim()) return setError('Please enter new guarantor full name');
     if (!/^\d{10}$/.test(mobile.replace(/\D/g, ''))) return setError('Enter valid 10-digit mobile number for new guarantor');
-    if (!photo) return setError('Guarantor photo is required');
-    if (!signature) return setError('Guarantor signature photo is required');
+    if (!photo) return setError('Guarantor Photo (M) is mandatory');
+    if (!signature) return setError('Guarantor Signature (M) is mandatory');
+    if (!aadhaarPhoto || !aadhaarBackPhoto) return setError('Guarantor Aadhaar / PAN Front and Back photos (M) are mandatory');
+    if (!jointPhoto) return setError('Member + Guarantor Joint Photo (M) is mandatory');
 
     setSubmitting(true);
     setError('');
@@ -201,6 +204,7 @@ export default function EmployeeGuarantorChange() {
         aadhaarBackPhoto,
         panPhoto,
         jointPhoto,
+        sameAsGuarantor,
       });
       setSuccess('Guarantor change request submitted and sent to KYC Approval section!');
       setName('');
@@ -458,14 +462,34 @@ export default function EmployeeGuarantorChange() {
 
               {/* Document and Photo Uploads Card */}
               <div className="emp-card">
-                <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: '0 0 14px 0', color: 'var(--emp-text)' }}>
-                  3. Guarantor KYC Documents & Photos
-                </h3>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, color: 'var(--emp-text)' }}>
+                    3. Guarantor KYC Documents &amp; Photos
+                  </h3>
+                  <span style={{ fontSize: '0.72rem', color: '#b91c1c', fontWeight: 700 }}>(M) = Mandatory for Requisition</span>
+                </div>
+
+                {/* Point 14 & 17: Nominee Copy Tick Option */}
+                <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: 8, marginBottom: 14, border: '1px solid var(--emp-border)' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: '0.85rem', fontWeight: 700 }}>
+                    <input
+                      type="checkbox"
+                      checked={sameAsGuarantor}
+                      onChange={(e) => setSameAsGuarantor(e.target.checked)}
+                    />
+                    <span>[✓] अगर Guarantor और Nominee Same है तो Same Photo Nominee में भी Show और Sync होगा (Point 14 &amp; 17)</span>
+                  </label>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)', marginLeft: 24, marginTop: 2 }}>
+                    Nominee record will automatically sync with this guarantor name, mobile, Aadhaar and photos.
+                  </div>
+                </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  {/* Guarantor Photo */}
-                  <div style={{ border: '1px dashed var(--emp-border)', padding: 10, borderRadius: 8, textAlign: 'center' }}>
-                    <div style={{ fontSize: '0.78rem', fontWeight: 700, marginBottom: 6 }}>Guarantor Photo *</div>
+                  {/* Guarantor Photo (M) */}
+                  <div style={{ border: `1px ${photo ? 'solid #10b981' : 'dashed #ef4444'}`, padding: 10, borderRadius: 8, textAlign: 'center' }}>
+                    <div style={{ fontSize: '0.78rem', fontWeight: 700, marginBottom: 6, color: photo ? '#15803d' : '#b91c1c' }}>
+                      Photo (M) *
+                    </div>
                     {photo ? (
                       <div>
                         <img src={photo} alt="Guarantor" style={{ width: 70, height: 70, objectFit: 'cover', borderRadius: 6, marginBottom: 6 }} />
@@ -475,15 +499,17 @@ export default function EmployeeGuarantorChange() {
                       </div>
                     ) : (
                       <button type="button" className="emp-btn-primary" style={{ fontSize: '0.75rem', padding: '6px 12px' }} onClick={() => photoInputRef.current?.click()}>
-                        📷 Upload Photo
+                        📷 Upload Photo (M)
                       </button>
                     )}
                     <input ref={photoInputRef} type="file" accept="image/*" capture="user" style={{ display: 'none' }} onChange={(e) => handleFileUpload(e, setPhoto, 'Photo')} />
                   </div>
 
-                  {/* Member & Guarantor Joint Photo */}
-                  <div style={{ border: '1px dashed var(--emp-border)', padding: 10, borderRadius: 8, textAlign: 'center' }}>
-                    <div style={{ fontSize: '0.78rem', fontWeight: 700, marginBottom: 6 }}>Joint Photo (Member + Guarantor)</div>
+                  {/* Member & Guarantor Joint Photo (M) */}
+                  <div style={{ border: `1px ${jointPhoto ? 'solid #10b981' : 'dashed #ef4444'}`, padding: 10, borderRadius: 8, textAlign: 'center' }}>
+                    <div style={{ fontSize: '0.78rem', fontWeight: 700, marginBottom: 6, color: jointPhoto ? '#15803d' : '#b91c1c' }}>
+                      Joint Photo (Member + Guarantor) (M) *
+                    </div>
                     {jointPhoto ? (
                       <div>
                         <img src={jointPhoto} alt="Joint Photo" style={{ width: 70, height: 70, objectFit: 'cover', borderRadius: 6, marginBottom: 6 }} />
@@ -493,15 +519,17 @@ export default function EmployeeGuarantorChange() {
                       </div>
                     ) : (
                       <button type="button" className="emp-btn-primary" style={{ fontSize: '0.75rem', padding: '6px 12px' }} onClick={() => jointPhotoRef.current?.click()}>
-                        👥 Upload Joint Photo
+                        👥 Upload Joint Photo (M)
                       </button>
                     )}
                     <input ref={jointPhotoRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleFileUpload(e, setJointPhoto, 'Joint Photo')} />
                   </div>
 
-                  {/* Guarantor Signature */}
-                  <div style={{ border: '1px dashed var(--emp-border)', padding: 10, borderRadius: 8, textAlign: 'center' }}>
-                    <div style={{ fontSize: '0.78rem', fontWeight: 700, marginBottom: 6 }}>Signature *</div>
+                  {/* Guarantor Signature (M) */}
+                  <div style={{ border: `1px ${signature ? 'solid #10b981' : 'dashed #ef4444'}`, padding: 10, borderRadius: 8, textAlign: 'center' }}>
+                    <div style={{ fontSize: '0.78rem', fontWeight: 700, marginBottom: 6, color: signature ? '#15803d' : '#b91c1c' }}>
+                      Sign (M) *
+                    </div>
                     {signature ? (
                       <div>
                         <img src={signature} alt="Signature" style={{ width: 70, height: 70, objectFit: 'contain', borderRadius: 6, marginBottom: 6 }} />
@@ -511,15 +539,17 @@ export default function EmployeeGuarantorChange() {
                       </div>
                     ) : (
                       <button type="button" className="emp-btn-primary" style={{ fontSize: '0.75rem', padding: '6px 12px' }} onClick={() => sigInputRef.current?.click()}>
-                        ✍️ Upload Signature
+                        ✍️ Upload Sign (M)
                       </button>
                     )}
                     <input ref={sigInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleFileUpload(e, setSignature, 'Signature')} />
                   </div>
 
-                  {/* Aadhaar Front */}
-                  <div style={{ border: '1px dashed var(--emp-border)', padding: 10, borderRadius: 8, textAlign: 'center' }}>
-                    <div style={{ fontSize: '0.78rem', fontWeight: 700, marginBottom: 6 }}>Aadhaar Front</div>
+                  {/* Aadhaar Front (M) */}
+                  <div style={{ border: `1px ${aadhaarPhoto ? 'solid #10b981' : 'dashed #ef4444'}`, padding: 10, borderRadius: 8, textAlign: 'center' }}>
+                    <div style={{ fontSize: '0.78rem', fontWeight: 700, marginBottom: 6, color: aadhaarPhoto ? '#15803d' : '#b91c1c' }}>
+                      Aadhaar Front (M) *
+                    </div>
                     {aadhaarPhoto ? (
                       <div>
                         <img src={aadhaarPhoto} alt="Aadhaar Front" style={{ width: 70, height: 70, objectFit: 'cover', borderRadius: 6, marginBottom: 6 }} />
@@ -528,16 +558,18 @@ export default function EmployeeGuarantorChange() {
                         </button>
                       </div>
                     ) : (
-                      <button type="button" className="emp-btn-secondary" style={{ fontSize: '0.75rem', padding: '6px 12px' }} onClick={() => aadhaarFrontRef.current?.click()}>
-                        📄 Aadhaar Front
+                      <button type="button" className="emp-btn-primary" style={{ fontSize: '0.75rem', padding: '6px 12px' }} onClick={() => aadhaarFrontRef.current?.click()}>
+                        📄 Aadhaar Front (M)
                       </button>
                     )}
                     <input ref={aadhaarFrontRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleFileUpload(e, setAadhaarPhoto, 'Aadhaar Front')} />
                   </div>
 
-                  {/* Aadhaar Back */}
-                  <div style={{ border: '1px dashed var(--emp-border)', padding: 10, borderRadius: 8, textAlign: 'center' }}>
-                    <div style={{ fontSize: '0.78rem', fontWeight: 700, marginBottom: 6 }}>Aadhaar Back</div>
+                  {/* Aadhaar Back (M) */}
+                  <div style={{ border: `1px ${aadhaarBackPhoto ? 'solid #10b981' : 'dashed #ef4444'}`, padding: 10, borderRadius: 8, textAlign: 'center' }}>
+                    <div style={{ fontSize: '0.78rem', fontWeight: 700, marginBottom: 6, color: aadhaarBackPhoto ? '#15803d' : '#b91c1c' }}>
+                      Aadhaar Back (M) *
+                    </div>
                     {aadhaarBackPhoto ? (
                       <div>
                         <img src={aadhaarBackPhoto} alt="Aadhaar Back" style={{ width: 70, height: 70, objectFit: 'cover', borderRadius: 6, marginBottom: 6 }} />
@@ -546,16 +578,16 @@ export default function EmployeeGuarantorChange() {
                         </button>
                       </div>
                     ) : (
-                      <button type="button" className="emp-btn-secondary" style={{ fontSize: '0.75rem', padding: '6px 12px' }} onClick={() => aadhaarBackRef.current?.click()}>
-                        📄 Aadhaar Back
+                      <button type="button" className="emp-btn-primary" style={{ fontSize: '0.75rem', padding: '6px 12px' }} onClick={() => aadhaarBackRef.current?.click()}>
+                        📄 Aadhaar Back (M)
                       </button>
                     )}
                     <input ref={aadhaarBackRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleFileUpload(e, setAadhaarBackPhoto, 'Aadhaar Back')} />
                   </div>
 
-                  {/* PAN Card Photo */}
+                  {/* PAN Card Photo (O) */}
                   <div style={{ border: '1px dashed var(--emp-border)', padding: 10, borderRadius: 8, textAlign: 'center' }}>
-                    <div style={{ fontSize: '0.78rem', fontWeight: 700, marginBottom: 6 }}>PAN Card Photo</div>
+                    <div style={{ fontSize: '0.78rem', fontWeight: 700, marginBottom: 6, color: '#64748b' }}>PAN (O)</div>
                     {panPhoto ? (
                       <div>
                         <img src={panPhoto} alt="PAN Photo" style={{ width: 70, height: 70, objectFit: 'cover', borderRadius: 6, marginBottom: 6 }} />
@@ -565,7 +597,7 @@ export default function EmployeeGuarantorChange() {
                       </div>
                     ) : (
                       <button type="button" className="emp-btn-secondary" style={{ fontSize: '0.75rem', padding: '6px 12px' }} onClick={() => panInputRef.current?.click()}>
-                        💳 PAN Photo
+                        💳 PAN (O)
                       </button>
                     )}
                     <input ref={panInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleFileUpload(e, setPanPhoto, 'PAN Photo')} />

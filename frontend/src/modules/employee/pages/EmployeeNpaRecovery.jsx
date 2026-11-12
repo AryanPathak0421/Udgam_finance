@@ -17,6 +17,10 @@ export default function EmployeeNpaRecovery() {
   const [selectedCenter, setSelectedCenter] = useState('all');
   const [selectedStaff, setSelectedStaff] = useState('all');
 
+  // Point 15: Loan Type Tab Filter (All | Group | Personal | Business | MSME | Product)
+  const [loanKindFilter, setLoanKindFilter] = useState('all');
+  const [selectedGroup, setSelectedGroup] = useState('all');
+
   // Online Pay State (Opens directly under the member card)
   const [activeNpa, setActiveNpa] = useState(null);
   const [recoveryAmount, setRecoveryAmount] = useState('');
@@ -119,8 +123,27 @@ export default function EmployeeNpaRecovery() {
   const centerOptions = Array.from(new Set(npaLoans.map((i) => i.groupName).filter(Boolean)));
   const staffOptions = Array.from(new Set(npaLoans.map((i) => i.staffCode).filter(Boolean)));
 
-  // Filter NPA loans by dropdowns, search and category
+  // Filter NPA loans by dropdowns, search, category, and Point 15 Loan Kind
   const filteredNpa = npaLoans.filter((item) => {
+    // Point 15 Loan Kind Filter: Group / Personal / Business / MSME / Product
+    if (loanKindFilter !== 'all') {
+      const itemKind = (item.loanKind || item.loanType || (item.groupName ? 'group' : 'personal')).toLowerCase();
+      if (loanKindFilter === 'group') {
+        if (itemKind !== 'group') return false;
+        if (selectedGroup !== 'all') {
+          if (item.groupName !== selectedGroup && item.groupCode !== selectedGroup) return false;
+        }
+      } else if (loanKindFilter === 'business') {
+        if (!itemKind.includes('business') && !itemKind.includes('msme')) return false;
+      } else if (loanKindFilter === 'msme') {
+        if (!itemKind.includes('msme') && !itemKind.includes('business')) return false;
+      } else if (loanKindFilter === 'personal') {
+        if (!itemKind.includes('personal')) return false;
+      } else if (loanKindFilter === 'product') {
+        if (!itemKind.includes('product')) return false;
+      }
+    }
+
     if (selectedBranch !== 'all' && item.branchName !== selectedBranch) return false;
     if (selectedCenter !== 'all' && item.groupName !== selectedCenter) return false;
     if (selectedStaff !== 'all' && item.staffCode !== selectedStaff) return false;
@@ -201,6 +224,68 @@ export default function EmployeeNpaRecovery() {
               ))}
             </select>
           </div>
+        </div>
+
+        {/* Point 15: Loan Kind Selector Tabs (Group / Personal / Business / MSME / Product) */}
+        <div style={{ marginTop: 12 }}>
+          <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--emp-text-muted)', textTransform: 'uppercase', marginBottom: 6 }}>
+            Select Category / Loan Kind (Point 15):
+          </div>
+          <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}>
+            {[
+              { id: 'all', label: 'All Dues' },
+              { id: 'group', label: 'Group Loan' },
+              { id: 'personal', label: 'Personal Loan' },
+              { id: 'business', label: 'Business Loan' },
+              { id: 'msme', label: 'MSME Loan' },
+              { id: 'product', label: 'Product Loan' },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                className={loanKindFilter === tab.id ? 'emp-btn-primary' : 'emp-btn-secondary'}
+                style={{
+                  padding: '6px 14px',
+                  fontSize: '0.8rem',
+                  borderRadius: 20,
+                  whiteSpace: 'nowrap',
+                  width: 'auto',
+                }}
+                onClick={() => {
+                  setLoanKindFilter(tab.id);
+                  if (tab.id !== 'group') setSelectedGroup('all');
+                }}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Point 15: Group selector when Group is selected */}
+          {loanKindFilter === 'group' && (
+            <div style={{ marginTop: 10, padding: '10px 12px', background: '#e0f2fe', borderRadius: 8, border: '1px solid #7dd3fc' }}>
+              <label style={{ fontSize: '0.74rem', fontWeight: 700, color: '#0369a1', display: 'block', marginBottom: 4 }}>
+                Select Group to view Group Members (Point 15):
+              </label>
+              <select
+                className="emp-select"
+                value={selectedGroup}
+                onChange={(e) => setSelectedGroup(e.target.value)}
+                style={{ fontSize: '0.82rem', padding: '6px 10px', width: '100%', background: '#fff' }}
+              >
+                <option value="all">All Groups in Branch</option>
+                {centerOptions.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {loanKindFilter !== 'all' && loanKindFilter !== 'group' && (
+            <div style={{ marginTop: 8, fontSize: '0.75rem', color: '#059669', background: '#ecfdf5', padding: '6px 12px', borderRadius: 6, fontWeight: 600 }}>
+              Showing whole branch loans for {loanKindFilter.toUpperCase()} category
+            </div>
+          )}
         </div>
 
         {/* Search Option Bar */}

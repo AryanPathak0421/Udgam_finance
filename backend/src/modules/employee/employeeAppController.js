@@ -621,8 +621,31 @@ export async function getTodayDueList(req, res) {
   const startDay = new Date(`${dateStr}T00:00:00.000Z`);
   const asOf = new Date(`${dateStr}T23:59:59.999Z`);
 
-  const loans = await LoanPayment.find({ employeeCode: code, status: 'paid' })
-    .select('_id loanId formId mode modeLabel group lines schedule loanType isSettled status')
+  const emp = await Employee.findOne({ employeeCode: code }).select('_id branch name').lean();
+  const branchId = emp?.branch || (req.user?.branches || [])[0];
+
+  const myGroups = await Group.find({
+    isDeleted: { $ne: true },
+    $or: [
+      { employeeCode: code },
+      ...(emp?._id ? [{ employee: emp._id }, { staffId: emp._id }] : []),
+      { staffCode: code },
+      ...(branchId ? [{ branch: branchId }] : []),
+    ],
+  }).select('code name meetingType collectionDay dayOfWeek').lean();
+  const myGroupCodes = myGroups.map((g) => g.code).filter(Boolean);
+
+  const loanQuery = {
+    status: 'paid',
+    $or: [
+      { employeeCode: code },
+      ...(myGroupCodes.length ? [{ 'group.code': { $in: myGroupCodes } }] : []),
+      ...(branchId ? [{ branch: branchId }] : []),
+    ],
+  };
+
+  const loans = await LoanPayment.find(loanQuery)
+    .select('_id loanId formId mode modeLabel group lines schedule loanType isSettled status totalAmountPaise branch')
     .lean();
 
   const loanIds = loans.map((l) => l._id);
@@ -643,30 +666,38 @@ export async function getTodayDueList(req, res) {
     if (s.loanPayment && !s.memberCode) settledKeySet.add(`${String(s.loanPayment)}`);
   }
 
-  // Payments made on this date
-  const paidToday = loanIds.length ? await EmiPayment.find({
+  // Pre-fetch all past and current payments
+  const allPastPayments = loanIds.length ? await EmiPayment.find({
     loanPayment: { $in: loanIds },
     status: 'paid',
-    paidOn: { $gte: startDay, $lte: asOf },
-  }).select('loanPayment memberCode amountPaise receiptNo').lean() : [];
+  }).select('loanPayment memberCode amountPaise receiptNo paidOn').lean() : [];
 
-  const paidReceipts = new Set(paidToday.map((p) => p.receiptNo).filter(Boolean));
+  const allPastReceipts = new Set(allPastPayments.map((p) => p.receiptNo).filter(Boolean));
 
-  const appPaidToday = loanIds.length ? await AppEmiCollection.find({
+  const appCollections = loanIds.length ? await AppEmiCollection.find({
     loanPayment: { $in: loanIds },
     status: 'pending',
-    collectedOn: { $gte: startDay, $lte: asOf },
-  }).select('loanPayment memberCode amountPaise receiptNo').lean() : [];
+  }).select('loanPayment memberCode amountPaise receiptNo collectedOn').lean() : [];
 
-  const paidTodayMap = new Map();
-  for (const p of paidToday) {
+  const paymentsByKey = new Map();
+  for (const p of allPastPayments) {
     const k = `${String(p.loanPayment)}_${p.memberCode}`;
-    paidTodayMap.set(k, (paidTodayMap.get(k) || 0) + (p.amountPaise || 0) / 100);
+    const cur = paymentsByKey.get(k) || { totalPaise: 0, todayPaise: 0 };
+    cur.totalPaise += (p.amountPaise || 0);
+    if (p.paidOn >= startDay && p.paidOn <= asOf) {
+      cur.todayPaise += (p.amountPaise || 0);
+    }
+    paymentsByKey.set(k, cur);
   }
-  for (const ap of appPaidToday) {
-    if (ap.receiptNo && paidReceipts.has(ap.receiptNo)) continue;
-    const k = `${String(ap.loanPayment)}_${ap.memberCode}`;
-    paidTodayMap.set(k, (paidTodayMap.get(k) || 0) + (ap.amountPaise || 0) / 100);
+  for (const ac of appCollections) {
+    if (ac.receiptNo && allPastReceipts.has(ac.receiptNo)) continue;
+    const k = `${String(ac.loanPayment)}_${ac.memberCode}`;
+    const cur = paymentsByKey.get(k) || { totalPaise: 0, todayPaise: 0 };
+    cur.totalPaise += (ac.amountPaise || 0);
+    if (ac.collectedOn >= startDay && ac.collectedOn <= asOf) {
+      cur.todayPaise += (ac.amountPaise || 0);
+    }
+    paymentsByKey.set(k, cur);
   }
 
   const groupCodes = [...new Set(loans.map((l) => l.group?.code).filter(Boolean))];
@@ -692,7 +723,7 @@ export async function getTodayDueList(req, res) {
     else if (l.group?.name || l.group?.code) cat = 'group';
     else cat = 'personal';
 
-    // Point 2: Filter strictly to loans scheduled for today's meeting day / due date
+    // Point 2 & 16: Check scheduled meeting day or upcoming due dates
     let meetsToday = false;
     const mode = (l.mode || l.modeLabel || 'weekly').toLowerCase();
     const g = l.group?.code ? groupMap.get(l.group.code) : null;
@@ -724,21 +755,39 @@ export async function getTodayDueList(req, res) {
       meetsToday = (l.schedule || []).some((s) => s.dueDate && new Date(s.dueDate).toISOString().slice(0, 10) === dateStr);
     }
 
-    if (!meetsToday) return;
-
     const exactInst = (l.schedule || []).find((s) => s.dueDate && new Date(s.dueDate).toISOString().slice(0, 10) === dateStr);
     const dueInst = (l.schedule || []).filter((s) => s.dueDate && new Date(s.dueDate) <= asOf);
-    if (!exactInst && !dueInst.length) return;
-    const latest = exactInst || dueInst[dueInst.length - 1];
+
+    // If loan does not meet today and has no past/current scheduled installments, skip
+    if (!meetsToday && !dueInst.length) return;
+
+    const latest = exactInst || (dueInst.length ? dueInst[dueInst.length - 1] : l.schedule?.[0]);
+    if (!latest) return;
 
     (l.lines || []).forEach((line) => {
       const isLineSettled = line.isSettled || settledKeySet.has(`${String(l._id)}_${line.code}`) || settledKeySet.has(`${l.loanId}_${line.code}`);
       if (isLineSettled) return;
 
-      const fullEmi = (latest.installmentPaise + (line.extraEmiPaise || 0)) / 100;
-      const k = `${String(l._id)}_${line.code}`;
-      const collectedAmount = paidTodayMap.get(k) || 0;
-      const remainingDue = Math.max(0, fullEmi - collectedAmount);
+      const stats = paymentsByKey.get(`${String(l._id)}_${line.code}`) || { totalPaise: 0, todayPaise: 0 };
+      const totalPaidPaise = stats.totalPaise;
+      const todayPaidPaise = stats.todayPaise;
+
+      const emiPaise = (latest.installmentPaise || 0) + (line.extraEmiPaise || 0);
+      const totalScheduledPaise = (l.schedule || []).reduce((s, x) => s + (x.installmentPaise || 0), 0) + (line.extraEmiPaise || 0) * (l.schedule?.length || 0);
+
+      // Skip fully settled / completed loans
+      if (totalScheduledPaise > 0 && totalPaidPaise >= totalScheduledPaise) return;
+
+      const dueSchedule = (l.schedule || []).filter((s) => s.dueDate && new Date(s.dueDate) <= asOf);
+      const expectedDuePaise = Math.max(emiPaise, dueSchedule.length * emiPaise);
+      const duesPaise = Math.max(0, expectedDuePaise - totalPaidPaise);
+
+      const fullEmi = emiPaise / 100;
+      const collectedAmount = todayPaidPaise / 100;
+      const remainingDue = duesPaise > 0 ? (duesPaise / 100) : (todayPaidPaise >= emiPaise ? 0 : fullEmi);
+
+      // If loan doesn't meet today and dues are zero, skip
+      if (!meetsToday && duesPaise <= 0) return;
 
       dues.push({
         loanPaymentId: l._id,
@@ -748,12 +797,14 @@ export async function getTodayDueList(req, res) {
         groupName: l.group?.name || l.group?.code || 'Individual',
         category: cat,
         installmentNo: latest.no,
-        totalDue: fullEmi,
+        totalDue: duesPaise > 0 ? (duesPaise + todayPaidPaise) / 100 : fullEmi,
+        installmentAmount: fullEmi,
+        emiAmount: fullEmi,
         collectedAmount,
         dueAmount: remainingDue,
-        isFullyPaid: collectedAmount >= fullEmi,
+        isFullyPaid: collectedAmount >= fullEmi && duesPaise === 0,
         isPartiallyPaid: collectedAmount > 0 && remainingDue > 0,
-        dueDate: latest.dueDate ? latest.dueDate.toISOString().slice(0, 10) : dateStr,
+        dueDate: latest.dueDate ? new Date(latest.dueDate).toISOString().slice(0, 10) : dateStr,
         mode: l.modeLabel || l.mode || 'Weekly',
       });
     });
@@ -1472,6 +1523,22 @@ export async function requestGuarantorChange(req, res) {
     panPhoto: b.panPhoto || '',
     jointPhoto: b.jointPhoto || '',
   };
+
+  // Point 14 & 17: Sync with nominee if sameAsGuarantor is checked
+  if (b.sameAsGuarantor) {
+    m.nominee = {
+      sameAsGuarantor: true,
+      name: cleanStr(b.name),
+      relation: cleanStr(b.relation),
+      mobile: cleanStr(b.mobile),
+      aadhaar: cleanStr(b.aadhaar),
+      pan: cleanStr(b.pan),
+      photo: b.photo || '',
+      signature: b.signature || '',
+      aadhaarPhoto: b.aadhaarPhoto || '',
+      aadhaarBackPhoto: b.aadhaarBackPhoto || '',
+    };
+  }
 
   const guarantorKeys = [
     'guarantor.photo',
@@ -3311,9 +3378,22 @@ export async function getNpaLoans(req, res) {
       const isOverdueNpa = dpd >= 60 || overdueSchedules.length >= 3 || (l.emiEndDate && new Date(l.emiEndDate) < today);
 
       if (isExplicitNpa || isOverdueNpa) {
+        const rawKind = String(l.loanType || l.kind || '').toLowerCase();
+        let normalizedKind = 'group';
+        if (rawKind.includes('personal')) normalizedKind = 'personal';
+        else if (rawKind.includes('msme')) normalizedKind = 'msme';
+        else if (rawKind.includes('business')) normalizedKind = 'business';
+        else if (rawKind.includes('product')) normalizedKind = 'product';
+        else if (l.group?.name || l.group?.code) normalizedKind = 'group';
+        else normalizedKind = 'personal';
+
         npaList.push({
           loanPaymentId: l._id,
           loanId: l.loanId || l.receiptNo,
+          loanType: l.loanType || normalizedKind,
+          loanKind: normalizedKind,
+          groupCode: l.group?.code || '',
+          groupId: l.group?._id || '',
           memberId: line.member?._id || line.member,
           memberCode: line.code,
           memberName: line.name,
@@ -3344,6 +3424,10 @@ export async function getNpaLoans(req, res) {
     npaList.push({
       loanPaymentId: s.loanPayment || s._id,
       loanId: s.loanId || String(s._id),
+      loanType: 'personal',
+      loanKind: 'personal',
+      groupCode: '',
+      groupId: '',
       memberId: s.member,
       memberCode: s.memberCode,
       memberName: s.memberName || 'Borrower',

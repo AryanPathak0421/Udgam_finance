@@ -21,7 +21,9 @@ export default function MemberHome() {
       const res = await api.memberApp.dashboard();
       setData(res);
     } catch (err) {
-      if (err.status === 401 || err.message?.includes('session') || err.message?.includes('signed in')) {
+      const isAuthErr = err.status === 401 ||
+        /session|token|signed in|unauthorized/i.test(err.message || '');
+      if (isAuthErr) {
         logout();
         return;
       }
@@ -41,15 +43,30 @@ export default function MemberHome() {
   }
 
   if (error) {
+    const isAuthErr = /session|token|signed in|unauthorized/i.test(error);
     return (
       <div className="mem-alert danger" style={{ margin: 16 }}>
         <Icon name="alert" size={18} />
         <div>
           <div style={{ fontWeight: 700 }}>Error Loading Dashboard</div>
           <div style={{ fontSize: '0.8rem' }}>{error}</div>
-          <button className="mem-btn sm" onClick={loadDashboard} style={{ marginTop: 8, width: 'auto' }}>
-            Try Again
-          </button>
+          <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+            <button className="mem-btn sm" onClick={loadDashboard} style={{ width: 'auto' }}>
+              Try Again
+            </button>
+            {isAuthErr && (
+              <button
+                className="mem-btn sm"
+                onClick={() => {
+                  logout();
+                  window.location.href = '/member/login';
+                }}
+                style={{ width: 'auto', background: '#dc2626', color: '#fff' }}
+              >
+                Sign In Again
+              </button>
+            )}
+          </div>
         </div>
       </div>
     );

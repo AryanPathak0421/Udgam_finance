@@ -1357,6 +1357,9 @@ export async function updateMember(req, res) {
   let mobileVerifiedAt = m.mobileVerifiedAt;
   let mobileCh = null;
   if (d.mobile !== m.mobile) {
+    if (m.mobile && m.mobileVerifiedAt && !isAdmin(req.user)) {
+      throw new HttpError(403, 'A verified member mobile number cannot be edited by staff. Once verified, mobile numbers are permanently locked.');
+    }
     await assertMobileFree(d.mobile, m._id, v);
     v.throwIfAny();
     mobileCh = await takeVerified(b.mobileChallengeId, req.user, 'member_mobile', d.mobile);

@@ -391,16 +391,16 @@ function MobileOtpVerify({ mobile, mobileValid, verified, onVerified, onReset })
           border: '1px solid #a7f3d0',
           padding: '6px 12px',
           borderRadius: 8,
+          flexWrap: 'wrap',
+          gap: 6,
         }}
       >
-        <span style={{ color: '#047857', fontWeight: 700, fontSize: '0.85rem' }}>✓ Mobile number verified</span>
-        <button
-          type="button"
-          onClick={onReset}
-          style={{ background: 'none', border: 'none', color: '#047857', fontSize: '0.78rem', textDecoration: 'underline', cursor: 'pointer' }}
-        >
-          Change
-        </button>
+        <span style={{ color: '#047857', fontWeight: 700, fontSize: '0.85rem' }}>
+          ✓ Member Phone Number (M) Verified &amp; Locked
+        </span>
+        <span style={{ fontSize: '0.72rem', color: '#047857', background: '#dcfce7', padding: '2px 8px', borderRadius: 4, fontWeight: 700 }}>
+          🔒 Cannot be edited by staff (Point 14)
+        </span>
       </div>
     );
   }
@@ -1256,7 +1256,7 @@ export default function EmployeeNewMember() {
                   {/* Mobile Number with OTP Verification */}
                   <div style={{ gridColumn: '1 / -1' }}>
                     <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>
-                      Mobile Number <span style={{ color: '#ef4444' }}>*</span>
+                      Member Phone Number (M) <span style={{ color: '#ef4444' }}>*</span>
                     </label>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center', maxWidth: 360 }}>
                       <span style={{ fontSize: '0.9rem', color: '#64748b', fontWeight: 700 }}>+91</span>
@@ -1574,7 +1574,7 @@ export default function EmployeeNewMember() {
                   {/* Member Photo */}
                   <EmpPhotoField
                     id="memberPhoto"
-                    label="Member Live Photo"
+                    label="Member Live Photo (M)"
                     required
                     value={form.memberPhoto}
                     error={errors.memberPhoto}
@@ -1585,7 +1585,7 @@ export default function EmployeeNewMember() {
                   {/* Signature Photo */}
                   <EmpPhotoField
                     id="signaturePhoto"
-                    label="Member Signature / Thumbprint"
+                    label="Member Sign (M)"
                     required
                     value={form.signaturePhoto}
                     error={errors.signaturePhoto}
@@ -1595,7 +1595,7 @@ export default function EmployeeNewMember() {
                   {/* Aadhaar Front */}
                   <EmpPhotoField
                     id="aadhaarPhoto"
-                    label="Aadhaar Front Photo"
+                    label="Member Aadhaar Front Photo (M)"
                     required
                     value={form.aadhaarPhoto}
                     error={errors.aadhaarPhoto}
@@ -1605,7 +1605,7 @@ export default function EmployeeNewMember() {
                   {/* Aadhaar Back */}
                   <EmpPhotoField
                     id="aadhaarBackPhoto"
-                    label="Aadhaar Back Photo"
+                    label="Member Aadhaar Back Photo (M)"
                     required
                     value={form.aadhaarBackPhoto}
                     error={errors.aadhaarBackPhoto}
@@ -1615,8 +1615,8 @@ export default function EmployeeNewMember() {
                   {/* PAN Photo */}
                   <EmpPhotoField
                     id="panPhoto"
-                    label="PAN Card Photo"
-                    required={Boolean(form.pan)}
+                    label="Member PAN Card Photo (O)"
+                    required={false}
                     value={form.panPhoto}
                     error={errors.panPhoto}
                     onChange={setPhoto('panPhoto')}

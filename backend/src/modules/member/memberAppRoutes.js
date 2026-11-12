@@ -49,7 +49,7 @@ export async function requireMemberAuth(req, res, next) {
 
     const memberId = decoded.memberId || (decoded.role === 'member' ? decoded.id : null);
     if (!memberId && !decoded.memberCode) {
-      return res.status(401).json({ message: 'Session expired or invalid. Please sign in again.' });
+      return res.status(401).json({ message: 'Session expired. Please sign in again.' });
     }
 
     let member = null;
