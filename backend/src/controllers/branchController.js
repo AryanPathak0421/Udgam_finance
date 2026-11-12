@@ -79,7 +79,8 @@ export async function listBranches(req, res) {
 // Lightweight list of active branches for dropdowns / multi-selects.
 export async function branchOptions(_req, res) {
   const items = await Branch.find({ isDeleted: false, isActive: true }).sort({ code: 1 });
-  res.json({ items: items.map((b) => ({ id: b._id, code: b.code, name: b.name })) });
+  const mapped = items.map((b) => ({ id: b._id, code: b.code, name: b.name }));
+  res.json({ items: mapped, branches: mapped });
 }
 
 export async function getBranch(req, res) {

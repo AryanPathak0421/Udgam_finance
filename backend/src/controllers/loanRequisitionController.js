@@ -85,11 +85,12 @@ export async function stockProducts(req, res) {
   // Loans are given from the stock of the branch of the requisition.
   if (!mongoose.isValidObjectId(String(req.query.branch || ''))) return res.json({ items: [] });
   assertBranchAccess(req.user, req.query.branch);
+  const branchObjId = new mongoose.Types.ObjectId(req.query.branch);
   const items = await StockProduct.find({
     isDeleted: false,
     isActive: true,
     stockQty: { $gt: 0 },
-    $or: [{ branch: req.query.branch }, { branch: null }, { branch: { $exists: false } }],
+    $or: [{ branch: branchObjId }, { branch: req.query.branch }, { branch: null }, { branch: { $exists: false } }],
   }).sort({ name: 1 });
   res.json({ items: items.map((p) => ({ id: p._id, code: p.code, name: p.name, category: p.category || '', unitPrice: p.unitPricePaise / 100, stockQty: p.stockQty })) });
 }
@@ -109,7 +110,12 @@ export async function verificationStatus(req, res) {
 // ---- borrower (personal / business / product) ----------------------------------------------------------------
 function assertBranchAccess(user, branch) {
   if (!mongoose.isValidObjectId(branch)) throw new HttpError(422, 'Select the branch first');
-  if (!isAdmin(user) && !(user.branches || []).some((x) => String(x) === String(branch))) {
+  if (isAdmin(user)) return;
+  const userBranches = [
+    ...(user.branches || []).map((x) => String(x?._id || x)),
+    ...(user.branch ? [String(user.branch?._id || user.branch)] : []),
+  ];
+  if (userBranches.length > 0 && !userBranches.includes(String(branch))) {
     throw new HttpError(403, 'You can only use branches assigned to you');
   }
 }
@@ -193,20 +199,21 @@ async function civilFor(memberId) {
 
 /**
  * A scheme with "Civil required" needs the civil score of the borrower, at least the minimum of the scheme.
- * The score comes strictly from the actual CivilCheck on record for the member (not manually entered on requisition).
+ * The score comes strictly from the actual CivilCheck on record or verified input for the member.
  */
-async function civilGate({ scheme, member }) {
+async function civilGate({ scheme, member, enteredScore }) {
   const latest = member?._id ? await civilSnapshot(member._id) : null;
-  if (!scheme.civilRequired) return { skip: true, score: latest?.score ?? null };
-  const score = latest?.score ?? null;
-  if (score === null || score === undefined) {
-    return { error: `${scheme.name} needs the civil score of ${member?.code || 'borrower'}. No civil check on record; complete the Civil Check first.` };
+  const minRequired = scheme.minCivilScore || scheme.cibilMin || (scheme.civilRequired ? 300 : null);
+  if (!scheme.civilRequired && !minRequired) return { skip: true, score: latest?.score ?? enteredScore ?? null };
+  const score = latest?.score ?? (enteredScore ? Number(enteredScore) : null);
+  if (score === null || score === undefined || isNaN(score)) {
+    return { error: `${scheme.name} needs the CIBIL score of ${member?.code || 'borrower'}. Please enter or record a valid CIBIL score.` };
   }
   if (!Number.isInteger(score) || score < 300 || score > 900) {
-    return { error: `The civil score (${score}) of ${member?.code || 'borrower'} is invalid (300 to 900). Please re-check under Civil Check.` };
+    return { error: `The CIBIL score (${score}) of ${member?.code || 'borrower'} is invalid (300 to 900).` };
   }
-  if (scheme.minCivilScore && score < scheme.minCivilScore) {
-    return { error: `The actual civil score ${score} of ${member?.code || 'borrower'} is below the ${scheme.minCivilScore} that ${scheme.name} needs` };
+  if (minRequired && score < minRequired) {
+    return { error: `The CIBIL score ${score} of ${member?.code || 'borrower'} is below the minimum required (${minRequired}) for ${scheme.name}` };
   }
   return { score, record: false };
 }
@@ -223,6 +230,102 @@ async function previousLoanPaise(memberId) {
   return last ? last.amountPaise : 0;
 }
 
+export const KYC_DOC_LABELS = {
+  memberPhoto: 'Member Live Photo',
+  signaturePhoto: 'Member Signature',
+  aadhaarPhoto: 'Aadhaar Card Front',
+  aadhaarBackPhoto: 'Aadhaar Card Back',
+  panPhoto: 'PAN Card',
+  'guarantor.photo': 'Guarantor Photo',
+  'guarantor.signature': 'Guarantor Signature',
+  'guarantor.aadhaarPhoto': 'Guarantor Aadhaar Front',
+  'guarantor.aadhaarBackPhoto': 'Guarantor Aadhaar Back',
+  'nominee.photo': 'Nominee Photo',
+  'nominee.signature': 'Nominee Signature',
+  'nominee.aadhaarPhoto': 'Nominee Aadhaar Front',
+  'nominee.aadhaarBackPhoto': 'Nominee Aadhaar Back',
+};
+
+export function getUnverifiedKycDocs(m) {
+  if (!m) return [];
+  const baseKeys = ['memberPhoto', 'signaturePhoto', 'aadhaarPhoto', 'aadhaarBackPhoto'];
+  if (m.pan || (m.kycKeys || []).includes('panPhoto')) {
+    baseKeys.push('panPhoto');
+  }
+  const allKeys = [...new Set([...baseKeys, ...(m.kycKeys || [])])].filter(
+    (k) => !(k.startsWith('nominee.') && m.nominee?.sameAsGuarantor)
+  );
+
+  const docState = new Map((m.kycDocs || []).map((d) => [d.key, d.status]));
+  const missingOrUnverified = [];
+
+  for (const k of allKeys) {
+    const status = docState.get(k);
+    const label = KYC_DOC_LABELS[k] || k;
+    if (status === 'rejected') {
+      missingOrUnverified.push({ key: k, label, status: 'rejected' });
+    } else if (status !== 'approved') {
+      missingOrUnverified.push({ key: k, label, status: 'pending' });
+    }
+  }
+  return missingOrUnverified;
+}
+
+export async function runningLoansForMember(memberId) {
+  const mId = String(memberId);
+  const rows = await unfinishedRows(
+    await LoanRequisition.find({
+      isDeleted: false,
+      status: { $in: RUNNING },
+      $or: [{ member: memberId }, { members: memberId }],
+    }).select('formId kind mode scheme schemeName amountPaise status disbursedAt business')
+  );
+
+  const reqLoans = rows.map((r) => ({
+    id: r._id,
+    formId: r.formId,
+    kind: r.kind,
+    loanType: r.business?.loanType || r.kind,
+    schemeId: String(r.scheme),
+    schemeName: r.schemeName,
+    mode: r.mode,
+    amount: r.amountPaise ? r.amountPaise / 100 : 0,
+    status: r.status,
+  }));
+
+  // Also check paid loans in LoanPayment that are not finished or settled yet
+  const payments = await LoanPayment.find({
+    status: 'paid',
+    $or: [{ 'lines.member': memberId }, { 'lines.code': memberId }],
+  }).select('receiptNo loanId schemeName mode totalAmountPaise lines requisition').lean();
+
+  const asOf = startOfToday();
+  const paymentLoans = [];
+  for (const p of payments) {
+    const line = (p.lines || []).find((l) => String(l.member) === mId || l.code === mId);
+    if (!line) continue;
+    // eslint-disable-next-line no-await-in-loop
+    const st = await borrowerState(p, line, asOf);
+    if (!st.settled && st.left.length > 0) {
+      if (!p.requisition || !reqLoans.some((r) => String(r.id) === String(p.requisition))) {
+        paymentLoans.push({
+          id: p._id,
+          formId: p.loanId || p.receiptNo,
+          kind: line.kind || 'loan',
+          loanType: line.loanType || 'loan',
+          schemeId: String(line.scheme || ''),
+          schemeName: p.schemeName || line.schemeName || 'Active Loan',
+          mode: p.mode || line.mode || '',
+          amount: line.amountPaise ? line.amountPaise / 100 : (p.totalAmountPaise || 0) / 100,
+          status: 'paid_active',
+        });
+      }
+    }
+  }
+
+  return [...reqLoans, ...paymentLoans];
+}
+
 /** Everything the form fills in by itself once a borrower is chosen. */
 export async function borrowerDetail(req, res) {
   if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Borrower not found');
@@ -232,8 +335,11 @@ export async function borrowerDetail(req, res) {
   const issues = [];
   if (m.isBlocked) issues.push('This borrower is blocked');
   issues.push(...notReady(m));
-  // Schemes this borrower already has an unfinished loan in are not offered again.
+
+  // Active loans for this borrower (enforcing Point 10, 11, 13.5 single loan limits)
+  const activeLoans = await runningLoansForMember(m._id);
   const running = (await runningSchemes([m._id])).get(String(m._id));
+  const unverifiedDocs = getUnverifiedKycDocs(m);
 
   res.json({
     borrower: {
@@ -250,9 +356,12 @@ export async function borrowerDetail(req, res) {
       mobile: FULL_MOBILE_ROLES.includes(req.user.role) ? m.mobile : maskMobile(m.mobile),
       guarantorName: m.guarantor?.name || '',
       previousLoanAmount: rupees(await previousLoanPaise(m._id)),
-      runningSchemeIds: [...(running || [])],
+      runningSchemeIds: [...new Set([...(running || []), ...activeLoans.map((l) => l.schemeId)])],
+      loans: activeLoans,
+      activeLoans,
       civilCheck: await civilSnapshot(m._id),
     },
+    unverifiedDocs,
     issues,
   });
 }
@@ -295,14 +404,14 @@ export function notReady(m) {
   if (!m.guarantor?.name) out.push('Add the guarantor first (Member Details → Guarantor & Nominee)');
   else if (m.guarantor.deceasedOn) out.push('The guarantor has died. Change the guarantor first (Member Details → Guarantor & Nominee) before a new loan requisition');
   if (!m.nominee?.name) out.push('Add the nominee first (Member Details → Guarantor & Nominee)');
-  // every uploaded document has to be approved (a nominee copied from the guarantor is covered by the guarantor's documents)
-  const keys = (m.kycKeys || []).filter((k) => !(k.startsWith('nominee.') && m.nominee?.sameAsGuarantor));
-  const state = new Map((m.kycDocs || []).map((d) => [d.key, d.status]));
-  const rejected = keys.filter((k) => state.get(k) === 'rejected').length;
-  const pending = keys.filter((k) => !state.get(k) || state.get(k) === 'pending').length;
-  if (rejected || pending) {
-    out.push(`Documents are not verified (${[rejected ? `${rejected} rejected` : '', pending ? `${pending} pending approval` : ''].filter(Boolean).join(', ')}). They must be approved under KYC Approval; rejected ones are uploaded again under KYC Re-upload`);
+
+  // Point 13.1: Explicit names of missing or unverified KYC documents
+  const unverified = getUnverifiedKycDocs(m);
+  if (unverified.length > 0) {
+    const names = unverified.map((u) => `${u.label} (${u.status === 'rejected' ? 'Rejected' : 'Pending'})`);
+    out.push(`KYC Documents Unverified: ${names.join(', ')}. Must be approved under KYC Review.`);
   }
+
   return out;
 }
 
@@ -357,6 +466,7 @@ export async function groupDetail(req, res) {
         isBlocked: Boolean(m.isBlocked),
         // why this member cannot be given a loan yet (documents, guarantor, nominee)
         issues: notReady(m),
+        unverifiedDocs: getUnverifiedKycDocs(m),
         // shown with the member's loan on the group form
         guarantorName: m.guarantor?.name || '',
         previousLoan: rupees(prevLoans.get(String(m._id)) || 0),
@@ -839,31 +949,40 @@ export function createRequisition(kind) {
       throw invalid({ schemeId: `This scheme is a ${scheme.loanType.toUpperCase()} scheme; choose a ${business.loanType.toUpperCase()} scheme` });
     }
     // the scheme may ask for a civil score
-    const civilGateResult = await civilGate({ scheme, member: m });
+    const civilGateResult = await civilGate({ scheme, member: m, enteredScore: b.civilScore || (business && business.civilScore) });
     if (civilGateResult.error) throw invalid(business ? { 'business.civilScore': civilGateResult.error } : { civilScore: civilGateResult.error });
-    // The same scheme is not offered again to a member until that loan is finished.
-    const sameScheme = { isDeleted: false, scheme: scheme._id, status: { $in: RUNNING } };
+
+    // Enforce single active loan rules & prevent duplicate loans in the same scheme (Point 10, 11 & 13.5)
     if (m) {
+      const activeLoans = await runningLoansForMember(m._id);
       if (kind === 'personal') {
-        const runningPersonal = (await unfinishedRows(await LoanRequisition.find({ isDeleted: false, kind: 'personal', $or: [{ member: m._id }, { members: m._id }], status: { $in: RUNNING } }).select('formId member members status disbursedAt')))[0];
+        const runningPersonal = activeLoans.find((l) => (l.kind || '').toLowerCase().includes('personal') || l.loanType === 'personal');
         if (runningPersonal) {
-          throw new HttpError(409, `This borrower already has an active personal loan requisition (${runningPersonal.formId}). A member cannot have multiple personal loans simultaneously.`, {
-            member: 'A personal loan is already running for this member',
+          throw new HttpError(409, `This borrower already has an active personal loan (${runningPersonal.formId}). A member cannot have multiple personal loans simultaneously.`, {
+            member: `Active personal loan (${runningPersonal.formId}) already running for this member`,
           });
         }
       }
       if (kind === 'business') {
-        const runningBiz = (await unfinishedRows(await LoanRequisition.find({ isDeleted: false, kind: { $in: ['business', 'msme'] }, $or: [{ member: m._id }, { members: m._id }], status: { $in: RUNNING } }).select('formId member members status disbursedAt')))[0];
+        const runningBiz = activeLoans.find((l) => (l.kind || '').toLowerCase().includes('business') || l.loanType === 'business' || (l.kind || '').toLowerCase().includes('msme') || l.loanType === 'msme');
         if (runningBiz) {
-          throw new HttpError(409, `This borrower already has an active business/MSME loan requisition (${runningBiz.formId}). A member cannot have multiple business loans simultaneously.`, {
-            member: 'A business loan is already running for this member',
+          throw new HttpError(409, `This borrower already has an active business/MSME loan (${runningBiz.formId}). A member cannot have multiple business loans simultaneously.`, {
+            member: `Active business loan (${runningBiz.formId}) already running for this member`,
           });
         }
       }
-      const running = (await unfinishedRows(await LoanRequisition.find({ ...sameScheme, $or: [{ member: m._id }, { members: m._id }] }).select('formId member members status disbursedAt')))[0];
-      if (running) {
-        throw new HttpError(409, `This borrower already has a loan under ${scheme.name} (requisition ${running.formId}) which is not finished yet`, {
-          schemeId: 'A loan under this scheme is not finished yet',
+      if (kind === 'product') {
+        const runningProduct = activeLoans.find((l) => (l.kind || '').toLowerCase().includes('product') || l.loanType === 'product');
+        if (runningProduct) {
+          throw new HttpError(409, `This borrower already has an active product loan (${runningProduct.formId}). A member cannot have multiple product loans simultaneously.`, {
+            member: `Active product loan (${runningProduct.formId}) already running for this member`,
+          });
+        }
+      }
+      const sameScheme = activeLoans.find((l) => String(l.schemeId) === String(scheme._id));
+      if (sameScheme) {
+        throw new HttpError(409, `This borrower already has an active loan under ${scheme.name} (${sameScheme.formId}) which is not finished yet. Duplicate loans in the same scheme are strictly not permitted.`, {
+          schemeId: `An active loan under "${scheme.name}" (${sameScheme.formId}) is not finished yet`,
         });
       }
     }
@@ -1504,7 +1623,7 @@ export async function createGroupRequisition(req, res) {
     const modeError = groupModeError(g.meetingType, ev.input.mode);
     if (modeError) { errors[key('mode')] = modeError; continue; }
     // eslint-disable-next-line no-await-in-loop
-    const gate = await civilGate({ scheme, member: m });
+    const gate = await civilGate({ scheme, member: m, enteredScore: e.civilScore });
     if (gate.error) { errors[key('civilScore')] = gate.error; continue; }
     const amountPaise = Math.round(ev.input.amount * 100);
     const cashPaise = cashAfterCharges(amountPaise, ev.charges);

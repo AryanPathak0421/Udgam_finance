@@ -60,7 +60,7 @@ router.get('/company', ...adminOnly, h(getCompany));
 router.put('/company', ...adminOnly, h(saveCompany));
 
 router.get('/branches', ...adminOnly, h(listBranches));
-router.get('/branches/options', ...adminOnly, h(branchOptions));
+router.get('/branches/options', requireAuth, h(branchOptions));
 router.post('/branches', ...adminOnly, h(createBranch));
 router.get('/branches/:id', ...adminOnly, h(getBranch));
 router.put('/branches/:id', ...adminOnly, h(updateBranch));

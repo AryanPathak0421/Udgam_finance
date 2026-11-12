@@ -509,7 +509,7 @@ export default function EmployeeLoanRequisition() {
   useEffect(() => {
     api.branches.options()
       .then((res) => {
-        const bList = res.branches || [];
+        const bList = res.branches || res.items || [];
         setBranches(bList);
         if (bList.length > 0) {
           const staffBranchId =
@@ -519,11 +519,11 @@ export default function EmployeeLoanRequisition() {
             (typeof empUser?.branch === 'string' ? empUser?.branch : null);
           const matched = bList.find(
             (b) =>
-              b.id === staffBranchId ||
-              b._id === staffBranchId ||
+              (b.id && (b.id === staffBranchId || String(b.id) === String(staffBranchId))) ||
+              (b._id && (b._id === staffBranchId || String(b._id) === String(staffBranchId))) ||
               (empUser?.branch?.code && b.code === empUser?.branch?.code)
           );
-          const defBranch = matched ? matched.id : bList[0].id;
+          const defBranch = matched ? (matched.id || matched._id) : (bList[0].id || bList[0]._id);
           setSelectedBranch(defBranch);
         }
       })
@@ -543,6 +543,17 @@ export default function EmployeeLoanRequisition() {
       setStock([]);
     }
   }, [isProduct, isGroup, selectedBranch]);
+
+  // Point 12: Auto amount pull up for product loan when product or quantity changes
+  useEffect(() => {
+    if (isProduct && product) {
+      const q = Math.max(1, Number(prod.qty) || 1);
+      const autoAmount = Math.round(product.unitPrice * q);
+      if (autoAmount > 0) {
+        setForm((f) => ({ ...f, amount: String(autoAmount) }));
+      }
+    }
+  }, [isProduct, product, prod.qty]);
 
   // Load schemes filtered by category
   useEffect(() => {
@@ -948,22 +959,44 @@ export default function EmployeeLoanRequisition() {
         found.borrowerMobile = 'Borrower phone number OTP verification is mandatory before loan requisition!';
       }
 
-      // Point 10: Single personal loan check
-      if (loanKind === 'personal' && borrowerDetail?.borrower) {
-        const hasRunningPersonal = (borrowerDetail.borrower.loans || []).some(
+      // Point 13.1: Document Verification List check
+      if (borrowerDetail?.unverifiedDocs?.length > 0) {
+        const unverifiedNames = borrowerDetail.unverifiedDocs.map((u) => u.label).join(', ');
+        found.borrowerDocs = `Cannot create requisition. Unverified/Missing KYC documents: ${unverifiedNames}. Please approve under KYC Review first.`;
+      }
+
+      // Point 10, 11 & 13.5: Single active loan checks
+      const activeLoans = borrowerDetail?.borrower?.loans || borrowerDetail?.borrower?.activeLoans || [];
+      if (loanKind === 'personal') {
+        const runningPersonal = activeLoans.find(
           (l) => (l.kind || '').toLowerCase().includes('personal') || l.loanType === 'personal'
         );
-        if (hasRunningPersonal) {
-          found.borrower = 'Member already has an active personal loan. Unlimited personal loans are not permitted.';
+        if (runningPersonal) {
+          found.borrower = `Member already has an active personal loan (${runningPersonal.formId}). A member cannot have multiple personal loans simultaneously.`;
         }
       }
-      // Point 11: Single business loan check
-      if (loanKind === 'business' && borrowerDetail?.borrower) {
-        const hasRunningBiz = (borrowerDetail.borrower.loans || []).some(
-          (l) => (l.kind || '').toLowerCase().includes('business') || l.loanType === 'business'
+      if (loanKind === 'business') {
+        const runningBiz = activeLoans.find(
+          (l) => (l.kind || '').toLowerCase().includes('business') || l.loanType === 'business' || (l.kind || '').toLowerCase().includes('msme') || l.loanType === 'msme'
         );
-        if (hasRunningBiz) {
-          found.borrower = 'Member already has an active business loan.';
+        if (runningBiz) {
+          found.borrower = `Member already has an active business/MSME loan (${runningBiz.formId}). A member cannot have multiple business loans simultaneously.`;
+        }
+      }
+      if (loanKind === 'product') {
+        const runningProduct = activeLoans.find(
+          (l) => (l.kind || '').toLowerCase().includes('product') || l.loanType === 'product'
+        );
+        if (runningProduct) {
+          found.borrower = `Member already has an active product loan (${runningProduct.formId}). A member cannot have multiple product loans simultaneously.`;
+        }
+      }
+
+      // Point 13.5: Block duplicate loan under same scheme
+      if (form.schemeId) {
+        const sameScheme = activeLoans.find((l) => String(l.schemeId) === String(form.schemeId));
+        if (sameScheme) {
+          found.schemeId = `Member already has an active loan under scheme "${sameScheme.schemeName}" (${sameScheme.formId}). Duplicate loans in the same scheme are strictly not permitted.`;
         }
       }
 
@@ -971,19 +1004,23 @@ export default function EmployeeLoanRequisition() {
       if (!guarantor.name.trim()) found['guarantor.name'] = 'Guarantor is mandatory. Please add a guarantor using the button.';
     }
 
-    // Point 11: CIBIL Score Requirement
-    if (scheme?.cibilMin > 0 || scheme?.checkCibil || isBusiness) {
-      const score = Number(form.civilScore || biz.civilScore || 0);
-      const minRequired = scheme?.cibilMin || 650;
+    // Point 11 & 13.2: CIBIL Score Requirement & Gating
+    const minCivil = scheme?.minCivilScore || scheme?.cibilMin || (scheme?.civilRequired ? 300 : 0);
+    if (minCivil > 0 || isBusiness) {
+      const score = Number(form.civilScore || biz.civilScore || borrowerDetail?.borrower?.civilCheck?.score || 0);
       if (!score) {
-        found.civilScore = 'CIBIL score is required for this loan scheme';
-      } else if (scheme?.cibilMin && score < scheme.cibilMin) {
-        found.civilScore = `CIBIL score (${score}) is lower than minimum required (${scheme.cibilMin}) for ${scheme.name}`;
+        found.civilScore = `CIBIL score is required for ${scheme ? scheme.name : 'this loan'}`;
+      } else if (minCivil > 0 && score < minCivil) {
+        found.civilScore = `Member CIBIL score (${score}) is below the required minimum (${minCivil}) for ${scheme.name}. Requisition cannot be created.`;
       }
     }
 
     if (isProduct) {
+      if (!form.schemeId) found.schemeId = 'Select product loan scheme first';
       if (!prod.id) found.stockProduct = 'Select stock product';
+      const q = Number(prod.qty) || 0;
+      if (q < 1) found.stockProduct = 'Quantity must be 1 or more';
+      if (product && q > product.stockQty) found.stockProduct = `Only ${product.stockQty} unit(s) available in branch stock`;
     }
 
     if (isBusiness) {
@@ -1412,6 +1449,27 @@ export default function EmployeeLoanRequisition() {
                             </div>
                           </div>
 
+                          {/* Point 13.1: Explicit Unverified KYC docs per member in group */}
+                          {m.unverifiedDocs?.length > 0 && (
+                            <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                              {m.unverifiedDocs.map((u) => (
+                                <span
+                                  key={u.key}
+                                  style={{
+                                    fontSize: '0.68rem',
+                                    padding: '1px 6px',
+                                    background: u.status === 'rejected' ? '#fee2e2' : '#fef3c7',
+                                    color: u.status === 'rejected' ? '#991b1b' : '#92400e',
+                                    borderRadius: 4,
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  {u.status === 'rejected' ? '❌' : '⏳'} {u.label} ({u.status === 'rejected' ? 'Rejected' : 'KYC Pending'})
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
                           {isChosen && !disabled && (
                             <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--emp-border)' }}>
                               {/* Loan Scheme per Eligible Member (Point 9.2) */}
@@ -1627,9 +1685,74 @@ export default function EmployeeLoanRequisition() {
                     </button>
                   </div>
 
+                  {/* Point 13.1: Explicit Unverified / Missing KYC Document List */}
+                  {borrowerDetail?.unverifiedDocs?.length > 0 && (
+                    <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '10px 12px', marginBottom: 10 }}>
+                      <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#991b1b', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                        <Icon name="alert" size={15} />
+                        <span>Unverified / Missing KYC Documents:</span>
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                        {borrowerDetail.unverifiedDocs.map((doc) => (
+                          <span
+                            key={doc.key}
+                            style={{
+                              background: doc.status === 'rejected' ? '#fee2e2' : '#fef3c7',
+                              color: doc.status === 'rejected' ? '#991b1b' : '#92400e',
+                              border: `1px solid ${doc.status === 'rejected' ? '#f87171' : '#fcd34d'}`,
+                              borderRadius: 4,
+                              padding: '3px 8px',
+                              fontSize: '0.74rem',
+                              fontWeight: 700,
+                            }}
+                          >
+                            {doc.status === 'rejected' ? '❌ ' : '⏳ '}{doc.label} ({doc.status === 'rejected' ? 'Rejected' : 'Pending KYC Review'})
+                          </span>
+                        ))}
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: '#b91c1c', marginTop: 6, fontWeight: 600 }}>
+                        All documents must be approved under KYC Review before loan requisition can be submitted.
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Point 13.5: Active Running Loans Display */}
+                  {borrowerDetail?.borrower?.activeLoans?.length > 0 && (
+                    <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '10px 12px', marginBottom: 10 }}>
+                      <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#92400e', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                        <Icon name="alert" size={15} />
+                        <span>Currently Active Running Loans for {borrowerDetail.borrower.name}:</span>
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                        {borrowerDetail.borrower.activeLoans.map((l) => (
+                          <span
+                            key={l.id || l.formId}
+                            style={{
+                              background: '#fef3c7',
+                              color: '#78350f',
+                              border: '1px solid #fbbf24',
+                              borderRadius: 4,
+                              padding: '3px 8px',
+                              fontSize: '0.74rem',
+                              fontWeight: 700,
+                            }}
+                          >
+                            {cap(l.kind || l.loanType)}: {l.schemeName || 'Loan'} ({l.formId}) — {inr(l.amount)}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {borrowerDetail?.issues?.length > 0 && (
                     <div style={{ background: '#fef3c7', border: '1px solid #f59e0b', color: '#92400e', padding: '8px 10px', borderRadius: 6, fontSize: '0.75rem', marginBottom: 8, fontWeight: 600 }}>
                       ⚠️ {borrowerDetail.issues.join(' • ')}
+                    </div>
+                  )}
+
+                  {errors.borrowerDocs && (
+                    <div style={{ background: '#fef2f2', border: '1px solid #ef4444', color: '#b91c1c', padding: '8px 10px', borderRadius: 6, fontSize: '0.75rem', marginBottom: 8, fontWeight: 700 }}>
+                      ❌ {errors.borrowerDocs}
                     </div>
                   )}
 
@@ -1686,8 +1809,21 @@ export default function EmployeeLoanRequisition() {
             </div>
           )}
 
+          {/* Prompt when borrower is not selected yet */}
+          {!isGroup && !pickedBorrower && (
+            <div className="emp-card" style={{ textAlign: 'center', padding: '24px 16px', background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: 8, color: '#64748b', marginBottom: 12 }}>
+              <div style={{ fontSize: '1.5rem', marginBottom: 6 }}>👆</div>
+              <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#334155' }}>
+                Please search and select a borrower member in Section 3 above
+              </div>
+              <div style={{ fontSize: '0.74rem', color: '#64748b', marginTop: 3 }}>
+                Physical Application Form photos, guarantor details, active loans review, loan scheme and product options will appear here once a member is chosen.
+              </div>
+            </div>
+          )}
+
           {/* SECTION 4: GUARANTOR INFORMATION (READ-ONLY DISPLAY WITH CHANGE BUTTON - Point 10 & 11) */}
-          {!isGroup && (
+          {!isGroup && pickedBorrower && (
             <div className="emp-card" style={{ marginBottom: 12 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                 <h3 style={{ fontSize: '0.95rem', fontWeight: 800, margin: 0, color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -1734,7 +1870,7 @@ export default function EmployeeLoanRequisition() {
           )}
 
           {/* SECTION 5: BUSINESS / MSME SPECIFIC DETAILS */}
-          {isBusiness && (
+          {isBusiness && pickedBorrower && (
             <div className="emp-card" style={{ marginBottom: 12 }}>
               <h3 style={{ fontSize: '0.95rem', fontWeight: 800, margin: '0 0 10px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 6 }}>
                 <Icon name="building" size={16} />
@@ -1904,58 +2040,14 @@ export default function EmployeeLoanRequisition() {
             </div>
           )}
 
-          {/* SECTION 6: STOCK PRODUCT (PRODUCT LOAN) */}
-          {isProduct && (
-            <div className="emp-card" style={{ marginBottom: 12 }}>
-              <h3 style={{ fontSize: '0.95rem', fontWeight: 800, margin: '0 0 10px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Icon name="product" size={16} />
-                <span>6. Stock Product Selection</span>
-              </h3>
-              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10, marginBottom: 8 }}>
-                <div>
-                  <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>
-                    Select Stock Product *
-                  </label>
-                  <select
-                    className="emp-input"
-                    value={prod.id}
-                    onChange={(e) => setProd((p) => ({ ...p, id: e.target.value }))}
-                  >
-                    <option value="">Select Product</option>
-                    {stock.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.code} — {p.name} ({inr(p.unitPrice)}) · {p.stockQty} in stock
-                      </option>
-                    ))}
-                  </select>
-                  {errors.stockProduct && <div style={{ fontSize: '0.7rem', color: '#dc2626', fontWeight: 600 }}>{errors.stockProduct}</div>}
-                </div>
-                <div>
-                  <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>
-                    Units / Qty
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    className="emp-input"
-                    value={prod.qty}
-                    onChange={(e) => setProd((p) => ({ ...p, qty: e.target.value }))}
-                  />
-                </div>
-              </div>
-              {product && (
-                <div style={{ background: '#f8fafc', padding: 8, borderRadius: 6, fontSize: '0.78rem', fontWeight: 600 }}>
-                  Value of Goods (Auto Loan Amount): <span style={{ color: 'var(--emp-primary)', fontWeight: 800 }}>{inr(product.unitPrice * productQtyNum)}</span>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* SECTION 7: SCHEME DETAIL & PARAMETERS */}
+          {/* SECTIONS 6, 7 & 8: SCHEME, PRODUCT, PREVIEW & SUBMIT (Enabled only after Group / Borrower selection - Point 12 & 13) */}
+          {(isGroup || pickedBorrower) && (
+            <>
+              {/* SECTION 6: SCHEME DETAIL & PARAMETERS (Scheme selected FIRST - Point 12) */}
           <div className="emp-card" style={{ marginBottom: 12 }}>
             <h3 style={{ fontSize: '0.95rem', fontWeight: 800, margin: '0 0 10px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 6 }}>
               <Icon name="check" size={16} />
-              <span>{isProduct ? '7. Product Loan Scheme' : '7. Scheme Detail &amp; Parameters'}</span>
+              <span>{isProduct ? '6. Product Loan Scheme' : '6. Scheme Detail & Parameters'}</span>
             </h3>
 
             {!isGroup ? (
@@ -1992,7 +2084,83 @@ export default function EmployeeLoanRequisition() {
                   <div><span style={{ color: '#64748b' }}>Age Range:</span> {scheme.ageMin} – {scheme.ageMax} yrs</div>
                   <div><span style={{ color: '#64748b' }}>Modes:</span> {scheme.modes?.map((m) => m.label || m).join(', ')}</div>
                   <div><span style={{ color: '#64748b' }}>Security Deposit:</span> {scheme.securityType === 'none' ? 'None' : `${scheme.securityPercent || 5}%`}</div>
+                  {(scheme.minCivilScore || scheme.cibilMin) && (
+                    <div><span style={{ color: '#64748b' }}>Min CIBIL:</span> <strong style={{ color: '#dc2626' }}>{scheme.minCivilScore || scheme.cibilMin}</strong></div>
+                  )}
                 </div>
+              </div>
+            )}
+
+            {/* SECTION 7 FOR PRODUCT LOAN: STOCK PRODUCT SELECTION (After Scheme is Selected - Point 12) */}
+            {isProduct && (
+              <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: 12, marginBottom: 12 }}>
+                <div style={{ fontSize: '0.82rem', fontWeight: 800, color: '#166534', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                  <Icon name="product" size={16} />
+                  <span>Stock Product Selection (Pull-up Loan Amount) *</span>
+                </div>
+
+                {!form.schemeId ? (
+                  <div style={{ fontSize: '0.76rem', color: '#b45309', background: '#fef3c7', padding: '8px 10px', borderRadius: 6, fontWeight: 600 }}>
+                    ⚠️ Please select a Product Loan Scheme above first before choosing a stock product.
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10, marginBottom: 8 }}>
+                      <div>
+                        <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>
+                          Select Stock Product from Branch Stock *
+                        </label>
+                        <select
+                          className="emp-input"
+                          value={prod.id}
+                          onChange={(e) => {
+                            const pid = e.target.value;
+                            setProd((p) => ({ ...p, id: pid }));
+                            const chosen = stock.find((x) => x.id === pid);
+                            if (chosen) {
+                              const q = Math.max(1, Number(prod.qty) || 1);
+                              setForm((f) => ({ ...f, amount: String(Math.round(chosen.unitPrice * q)) }));
+                            }
+                          }}
+                          required
+                        >
+                          <option value="">Select Product ({stock.length} available)</option>
+                          {stock.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.code} — {p.name} ({inr(p.unitPrice)}) · {p.stockQty} in stock
+                            </option>
+                          ))}
+                        </select>
+                        {errors.stockProduct && <div style={{ fontSize: '0.7rem', color: '#dc2626', fontWeight: 600, marginTop: 2 }}>{errors.stockProduct}</div>}
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>
+                          Units / Qty *
+                        </label>
+                        <input
+                          type="number"
+                          min="1"
+                          className="emp-input"
+                          value={prod.qty}
+                          onChange={(e) => {
+                            const q = Math.max(1, Number(e.target.value) || 1);
+                            setProd((p) => ({ ...p, qty: e.target.value }));
+                            if (product) {
+                              setForm((f) => ({ ...f, amount: String(Math.round(product.unitPrice * q)) }));
+                            }
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    {product && (
+                      <div style={{ background: '#fff', border: '1px solid #86efac', padding: 8, borderRadius: 6, fontSize: '0.78rem', fontWeight: 700, color: '#166534', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span>✓ Value of Goods: {inr(product.unitPrice)} × {productQtyNum} unit(s)</span>
+                        <span style={{ fontSize: '0.85rem', color: 'var(--emp-primary)', fontWeight: 800 }}>Auto Loan Amount: {inr(product.unitPrice * productQtyNum)}</span>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             )}
 
@@ -2009,7 +2177,13 @@ export default function EmployeeLoanRequisition() {
                   disabled={isProduct}
                   onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value.replace(/[^\d.]/g, '') }))}
                   required
+                  style={isProduct ? { background: '#f8fafc', fontWeight: 800, color: 'var(--emp-primary)' } : undefined}
                 />
+                {isProduct && product && (
+                  <div style={{ fontSize: '0.72rem', color: '#16a34a', fontWeight: 600, marginTop: 2 }}>
+                    ✓ Auto-calculated from selected product: {inr(form.amount)}
+                  </div>
+                )}
                 {errors.amount && <div style={{ fontSize: '0.7rem', color: '#dc2626', fontWeight: 600 }}>{errors.amount}</div>}
               </div>
               <div>
@@ -2072,12 +2246,12 @@ export default function EmployeeLoanRequisition() {
               </div>
             </div>
 
-            {/* CIBIL Score Requirement Box (Point 11) */}
-            {(scheme?.cibilMin > 0 || scheme?.checkCibil || isBusiness) && (
+            {/* CIBIL Score Requirement Box (Point 11 & 13.2) */}
+            {(scheme?.minCivilScore > 0 || scheme?.cibilMin > 0 || scheme?.civilRequired || scheme?.checkCibil || isBusiness) && (
               <div style={{ marginTop: 10, background: '#f8fafc', padding: 12, borderRadius: 8, border: '1px solid var(--emp-border)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                   <label style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--emp-text)' }}>
-                    CIBIL Score * {scheme?.cibilMin ? `(Minimum Required: ${scheme.cibilMin})` : '(Required)'}
+                    CIBIL Score * {(scheme?.minCivilScore || scheme?.cibilMin) ? `(Minimum Required: ${scheme.minCivilScore || scheme.cibilMin})` : '(Required)'}
                   </label>
                   {borrowerDetail?.borrower?.civilCheck?.score && (
                     <span style={{ fontSize: '0.72rem', color: '#16a34a', fontWeight: 600 }}>
@@ -2213,6 +2387,8 @@ export default function EmployeeLoanRequisition() {
           >
             {isSunday ? '⚠️ Sunday Locked' : 'Review & Submit Requisition'}
           </button>
+            </>
+          )}
         </form>
       )}
 
