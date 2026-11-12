@@ -429,6 +429,8 @@ export default function EmployeeLoanRequisition() {
   const [schemes, setSchemes] = useState([]);
   const [stock, setStock] = useState([]);
   const [prod, setProd] = useState({ id: '', qty: '1' });
+  const product = useMemo(() => stock.find((x) => x.id === prod.id) || null, [stock, prod.id]);
+  const productQtyNum = Number(prod.qty) || 1;
 
   // Group Mode States
   const [groups, setGroups] = useState([]);
@@ -543,17 +545,6 @@ export default function EmployeeLoanRequisition() {
       setStock([]);
     }
   }, [isProduct, isGroup, selectedBranch]);
-
-  // Point 12: Auto amount pull up for product loan when product or quantity changes
-  useEffect(() => {
-    if (isProduct && product) {
-      const q = Math.max(1, Number(prod.qty) || 1);
-      const autoAmount = Math.round(product.unitPrice * q);
-      if (autoAmount > 0) {
-        setForm((f) => ({ ...f, amount: String(autoAmount) }));
-      }
-    }
-  }, [isProduct, product, prod.qty]);
 
   // Load schemes filtered by category
   useEffect(() => {
@@ -798,8 +789,6 @@ export default function EmployeeLoanRequisition() {
   };
 
   // Product Selection handler
-  const product = useMemo(() => stock.find((x) => x.id === prod.id) || null, [stock, prod.id]);
-  const productQtyNum = Number(prod.qty) || 1;
   useEffect(() => {
     if (isProduct && product) {
       const val = Math.round(product.unitPrice * productQtyNum * 100) / 100;
