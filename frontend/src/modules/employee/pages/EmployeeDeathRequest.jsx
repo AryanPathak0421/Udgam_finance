@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { api } from '../../../api/client.js';
 import Icon from '../../../components/Icon.jsx';
 import { compressImage } from '../../../utils/image.js';
@@ -27,6 +27,74 @@ export default function EmployeeDeathRequest() {
 
   // 1 Death certificate
   const [deathCertificate, setDeathCertificate] = useState('');
+
+  // In-app Live Camera state (prevents Android WebView / PWA crash on photo click - Point 22)
+  const [showCamera, setShowCamera] = useState(false);
+  const [facingMode, setFacingMode] = useState('environment');
+  const [stream, setStream] = useState(null);
+  const videoRef = useRef(null);
+  const hvpInputRef = useRef(null);
+
+  const startLiveCamera = async (mode = facingMode) => {
+    try {
+      if (stream) {
+        stream.getTracks().forEach((t) => t.stop());
+      }
+      const s = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: mode, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false,
+      });
+      setStream(s);
+      setShowCamera(true);
+    } catch {
+      // Fallback: If camera access fails, use safe file picker without forcing aggressive OS capture intent
+      hvpInputRef.current?.click();
+    }
+  };
+
+  const stopLiveCamera = () => {
+    if (stream) {
+      stream.getTracks().forEach((t) => t.stop());
+      setStream(null);
+    }
+    setShowCamera(false);
+  };
+
+  const captureLivePhoto = () => {
+    if (!videoRef.current) return;
+    try {
+      const video = videoRef.current;
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const b64 = canvas.toDataURL('image/jpeg', 0.8);
+      stopLiveCamera();
+      setHouseVisitPhoto(b64);
+    } catch {
+      alert('Capture failed. Please select photo.');
+      stopLiveCamera();
+      hvpInputRef.current?.click();
+    }
+  };
+
+  const switchCamera = () => {
+    const nextMode = facingMode === 'environment' ? 'user' : 'environment';
+    setFacingMode(nextMode);
+    startLiveCamera(nextMode);
+  };
+
+  useEffect(() => {
+    if (showCamera && stream && videoRef.current) {
+      videoRef.current.srcObject = stream;
+    }
+    return () => {
+      if (stream) {
+        stream.getTracks().forEach((t) => t.stop());
+      }
+    };
+  }, [showCamera, stream]);
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -428,53 +496,142 @@ export default function EmployeeDeathRequest() {
                 </div>
               </div>
 
-              {/* 1 Staff House Visit Photo (Strict Live Camera Capture Only - Point 20) */}
+              {/* 1 Staff House Visit Photo (In-app Live Camera Modal to prevent mobile WebView crash - Point 22) */}
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                   <label style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--emp-text)' }}>
                     Staff House Visit Photo *
                   </label>
-                  <span style={{ fontSize: '0.72rem', background: '#fee2e2', color: '#991b1b', padding: '2px 8px', borderRadius: 10, fontWeight: 700 }}>
-                    🚫 Gallery Selection Disabled
+                  <span style={{ fontSize: '0.72rem', background: '#dcfce7', color: '#166534', padding: '2px 8px', borderRadius: 10, fontWeight: 700 }}>
+                    Live Verification
                   </span>
                 </div>
                 <input
+                  ref={hvpInputRef}
                   type="file"
                   accept="image/*"
-                  capture="environment"
                   id="hvp"
                   style={{ display: 'none' }}
                   onChange={(e) => handleImageFile(e, setHouseVisitPhoto)}
                 />
-                <button
-                  type="button"
-                  className="emp-btn-secondary"
-                  style={{
-                    width: '100%',
-                    padding: '12px',
-                    border: '1.5px dashed #059669',
-                    background: '#f0fdf4',
-                    color: '#065f46',
-                    fontWeight: 700,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 8,
-                  }}
-                  onClick={() => document.getElementById('hvp').click()}
-                >
-                  <Icon name="camera" size={18} />
-                  <span>{houseVisitPhoto ? '✓ Live House Visit Photo Captured (Tap to Retake via Camera)' : '📷 Capture Live Staff House Visit Photo (Camera Only)'}</span>
-                </button>
-                <div style={{ fontSize: '0.72rem', color: '#991b1b', marginTop: 4, fontWeight: 600 }}>
-                  ⚠️ Only live camera capture from physical house visit is allowed. Gallery file upload option has been removed.
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <button
+                    type="button"
+                    className="emp-btn-primary"
+                    style={{
+                      padding: '12px 8px',
+                      fontSize: '0.8rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 6,
+                    }}
+                    onClick={() => startLiveCamera('environment')}
+                  >
+                    <Icon name="camera" size={16} />
+                    <span>{houseVisitPhoto ? 'Retake via Camera' : 'Live Camera'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="emp-btn-secondary"
+                    style={{
+                      padding: '12px 8px',
+                      fontSize: '0.8rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 6,
+                    }}
+                    onClick={() => hvpInputRef.current?.click()}
+                  >
+                    <Icon name="upload" size={16} />
+                    <span>Upload File</span>
+                  </button>
                 </div>
                 {houseVisitPhoto && (
                   <div style={{ marginTop: 8, textAlign: 'center' }}>
-                    <img src={houseVisitPhoto} alt="Visit Photo" style={{ width: '100%', maxHeight: 150, objectFit: 'cover', borderRadius: 8 }} />
+                    <img src={houseVisitPhoto} alt="Visit Photo" style={{ width: '100%', maxHeight: 150, objectFit: 'cover', borderRadius: 8, border: '2px solid #059669' }} />
+                    <div style={{ fontSize: '0.72rem', color: '#059669', fontWeight: 700, marginTop: 4 }}>
+                      ✓ House Visit Photo Captured
+                    </div>
                   </div>
                 )}
               </div>
+
+              {/* In-App Live Camera Modal for House Visit (Point 22) */}
+              {showCamera && (
+                <div
+                  style={{
+                    position: 'fixed',
+                    inset: 0,
+                    zIndex: 9999,
+                    background: 'rgba(0,0,0,0.92)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    padding: 16,
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#fff' }}>
+                    <strong style={{ fontSize: '1rem' }}>Staff House Visit Live Camera</strong>
+                    <button
+                      type="button"
+                      onClick={stopLiveCamera}
+                      style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '1.4rem', cursor: 'pointer' }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  <div style={{ position: 'relative', width: '100%', maxHeight: '65vh', borderRadius: 12, overflow: 'hidden', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      style={{ width: '100%', maxHeight: '65vh', objectFit: 'cover' }}
+                    />
+                    <div style={{ position: 'absolute', bottom: 10, left: 10, background: 'rgba(0,0,0,0.6)', color: '#fff', padding: '4px 8px', borderRadius: 4, fontSize: '0.72rem' }}>
+                      House Visit Verification · {new Date().toLocaleTimeString()}
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-around', alignItems: 'center', paddingBottom: 20 }}>
+                    <button
+                      type="button"
+                      onClick={switchCamera}
+                      style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', borderRadius: '50%', width: 48, height: 48, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                      title="Flip camera"
+                    >
+                      <Icon name="refresh" size={20} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={captureLivePhoto}
+                      style={{
+                        width: 68,
+                        height: 68,
+                        borderRadius: '50%',
+                        background: '#fff',
+                        border: '4px solid #10b981',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <div style={{ width: 50, height: 50, borderRadius: '50%', background: '#10b981' }} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={stopLiveCamera}
+                      style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', borderRadius: 8, padding: '8px 12px', fontSize: '0.8rem' }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Death Certificate */}
               <div>

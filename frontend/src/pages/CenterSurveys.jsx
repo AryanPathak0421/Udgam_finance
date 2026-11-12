@@ -110,8 +110,10 @@ export default function CenterSurveys() {
   const [status, setStatus] = useState('');
   const [from, setFrom] = useState(monthStart());
   const [to, setTo] = useState(today());
+  const [employeeFilter, setEmployeeFilter] = useState('');
   const [search, setSearch] = useState('');
   const q = useDebounce(search, 350);
+  const empCode = useDebounce(employeeFilter, 350);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -123,13 +125,13 @@ export default function CenterSurveys() {
     setLoading(true);
     setError('');
     try {
-      setData(await api.centerSurveys.list({ branch, status, from, to, q }));
+      setData(await api.centerSurveys.list({ branch, status, from, to, q, employeeCode: empCode }));
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [branch, status, from, to, q]);
+  }, [branch, status, from, to, q, empCode]);
   useEffect(() => { load(); }, [load]);
 
   return (
@@ -149,7 +151,8 @@ export default function CenterSurveys() {
           </select>
           <label className="small muted" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>From <input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} aria-label="From date" /></label>
           <label className="small muted" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>To <input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} aria-label="To date" /></label>
-          <input type="search" placeholder="Search" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search" style={{ minWidth: 160 }} />
+          <input type="text" placeholder="By Employee ID" value={employeeFilter} onChange={(e) => setEmployeeFilter(e.target.value)} aria-label="Employee Code" style={{ maxWidth: 140 }} />
+          <input type="search" placeholder="Search center/leader" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search" style={{ minWidth: 160 }} />
           <button className="btn" onClick={load} disabled={loading}>{loading ? 'Refreshing…' : 'Refresh'}</button>
           {canAdd && <button className="btn primary" onClick={() => setAdding(true)}>New survey</button>}
         </div>

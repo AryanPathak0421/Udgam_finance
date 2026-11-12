@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { api } from '../../../api/client.js';
 import { useEmployeeApp } from '../EmployeeAppContext.jsx';
 import Icon from '../../../components/Icon.jsx';
@@ -16,6 +16,78 @@ export default function EmployeeAttendance() {
   const [markSuccess, setMarkSuccess] = useState('');
   const [markError, setMarkError] = useState('');
   const [timingInfo, setTimingInfo] = useState(null);
+
+  // In-app Live Camera state (prevents Android WebView / mobile crash - Point 20)
+  const [showCamera, setShowCamera] = useState(false);
+  const [facingMode, setFacingMode] = useState('user');
+  const [stream, setStream] = useState(null);
+  const [cameraBusy, setCameraBusy] = useState(false);
+  const videoRef = useRef(null);
+  const fileInputRef = useRef(null);
+
+  const startLiveCamera = async (mode = facingMode) => {
+    setCameraBusy(true);
+    try {
+      if (stream) {
+        stream.getTracks().forEach((t) => t.stop());
+      }
+      const s = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: mode, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false,
+      });
+      setStream(s);
+      setShowCamera(true);
+    } catch {
+      // Fallback: If camera stream fails or permission denied, open safe file picker
+      fileInputRef.current?.click();
+    } finally {
+      setCameraBusy(false);
+    }
+  };
+
+  const stopLiveCamera = () => {
+    if (stream) {
+      stream.getTracks().forEach((t) => t.stop());
+      setStream(null);
+    }
+    setShowCamera(false);
+  };
+
+  const captureLivePhoto = () => {
+    if (!videoRef.current) return;
+    try {
+      const video = videoRef.current;
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const b64 = canvas.toDataURL('image/jpeg', 0.8);
+      stopLiveCamera();
+      setPhoto(b64);
+    } catch {
+      alert('Capture failed. Please use file selection.');
+      stopLiveCamera();
+      fileInputRef.current?.click();
+    }
+  };
+
+  const switchCamera = () => {
+    const nextMode = facingMode === 'user' ? 'environment' : 'user';
+    setFacingMode(nextMode);
+    startLiveCamera(nextMode);
+  };
+
+  useEffect(() => {
+    if (showCamera && stream && videoRef.current) {
+      videoRef.current.srcObject = stream;
+    }
+    return () => {
+      if (stream) {
+        stream.getTracks().forEach((t) => t.stop());
+      }
+    };
+  }, [showCamera, stream]);
 
   // Fetch attendance timing lock info
   useEffect(() => {
@@ -186,35 +258,124 @@ export default function EmployeeAttendance() {
               </div>
             </div>
 
-            {/* Photo Capture */}
+            {/* Photo Capture - In-app Live Camera with Safe File Picker (Point 20 Fix) */}
             <div>
               <label style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--emp-text)', display: 'block', marginBottom: 6 }}>
                 First Meeting Photo *
               </label>
               <input
+                ref={fileInputRef}
                 type="file"
                 accept="image/*"
-                capture="user"
-                id="meeting-photo-input"
                 style={{ display: 'none' }}
                 onChange={handlePhotoUpload}
               />
-              <button
-                type="button"
-                className="emp-btn-secondary"
-                style={{ width: '100%', padding: '12px', border: '2px dashed var(--emp-primary)', color: 'var(--emp-primary)', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
-                onClick={() => document.getElementById('meeting-photo-input').click()}
-              >
-                <Icon name="camera" size={18} />
-                <span>Capture / Upload Meeting Photo</span>
-              </button>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <button
+                  type="button"
+                  className="emp-btn-primary"
+                  style={{ padding: '12px 8px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                  onClick={() => startLiveCamera('user')}
+                  disabled={cameraBusy}
+                >
+                  <Icon name="camera" size={16} />
+                  <span>{photo ? 'Retake via Camera' : 'Live Camera'}</span>
+                </button>
+                <button
+                  type="button"
+                  className="emp-btn-secondary"
+                  style={{ padding: '12px 8px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Icon name="upload" size={16} />
+                  <span>Choose Photo</span>
+                </button>
+              </div>
 
               {photo && (
                 <div style={{ marginTop: 10, textAlign: 'center' }}>
-                  <img src={photo} alt="Meeting preview" style={{ width: '100%', maxHeight: 220, objectFit: 'cover', borderRadius: 8 }} />
+                  <img src={photo} alt="Meeting preview" style={{ width: '100%', maxHeight: 220, objectFit: 'cover', borderRadius: 8, border: '2px solid #059669' }} />
+                  <div style={{ fontSize: '0.72rem', color: '#059669', fontWeight: 700, marginTop: 4 }}>
+                    ✓ Meeting Photo Ready
+                  </div>
                 </div>
               )}
             </div>
+
+            {/* In-App Live Camera Modal (Point 20: Prevents Android Webview kill/crash) */}
+            {showCamera && (
+              <div
+                style={{
+                  position: 'fixed',
+                  inset: 0,
+                  zIndex: 9999,
+                  background: 'rgba(0,0,0,0.92)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                  padding: 16,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#fff' }}>
+                  <strong style={{ fontSize: '1rem' }}>First Meeting Live Camera</strong>
+                  <button
+                    type="button"
+                    onClick={stopLiveCamera}
+                    style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '1.4rem', cursor: 'pointer' }}
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div style={{ position: 'relative', width: '100%', maxHeight: '65vh', borderRadius: 12, overflow: 'hidden', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    style={{ width: '100%', maxHeight: '65vh', objectFit: 'cover' }}
+                  />
+                  <div style={{ position: 'absolute', bottom: 10, left: 10, background: 'rgba(0,0,0,0.6)', color: '#fff', padding: '4px 8px', borderRadius: 4, fontSize: '0.72rem' }}>
+                    {location?.address || 'GPS active'} · {new Date().toLocaleTimeString()}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-around', alignItems: 'center', paddingBottom: 20 }}>
+                  <button
+                    type="button"
+                    onClick={switchCamera}
+                    style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', borderRadius: '50%', width: 48, height: 48, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    title="Flip camera"
+                  >
+                    <Icon name="refresh" size={20} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={captureLivePhoto}
+                    style={{
+                      width: 68,
+                      height: 68,
+                      borderRadius: '50%',
+                      background: '#fff',
+                      border: '4px solid #10b981',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <div style={{ width: 50, height: 50, borderRadius: '50%', background: '#10b981' }} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={stopLiveCamera}
+                    style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', borderRadius: 8, padding: '8px 12px', fontSize: '0.8rem' }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
 
             <button
               type="submit"

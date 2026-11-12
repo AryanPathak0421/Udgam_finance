@@ -67,6 +67,9 @@ export default function EmployeeReports() {
           <div style={{ fontSize: '1.25rem', fontWeight: 800, marginTop: 2 }}>
             ₹{Number(summary.totalNpaRecovered || 0).toLocaleString('en-IN')}
           </div>
+          <div style={{ fontSize: '0.78rem', background: 'rgba(255,255,255,0.22)', padding: '2px 8px', borderRadius: 6, display: 'inline-block', marginTop: 4, fontWeight: 700 }}>
+            10% Incentive: ₹{Number(summary.npaRecoveryCommission || ((summary.totalNpaRecovered || 0) * 0.1)).toLocaleString('en-IN')}
+          </div>
           <div style={{ fontSize: '0.7rem', opacity: 0.85, marginTop: 2 }}>
             {summary.npaRecoveryCount || 0} Recoveries
           </div>
@@ -284,7 +287,10 @@ export default function EmployeeReports() {
                     </div>
                     <div style={{ textAlign: 'right' }}>
                       <div style={{ fontWeight: 800, color: '#059669' }}>+₹{p.amount.toLocaleString('en-IN')}</div>
-                      <span className="emp-badge emp-badge-danger" style={{ fontSize: '0.68rem' }}>NPA Recovered</span>
+                      <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#15803d', marginTop: 2 }}>
+                        10% Incentive: +₹{Number(p.commission || (p.amount * 0.1)).toLocaleString('en-IN')}
+                      </div>
+                      <span className="emp-badge emp-badge-danger" style={{ fontSize: '0.68rem', marginTop: 2 }}>NPA Recovered</span>
                     </div>
                   </div>
                 </div>
@@ -358,7 +364,10 @@ export default function EmployeeReports() {
                         <strong>₹{t.achieved?.npaRecovery || 0} / ₹{t.targets?.npaRecoveryPaise ? t.targets.npaRecoveryPaise / 100 : 0}</strong>
                       </div>
                       <div style={{ height: 6, borderRadius: 3, background: 'var(--emp-border)', overflow: 'hidden' }}>
-                        <div style={{ height: '100%', width: '40%', background: '#059669' }} />
+                        <div style={{ height: '100%', width: `${Math.min(100, Math.round(((t.achieved?.npaRecovery || 0) / (t.targets?.npaRecoveryPaise ? t.targets.npaRecoveryPaise / 100 : 1)) * 100))}%`, background: '#059669' }} />
+                      </div>
+                      <div style={{ fontSize: '0.74rem', color: '#059669', fontWeight: 700, marginTop: 3 }}>
+                        10% Incentive Earned: ₹{Number(t.achieved?.npaRecoveryCommission || ((t.achieved?.npaRecovery || 0) * 0.1)).toLocaleString('en-IN')}
                       </div>
                     </div>
 

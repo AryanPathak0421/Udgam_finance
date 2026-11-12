@@ -27,9 +27,18 @@ export async function listSurveys(req, res) {
   const from = parseDateOnly(asString(req.query.from));
   const to = parseDateOnly(asString(req.query.to));
   if (from || to) filter.surveyDate = { ...(from ? { $gte: from } : {}), ...(to ? { $lte: to } : {}) };
+
+  // Point 21 Fix: Filter by specific employee / surveyedBy so surveys do not bleed across employees
+  const empCode = asString(req.query.employeeCode || req.query.surveyedBy);
+  if (empCode) {
+    filter.surveyedByCode = new RegExp(`^${empCode}$`, 'i');
+  } else if (req.user?.employeeCode && ['field_officer', 'collection_officer'].includes(req.user?.role)) {
+    filter.surveyedByCode = req.user.employeeCode;
+  }
+
   const q = asString(req.query.q).toLowerCase();
   const rows = await CenterSurvey.find(filter).sort({ surveyDate: -1, createdAt: -1 }).limit(2000).populate('branch', 'code name');
-  const items = rows.map(present).filter((s) => !q || [s.surveyNo, s.centerName, s.area, s.leaderName, s.district].some((v) => String(v).toLowerCase().includes(q)));
+  const items = rows.map(present).filter((s) => !q || [s.surveyNo, s.centerName, s.area, s.leaderName, s.district, s.surveyedBy].some((v) => String(v).toLowerCase().includes(q)));
   const count = (st) => items.filter((s) => s.status === st).length;
   res.json({ items, summary: { surveys: items.length, expectedMembers: items.reduce((t, s) => t + s.expectedMembers, 0), ...Object.fromEntries(SURVEY_STATUS.map((st) => [st, count(st)])) } });
 }

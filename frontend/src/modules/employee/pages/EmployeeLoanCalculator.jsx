@@ -282,14 +282,18 @@ export default function EmployeeLoanCalculator() {
             For {term} {mode} installments
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 16, paddingTop: 14, borderTop: '1px solid rgba(255,255,255,0.2)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginTop: 16, paddingTop: 14, borderTop: '1px solid rgba(255,255,255,0.2)' }}>
             <div>
-              <div style={{ fontSize: '0.72rem', opacity: 0.85 }}>Total Interest</div>
-              <div style={{ fontSize: '1rem', fontWeight: 700 }}>₹{Number(result.totalInterest || 0).toLocaleString('en-IN')}</div>
+              <div style={{ fontSize: '0.7rem', opacity: 0.85 }}>Total Interest</div>
+              <div style={{ fontSize: '0.95rem', fontWeight: 700 }}>₹{Number(result.totalInterest || 0).toLocaleString('en-IN')}</div>
             </div>
             <div>
-              <div style={{ fontSize: '0.72rem', opacity: 0.85 }}>Total Payable</div>
-              <div style={{ fontSize: '1rem', fontWeight: 700 }}>₹{Number(result.totalPayable || 0).toLocaleString('en-IN')}</div>
+              <div style={{ fontSize: '0.7rem', opacity: 0.85 }}>Security Deposit</div>
+              <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#fef08a' }}>₹{Number(result.security || 0).toLocaleString('en-IN')}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: '0.7rem', opacity: 0.85 }}>Total Payable</div>
+              <div style={{ fontSize: '0.95rem', fontWeight: 700 }}>₹{Number(result.totalPayable || 0).toLocaleString('en-IN')}</div>
             </div>
           </div>
         </div>
@@ -315,8 +319,8 @@ export default function EmployeeLoanCalculator() {
               <span style={{ fontWeight: 600 }}>-₹{Number(result.insurance || 0).toLocaleString('en-IN')}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', color: '#dc2626' }}>
-              <span>- Security Deposit ({result.secPercent || 5}%):</span>
-              <span style={{ fontWeight: 600 }}>-₹{Number(result.security || 0).toLocaleString('en-IN')}</span>
+              <span>- Security Deposit Amount ({result.secPercent || 5}%):</span>
+              <span style={{ fontWeight: 700, fontSize: '0.92rem' }}>-₹{Number(result.security || 0).toLocaleString('en-IN')}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', color: '#b91c1c', borderTop: '1px dashed #fca5a5', paddingTop: 6, fontWeight: 700 }}>
               <span>Total Scheme Deductions:</span>

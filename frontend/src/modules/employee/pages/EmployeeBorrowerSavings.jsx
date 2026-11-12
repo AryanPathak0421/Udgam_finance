@@ -157,10 +157,15 @@ export default function EmployeeBorrowerSavings() {
               <div style={{ background: '#f0fdf4', padding: 10, borderRadius: 8, border: '1px solid #86efac' }}>
                 <span style={{ color: '#15803d', fontSize: '0.75rem', fontWeight: 600 }}>Closed Loan Security (Withdrawable)</span>
                 <div style={{ fontWeight: 800, fontSize: '1.1rem', color: '#15803d', marginTop: 2 }}>
-                  ₹{Number(data.availableBalance || 0).toLocaleString('en-IN')}
+                  ₹{Number(data.availableBalance != null ? data.availableBalance : data.closedSecurity || 0).toLocaleString('en-IN')}
                 </div>
                 <div style={{ fontSize: '0.68rem', color: '#166534', marginTop: 2 }}>Eligible for cash withdrawal</div>
               </div>
+            </div>
+
+            {/* Point 25: Calculation summary banner */}
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '8px 10px', marginTop: 10, fontSize: '0.75rem', color: 'var(--emp-text)' }}>
+              <strong>Withdrawal Rule:</strong> Total Security (₹{Number(data.totalDeposited || 0).toLocaleString('en-IN')}) − Running Loan Locked (₹{Number(data.runningSecurity || 0).toLocaleString('en-IN')}) = <strong>₹{Number(data.closedSecurity || 0).toLocaleString('en-IN')}</strong> from closed loan(s) is unlocked &amp; withdrawable.
             </div>
           </div>
 

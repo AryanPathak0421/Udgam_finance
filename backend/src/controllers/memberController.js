@@ -24,7 +24,7 @@ import { CivilCheck } from '../models/CivilCheck.js';
 import { missingDetails, guarantorGaps } from '../utils/memberDetails.js';
 import { notifyApprovers } from '../services/notify.js';
 import { blockedCodes } from '../services/blockedStaff.js';
-import { UserNotification } from '../models/SuperAdmin.js';
+import { Notification, UserNotification } from '../models/SuperAdmin.js';
 
 export const GENDERS = ['male', 'female', 'other'];
 export const OCCUPATIONS = ['Farmer', 'Agricultural labour', 'Dairy / animal husbandry', 'Small shop / trader', 'Tailoring / handicraft', 'Daily wage labour', 'Salaried', 'Self employed', 'Homemaker', 'Other'];
@@ -1031,7 +1031,7 @@ export async function reviewKyc(req, res) {
   await m.save();
   await audit(req, { action: `kyc.${action}`, entity: 'Member', entityId: m._id, after: { code: m.code, document: key, reason: rec.reason } });
 
-  // Point 22: Dispatch Push/In-App Notification to staff who registered the member
+  // Point 22 & 23: Dispatch Push/In-App Notification to staff who registered the member and branch staff
   if (action === 'reject') {
     (async () => {
       try {
@@ -1040,7 +1040,12 @@ export async function reviewKyc(req, res) {
         if (m.joiningApproval?.submittedBy) recipients.add(String(m.joiningApproval.submittedBy));
         if (m.employeeCode) {
           const emp = await Employee.findOne({ employeeCode: new RegExp(`^${m.employeeCode}$`, 'i'), isDeleted: false });
-          if (emp?.user) recipients.add(String(emp.user));
+          if (emp?.user) {
+            recipients.add(String(emp.user));
+          } else if (emp) {
+            const u = await User.findOne({ employeeCode: new RegExp(`^${emp.employeeCode}$`, 'i') });
+            if (u?._id) recipients.add(String(u._id));
+          }
         }
         if (m.branch) {
           const bStaff = await Employee.find({ branch: m.branch, isDeleted: false }).select('user');
@@ -1051,9 +1056,19 @@ export async function reviewKyc(req, res) {
         for (const uid of recipients) {
           await UserNotification.create({
             user: uid,
-            title: '⚠️ KYC Document Rejected',
+            title: `⚠️ KYC Document Rejected: ${m.name} (${m.code})`,
             message: `KYC document (${key}) for member ${m.code} (${m.name}) was rejected: "${reason}". Please re-upload from Employee KYC section.`,
             data: { memberId: m._id, memberCode: m.code, key, type: 'kyc_rejected' },
+          }).catch(() => {});
+        }
+        if (m.branch) {
+          await Notification.create({
+            title: `⚠️ KYC Rejected: ${m.name} (${m.code})`,
+            message: `KYC document (${key}) for member ${m.name} (${m.code}) was rejected: "${reason}". Please review and re-upload.`,
+            audience: 'branch_staff',
+            branch: m.branch,
+            inApp: true,
+            createdByCode: req.user?.employeeCode || 'ADMIN',
           }).catch(() => {});
         }
       } catch (err) {

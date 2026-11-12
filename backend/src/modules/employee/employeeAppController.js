@@ -24,6 +24,7 @@ import { Task, Complaint, Leave, Resignation, EmployeeChange, TargetTask } from 
 import { SecurityWithdrawal } from '../../models/SecurityWithdrawal.js';
 import { StockProduct } from '../../models/StockProduct.js';
 import { Holiday, Notification, UserNotification } from '../../models/SuperAdmin.js';
+import { AuditLog } from '../../models/AuditLog.js';
 import { CivilCheck } from '../../models/CivilCheck.js';
 import { Company } from '../../models/Company.js';
 import { BankAccount } from '../../models/BankAccount.js';
@@ -1325,16 +1326,41 @@ export async function rejectMemberKycDoc(req, res) {
   m.kycRejected = true;
   await m.save();
 
-  // Point 22: Dispatch Push/In-App Notification to staff when KYC is rejected
+  // Point 22 & 23: Dispatch Push/In-App Notification to staff when KYC is rejected
   const notifyUser = m.createdBy || m.joiningApproval?.submittedBy;
-  if (notifyUser) {
-    await UserNotification.create({
-      user: notifyUser,
-      title: '⚠️ Member KYC Document Rejected',
-      message: `KYC document (${mappedField}) for member ${m.code} (${m.name}) was rejected: "${reason}". Please re-upload from Employee KYC section.`,
-      data: { memberId: m._id, memberCode: m.code, field: mappedField, type: 'kyc_rejected' },
-    }).catch((e) => console.error('[rejectMemberKycDoc] Notification dispatch error:', e.message));
-  }
+  (async () => {
+    try {
+      const recipientUserIds = new Set();
+      if (notifyUser) recipientUserIds.add(String(notifyUser));
+      if (m.employeeCode) {
+        const emp = await Employee.findOne({ employeeCode: new RegExp(`^${m.employeeCode}$`, 'i'), isDeleted: false });
+        if (emp) {
+          const u = await ensureUserForEmployee(emp);
+          if (u?._id) recipientUserIds.add(String(u._id));
+        }
+      }
+      for (const uid of recipientUserIds) {
+        await UserNotification.create({
+          user: uid,
+          title: `⚠️ Member KYC Rejected: ${m.name} (${m.code})`,
+          message: `KYC document (${mappedField}) for member ${m.code} (${m.name}) was rejected: "${reason}". Please re-upload from Employee KYC section.`,
+          data: { memberId: m._id, memberCode: m.code, field: mappedField, type: 'kyc_rejected' },
+        }).catch(() => {});
+      }
+      if (m.branch) {
+        await Notification.create({
+          title: `⚠️ KYC Rejected: ${m.name} (${m.code})`,
+          message: `KYC document (${mappedField}) for member ${m.name} (${m.code}) was rejected: "${reason}". Please review and re-upload.`,
+          audience: 'branch_staff',
+          branch: m.branch,
+          inApp: true,
+          createdByCode: req.user?.employeeCode || 'ADMIN',
+        }).catch(() => {});
+      }
+    } catch (e) {
+      console.error('[rejectMemberKycDoc] Notification dispatch error:', e.message);
+    }
+  })();
 
   res.json({ status: 'ok', message: `Document (${mappedField}) rejected. Notification sent to staff for re-upload.` });
 }
@@ -1821,8 +1847,25 @@ export async function saveGuarantorAndNominee(req, res) {
 }
 
 // -----------------------------------------------------------------------------
-// 8. BORROWER SYNOPSIS (MEMBER DETAIL REPORT)
+// 8. BORROWER SYNOPSIS (MEMBER DETAIL REPORT - POINT 18: ALL DETAILS SAME AS SOFTWARE)
 // -----------------------------------------------------------------------------
+
+const SYNOPSIS_TIMELINE_LABELS = {
+  'member.create': 'Borrower registered',
+  'member.guarantorAdded': 'Guarantor added',
+  'member.guarantorUpdated': 'Guarantor updated',
+  'member.guarantorChanged': 'Guarantor changed',
+  'member.nomineeAdded': 'Nominee added',
+  'member.nomineeUpdated': 'Nominee updated',
+  'member.update': 'Details edited by admin',
+  'member.block': 'Member blocked',
+  'member.unblock': 'Member unblocked',
+  'kyc.approve': 'Document approved',
+  'kyc.reject': 'Document rejected',
+  'kyc.reupload': 'Document uploaded again',
+  'loanRequisition.create': 'Loan requisition made',
+  'loanRequisition.topUp': 'Product loan added to a group loan',
+};
 
 export async function getMemberSynopsis(req, res) {
   const q = cleanStr(req.params.query);
@@ -1834,45 +1877,227 @@ export async function getMemberSynopsis(req, res) {
       { aadhaar: q },
     ],
   })
-    .select('+photo +memberPhoto +guarantor.photo +guarantor.signature +guarantor.aadhaarPhoto +guarantor.aadhaarBackPhoto +guarantor.panPhoto +guarantor.jointPhoto +nominee.photo +nominee.signature +nominee.aadhaarPhoto +nominee.aadhaarBackPhoto +nominee.panPhoto')
+    .select('+photo +memberPhoto +signaturePhoto +aadhaarPhoto +aadhaarBackPhoto +panPhoto +guarantor.photo +guarantor.signature +guarantor.aadhaarPhoto +guarantor.aadhaarBackPhoto +guarantor.panPhoto +guarantor.jointPhoto +guarantorHistory.photo +guarantorHistory.signature +guarantorHistory.aadhaarPhoto +guarantorHistory.aadhaarBackPhoto +guarantorHistory.panPhoto +guarantorHistory.jointPhoto +nominee.photo +nominee.signature +nominee.aadhaarPhoto +nominee.aadhaarBackPhoto +nominee.panPhoto')
     .populate('branch', 'code name city pincode');
   if (!m) throw new HttpError(404, 'Member not found');
 
-  const groupDoc = await Group.findOne({ 'members.member': m._id, isDeleted: false }).lean();
+  // 1. Groups & Group History
+  const memberGroupDocs = await Group.find({ 'members.member': m._id, isDeleted: false })
+    .populate('members.addedBy', 'name employeeCode')
+    .sort({ createdAt: 1 })
+    .lean();
 
-  const loans = await LoanPayment.find({ 'lines.code': m.code, status: 'paid' }).sort({ paidOn: -1 }).lean();
-  const emiList = await EmiPayment.find({ memberCode: m.code, status: 'paid' }).sort({ paidOn: -1 }).limit(20).lean();
+  const groups = memberGroupDocs.map((g) => {
+    const row = (g.members || []).find((x) => String(x.member) === String(m._id));
+    return {
+      id: g._id,
+      code: g.code,
+      name: g.name,
+      leaderName: g.leaderName,
+      isActive: g.isActive,
+      memberCount: (g.members || []).length,
+      addedAt: row?.addedAt || null,
+      addedBy: row?.addedBy ? { name: row.addedBy.name, employeeCode: row.addedBy.employeeCode || '' } : null,
+    };
+  });
+  const groupDoc = memberGroupDocs[0] || null;
 
-  let totalBorrowed = 0;
-  loans.forEach((l) => {
-    const line = l.lines?.find((x) => x.code === m.code);
-    if (line) {
-      totalBorrowed += (line.amountPaise || 0) / 100;
-    }
+  // 2. Comprehensive Loan Requisitions & Paid Loans (matching software Loan Record)
+  const reqs = await LoanRequisition.find({ isDeleted: false, $or: [{ member: m._id }, { members: m._id }] })
+    .sort({ createdAt: -1 })
+    .lean();
+
+  const paidLoanIds = new Map(
+    (await LoanPayment.find({ requisition: { $in: reqs.map((r) => r._id) }, status: 'paid' })
+      .select('requisition loanId')
+      .lean()
+    ).map((p) => [String(p.requisition), p.loanId || ''])
+  );
+
+  const KIND_MAP = { personal: 'Personal', group: 'Group', business: 'Business / MSME', product: 'Product' };
+
+  const detailedLoans = reqs.map((r) => {
+    const mine = (r.additionalProducts || []).filter((a) => String(a.member) === String(m._id));
+    return {
+      id: r._id,
+      loanId: paidLoanIds.get(String(r._id)) || '',
+      formId: r.formId,
+      kind: KIND_MAP[r.kind] || r.kind || 'Group Loan',
+      loanDate: r.loanDate || r.createdAt,
+      group: r.groupInfo?.code ? `${r.groupInfo.code} — ${r.groupInfo.name}` : '',
+      scheme: `${r.schemeCode || ''} ${r.schemeName || ''}`.trim() || 'Standard Scheme',
+      amount: (r.amountPaise || 0) / 100,
+      cash: r.cashPaise != null ? r.cashPaise / 100 : null,
+      mode: r.mode || 'weekly',
+      term: r.term || 52,
+      emi: (r.installmentPaise || 0) / 100,
+      totalPayable: r.totalPayablePaise != null ? r.totalPayablePaise / 100 : null,
+      product: r.product?.name ? `${r.product.name} × ${r.product.quantity || 1}` : '',
+      productLoans: mine.map((a) => ({
+        product: `${a.product?.name || 'Product'} × ${a.product?.quantity || 1}`,
+        value: (a.valuePaise || 0) / 100,
+        emi: (a.installmentPaise || 0) / 100,
+      })),
+      status: r.status,
+      employeeCode: r.employeeCode || '',
+    };
   });
 
-  const latestCivil = await CivilCheck.findOne({ member: m._id, isDeleted: false }).sort({ reportDate: -1, createdAt: -1 }).lean();
-  const actualCivilScore = latestCivil?.score ?? (m.civilScore != null ? m.civilScore : null);
+  const paidLoans = await LoanPayment.find({ 'lines.code': m.code, status: 'paid' }).sort({ paidOn: -1 }).lean();
+  let totalBorrowed = 0;
+  paidLoans.forEach((l) => {
+    const line = l.lines?.find((x) => x.code === m.code);
+    if (line) totalBorrowed += (line.amountPaise || 0) / 100;
+  });
 
-  const isKycRejected = Boolean(m.kycRejected || (m.kycDocs || []).some((d) => d.status === 'rejected'));
-  const isKycPending = Boolean(!isKycRejected && (m.kycPending || (m.kycDocs || []).some((d) => d.status === 'pending')));
+  // 3. Recent EMIs
+  const emiList = await EmiPayment.find({ memberCode: m.code, status: 'paid' }).sort({ paidOn: -1 }).limit(20).lean();
+  const recentEmis = emiList.map((e) => ({
+    receiptNo: e.receiptNo,
+    amount: (e.amountPaise || 0) / 100,
+    paidOn: e.paidOn ? new Date(e.paidOn).toISOString().slice(0, 10) : '',
+    mode: e.payMode,
+  }));
+
+  // 4. Civil Checks Record
+  const civilCheckDocs = await CivilCheck.find({ member: m._id, isDeleted: false })
+    .sort({ reportDate: -1, createdAt: -1 })
+    .lean();
+
+  const civilChecks = civilCheckDocs.map((c) => ({
+    id: c._id,
+    reportDate: c.reportDate,
+    bureau: c.bureau || 'CIBIL',
+    reportNumber: c.reportNumber || '—',
+    score: c.score,
+    band: c.score >= 700 ? 'Good' : c.score >= 650 ? 'Moderate' : 'Poor',
+    remark: c.remark || '—',
+    employeeCode: c.employeeCode || '',
+    employeeName: c.employeeName || '',
+    recordedAt: c.createdAt || c.recordedAt,
+  }));
+
+  const actualCivilScore = civilChecks[0]?.score ?? (m.civilScore != null ? m.civilScore : null);
+
+  // 5. KYC Documents Detailed States
+  const KYC_DOC_LIST = [
+    { key: 'memberPhoto', who: 'Member', label: 'Member photo', image: m.memberPhoto || m.photo || '' },
+    { key: 'signaturePhoto', who: 'Member', label: 'Signature', image: m.signaturePhoto || '' },
+    { key: 'aadhaarPhoto', who: 'Member', label: 'Aadhaar front', image: m.aadhaarPhoto || '' },
+    { key: 'aadhaarBackPhoto', who: 'Member', label: 'Aadhaar back', image: m.aadhaarBackPhoto || '' },
+    { key: 'panPhoto', who: 'Member', label: 'PAN card', image: m.panPhoto || '' },
+    { key: 'guarantor.photo', who: 'Guarantor', label: 'Guarantor photo', image: m.guarantor?.photo || '' },
+    { key: 'guarantor.signature', who: 'Guarantor', label: 'Guarantor signature', image: m.guarantor?.signature || '' },
+    { key: 'guarantor.aadhaarPhoto', who: 'Guarantor', label: 'Guarantor Aadhaar front', image: m.guarantor?.aadhaarPhoto || '' },
+    { key: 'guarantor.aadhaarBackPhoto', who: 'Guarantor', label: 'Guarantor Aadhaar back', image: m.guarantor?.aadhaarBackPhoto || '' },
+    { key: 'guarantor.panPhoto', who: 'Guarantor', label: 'Guarantor PAN', image: m.guarantor?.panPhoto || '' },
+    { key: 'guarantor.jointPhoto', who: 'Guarantor', label: 'Joint photo with member', image: m.guarantor?.jointPhoto || '' },
+    ...(m.nominee?.sameAsGuarantor ? [] : [
+      { key: 'nominee.photo', who: 'Nominee', label: 'Nominee photo', image: m.nominee?.photo || '' },
+      { key: 'nominee.signature', who: 'Nominee', label: 'Nominee signature', image: m.nominee?.signature || '' },
+      { key: 'nominee.aadhaarPhoto', who: 'Nominee', label: 'Nominee Aadhaar front', image: m.nominee?.aadhaarPhoto || '' },
+      { key: 'nominee.aadhaarBackPhoto', who: 'Nominee', label: 'Nominee Aadhaar back', image: m.nominee?.aadhaarBackPhoto || '' },
+      { key: 'nominee.panPhoto', who: 'Nominee', label: 'Nominee PAN', image: m.nominee?.panPhoto || '' },
+    ]),
+  ];
+
+  const uploadedKycDocs = KYC_DOC_LIST.filter((d) => Boolean(d.image)).map((d) => {
+    const rec = (m.kycDocs || []).find((x) => x.key === d.key || x.field === d.key);
+    return {
+      key: d.key,
+      who: d.who,
+      label: d.label,
+      image: d.image,
+      status: rec?.status || (m.joiningApproval?.status === 'approved' ? 'approved' : 'pending'),
+      reason: rec?.reason || '',
+      reviewedAt: rec?.reviewedAt || null,
+      reviewedByCode: rec?.reviewedByCode || '',
+      resubmitted: Boolean(rec?.resubmittedAt),
+    };
+  });
+
+  const approvedKycCount = uploadedKycDocs.filter((d) => d.status === 'approved').length;
+  const isKycRejected = Boolean(m.kycRejected || uploadedKycDocs.some((d) => d.status === 'rejected'));
+  const isKycPending = Boolean(!isKycRejected && (m.kycPending || uploadedKycDocs.some((d) => d.status === 'pending')));
   const isKycApproved = Boolean(!isKycRejected && !isKycPending);
   const kycStatus = isKycRejected ? 'rejected' : isKycPending ? 'pending' : 'approved';
 
+  const kyc = {
+    status: kycStatus,
+    approved: approvedKycCount,
+    total: uploadedKycDocs.length,
+    documents: uploadedKycDocs,
+  };
+
+  // 6. Audit Timeline (Activity History)
+  const memberAuditLogs = await AuditLog.find({ entity: 'Member', entityId: String(m._id) })
+    .sort({ createdAt: -1 })
+    .limit(50)
+    .lean();
+
+  const reqIds = reqs.map((r) => String(r._id));
+  const loanAuditLogs = reqIds.length
+    ? await AuditLog.find({ entity: 'LoanRequisition', entityId: { $in: reqIds } })
+        .sort({ createdAt: -1 })
+        .limit(50)
+        .lean()
+    : [];
+
+  const timeline = [...memberAuditLogs, ...loanAuditLogs]
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+    .filter((l) => SYNOPSIS_TIMELINE_LABELS[l.action])
+    .map((l) => {
+      const a = l.after || {};
+      const detail = [
+        a.document ? `Document: ${a.document}` : '',
+        a.formId ? `Form ${a.formId}${a.scheme ? ` · ${a.scheme}` : ''}${a.amount ? ` · ₹${a.amount}` : ''}` : '',
+        a.reason ? `Reason: ${a.reason}` : '',
+        Array.isArray(a.changed) && a.changed.length ? `Changed: ${a.changed.join(', ')}` : '',
+      ].filter(Boolean).join(' · ');
+      return {
+        at: l.createdAt,
+        label: SYNOPSIS_TIMELINE_LABELS[l.action],
+        by: l.actorEmail || l.actorCode || 'Staff',
+        detail,
+      };
+    });
+
   const memberData = {
     id: m._id,
+    _id: m._id,
     code: m.code,
+    formId: m.formId || '',
     name: m.name,
     photo: m.memberPhoto || m.photo || '',
+    memberPhoto: m.memberPhoto || m.photo || '',
+    signaturePhoto: m.signaturePhoto || '',
+    aadhaarPhoto: m.aadhaarPhoto || '',
+    aadhaarBackPhoto: m.aadhaarBackPhoto || '',
+    panPhoto: m.panPhoto || '',
     husbandName: m.husbandName || '',
+    fatherName: m.fatherName || '',
+    dob: m.dob ? new Date(m.dob).toISOString().slice(0, 10) : '',
+    gender: m.gender || 'female',
+    occupation: m.occupation || 'Self Employed',
+    education: m.education || 'High School',
+    employeeCode: m.employeeCode || '',
+    joiningDate: m.joiningDate ? new Date(m.joiningDate).toISOString().slice(0, 10) : '',
     mobile: m.mobile,
     mobileVerified: Boolean(m.mobileVerifiedAt),
-    address: [m.address, m.district, m.state, m.pincode].filter(Boolean).join(', '),
+    email: m.email || '',
+    address: m.address || '',
+    area: m.area || '',
+    district: m.district || '',
+    state: m.state || '',
+    pincode: m.pincode || '',
+    fullAddress: [m.address, m.area, m.district, m.state, m.pincode].filter(Boolean).join(', '),
     aadhaar: m.aadhaar,
-    pan: m.pan,
-    bankName: m.bankName,
-    accountNumber: m.accountNumber,
-    branch: m.branch ? `${m.branch.code} — ${m.branch.name}` : '',
+    pan: m.pan || '',
+    panVerified: Boolean(m.panVerifiedAt),
+    bankName: m.bankName || '',
+    ifsc: m.ifsc || '',
+    accountNumber: m.accountNumber || '',
+    branch: m.branch ? { id: m.branch._id, code: m.branch.code, name: m.branch.name } : null,
     branchName: m.branch?.name || m.branch?.code || '',
     groupCode: groupDoc?.code || '',
     groupName: groupDoc ? `${groupDoc.code} — ${groupDoc.name}` : (m.groupName || 'Individual'),
@@ -1882,36 +2107,31 @@ export async function getMemberSynopsis(req, res) {
     isKycRejected,
     kycStatus,
     isBlocked: Boolean(m.isBlocked),
-    gender: m.gender || 'Female',
-    occupation: m.occupation || 'Self Employed',
-    createdAt: m.createdAt,
-    guarantor: m.guarantor,
-    nominee: m.nominee,
+    blockReason: m.blockReason || '',
+    guarantor: m.guarantor || null,
+    guarantorHistory: m.guarantorHistory || [],
+    nominee: m.nominee || null,
     totalBorrowed,
-    loansCount: loans.length,
-    loans: loans.map((l) => ({
-      loanId: l.loanId || l.formId,
-      kind: l.kind || l.loanType || 'Group Loan',
-      mode: l.modeLabel || l.mode || 'Weekly',
-      disbursedOn: l.paidOn ? l.paidOn.toISOString().slice(0, 10) : '',
-      amount: (l.totalAmountPaise || 0) / 100,
-    })),
-    recentEmis: emiList.map((e) => ({
-      receiptNo: e.receiptNo,
-      amount: e.amountPaise / 100,
-      paidOn: e.paidOn ? e.paidOn.toISOString().slice(0, 10) : '',
-      mode: e.payMode,
-    })),
+    loansCount: detailedLoans.length,
   };
 
   res.json({
     member: memberData,
+    kyc,
+    groups,
+    groupTransfers: m.groupTransfers || [],
+    loans: detailedLoans,
+    civilChecks,
+    blockHistory: m.blockHistory || [],
+    editHistory: m.editHistory || [],
+    timeline,
+    recentEmis,
     ...memberData,
   });
 }
 
 // -----------------------------------------------------------------------------
-// 9. LOAN CALCULATOR & REQUISITION
+// 9. LOAN CALCULATOR & REQUISITION (POINT 24: SECURITY IN ₹ RUPEES)
 // -----------------------------------------------------------------------------
 
 export async function calculateLoanEmi(req, res) {
@@ -1927,7 +2147,8 @@ export async function calculateLoanEmi(req, res) {
 
   const processingFee = Math.round(amount * 0.02);
   const insurance = Math.round(amount * 0.015);
-  const security = Math.round(amount * 0.05);
+  const securityPercent = 5;
+  const security = Math.round(amount * (securityPercent / 100));
 
   res.json({
     amount,
@@ -1941,7 +2162,11 @@ export async function calculateLoanEmi(req, res) {
     processingFee,
     insurance,
     security,
-    netDisbursed: amount - processingFee - insurance - security,
+    securityAmount: security,
+    securityPercent,
+    securityFormatted: `₹${security.toLocaleString('en-IN')}`,
+    totalDeductions: processingFee + insurance + security,
+    netDisbursed: Math.max(0, amount - (processingFee + insurance + security)),
   });
 }
 
@@ -3560,7 +3785,7 @@ export async function getCompanyQr(req, res) {
 }
 
 // -----------------------------------------------------------------------------
-// 19. BORROWER SAVING AMOUNT & WITHDRAWAL REQUEST (POINT 16)
+// 19. BORROWER SAVING AMOUNT & WITHDRAWAL REQUEST (POINT 25: UNLOCKED CLOSED LOAN SECURITY)
 // -----------------------------------------------------------------------------
 export async function getBorrowerSavings(req, res) {
   const query = cleanStr(req.params.query);
@@ -3572,26 +3797,24 @@ export async function getBorrowerSavings(req, res) {
 
   const loans = await LoanPayment.find({
     status: 'paid',
-    'lines.member': member._id,
+    $or: [{ 'lines.member': member._id }, { 'lines.code': new RegExp(`^${member.code}$`, 'i') }],
   }).lean();
 
   const asOf = startOfToday();
   let totalDepositedPaise = 0;
   let runningSecurityPaise = 0;
-  let closedSecurityPaise = 0;
   let totalInterestPaise = 0;
-  let closedInterestPaise = 0;
   const deposits = [];
 
   for (const l of loans) {
-    const line = l.lines?.find((x) => String(x.member) === String(member._id));
+    const line = l.lines?.find((x) => (x.member && String(x.member) === String(member._id)) || (x.code && x.code.toUpperCase() === member.code.toUpperCase()));
     if (line && line.securityPaise > 0) {
       totalDepositedPaise += line.securityPaise;
       const years = fullYears(new Date(l.paidOn || l.createdAt), asOf);
       const interest = Math.round((line.securityPaise * years * SECURITY_INTEREST_PERCENT) / 100);
       totalInterestPaise += interest;
 
-      // Determine whether this loan is closed or settled (Point 15: settled loans security is withdrawable)
+      // Point 25: Determine whether loan is closed or still running
       let isClosed = false;
       const isSettledInDb = await LoanSettlement.exists({
         loanPayment: l._id,
@@ -3601,20 +3824,28 @@ export async function getBorrowerSavings(req, res) {
         ],
         status: { $in: ['active', 'approved', 'settled'] },
       });
-      if (isSettledInDb || l.isSettled || line.isSettled || l.status === 'settled' || l.status === 'closed') {
+      if (isSettledInDb || l.isSettled || line.isSettled || l.status === 'settled' || l.status === 'closed' || line.status === 'closed') {
         isClosed = true;
       } else {
-        try {
-          const st = await borrowerState(l, line, asOf);
-          isClosed = Boolean(st.settled) || !st.left || st.left.length === 0;
-        } catch {
-          isClosed = false;
+        const totalEmis = l.schedule?.length || 0;
+        const paidEmisCount = await EmiPayment.countDocuments({
+          loanPayment: l._id,
+          memberCode: new RegExp(`^${member.code}$`, 'i'),
+          status: 'paid',
+        });
+        if (totalEmis > 0 && paidEmisCount >= totalEmis) {
+          isClosed = true;
+        } else {
+          try {
+            const st = await borrowerState(l, line, asOf);
+            isClosed = Boolean(st.settled) || !st.left || st.left.length === 0;
+          } catch {
+            isClosed = false;
+          }
         }
       }
-      if (isClosed) {
-        closedSecurityPaise += line.securityPaise;
-        closedInterestPaise += interest;
-      } else {
+
+      if (!isClosed) {
         runningSecurityPaise += line.securityPaise;
       }
 
@@ -3630,13 +3861,17 @@ export async function getBorrowerSavings(req, res) {
     }
   }
 
+  // Point 25 Formula:
+  // Closed Loan Security = Total Security Deposited - Running Loan Locked Security
+  const closedSecurityPaise = Math.max(0, totalDepositedPaise - runningSecurityPaise);
+
   const withdrawals = await SecurityWithdrawal.find({ member: member._id }).sort({ createdAt: -1 }).lean();
   const approvedWithdrawals = withdrawals.filter((w) => w.status === 'approved');
   const pendingWithdrawals = withdrawals.filter((w) => w.status === 'pending');
   const withdrawnPaise = approvedWithdrawals.reduce((sum, w) => sum + (w.amountPaise || 0), 0);
   const pendingPaise = pendingWithdrawals.reduce((sum, w) => sum + (w.amountPaise || 0), 0);
 
-  // ONLY closed loan security can be withdrawn! Running loan security is locked.
+  // Available to withdraw: Closed loan security minus already requested/withdrawn
   const withdrawablePaise = Math.max(0, closedSecurityPaise - withdrawnPaise - pendingPaise);
 
   res.json({
@@ -3678,15 +3913,17 @@ export async function requestSavingsWithdrawal(req, res) {
   if (!payAmount || payAmount < 100) throw new HttpError(400, 'Minimum withdrawal request is ₹100');
   const requestedPaise = Math.round(payAmount * 100);
 
-  // Validate that only security from closed loans is withdrawable (running loan security is locked)
-  const loans = await LoanPayment.find({ status: 'paid', 'lines.member': member._id }).lean();
+  // Point 25: Security from closed loans is withdrawable; running loan security is locked
+  const loans = await LoanPayment.find({
+    status: 'paid',
+    $or: [{ 'lines.member': member._id }, { 'lines.code': new RegExp(`^${member.code}$`, 'i') }],
+  }).lean();
   let totalDepositedPaise = 0;
   let runningSecurityPaise = 0;
-  let closedSecurityPaise = 0;
   const asOf = startOfToday();
 
   for (const l of loans) {
-    const line = l.lines?.find((x) => String(x.member) === String(member._id));
+    const line = l.lines?.find((x) => (x.member && String(x.member) === String(member._id)) || (x.code && x.code.toUpperCase() === member.code.toUpperCase()));
     if (line && line.securityPaise > 0) {
       totalDepositedPaise += line.securityPaise;
       let isClosed = false;
@@ -3698,23 +3935,34 @@ export async function requestSavingsWithdrawal(req, res) {
         ],
         status: { $in: ['active', 'approved', 'settled'] },
       });
-      if (isSettledInDb || l.isSettled || line.isSettled || l.status === 'settled' || l.status === 'closed') {
+      if (isSettledInDb || l.isSettled || line.isSettled || l.status === 'settled' || l.status === 'closed' || line.status === 'closed') {
         isClosed = true;
       } else {
-        try {
-          const st = await borrowerState(l, line, asOf);
-          isClosed = Boolean(st.settled) || !st.left || st.left.length === 0;
-        } catch {
-          isClosed = false;
+        const totalEmis = l.schedule?.length || 0;
+        const paidEmisCount = await EmiPayment.countDocuments({
+          loanPayment: l._id,
+          memberCode: new RegExp(`^${member.code}$`, 'i'),
+          status: 'paid',
+        });
+        if (totalEmis > 0 && paidEmisCount >= totalEmis) {
+          isClosed = true;
+        } else {
+          try {
+            const st = await borrowerState(l, line, asOf);
+            isClosed = Boolean(st.settled) || !st.left || st.left.length === 0;
+          } catch {
+            isClosed = false;
+          }
         }
       }
-      if (isClosed) {
-        closedSecurityPaise += line.securityPaise;
-      } else {
+      if (!isClosed) {
         runningSecurityPaise += line.securityPaise;
       }
     }
   }
+
+  // Point 25: Closed Loan Security = Total Deposited - Running Locked
+  const closedSecurityPaise = Math.max(0, totalDepositedPaise - runningSecurityPaise);
 
   const existingWithdrawals = await SecurityWithdrawal.find({ member: member._id, status: { $in: ['pending', 'approved'] } });
   const alreadyRequestedPaise = existingWithdrawals.reduce((sum, w) => sum + (w.amountPaise || 0), 0);
@@ -3790,6 +4038,8 @@ export async function getEmployeeReports(req, res) {
   }).sort({ paidOn: -1 }).limit(100).lean();
 
   const totalNpaRecovered = npaPayments.reduce((sum, p) => sum + (p.amountPaise || 0), 0) / 100;
+  // Point 19: 10% commission/incentive on NPA recovery
+  const totalNpaCommission = Math.round(totalNpaRecovered * 0.10 * 100) / 100;
 
   const centerSurveys = await CenterVisit.find({
     employeeCode: code,
@@ -3820,6 +4070,8 @@ export async function getEmployeeReports(req, res) {
       requisitionCount: requisitions.length,
       approvalCount: approvals.length,
       totalNpaRecovered,
+      npaRecoveryCommission: totalNpaCommission,
+      npaCommissionRate: 10,
       npaRecoveryCount: npaPayments.length,
       centerSurveyCount: centerSurveys.length,
       totalProductSales: totalActualProductSales, // Item 11 Fix: Actual Product Sales for Target
@@ -3857,13 +4109,17 @@ export async function getEmployeeReports(req, res) {
       amount: (a.amountPaise || 0) / 100,
       status: a.status,
     })),
-    npaRecovery: npaPayments.map((p) => ({
-      receiptNo: p.receiptNo,
-      member: p.memberName,
-      amount: (p.amountPaise || 0) / 100,
-      date: p.paidOn ? new Date(p.paidOn).toLocaleDateString() : 'N/A',
-      payMode: p.payMode,
-    })),
+    npaRecovery: npaPayments.map((p) => {
+      const amt = (p.amountPaise || 0) / 100;
+      return {
+        receiptNo: p.receiptNo,
+        member: p.memberName,
+        amount: amt,
+        commission: Math.round(amt * 0.10 * 100) / 100, // 10% NPA Recovery commission
+        date: p.paidOn ? new Date(p.paidOn).toLocaleDateString() : 'N/A',
+        payMode: p.payMode,
+      };
+    }),
     // Point 16 & Item 11: Product Sell Requests list in Reports with clear status
     productSales: productSales.map((p) => ({
       id: p._id,
@@ -3887,6 +4143,7 @@ export async function getEmployeeReports(req, res) {
       achieved: {
         d6: totalDisbursed,
         npaRecovery: totalNpaRecovered,
+        npaRecoveryCommission: totalNpaCommission,
         productSales: totalActualProductSales, // Item 11: Actual completed sales only
       },
     })),
@@ -4186,15 +4443,15 @@ export async function listCenterVisits(req, res) {
 }
 
 // -----------------------------------------------------------------------------
-// 25. CGT VISIT UPDATE (POINT 22)
+// 25. CGT VISIT UPDATE (POINT 21: STRICT SCOPING BY EMPLOYEE CODE TO PREVENT DATA BLEED)
 // -----------------------------------------------------------------------------
 export async function listCgtVisits(req, res) {
   const code = req.user?.employeeCode;
-  const emp = await Employee.findOne({ employeeCode: code });
   const items = await CgtVisit.find({ employeeCode: code }).sort({ updatedAt: -1 }).limit(50).lean();
 
-  const surveyedVisits = await CenterVisit.find({ $or: [{ employeeCode: code }, { branch: emp?.branch }] }).sort({ visitDate: -1 }).limit(100).lean();
-  const branchSurveys = emp?.branch ? await CenterSurvey.find({ branch: emp.branch, isDeleted: false }).sort({ surveyDate: -1 }).limit(100).lean() : [];
+  // Point 21: Strictly scope to centers surveyed by THIS employee to prevent data bleed across employees
+  const surveyedVisits = await CenterVisit.find({ employeeCode: code }).sort({ visitDate: -1 }).limit(100).lean();
+  const branchSurveys = await CenterSurvey.find({ surveyedByCode: code, isDeleted: false }).sort({ surveyDate: -1 }).limit(100).lean();
 
   const centerMap = new Map();
   for (const c of surveyedVisits) {
@@ -4950,7 +5207,7 @@ export async function addCivilCheckedMember(req, res) {
 }
 
 // -----------------------------------------------------------------------------
-// 34. NOTIFICATIONS & BROADCASTS (POINTS 21, 23, 25)
+// 34. NOTIFICATIONS & BROADCASTS (POINTS 21, 23: RELIABLE DELIVERY FOR KYC REJECTIONS)
 // -----------------------------------------------------------------------------
 export async function getEmployeeNotifications(req, res) {
   const code = req.user?.employeeCode;
@@ -4960,8 +5217,9 @@ export async function getEmployeeNotifications(req, res) {
   });
   const branchId = emp?.branch || req.user?.branch;
 
-  // 1. User specific notifications
-  const userNotifs = await UserNotification.find({ user: req.user?._id })
+  // 1. User specific notifications (check both current auth user and employee user)
+  const userIds = [req.user?._id, emp?.user].filter(Boolean);
+  const userNotifs = await UserNotification.find({ user: { $in: userIds } })
     .sort({ createdAt: -1 })
     .limit(40)
     .lean();
@@ -5014,13 +5272,20 @@ export async function getEmployeeNotifications(req, res) {
 }
 
 export async function markEmployeeNotificationRead(req, res) {
+  const code = req.user?.employeeCode;
+  const emp = await Employee.findOne({
+    $or: [{ employeeCode: new RegExp(`^${code}$`, 'i') }, { user: req.user?._id }],
+    isDeleted: false,
+  });
+  const userIds = [req.user?._id, emp?.user].filter(Boolean);
+
   const { id } = req.body || {};
   if (id && mongoose.isValidObjectId(id)) {
-    await UserNotification.updateOne({ _id: id, user: req.user?._id }, { $set: { readAt: new Date() } });
+    await UserNotification.updateOne({ _id: id, user: { $in: userIds } }, { $set: { readAt: new Date() } });
   } else {
     // Mark all as read
     await UserNotification.updateMany(
-      { user: req.user?._id, readAt: { $exists: false } },
+      { user: { $in: userIds }, readAt: { $exists: false } },
       { $set: { readAt: new Date() } }
     );
   }

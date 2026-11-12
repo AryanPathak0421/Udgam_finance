@@ -246,6 +246,40 @@ export default function EmployeeProfile() {
         </div>
       </div>
 
+      {/* Point 26: Supervisor App Link at the bottom of Employee App */}
+      <div className="emp-card" style={{ background: 'linear-gradient(135deg, #1e1b4b, #312e81)', color: '#fff', padding: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ width: 44, height: 44, borderRadius: 10, background: 'rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <Icon name="shield" size={24} style={{ color: '#a5b4fc' }} />
+            </div>
+            <div>
+              <strong style={{ fontSize: '0.98rem', display: 'block' }}>Supervisor App</strong>
+              <span style={{ fontSize: '0.74rem', opacity: 0.85 }}>Switch to Supervisor Portal &amp; Management Dashboard</span>
+            </div>
+          </div>
+          <a
+            href="#/supervisor/login"
+            style={{
+              background: '#fff',
+              color: '#1e1b4b',
+              fontWeight: 800,
+              fontSize: '0.82rem',
+              textDecoration: 'none',
+              padding: '8px 14px',
+              borderRadius: 8,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <span>Open</span>
+            <Icon name="arrowright" size={13} />
+          </a>
+        </div>
+      </div>
+
       {/* Supervisor Rating Modal */}
       {rateModal && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>

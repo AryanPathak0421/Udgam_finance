@@ -357,6 +357,35 @@ export default function EmployeeHome() {
           <div className="tile-title">Holidays</div>
         </div>
       </div>
+
+      {/* Point 26: Supervisor App Link at the bottom of Employee App */}
+      <div
+        className="emp-card"
+        onClick={() => navigate('/supervisor/login')}
+        style={{
+          background: 'linear-gradient(135deg, #1e1b4b, #312e81)',
+          color: '#fff',
+          marginTop: 14,
+          padding: 12,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          cursor: 'pointer',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 38, height: 38, borderRadius: 8, background: 'rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Icon name="shield" size={20} style={{ color: '#a5b4fc' }} />
+          </div>
+          <div>
+            <strong style={{ fontSize: '0.92rem', display: 'block' }}>Supervisor App Portal</strong>
+            <span style={{ fontSize: '0.72rem', opacity: 0.85 }}>Login to Supervisor Portal</span>
+          </div>
+        </div>
+        <span style={{ background: '#fff', color: '#1e1b4b', fontWeight: 700, fontSize: '0.75rem', padding: '6px 12px', borderRadius: 6 }}>
+          Open →
+        </span>
+      </div>
     </div>
   );
 }
