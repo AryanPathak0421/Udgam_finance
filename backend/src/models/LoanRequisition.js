@@ -53,6 +53,7 @@ const loanRequisitionSchema = new mongoose.Schema(
       mobile: String,
       aadhaar: String,
       photo: String,
+      jointPhoto: String,
     },
     previousLoanPaise: { type: Number, default: 0 },
 

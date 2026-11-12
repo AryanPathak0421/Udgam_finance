@@ -240,6 +240,7 @@ export const KYC_DOC_LABELS = {
   'guarantor.signature': 'Guarantor Signature',
   'guarantor.aadhaarPhoto': 'Guarantor Aadhaar Front',
   'guarantor.aadhaarBackPhoto': 'Guarantor Aadhaar Back',
+  'guarantor.jointPhoto': 'Member + Guarantor Joint Photo',
   'nominee.photo': 'Nominee Photo',
   'nominee.signature': 'Nominee Signature',
   'nominee.aadhaarPhoto': 'Nominee Aadhaar Front',
@@ -392,7 +393,7 @@ export async function groups(req, res) {
 }
 
 // What a member needs before a loan can be asked for.
-const MEMBER_PICK = 'code name isBlocked joiningApproval kycKeys kycDocs nominee.name nominee.sameAsGuarantor guarantor.name guarantor.aadhaar guarantor.deceasedOn legacyImport pan mobile mobileVerifiedAt husbandName occupation education address pincode district aadhaar bankName ifsc accountNumber';
+const MEMBER_PICK = 'code name isBlocked joiningApproval kycKeys kycDocs nominee.name nominee.sameAsGuarantor guarantor.name guarantor.relation guarantor.mobile guarantor.aadhaar guarantor.photo guarantor.signature guarantor.aadhaarPhoto guarantor.aadhaarBackPhoto guarantor.jointPhoto guarantor.deceasedOn legacyImport pan mobile mobileVerifiedAt husbandName occupation education address pincode district aadhaar bankName ifsc accountNumber';
 export function notReady(m) {
   const out = [];
   // a member registered in the app is not a member until the admin approves the joining

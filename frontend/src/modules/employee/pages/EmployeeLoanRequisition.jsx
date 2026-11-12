@@ -731,6 +731,10 @@ export default function EmployeeLoanRequisition() {
             mobile: d.borrower.guarantor.mobile || '',
             aadhaar: d.borrower.guarantor.aadhaar || '',
             photo: d.borrower.guarantor.photo || '',
+            signature: d.borrower.guarantor.signature || '',
+            aadhaarPhoto: d.borrower.guarantor.aadhaarPhoto || '',
+            aadhaarBackPhoto: d.borrower.guarantor.aadhaarBackPhoto || '',
+            jointPhoto: d.borrower.guarantor.jointPhoto || '',
           });
         }
         if (d.borrower?.civilCheck?.score) {
@@ -781,6 +785,10 @@ export default function EmployeeLoanRequisition() {
             mobile: m.guarantor.mobile || '',
             aadhaar: m.guarantor.aadhaar || '',
             photo: m.guarantor.photo || '',
+            signature: m.guarantor.signature || '',
+            aadhaarPhoto: m.guarantor.aadhaarPhoto || '',
+            aadhaarBackPhoto: m.guarantor.aadhaarBackPhoto || '',
+            jointPhoto: m.guarantor.jointPhoto || '',
           });
         }
       }
@@ -1000,8 +1008,14 @@ export default function EmployeeLoanRequisition() {
         }
       }
 
-      // Mandatory Guarantor (Point 6 & 10)
-      if (!guarantor.name.trim()) found['guarantor.name'] = 'Guarantor is mandatory. Please add a guarantor using the button.';
+      // Mandatory Guarantor (Point 6 & 10 & Point 14 header: (M) mandatory for requisition)
+      if (!guarantor.name.trim()) {
+        found['guarantor.name'] = 'Guarantor is mandatory. Please add a guarantor using the button.';
+      } else if (!guarantor.photo) {
+        found['guarantor.name'] = 'Guarantor Photo (M) is mandatory for requisition. Please upload in Guarantor details.';
+      } else if (!guarantor.jointPhoto) {
+        found['guarantor.name'] = 'Member + Guarantor Joint Photo (M) is mandatory for requisition. Please upload in Guarantor details.';
+      }
     }
 
     // Point 11 & 13.2: CIBIL Score Requirement & Gating
@@ -1073,12 +1087,14 @@ export default function EmployeeLoanRequisition() {
           mobile: guarantor.mobile.trim(),
           aadhaar: guarantor.aadhaar.trim(),
           photo: guarantor.photo || '',
+          jointPhoto: guarantor.jointPhoto || '',
         },
         guarantorName: guarantor.name.trim(),
         guarantorRelation: guarantor.relation.trim(),
         guarantorMobile: guarantor.mobile.trim(),
         guarantorAadhaar: guarantor.aadhaar.trim(),
         guarantorPhoto: guarantor.photo || '',
+        guarantorJointPhoto: guarantor.jointPhoto || '',
         ...(isGroup ? {
           group: pickedGroup?.id || pickedGroup?._id,
           groupCode: pickedGroup?.code,
@@ -1851,11 +1867,20 @@ export default function EmployeeLoanRequisition() {
                     <div><span style={{ color: '#64748b' }}>Mobile:</span> <strong>{guarantor.mobile || '—'}</strong></div>
                     <div><span style={{ color: '#64748b' }}>Aadhaar:</span> <strong>{guarantor.aadhaar || '—'}</strong></div>
                   </div>
-                  {guarantor.photo && (
-                    <div style={{ marginTop: 8 }}>
-                      <img src={guarantor.photo} alt="Guarantor" style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 6, border: '1px solid #cbd5e1' }} />
-                    </div>
-                  )}
+                  <div style={{ display: 'flex', gap: 12, marginTop: 10, alignItems: 'center' }}>
+                    {guarantor.photo && (
+                      <div style={{ textAlign: 'center' }}>
+                        <img src={guarantor.photo} alt="Guarantor Photo (M)" style={{ width: 50, height: 50, objectFit: 'cover', borderRadius: 6, border: '1px solid #10b981' }} />
+                        <div style={{ fontSize: '0.65rem', color: '#15803d', fontWeight: 700, marginTop: 2 }}>Photo (M) ✓</div>
+                      </div>
+                    )}
+                    {guarantor.jointPhoto && (
+                      <div style={{ textAlign: 'center' }}>
+                        <img src={guarantor.jointPhoto} alt="Joint Photo (M)" style={{ width: 50, height: 50, objectFit: 'cover', borderRadius: 6, border: '1px solid #10b981' }} />
+                        <div style={{ fontSize: '0.65rem', color: '#15803d', fontWeight: 700, marginTop: 2 }}>Joint Photo (M) ✓</div>
+                      </div>
+                    )}
+                  </div>
                   <div style={{ marginTop: 8, fontSize: '0.72rem', color: '#16a34a', fontWeight: 600 }}>
                     ✓ Guarantor details are locked on this form. Use the change button above to update.
                   </div>
