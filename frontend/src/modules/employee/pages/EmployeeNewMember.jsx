@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useMemo } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import { api } from '../../../api/client.js';
 import { useEmployeeApp } from '../EmployeeAppContext.jsx';
 import { compressImage } from '../../../utils/image.js';
@@ -63,21 +64,82 @@ const EMPTY_FORM = {
   aadhaarPhoto: '',
   aadhaarBackPhoto: '',
   panPhoto: '',
-  // Mandatory Guarantor Details
-  guarantorName: '',
-  guarantorRelation: 'Spouse',
-  guarantorMobile: '',
-  guarantorAadhaar: '',
-  guarantorPhoto: '',
 };
 
-// Reusable Document / Photo Upload Field matching Admin PhotoField
+// Reusable Document / Photo Upload Field with In-App Live Camera Modal (Point 5 fix: prevents WebView crash)
 function EmpPhotoField({ id, label, value, error, onChange, required, cameraOnly = false }) {
-  const ref = useRef(null);
+  const fileRef = useRef(null);
+  const videoRef = useRef(null);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  const [showCamera, setShowCamera] = useState(false);
+  const [facingMode, setFacingMode] = useState(cameraOnly ? 'user' : 'environment');
+  const [stream, setStream] = useState(null);
 
-  const pick = async (e) => {
+  const startCamera = async (mode = facingMode) => {
+    setErr('');
+    setBusy(true);
+    try {
+      if (stream) {
+        stream.getTracks().forEach((t) => t.stop());
+      }
+      const s = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: mode, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false,
+      });
+      setStream(s);
+      setShowCamera(true);
+    } catch (ex) {
+      setErr('In-app camera not available. Opening camera file picker.');
+      fileRef.current?.click();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const stopCamera = () => {
+    if (stream) {
+      stream.getTracks().forEach((t) => t.stop());
+      setStream(null);
+    }
+    setShowCamera(false);
+  };
+
+  const capturePhoto = () => {
+    if (!videoRef.current) return;
+    try {
+      const video = videoRef.current;
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const b64 = canvas.toDataURL('image/jpeg', 0.82);
+      stopCamera();
+      onChange(b64);
+    } catch (ex) {
+      setErr('Photo capture failed: ' + ex.message);
+    }
+  };
+
+  const switchCamera = () => {
+    const nextMode = facingMode === 'environment' ? 'user' : 'environment';
+    setFacingMode(nextMode);
+    startCamera(nextMode);
+  };
+
+  useEffect(() => {
+    if (showCamera && stream && videoRef.current) {
+      videoRef.current.srcObject = stream;
+    }
+    return () => {
+      if (stream) {
+        stream.getTracks().forEach((t) => t.stop());
+      }
+    };
+  }, [showCamera, stream]);
+
+  const pickFile = async (e) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
@@ -144,22 +206,30 @@ function EmpPhotoField({ id, label, value, error, onChange, required, cameraOnly
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1 }}>
           <input
             id={id}
-            ref={ref}
+            ref={fileRef}
             type="file"
             accept="image/*"
-            capture={cameraOnly ? 'environment' : undefined}
-            onChange={pick}
+            onChange={pickFile}
             hidden
           />
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button
               type="button"
-              className="emp-btn-secondary"
+              className="emp-btn-primary"
               style={{ padding: '6px 12px', fontSize: '0.78rem' }}
-              onClick={() => ref.current?.click()}
+              onClick={() => startCamera()}
               disabled={busy}
             >
-              {busy ? 'Compressing…' : value ? 'Change' : 'Upload / Camera'}
+              📸 {value ? 'Retake Live' : 'Live Camera'}
+            </button>
+            <button
+              type="button"
+              className="emp-btn-secondary"
+              style={{ padding: '6px 10px', fontSize: '0.78rem' }}
+              onClick={() => fileRef.current?.click()}
+              disabled={busy}
+            >
+              📁 Choose File
             </button>
             {value && (
               <button
@@ -173,10 +243,78 @@ function EmpPhotoField({ id, label, value, error, onChange, required, cameraOnly
               </button>
             )}
           </div>
-          <span style={{ fontSize: '0.7rem', color: '#64748b' }}>JPEG/PNG, auto compressed</span>
+          <span style={{ fontSize: '0.7rem', color: '#64748b' }}>In-app live camera or image file, auto compressed</span>
         </div>
       </div>
       {(error || err) && <div style={{ fontSize: '0.75rem', color: '#ef4444' }}>{error || err}</div>}
+
+      {/* In-App Live Camera Modal (keeps WebView alive, prevents browser restarts) */}
+      {showCamera && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 9999,
+            background: 'rgba(0, 0, 0, 0.92)',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+          }}
+        >
+          <div style={{ width: '100%', maxWidth: 440, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#fff' }}>
+              <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>📸 Live Photo Capture: {label}</span>
+              <button
+                type="button"
+                onClick={stopCamera}
+                style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '1.2rem', cursor: 'pointer' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ position: 'relative', width: '100%', borderRadius: 12, overflow: 'hidden', background: '#000', aspectRatio: '4/3' }}>
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+              <button
+                type="button"
+                className="emp-btn-primary"
+                style={{ padding: '12px 24px', fontSize: '1rem', fontWeight: 800, flex: 1 }}
+                onClick={capturePhoto}
+              >
+                📸 Capture Photo
+              </button>
+              <button
+                type="button"
+                className="emp-btn-secondary"
+                style={{ padding: '12px 16px', fontSize: '0.9rem', color: '#fff', borderColor: '#475569' }}
+                onClick={switchCamera}
+                title="Switch Camera (Front/Back)"
+              >
+                🔄 Switch
+              </button>
+              <button
+                type="button"
+                className="emp-btn-secondary"
+                style={{ padding: '12px 16px', fontSize: '0.9rem', color: '#f87171', borderColor: '#ef4444' }}
+                onClick={stopCamera}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -346,6 +484,7 @@ function MobileOtpVerify({ mobile, mobileValid, verified, onVerified, onReset })
 
 export default function EmployeeNewMember() {
   const { empUser, t } = useEmployeeApp();
+  const navigate = useNavigate();
 
   // Active View Tab: 'new' (Registration Form) | 'recent' (Recent Members List)
   const [activeTab, setActiveTab] = useState('new');
@@ -368,6 +507,28 @@ export default function EmployeeNewMember() {
   const [submitting, setSubmitting] = useState(false);
   const [globalError, setGlobalError] = useState('');
   const [registrationSuccess, setRegistrationSuccess] = useState(null);
+
+  // Draft auto-restore on mount (prevents loss on Android app refresh/background kill)
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem('udgam_new_member_draft');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === 'object' && (parsed.name || parsed.mobile || parsed.aadhaar)) {
+          setForm((f) => ({ ...f, ...parsed }));
+        }
+      }
+    } catch {}
+  }, []);
+
+  // Draft auto-save on form change
+  useEffect(() => {
+    try {
+      if (form.name || form.mobile || form.aadhaar) {
+        sessionStorage.setItem('udgam_new_member_draft', JSON.stringify(form));
+      }
+    } catch {}
+  }, [form]);
 
   // Recent Members State
   const [recentMembers, setRecentMembers] = useState([]);
@@ -625,22 +786,6 @@ export default function EmployeeNewMember() {
     need('aadhaarPhoto', 'Aadhaar front photo is required');
     need('aadhaarBackPhoto', 'Aadhaar back photo is required');
 
-    // Section 5: Guarantor Details (Optional during member registration - Point 7 fix)
-    if (form.guarantorName || form.guarantorMobile) {
-      if (form.guarantorMobile && !/^[6-9]\d{9}$/.test(form.guarantorMobile)) {
-        found.guarantorMobile = 'Enter a valid 10-digit guarantor mobile';
-      } else if (form.guarantorMobile && form.guarantorMobile === form.mobile) {
-        found.guarantorMobile = 'Guarantor mobile cannot be the same as member mobile number';
-      }
-      if (form.guarantorAadhaar) {
-        if (!/^\d{12}$/.test(form.guarantorAadhaar)) {
-          found.guarantorAadhaar = 'Guarantor Aadhaar must be 12 digits';
-        } else if (form.guarantorAadhaar === form.aadhaar) {
-          found.guarantorAadhaar = 'Guarantor Aadhaar cannot be the same as member Aadhaar number';
-        }
-      }
-    }
-
     setErrors(found);
     if (Object.keys(found).length > 0) {
       setGlobalError('Please fill all required fields and correct the highlighted items.');
@@ -660,6 +805,9 @@ export default function EmployeeNewMember() {
 
       const res = await api.employeeApp.registerMember(payload, mobileToken);
       const created = res.item || res.member || res;
+      try {
+        sessionStorage.removeItem('udgam_new_member_draft');
+      } catch {}
       setRegistrationSuccess(created);
       loadRecentMembers();
     } catch (err) {
@@ -845,13 +993,14 @@ export default function EmployeeNewMember() {
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 360, margin: '0 auto' }}>
-                <a
-                  href="#/employee/kyc"
+                <button
+                  type="button"
                   className="emp-btn-primary"
-                  style={{ textDecoration: 'none', padding: '12px', textAlign: 'center' }}
+                  style={{ padding: '12px', textAlign: 'center' }}
+                  onClick={() => navigate('/employee/kyc?code=' + encodeURIComponent(registrationSuccess.code || registrationSuccess.memberCode || ''))}
                 >
                   Verify Member KYC Status
-                </a>
+                </button>
                 <button
                   type="button"
                   className="emp-btn-secondary"
@@ -1475,108 +1624,25 @@ export default function EmployeeNewMember() {
                 </div>
               </div>
 
-              {/* SECTION 5: MANDATORY GUARANTOR DETAILS */}
-              <div className="emp-card" style={{ padding: 18 }}>
-                <h3
-                  style={{
-                    fontSize: '1rem',
-                    fontWeight: 800,
-                    margin: '0 0 14px 0',
-                    color: 'var(--emp-text)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    borderBottom: '1px solid var(--emp-border)',
-                    paddingBottom: 8,
-                  }}
-                >
-                  <Icon name="shieldcheck" size={18} style={{ color: 'var(--emp-primary)' }} />
-                  <span>5. Guarantor Details (Optional)</span>
-                </h3>
-
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
-                  {/* Guarantor Name */}
+              {/* SECTION 5: GUARANTOR / NOMINEE DETAILS (DEDICATED PAGE LINK - Point 6) */}
+              <div className="emp-card" style={{ padding: 18, background: '#f8fafc', border: '1.5px dashed var(--emp-primary)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
                   <div>
-                    <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>
-                      Guarantor Full Name <span style={{ color: '#64748b', fontWeight: 400 }}>(Optional)</span>
-                    </label>
-                    <input
-                      className="emp-input"
-                      placeholder="Guarantor name"
-                      maxLength={80}
-                      value={form.guarantorName}
-                      onChange={setVal('guarantorName')}
-                      style={{ borderColor: errors.guarantorName ? '#ef4444' : undefined }}
-                    />
-                    {errors.guarantorName && <span style={{ fontSize: '0.72rem', color: '#ef4444' }}>{errors.guarantorName}</span>}
+                    <h3 style={{ fontSize: '0.98rem', fontWeight: 800, margin: '0 0 4px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Icon name="shieldcheck" size={18} style={{ color: 'var(--emp-primary)' }} />
+                      <span>Guarantor &amp; Nominee Details</span>
+                    </h3>
+                    <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--emp-text-muted)' }}>
+                      Guarantor and nominee details are managed on a dedicated page to streamline borrower registration.
+                    </p>
                   </div>
-
-                  {/* Guarantor Relation */}
-                  <div>
-                    <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>
-                      Relation with Member <span style={{ color: '#64748b', fontWeight: 400 }}>(Optional)</span>
-                    </label>
-                    <select
-                      className="emp-input"
-                      value={form.guarantorRelation}
-                      onChange={setVal('guarantorRelation')}
-                      style={{ borderColor: errors.guarantorRelation ? '#ef4444' : undefined }}
-                    >
-                      <option value="Spouse">Spouse (Husband/Wife)</option>
-                      <option value="Father">Father</option>
-                      <option value="Mother">Mother</option>
-                      <option value="Brother">Brother</option>
-                      <option value="Sister">Sister</option>
-                      <option value="Son">Son</option>
-                      <option value="Daughter">Daughter</option>
-                      <option value="Other">Other</option>
-                    </select>
-                    {errors.guarantorRelation && <span style={{ fontSize: '0.72rem', color: '#ef4444' }}>{errors.guarantorRelation}</span>}
-                  </div>
-
-                  {/* Guarantor Mobile */}
-                  <div>
-                    <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>
-                      Guarantor Mobile Number <span style={{ color: '#64748b', fontWeight: 400 }}>(Optional)</span>
-                    </label>
-                    <input
-                      className="emp-input"
-                      placeholder="10-digit mobile"
-                      inputMode="numeric"
-                      maxLength={10}
-                      value={form.guarantorMobile}
-                      onChange={setDigits('guarantorMobile', 10)}
-                      style={{ borderColor: errors.guarantorMobile ? '#ef4444' : undefined }}
-                    />
-                    {errors.guarantorMobile && <span style={{ fontSize: '0.72rem', color: '#ef4444' }}>{errors.guarantorMobile}</span>}
-                  </div>
-
-                  {/* Guarantor Aadhaar */}
-                  <div>
-                    <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>
-                      Guarantor Aadhaar <span style={{ color: '#64748b', fontWeight: 400 }}>(Optional)</span>
-                    </label>
-                    <input
-                      className="emp-input"
-                      placeholder="12-digit Aadhaar"
-                      inputMode="numeric"
-                      maxLength={12}
-                      value={form.guarantorAadhaar}
-                      onChange={setDigits('guarantorAadhaar', 12)}
-                      style={{ borderColor: errors.guarantorAadhaar ? '#ef4444' : undefined }}
-                    />
-                    {errors.guarantorAadhaar && <span style={{ fontSize: '0.72rem', color: '#ef4444' }}>{errors.guarantorAadhaar}</span>}
-                  </div>
-
-                  {/* Guarantor Photo */}
-                  <div style={{ gridColumn: '1 / -1' }}>
-                    <EmpPhotoField
-                      id="guarantorPhoto"
-                      label="Guarantor Photo (Optional)"
-                      value={form.guarantorPhoto}
-                      onChange={setPhoto('guarantorPhoto')}
-                    />
-                  </div>
+                  <Link
+                    to="/employee/guarantor-nominee"
+                    className="emp-btn-primary"
+                    style={{ textDecoration: 'none', padding: '8px 16px', fontSize: '0.82rem', whiteSpace: 'nowrap' }}
+                  >
+                    Open Guarantor &amp; Nominee Page →
+                  </Link>
                 </div>
               </div>
 
@@ -1851,13 +1917,18 @@ export default function EmployeeNewMember() {
             </div>
 
             <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
-              <a
-                href={`#/employee/kyc`}
+              <button
+                type="button"
                 className="emp-btn-primary"
-                style={{ flex: 1, textDecoration: 'none', padding: '10px', textAlign: 'center', fontSize: '0.85rem' }}
+                style={{ flex: 1, padding: '10px', textAlign: 'center', fontSize: '0.85rem' }}
+                onClick={() => {
+                  const c = selectedMember.code || '';
+                  setSelectedMember(null);
+                  navigate('/employee/kyc?code=' + encodeURIComponent(c));
+                }}
               >
                 Go to KYC Review
-              </a>
+              </button>
               <button
                 type="button"
                 className="emp-btn-secondary"

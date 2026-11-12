@@ -1022,18 +1022,19 @@ export async function registerMember(req, res) {
 export async function getStaffRecentMembers(req, res) {
   const code = req.user?.employeeCode;
   const emp = await Employee.findOne({ employeeCode: code }).lean();
-  const branchId = emp?.branch || (req.user?.branches || [])[0];
+  const rawBranchIds = [emp?.branch, req.user?.branch, ...(req.user?.branches || [])].filter(Boolean);
+  const branchIds = [...new Set(rawBranchIds.map((b) => String(b?.id || b?._id || b)))];
 
   const query = { isDeleted: { $ne: true } };
-  if (code) {
-    query.$or = [{ employeeCode: code }, { branch: branchId }];
-  } else if (branchId) {
-    query.branch = branchId;
+  if (branchIds.length > 0) {
+    query.branch = { $in: branchIds };
+  } else if (code) {
+    query.employeeCode = code;
   }
 
   const members = await Member.find(query)
     .sort({ createdAt: -1 })
-    .limit(40)
+    .limit(1000)
     .select('+memberPhoto +signaturePhoto +aadhaarPhoto +aadhaarBackPhoto +panPhoto')
     .populate('branch', 'name code')
     .lean();

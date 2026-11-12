@@ -85,7 +85,12 @@ export async function stockProducts(req, res) {
   // Loans are given from the stock of the branch of the requisition.
   if (!mongoose.isValidObjectId(String(req.query.branch || ''))) return res.json({ items: [] });
   assertBranchAccess(req.user, req.query.branch);
-  const items = await StockProduct.find({ isDeleted: false, isActive: true, stockQty: { $gt: 0 }, branch: req.query.branch }).sort({ name: 1 });
+  const items = await StockProduct.find({
+    isDeleted: false,
+    isActive: true,
+    stockQty: { $gt: 0 },
+    $or: [{ branch: req.query.branch }, { branch: null }, { branch: { $exists: false } }],
+  }).sort({ name: 1 });
   res.json({ items: items.map((p) => ({ id: p._id, code: p.code, name: p.name, category: p.category || '', unitPrice: p.unitPricePaise / 100, stockQty: p.stockQty })) });
 }
 

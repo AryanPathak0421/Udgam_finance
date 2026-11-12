@@ -436,6 +436,8 @@ export default function EmployeeLoanRequisition() {
   const [chosenMemberIds, setChosenMemberIds] = useState([]);
   const [extras, setExtras] = useState({}); // { memberId: { id, qty } }
   const [memberForms, setMemberForms] = useState({}); // { memberId: { front, back } }
+  const [memberSchemes, setMemberSchemes] = useState({}); // { memberId: schemeId } (Point 9.2)
+  const [memberProductSchemes, setMemberProductSchemes] = useState({}); // { memberId: productSchemeId } (Point 9.7)
 
   // Individual Mode States (Personal / Business / Product)
   const [borrowerSearch, setBorrowerSearch] = useState('');
@@ -501,14 +503,25 @@ export default function EmployeeLoanRequisition() {
   const isSunday = new Date().getDay() === 0;
   const todayStr = new Date().toISOString().slice(0, 10);
 
-  // Load branches
+  // Load branches with reliable staff auto-selection (Point 9.1)
   useEffect(() => {
     api.branches.options()
       .then((res) => {
         const bList = res.branches || [];
         setBranches(bList);
         if (bList.length > 0) {
-          const defBranch = empUser?.branchId || bList[0].id;
+          const staffBranchId =
+            empUser?.branch?.id ||
+            empUser?.branch?._id ||
+            empUser?.branchId ||
+            (typeof empUser?.branch === 'string' ? empUser?.branch : null);
+          const matched = bList.find(
+            (b) =>
+              b.id === staffBranchId ||
+              b._id === staffBranchId ||
+              (empUser?.branch?.code && b.code === empUser?.branch?.code)
+          );
+          const defBranch = matched ? matched.id : bList[0].id;
           setSelectedBranch(defBranch);
         }
       })
@@ -557,6 +570,34 @@ export default function EmployeeLoanRequisition() {
       .catch(() => {})
       .finally(() => setLoadingGroups(false));
   }, []);
+
+  // Weekly Group check and Scheme Filtering (Point 9.5: weekly group must not select daily schemes)
+  const isGroupWeekly = Boolean(
+    isGroup &&
+    (groupDetail?.group?.mode?.toLowerCase() === 'weekly' ||
+     groupDetail?.group?.meetingType?.toLowerCase() === 'weekly' ||
+     groupDetail?.group?.repaymentFrequency?.toLowerCase() === 'weekly' ||
+     pickedGroup?.mode?.toLowerCase() === 'weekly' ||
+     pickedGroup?.meetingType?.toLowerCase() === 'weekly')
+  );
+
+  const availableSchemes = useMemo(() => {
+    let list = schemes;
+    if (isGroupWeekly) {
+      list = list.filter((s) => {
+        const mode = (s.repaymentMode || s.mode || '').toLowerCase();
+        const name = (s.name || '').toLowerCase();
+        return mode !== 'daily' && !name.includes('daily') && !name.includes('dly');
+      });
+    }
+    return list;
+  }, [schemes, isGroupWeekly]);
+
+  const productSchemes = useMemo(() => {
+    return schemes.filter(
+      (s) => (s.loanType || s.kind) === 'product' || (s.name || '').toLowerCase().includes('product')
+    );
+  }, [schemes]);
 
   // When selected scheme changes, auto-fill standard limits
   const scheme = useMemo(() => schemes.find((s) => s.id === form.schemeId) || null, [schemes, form.schemeId]);
@@ -841,7 +882,7 @@ export default function EmployeeLoanRequisition() {
     }
 
     if (!selectedBranch) found.branch = 'Select branch';
-    if (!form.schemeId) found.schemeId = 'Select loan scheme';
+    if (!isGroup && !form.schemeId) found.schemeId = 'Select loan scheme';
     if (!form.amount || Number(form.amount) <= 0) found.amount = 'Enter valid amount';
     if (!form.mode) found.mode = 'Select repayment mode';
     if (!form.term) found.term = 'Enter term';
@@ -852,14 +893,32 @@ export default function EmployeeLoanRequisition() {
       else if (!chosenMemberIds.length) found.members = 'Tick at least one member who gets the loan';
       else {
         chosenMemberIds.forEach((mid) => {
-          if (!memberForms[mid]?.front) found[`mf_${mid}_front`] = `Upload front photo of form for member`;
-          if (!memberForms[mid]?.back) found[`mf_${mid}_back`] = `Upload back photo of form for member`;
+          const mObj = groupDetail?.group?.members?.find((x) => (x.id || x._id) === mid);
+          const chosenScheme = memberSchemes[mid] || form.schemeId;
+          if (!chosenScheme) found[`ms_${mid}`] = `Select loan scheme for ${mObj?.name || 'member'}`;
+          if (!memberForms[mid]?.front) found[`mf_${mid}_front`] = `Upload front photo of form for ${mObj?.name || 'member'}`;
+          if (!memberForms[mid]?.back) found[`mf_${mid}_back`] = `Upload back photo of form for ${mObj?.name || 'member'}`;
+
+          // Mobile OTP verification check (Point 9.6)
+          if (mObj && mObj.mobileVerified === false) {
+            found[`mv_${mid}`] = `Member ${mObj.name} phone number OTP must be verified before requisition!`;
+          }
+
+          // 25% Product Loan Scheme check (Point 9.7)
+          if (extras[mid]?.id && !memberProductSchemes[mid]) {
+            found[`mps_${mid}`] = `Select Product Loan Scheme for ${mObj?.name || 'member'}`;
+          }
         });
       }
     } else {
       if (!pickedBorrower) found.borrower = 'Select or search a borrower';
       if (!formFrontPhoto) found.formFrontPhoto = 'Upload front photo of application form';
       if (!formBackPhoto) found.formBackPhoto = 'Upload back photo of application form';
+
+      // Mobile OTP check for individual borrower (Point 9.6)
+      if (borrowerDetail?.member && borrowerDetail.member.mobileVerified === false && !borrowerOtpVerified) {
+        found.borrowerMobile = 'Borrower phone number OTP verification is mandatory before loan requisition!';
+      }
 
       // Mandatory Guarantor (Point 6 & 10)
       if (!guarantor.name.trim()) found['guarantor.name'] = 'Guarantor full name is required';
@@ -937,14 +996,14 @@ export default function EmployeeLoanRequisition() {
             return {
               member: mid,
               civilScore: m.civilScore != null ? String(m.civilScore) : '',
-              schemeId: form.schemeId,
+              schemeId: memberSchemes[mid] || form.schemeId,
               amount: form.amount,
               mode: form.mode,
               term: Number(installments),
               rate: form.rate,
               front: f.front || formFrontPhoto || '',
               back: f.back || formBackPhoto || '',
-              ...(ext?.id ? { additional: { stockProduct: ext.id, quantity: Number(ext.qty) || 1 } } : {}),
+              ...(ext?.id ? { additional: { stockProduct: ext.id, quantity: Number(ext.qty) || 1, productSchemeId: memberProductSchemes[mid] } } : {}),
             };
           }),
           memberForms: effMembers.map((m) => ({
@@ -1322,43 +1381,104 @@ export default function EmployeeLoanRequisition() {
                             </div>
                           </div>
 
-                          {/* Extra Product Selection (up to 25% of loan amount) */}
                           {isChosen && !disabled && (
                             <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--emp-border)' }}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                                <span style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--emp-text-muted)' }}>
-                                  Additional Product (Max 25% = {inr(extraMax)})
-                                </span>
-                              </div>
-                              <div style={{ display: 'flex', gap: 6 }}>
+                              {/* Loan Scheme per Eligible Member (Point 9.2) */}
+                              <div style={{ marginBottom: 8 }}>
+                                <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--emp-text)', display: 'block', marginBottom: 3 }}>
+                                  Loan Scheme for {m.name} *
+                                </label>
                                 <select
                                   className="emp-input"
-                                  style={{ flex: 1, fontSize: '0.75rem', padding: '4px 6px' }}
-                                  value={e.id}
-                                  onChange={(ev) => setExtras((x) => ({ ...x, [mid]: { id: ev.target.value, qty: x[mid]?.qty || '1' } }))}
-                                  disabled={extraMax <= 0}
+                                  style={{ width: '100%', fontSize: '0.76rem', padding: '5px 8px' }}
+                                  value={memberSchemes[mid] || form.schemeId || ''}
+                                  onChange={(ev) => setMemberSchemes((ms) => ({ ...ms, [mid]: ev.target.value }))}
                                 >
-                                  <option value="">{extraMax <= 0 ? 'Enter loan amount first' : 'None (No extra product)'}</option>
-                                  {stock.filter((s) => s.unitPrice <= extraMax).map((s) => (
-                                    <option key={s.id} value={s.id}>{s.name} · {inr(s.unitPrice)}</option>
+                                  <option value="">Select Member Scheme</option>
+                                  {availableSchemes.map((s) => (
+                                    <option key={s.id} value={s.id}>
+                                      {s.name} ({s.repaymentMode || 'Weekly'}) — {s.roiMin ?? s.roiMax ?? 24}% p.a.
+                                    </option>
                                   ))}
                                 </select>
-                                {e.id && (
-                                  <input
-                                    type="number"
-                                    min="1"
-                                    className="emp-input"
-                                    style={{ width: 50, fontSize: '0.75rem', padding: '4px 6px' }}
-                                    value={e.qty}
-                                    onChange={(ev) => setExtras((x) => ({ ...x, [mid]: { ...x[mid], qty: ev.target.value } }))}
-                                  />
+                                {errors[`ms_${mid}`] && (
+                                  <div style={{ fontSize: '0.7rem', color: '#dc2626', fontWeight: 600, marginTop: 2 }}>{errors[`ms_${mid}`]}</div>
                                 )}
                               </div>
-                              {p && (
-                                <div style={{ fontSize: '0.72rem', fontWeight: 600, color: isOver ? '#dc2626' : '#16a34a', marginTop: 2 }}>
-                                  {isOver ? `Exceeds 25% limit: ${inr(extraVal)} > ${inr(extraMax)}` : `Value: ${inr(extraVal)}`}
+
+                              {/* Mobile OTP Verification Warning (Point 9.6) */}
+                              {m.mobileVerified === false && (
+                                <div style={{ background: '#fee2e2', color: '#991b1b', padding: '4px 8px', borderRadius: 6, fontSize: '0.72rem', fontWeight: 600, marginBottom: 8 }}>
+                                  ⚠️ Member mobile is not verified via OTP. Phone OTP must be verified before requisition!
                                 </div>
                               )}
+                              {errors[`mv_${mid}`] && (
+                                <div style={{ fontSize: '0.7rem', color: '#dc2626', fontWeight: 600, marginBottom: 6 }}>{errors[`mv_${mid}`]}</div>
+                              )}
+
+                              {/* Extra Product Selection (up to 25% of loan amount) (Point 9.3) */}
+                              <div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                                  <span style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--emp-text-muted)' }}>
+                                    Additional Product (Max 25% = {inr(extraMax)})
+                                  </span>
+                                </div>
+                                <div style={{ display: 'flex', gap: 6 }}>
+                                  <select
+                                    className="emp-input"
+                                    style={{ flex: 1, fontSize: '0.75rem', padding: '4px 6px' }}
+                                    value={e.id}
+                                    onChange={(ev) => setExtras((x) => ({ ...x, [mid]: { id: ev.target.value, qty: x[mid]?.qty || '1' } }))}
+                                  >
+                                    <option value="">None (No extra product)</option>
+                                    {stock.map((s) => (
+                                      <option key={s.id} value={s.id}>
+                                        {s.name} · {inr(s.unitPrice)} {s.stockQty != null ? `(Stock: ${s.stockQty})` : ''}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  {e.id && (
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      className="emp-input"
+                                      style={{ width: 50, fontSize: '0.75rem', padding: '4px 6px' }}
+                                      value={e.qty}
+                                      onChange={(ev) => setExtras((x) => ({ ...x, [mid]: { ...x[mid], qty: ev.target.value } }))}
+                                    />
+                                  )}
+                                </div>
+                                {p && (
+                                  <div style={{ fontSize: '0.72rem', fontWeight: 600, color: isOver ? '#dc2626' : '#16a34a', marginTop: 2 }}>
+                                    {isOver ? `⚠️ Exceeds 25% limit: ${inr(extraVal)} > ${inr(extraMax)}` : `Value: ${inr(extraVal)}`}
+                                  </div>
+                                )}
+
+                                {/* Product Loan Scheme for 25% Product (Point 9.7) */}
+                                {e.id && (
+                                  <div style={{ marginTop: 6 }}>
+                                    <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--emp-text)', display: 'block', marginBottom: 2 }}>
+                                      Product Loan Scheme for Top-up *
+                                    </label>
+                                    <select
+                                      className="emp-input"
+                                      style={{ width: '100%', fontSize: '0.75rem', padding: '4px 6px' }}
+                                      value={memberProductSchemes[mid] || ''}
+                                      onChange={(ev) => setMemberProductSchemes((mps) => ({ ...mps, [mid]: ev.target.value }))}
+                                    >
+                                      <option value="">Select Product Scheme</option>
+                                      {(productSchemes.length > 0 ? productSchemes : availableSchemes).map((s) => (
+                                        <option key={s.id} value={s.id}>
+                                          {s.name} ({s.repaymentMode || 'Weekly'})
+                                        </option>
+                                      ))}
+                                    </select>
+                                    {errors[`mps_${mid}`] && (
+                                      <div style={{ fontSize: '0.7rem', color: '#dc2626', fontWeight: 600, marginTop: 2 }}>{errors[`mps_${mid}`]}</div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
 
                               {/* Application Form Front & Back per checked member */}
                               <div style={{ marginTop: 8 }}>
@@ -1817,23 +1937,29 @@ export default function EmployeeLoanRequisition() {
               <span>{isProduct ? '7. Product Loan Scheme' : '7. Scheme Detail &amp; Parameters'}</span>
             </h3>
 
-            <div style={{ marginBottom: 10 }}>
-              <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>
-                Select Loan Scheme *
-              </label>
-              <select
-                className="emp-input"
-                value={form.schemeId}
-                onChange={(e) => handleSchemeChange(e.target.value)}
-                required
-              >
-                <option value="">Select Scheme</option>
-                {schemes.map((s) => (
-                  <option key={s.id} value={s.id}>{s.code} — {s.name}</option>
-                ))}
-              </select>
-              {errors.schemeId && <div style={{ fontSize: '0.7rem', color: '#dc2626', fontWeight: 600 }}>{errors.schemeId}</div>}
-            </div>
+            {!isGroup ? (
+              <div style={{ marginBottom: 10 }}>
+                <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>
+                  Select Loan Scheme *
+                </label>
+                <select
+                  className="emp-input"
+                  value={form.schemeId}
+                  onChange={(e) => handleSchemeChange(e.target.value)}
+                  required
+                >
+                  <option value="">Select Scheme</option>
+                  {availableSchemes.map((s) => (
+                    <option key={s.id} value={s.id}>{s.code} — {s.name}</option>
+                  ))}
+                </select>
+                {errors.schemeId && <div style={{ fontSize: '0.7rem', color: '#dc2626', fontWeight: 600 }}>{errors.schemeId}</div>}
+              </div>
+            ) : (
+              <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#166534', padding: '8px 12px', borderRadius: 6, fontSize: '0.78rem', marginBottom: 12 }}>
+                ✓ Loan schemes are selected individually per member in their cards above (Point 9.4).
+              </div>
+            )}
 
             {/* Scheme Specs Badge Card */}
             {scheme && (

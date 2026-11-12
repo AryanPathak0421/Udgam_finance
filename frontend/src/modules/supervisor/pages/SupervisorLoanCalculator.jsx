@@ -161,9 +161,9 @@ export default function SupervisorLoanCalculator() {
 
         <div className="sup-input-group">
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-            <label className="sup-label">Security Deposit (%) &amp; In-Hand Amount</label>
-            <strong style={{ color: 'var(--sup-danger)' }}>
-              ₹{security.toLocaleString('en-IN')} ({securityRate}%)
+            <label className="sup-label">Security Deposit Amount (₹)</label>
+            <strong style={{ color: 'var(--sup-danger)', fontSize: '0.95rem' }}>
+              ₹{security.toLocaleString('en-IN')} <span style={{ fontSize: '0.75rem', fontWeight: 500, color: 'var(--sup-text-muted)' }}>({securityRate}%)</span>
             </strong>
           </div>
           <input

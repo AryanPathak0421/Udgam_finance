@@ -36,7 +36,7 @@ export async function requireMemberAuth(req, res, next) {
   try {
     const authHeader = req.headers.authorization || '';
     const bearer = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
-    const token = bearer || req.cookies?.udgam_member_token || req.cookies?.token || req.cookies?.udgam_token;
+    const token = bearer || req.cookies?.udgam_member_token;
 
     if (!token) return res.status(401).json({ message: 'Member not signed in' });
 
@@ -49,7 +49,7 @@ export async function requireMemberAuth(req, res, next) {
 
     const memberId = decoded.memberId || (decoded.role === 'member' ? decoded.id : null);
     if (!memberId && !decoded.memberCode) {
-      return res.status(401).json({ message: 'Invalid member session' });
+      return res.status(401).json({ message: 'Session expired or invalid. Please sign in again.' });
     }
 
     let member = null;

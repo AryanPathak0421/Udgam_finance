@@ -17,7 +17,7 @@ export default function EmployeeNpaRecovery() {
   const [selectedCenter, setSelectedCenter] = useState('all');
   const [selectedStaff, setSelectedStaff] = useState('all');
 
-  // Inline Pay State (Point 9: Opens directly under the member card)
+  // Online Pay State (Opens directly under the member card)
   const [activeNpa, setActiveNpa] = useState(null);
   const [recoveryAmount, setRecoveryAmount] = useState('');
   const [payMode, setPayMode] = useState('cash'); // 'cash' | 'upi'
@@ -149,7 +149,7 @@ export default function EmployeeNpaRecovery() {
               <span>NPA Recovery Management</span>
             </h2>
             <p style={{ fontSize: '0.8rem', color: 'var(--emp-text-muted)', margin: '4px 0 0 0' }}>
-              Overdue defaulted & settlement loans (DPD &gt; 90). Fast lookup & inline recovery collection.
+              Overdue defaulted & settlement loans (DPD &gt; 90). Fast lookup & online recovery collection.
             </p>
           </div>
           <span className="emp-badge emp-badge-danger" style={{ fontWeight: 800 }}>
@@ -401,8 +401,8 @@ export default function EmployeeNpaRecovery() {
                         <Icon name="cash" size={16} />
                         <span>Payment Recovery for {item.memberName}</span>
                       </div>
-                      <span className="emp-badge emp-badge-danger" style={{ fontSize: '0.7rem' }}>
-                        Inline Pay
+                      <span className="emp-badge emp-badge-success" style={{ fontSize: '0.7rem' }}>
+                        Online Pay
                       </span>
                     </div>
 

@@ -14,6 +14,7 @@ export default function EmployeeMemberKyc() {
   const [recentMembers, setRecentMembers] = useState([]);
   const [loadingRecent, setLoadingRecent] = useState(false);
   const [filterTab, setFilterTab] = useState('all'); // 'all' | 'rejected' | 'pending' | 'verified' (Point 22)
+  const [listSearch, setListSearch] = useState('');
 
   // Re-upload state
   const [reuploadingDoc, setReuploadingDoc] = useState(null);
@@ -50,6 +51,12 @@ export default function EmployeeMemberKyc() {
 
   useEffect(() => {
     fetchRecent();
+    const params = new URLSearchParams(window.location.search);
+    const codeParam = params.get('code');
+    if (codeParam) {
+      setQuery(codeParam);
+      loadMemberKyc(codeParam);
+    }
   }, []);
 
   const loadMemberKyc = async (codeOrId) => {
@@ -219,10 +226,18 @@ export default function EmployeeMemberKyc() {
           ? verifiedMembers
           : recentMembers;
 
+        const searchedMembers = listSearch.trim()
+          ? displayedMembers.filter((m) =>
+              (m.name || '').toLowerCase().includes(listSearch.toLowerCase()) ||
+              (m.code || '').toLowerCase().includes(listSearch.toLowerCase()) ||
+              (m.mobile || '').includes(listSearch)
+            )
+          : displayedMembers;
+
         return (
           <div className="emp-card">
             {/* Filter Tabs */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 4, marginBottom: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 4, marginBottom: 10 }}>
               {[
                 { id: 'all', label: `All (${recentMembers.length})`, color: 'var(--emp-text)' },
                 { id: 'rejected', label: `⚠️ Rejected (${rejectedMembers.length})`, color: '#dc2626', bg: '#fee2e2' },
@@ -252,6 +267,18 @@ export default function EmployeeMemberKyc() {
               ))}
             </div>
 
+            {/* Quick List Search Bar */}
+            <div style={{ marginBottom: 12 }}>
+              <input
+                type="text"
+                className="emp-input"
+                style={{ fontSize: '0.82rem', padding: '6px 10px' }}
+                placeholder="Filter by member name, code, or phone number..."
+                value={listSearch}
+                onChange={(e) => setListSearch(e.target.value)}
+              />
+            </div>
+
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
               <h3 style={{ fontSize: '0.92rem', fontWeight: 700, margin: 0, color: 'var(--emp-text)' }}>
                 {filterTab === 'rejected'
@@ -262,16 +289,18 @@ export default function EmployeeMemberKyc() {
                   ? 'Pending Verification'
                   : filterTab === 'verified'
                   ? 'Verified KYC Members'
-                  : 'Recent Members'} ({displayedMembers.length})
+                  : 'Branch Members'} ({searchedMembers.length})
               </h3>
               <span style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)' }}>Tap member to view/re-upload</span>
             </div>
 
             {loadingRecent ? (
               <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--emp-text-muted)' }}>Loading members...</div>
-            ) : displayedMembers.length === 0 ? (
+            ) : searchedMembers.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--emp-text-muted)', fontSize: '0.85rem' }}>
-                {filterTab === 'rejected'
+                {listSearch.trim()
+                  ? `No members match "${listSearch}" in this filter.`
+                  : filterTab === 'rejected'
                   ? '✓ No rejected KYC members found.'
                   : filterTab === 'missing'
                   ? '✓ No members with missing documents.'
@@ -279,7 +308,7 @@ export default function EmployeeMemberKyc() {
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {displayedMembers.map((m) => {
+                {searchedMembers.map((m) => {
                   const isRej = Boolean(m.kycRejected || m.kycStatus === 'rejected');
                   const isMiss = Boolean(!isRej && (m.isMissing || m.kycStatus === 'missing' || (m.missingCount && m.missingCount > 0)));
                   const isPend = Boolean(!isRej && !isMiss && (m.kycPending || m.kycStatus === 'pending'));
