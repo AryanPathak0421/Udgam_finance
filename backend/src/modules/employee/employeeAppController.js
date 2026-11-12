@@ -28,6 +28,7 @@ import { AuditLog } from '../../models/AuditLog.js';
 import { CivilCheck } from '../../models/CivilCheck.js';
 import { Company } from '../../models/Company.js';
 import { BankAccount } from '../../models/BankAccount.js';
+import { AppUser } from '../../models/AppUser.js';
 import { CenterSurvey } from '../../models/CenterSurvey.js';
 import { generateCode } from '../../services/codeSequence.js';
 import { issueOtp, takeVerified, consumeChallenge } from '../../services/otpChallenges.js';
@@ -176,6 +177,20 @@ async function ensureUserForEmployee(emp) {
     emp.user = user._id;
     await emp.save();
   }
+  // Ensure AppUser record exists so staff is permitted in app and appears in App User Creation
+  await AppUser.updateOne(
+    { user: user._id },
+    {
+      $setOnInsert: {
+        user: user._id,
+        employeeCode: emp.employeeCode.toUpperCase(),
+        name: emp.name || user.name,
+        isActive: true,
+        createdByCode: 'SYSTEM',
+      },
+    },
+    { upsert: true }
+  ).catch(() => {});
   return user;
 }
 

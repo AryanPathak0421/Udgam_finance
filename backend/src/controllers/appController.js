@@ -38,27 +38,260 @@ const presentUser = (a, u) => ({
 });
 
 export async function listAppUsers(req, res) {
+  // 1. Auto-sync legacy and active employees:
+  // If an Employee has an EmployeeMpin or active employee/user account, ensure they exist in AppUser
+  try {
+    const existingAppUsers = await AppUser.find({}).lean();
+    const existingUserIds = new Set(existingAppUsers.map((a) => String(a.user)));
+    const existingCodes = new Set(existingAppUsers.map((a) => (a.employeeCode || '').toUpperCase()));
+
+    const activeEmployees = await Employee.find({
+      isDeleted: false,
+      status: 'active',
+      isBlocked: { $ne: true },
+    }).populate('branch', 'code name').lean();
+
+    for (const emp of activeEmployees) {
+      const codeUpper = (emp.employeeCode || '').toUpperCase();
+      if (!existingCodes.has(codeUpper)) {
+        let u = null;
+        if (emp.user) {
+          u = await User.findById(emp.user);
+        }
+        if (!u && emp.email) {
+          u = await User.findOne({ email: emp.email.toLowerCase() });
+        }
+        if (!u && codeUpper) {
+          u = await User.findOne({ employeeCode: new RegExp(`^${codeUpper}$`, 'i') });
+        }
+        if (u) {
+          if (!u.employeeCode && codeUpper) {
+            u.employeeCode = codeUpper;
+            await u.save();
+          }
+          if (!existingUserIds.has(String(u._id))) {
+            const a = await AppUser.create({
+              user: u._id,
+              employeeCode: codeUpper,
+              name: emp.name || u.name,
+              isActive: true,
+              createdByCode: 'AUTO',
+            }).catch(() => null);
+            if (a) {
+              existingUserIds.add(String(u._id));
+              existingCodes.add(codeUpper);
+            }
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error('listAppUsers auto-sync failed', err.message);
+  }
+
   const rows = await AppUser.find({}).sort({ createdAt: -1 }).lean();
-  const users = new Map((await User.find({ _id: { $in: rows.map((r) => r.user) } }).select('name email role mobile branches isActive').populate('branches', 'code name').lean()).map((u) => [String(u._id), u]));
-  res.json({ items: rows.map((a) => ({ ...presentUser(a, users.get(String(a.user))), staffActive: users.get(String(a.user))?.isActive !== false })) });
+  const userIds = rows.map((r) => r.user).filter(Boolean);
+  const usersList = await User.find({ _id: { $in: userIds } })
+    .select('name email role mobile branches isActive employeeCode')
+    .populate('branches', 'code name')
+    .lean();
+  const users = new Map(usersList.map((u) => [String(u._id), u]));
+
+  const empList = await Employee.find({
+    isDeleted: false,
+    employeeCode: { $in: rows.map((r) => r.employeeCode) },
+  }).populate('branch', 'code name').lean();
+  const empMap = new Map(empList.map((e) => [(e.employeeCode || '').toUpperCase(), e]));
+
+  res.json({
+    items: rows.map((a) => {
+      const u = users.get(String(a.user));
+      const emp = empMap.get((a.employeeCode || '').toUpperCase());
+      const rawBranches = u?.branches?.length ? u.branches : (emp?.branch ? [emp.branch] : []);
+      const branches = rawBranches.map((b) =>
+        b._id ? { id: b._id, code: b.code, name: b.name } : { id: b, code: emp?.branch?.code || '—', name: emp?.branch?.name || '' }
+      );
+      return {
+        id: a._id,
+        employeeCode: a.employeeCode,
+        name: a.name || u?.name || emp?.name || '',
+        email: u?.email || emp?.email || '',
+        role: u?.role || emp?.designation || 'field_officer',
+        mobile: u?.mobile || emp?.mobile || '',
+        note: a.note || '',
+        isActive: a.isActive,
+        branches,
+        createdBy: a.createdByCode || '',
+        createdAt: a.createdAt,
+        deactivatedAt: a.deactivatedAt,
+        staffActive: u ? u.isActive !== false : (emp?.status === 'active' && !emp.isBlocked),
+      };
+    }),
+  });
 }
 
 /** Staff who can still be made app users: active, with an employee code, not yet app users. */
 export async function staffOptions(_req, res) {
-  const taken = (await AppUser.find({}).select('user').lean()).map((a) => a.user);
-  const staff = await User.find({ _id: { $nin: taken }, isActive: true, employeeCode: { $exists: true, $nin: ['', ...(await blockedCodes())] } }).select('name employeeCode role branches').populate('branches', 'code name').sort({ name: 1 }).lean();
-  // employees registered in HR who have no staff login yet: they cannot be app users until a login is made for them (User Master)
-  const noLogin = await Employee.find({ isDeleted: false, status: 'active', isBlocked: { $ne: true }, user: { $exists: false } }).select('employeeCode name branch').populate('branch', 'code name').sort({ name: 1 }).limit(500).lean();
-  res.json({ items: staff.map((u) => ({ id: u._id, employeeCode: u.employeeCode, name: u.name, role: u.role, branches: (u.branches || []).map((b) => b.code).join(', '), branchCode: (u.branches || []).map((b) => b.code).join(', '), branchName: (u.branches || []).map((b) => b.name).join(', ') })), noLogin: noLogin.map((e) => ({ employeeCode: e.employeeCode, name: e.name, branchCode: e.branch?.code || '', branchName: e.branch?.name || '' })) });
+  const taken = await AppUser.find({}).select('user employeeCode').lean();
+  const takenUserIds = new Set(taken.map((a) => String(a.user)));
+  const takenCodes = new Set(taken.map((a) => (a.employeeCode || '').toUpperCase()));
+  const blocked = await blockedCodes();
+
+  // 1. Active employees in HR
+  const employees = await Employee.find({
+    isDeleted: false,
+    status: 'active',
+    isBlocked: { $ne: true },
+  })
+    .populate('branch', 'code name')
+    .populate('designation', 'name')
+    .sort({ name: 1 })
+    .lean();
+
+  const employeeByCode = new Map(employees.map((e) => [e.employeeCode.toUpperCase(), e]));
+  const employeeByUserId = new Map(employees.filter((e) => e.user).map((e) => [String(e.user), e]));
+
+  // 2. All Users not yet in AppUser (including legacyImport and active users)
+  const users = await User.find({
+    _id: { $nin: Array.from(takenUserIds) },
+  })
+    .select('name employeeCode role branches mobile email isActive legacyImport')
+    .populate('branches', 'code name')
+    .sort({ name: 1 })
+    .lean();
+
+  const staffItems = [];
+  const seenCodes = new Set();
+  const seenIds = new Set();
+
+  for (const u of users) {
+    const code = (u.employeeCode || '').toUpperCase();
+    if (code && (takenCodes.has(code) || blocked.includes(code))) continue;
+
+    const emp = (code ? employeeByCode.get(code) : null) || employeeByUserId.get(String(u._id));
+    const finalCode = code || emp?.employeeCode || `EMP${String(u._id).slice(-4).toUpperCase()}`;
+
+    if (takenCodes.has(finalCode) || seenCodes.has(finalCode)) continue;
+    seenCodes.add(finalCode);
+    seenIds.add(String(u._id));
+
+    const branches = u.branches && u.branches.length ? u.branches : (emp?.branch ? [emp.branch] : []);
+    staffItems.push({
+      id: u._id,
+      employeeCode: finalCode,
+      name: u.name || emp?.name,
+      role: u.role || 'field_officer',
+      branches: branches.map((b) => b.code || b).join(', '),
+      branchCode: branches.map((b) => b.code || b).join(', '),
+      branchName: branches.map((b) => b.name || '').join(', '),
+    });
+  }
+
+  // Also include any active Employee who doesn't have a user account yet or whose user wasn't caught
+  for (const emp of employees) {
+    const code = emp.employeeCode.toUpperCase();
+    if (takenCodes.has(code) || seenCodes.has(code) || blocked.includes(code)) continue;
+
+    seenCodes.add(code);
+    staffItems.push({
+      id: emp.user || emp._id,
+      employeeCode: code,
+      name: emp.name,
+      role: emp.designation?.name || 'field_officer',
+      branches: emp.branch?.code || '—',
+      branchCode: emp.branch?.code || '—',
+      branchName: emp.branch?.name || '—',
+    });
+  }
+
+  res.json({
+    items: staffItems,
+    noLogin: [],
+  });
 }
 
 export async function createAppUser(req, res) {
   const b = req.body || {};
-  if (!mongoose.isValidObjectId(asString(b.user))) throw invalid({ user: 'Select the staff member' });
-  const u = await User.findOne({ _id: b.user, isActive: true });
-  if (!u || !u.employeeCode || (await blockedCodes()).includes(u.employeeCode)) throw invalid({ user: 'This staff member is not available (needs an active login and an employee code)' });
-  if (await AppUser.exists({ user: u._id })) throw new HttpError(409, 'This staff member is already an app user', { user: 'Already an app user' });
-  const a = await AppUser.create({ user: u._id, employeeCode: u.employeeCode, name: u.name, note: asString(b.note).slice(0, 100), createdBy: req.user._id, createdByCode: req.user.employeeCode || '' });
+  const targetId = asString(b.user);
+  if (!mongoose.isValidObjectId(targetId)) throw invalid({ user: 'Select the staff member' });
+
+  // targetId can be a User ID or an Employee ID
+  let u = await User.findById(targetId);
+  let emp = null;
+
+  if (!u) {
+    emp = await Employee.findById(targetId).populate('branch');
+    if (emp) {
+      u = await User.findOne({
+        $or: [
+          { employeeCode: new RegExp(`^${emp.employeeCode}$`, 'i') },
+          ...(emp.email ? [{ email: emp.email.toLowerCase() }] : []),
+          ...(emp.user ? [{ _id: emp.user }] : []),
+        ],
+      });
+      if (!u) {
+        u = await User.create({
+          name: emp.name,
+          email: emp.email || `${emp.employeeCode.toLowerCase()}@udgam.local`,
+          mobile: emp.mobile,
+          employeeCode: emp.employeeCode,
+          password: 'Password@123',
+          role: 'field_officer',
+          branches: emp.branch?._id ? [emp.branch._id] : [],
+          isActive: true,
+        });
+      }
+      if (!emp.user) {
+        emp.user = u._id;
+        await emp.save();
+      }
+    }
+  } else {
+    emp = await Employee.findOne({
+      $or: [
+        { user: u._id },
+        ...(u.employeeCode ? [{ employeeCode: new RegExp(`^${u.employeeCode}$`, 'i') }] : []),
+        ...(u.email ? [{ email: u.email.toLowerCase() }] : []),
+      ],
+      isDeleted: false,
+    }).populate('branch');
+  }
+
+  if (!u) throw invalid({ user: 'Staff member record not found' });
+
+  if (!u.employeeCode && emp?.employeeCode) {
+    u.employeeCode = emp.employeeCode;
+    await u.save();
+  }
+  if (!u.employeeCode) {
+    u.employeeCode = `EMP${String(u._id).slice(-4).toUpperCase()}`;
+    await u.save();
+  }
+
+  if (!u.isActive) {
+    u.isActive = true;
+    await u.save();
+  }
+
+  const blocked = await blockedCodes();
+  if (blocked.includes(u.employeeCode)) {
+    throw invalid({ user: 'This staff member is blocked from using the app' });
+  }
+
+  if (await AppUser.exists({ user: u._id })) {
+    throw new HttpError(409, 'This staff member is already an app user', { user: 'Already an app user' });
+  }
+
+  const a = await AppUser.create({
+    user: u._id,
+    employeeCode: u.employeeCode,
+    name: u.name || emp?.name,
+    note: asString(b.note).slice(0, 100),
+    createdBy: req.user._id,
+    createdByCode: req.user.employeeCode || '',
+    isActive: true,
+  });
+
   await audit(req, { action: 'appUser.create', entity: 'AppUser', entityId: a._id, after: { employeeCode: a.employeeCode, name: a.name } });
   res.status(201).json({ appUser: presentUser(a, u) });
 }
