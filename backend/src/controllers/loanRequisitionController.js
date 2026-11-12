@@ -253,6 +253,15 @@ export function getUnverifiedKycDocs(m) {
   if (m.pan || (m.kycKeys || []).includes('panPhoto')) {
     baseKeys.push('panPhoto');
   }
+
+  // Point 14: Mandatory Guarantor KYC documents for Requisition
+  if (m.guarantor?.name || (m.kycKeys || []).some((k) => k.startsWith('guarantor.'))) {
+    baseKeys.push('guarantor.photo', 'guarantor.signature', 'guarantor.aadhaarPhoto', 'guarantor.aadhaarBackPhoto', 'guarantor.jointPhoto');
+  }
+  if ((m.kycKeys || []).includes('guarantor.panPhoto')) {
+    baseKeys.push('guarantor.panPhoto');
+  }
+
   const allKeys = [...new Set([...baseKeys, ...(m.kycKeys || [])])].filter(
     (k) => !(k.startsWith('nominee.') && m.nominee?.sameAsGuarantor)
   );
@@ -266,7 +275,7 @@ export function getUnverifiedKycDocs(m) {
     if (status === 'rejected') {
       missingOrUnverified.push({ key: k, label, status: 'rejected' });
     } else if (status !== 'approved') {
-      missingOrUnverified.push({ key: k, label, status: 'pending' });
+      missingOrUnverified.push({ key: k, label, status: status || 'pending' });
     }
   }
   return missingOrUnverified;
@@ -356,6 +365,18 @@ export async function borrowerDetail(req, res) {
       state: m.state,
       mobile: FULL_MOBILE_ROLES.includes(req.user.role) ? m.mobile : maskMobile(m.mobile),
       guarantorName: m.guarantor?.name || '',
+      guarantor: m.guarantor ? {
+        name: m.guarantor.name || '',
+        relation: m.guarantor.relation || '',
+        mobile: m.guarantor.mobile || '',
+        aadhaar: m.guarantor.aadhaar || '',
+        pan: m.guarantor.pan || '',
+        photo: m.guarantor.photo || '',
+        signature: m.guarantor.signature || '',
+        aadhaarPhoto: m.guarantor.aadhaarPhoto || '',
+        aadhaarBackPhoto: m.guarantor.aadhaarBackPhoto || '',
+        jointPhoto: m.guarantor.jointPhoto || '',
+      } : null,
       previousLoanAmount: rupees(await previousLoanPaise(m._id)),
       runningSchemeIds: [...new Set([...(running || []), ...activeLoans.map((l) => l.schemeId)])],
       loans: activeLoans,
