@@ -254,6 +254,7 @@ export default function EmployeeEmiPayment() {
 
   // Submit Bulk EMI Collection (Save / Done)
   const handleSaveCollection = async () => {
+    if (submitting) return;
     if (isSunday) {
       setMessage({ text: 'EMI collections and Loan Requisitions are blocked on Sundays (Weekly Off).', type: 'error' });
       return;
@@ -758,10 +759,23 @@ export default function EmployeeEmiPayment() {
                             <div style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)', marginTop: 1 }}>
                               Code: <strong>{m.memberCode}</strong> • Loan A/c: <strong>{m.loanId}</strong>
                             </div>
+                            {/* EMI Amount directly under member name */}
+                            <div style={{ fontSize: '0.8rem', color: '#059669', fontWeight: 700, marginTop: 2, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                              <span>EMI Amount: ₹{Number(m.emiAmount || m.suggestedAmount || 0).toLocaleString('en-IN')}</span>
+                              {m.oldDue > 0 && (
+                                <span style={{ color: '#dc2626', fontWeight: 700, fontSize: '0.74rem' }}>
+                                  • Overdue: ₹{Number(m.oldDue).toLocaleString('en-IN')}
+                                </span>
+                              )}
+                            </div>
                             <div style={{ fontSize: '0.74rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
-                              Total Due: <strong>₹{Number(m.totalDue || m.emiAmount).toLocaleString('en-IN')}</strong>
-                              {m.todayPaidAmount > 0 && <span style={{ color: '#16a34a', fontWeight: 700 }}> • Collect: ₹{Number(m.todayPaidAmount).toLocaleString('en-IN')}</span>}
-                              {m.dueAmount > 0 && <span style={{ color: '#dc2626', fontWeight: 700 }}> • Due: ₹{Number(m.dueAmount).toLocaleString('en-IN')}</span>}
+                              <span>Total Due: <strong>₹{Number(m.totalDue || m.emiAmount).toLocaleString('en-IN')}</strong></span>
+                              {m.todayPaidAmount > 0 && (
+                                <span style={{ color: '#16a34a', fontWeight: 700 }}> • Collected: ₹{Number(m.todayPaidAmount).toLocaleString('en-IN')}</span>
+                              )}
+                              {m.dueAmount > 0 && m.dueAmount !== (m.totalDue || m.emiAmount) && (
+                                <span style={{ color: '#dc2626', fontWeight: 700 }}> • Remaining Due: ₹{Number(m.dueAmount).toLocaleString('en-IN')}</span>
+                              )}
                             </div>
                           </div>
 
@@ -770,13 +784,17 @@ export default function EmployeeEmiPayment() {
                               <span className="emp-badge emp-badge-warning" style={{ fontSize: '0.72rem' }}>
                                 Advance ₹{m.advanceAmount}
                               </span>
-                            ) : m.dueAmount > 0 ? (
+                            ) : m.dueAmount <= 0 || m.alreadyPaidToday ? (
+                              <span className="emp-badge emp-badge-success" style={{ fontSize: '0.72rem' }}>
+                                Paid
+                              </span>
+                            ) : m.oldDue > 0 ? (
                               <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#dc2626', background: '#fee2e2', padding: '2px 8px', borderRadius: 6 }}>
-                                Due ₹{m.dueAmount}
+                                Overdue ₹{m.dueAmount}
                               </span>
                             ) : (
-                              <span className="emp-badge emp-badge-success" style={{ fontSize: '0.72rem' }}>
-                                Regular
+                              <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#059669', background: '#ecfdf5', padding: '2px 8px', borderRadius: 6 }}>
+                                Due ₹{m.dueAmount}
                               </span>
                             )}
                           </div>
@@ -947,10 +965,23 @@ export default function EmployeeEmiPayment() {
                             <div style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)', marginTop: 1 }}>
                               Code: <strong>{item.memberCode}</strong> • Loan A/c: <strong>{item.loanId}</strong>
                             </div>
+                            {/* EMI Amount directly under member name */}
+                            <div style={{ fontSize: '0.8rem', color: '#059669', fontWeight: 700, marginTop: 2, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                              <span>EMI Amount: ₹{Number(item.emiAmount || item.suggestedAmount || 0).toLocaleString('en-IN')}</span>
+                              {item.oldDue > 0 && (
+                                <span style={{ color: '#dc2626', fontWeight: 700, fontSize: '0.74rem' }}>
+                                  • Overdue: ₹{Number(item.oldDue).toLocaleString('en-IN')}
+                                </span>
+                              )}
+                            </div>
                             <div style={{ fontSize: '0.74rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
-                              Total Due: <strong>₹{Number(item.totalDue || item.emiAmount).toLocaleString('en-IN')}</strong>
-                              {item.todayPaidAmount > 0 && <span style={{ color: '#16a34a', fontWeight: 700 }}> • Collect: ₹{Number(item.todayPaidAmount).toLocaleString('en-IN')}</span>}
-                              {item.dueAmount > 0 && <span style={{ color: '#dc2626', fontWeight: 700 }}> • Due: ₹{Number(item.dueAmount).toLocaleString('en-IN')}</span>}
+                              <span>Total Due: <strong>₹{Number(item.totalDue || item.emiAmount).toLocaleString('en-IN')}</strong></span>
+                              {item.todayPaidAmount > 0 && (
+                                <span style={{ color: '#16a34a', fontWeight: 700 }}> • Collected: ₹{Number(item.todayPaidAmount).toLocaleString('en-IN')}</span>
+                              )}
+                              {item.dueAmount > 0 && item.dueAmount !== (item.totalDue || item.emiAmount) && (
+                                <span style={{ color: '#dc2626', fontWeight: 700 }}> • Remaining Due: ₹{Number(item.dueAmount).toLocaleString('en-IN')}</span>
+                              )}
                             </div>
                           </div>
 
@@ -963,9 +994,13 @@ export default function EmployeeEmiPayment() {
                               <span className="emp-badge emp-badge-warning" style={{ fontSize: '0.72rem' }}>
                                 Advance ₹{item.advanceAmount}
                               </span>
-                            ) : (
+                            ) : item.dueAmount > 0 ? (
                               <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#dc2626', background: '#fee2e2', padding: '2px 8px', borderRadius: 6 }}>
                                 Due ₹{item.dueAmount}
+                              </span>
+                            ) : (
+                              <span className="emp-badge emp-badge-success" style={{ fontSize: '0.72rem' }}>
+                                Paid
                               </span>
                             )}
                           </div>

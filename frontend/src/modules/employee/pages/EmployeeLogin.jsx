@@ -155,18 +155,36 @@ export default function EmployeeLogin() {
 
         {error && (
           <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            padding: '10px 12px',
+            padding: '12px 14px',
             background: 'var(--emp-danger-light)',
             color: 'var(--emp-danger)',
             borderRadius: 8,
             fontSize: '0.85rem',
             marginBottom: 12
           }}>
-            <Icon name="alertcircle" size={16} />
-            <span>{error}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600 }}>
+              <Icon name="alertcircle" size={16} />
+              <span>{error}</span>
+            </div>
+            {error.toLowerCase().includes('supervisor') && (
+              <div style={{ marginTop: 10 }}>
+                <Link
+                  to="/supervisor/login"
+                  style={{
+                    display: 'inline-block',
+                    padding: '8px 14px',
+                    background: '#059669',
+                    color: '#fff',
+                    borderRadius: 6,
+                    fontSize: '0.8rem',
+                    fontWeight: 700,
+                    textDecoration: 'none'
+                  }}
+                >
+                  Go to Supervisor App ➔
+                </Link>
+              </div>
+            )}
           </div>
         )}
 

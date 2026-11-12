@@ -35,6 +35,7 @@ import { sendMail, mailConfigured } from '../../services/mailer.js';
 import { elBalance } from '../../services/earnedLeave.js';
 import { assertNotSundayOrHoliday } from '../../services/holidays.js';
 import { borrowerState } from '../../controllers/emiController.js';
+import { isEmployeeSupervisor } from '../supervisor/supervisorAppController.js';
 import { asString, parseDateOnly, HttpError, startOfToday, todayDateString } from '../../utils/http.js';
 import { audit } from '../../utils/audit.js';
 
@@ -165,6 +166,18 @@ export async function lookupEmployee(req, res) {
   const emp = await findEmployee(identifier);
   if (!emp) throw new HttpError(404, 'Employee record not found in system. Please contact Admin/HR to register you first.');
 
+  const user = await User.findOne({
+    $or: [
+      { employeeCode: emp.employeeCode },
+      ...(emp.user ? [{ _id: emp.user }] : []),
+      ...(emp.email ? [{ email: emp.email.toLowerCase() }] : []),
+    ],
+  }).lean();
+
+  if (isEmployeeSupervisor(emp, user)) {
+    throw new HttpError(403, 'Access denied: You are registered as a Supervisor. Please use the Supervisor App.');
+  }
+
   const mpinRecord = await EmployeeMpin.findOne({ employeeCode: emp.employeeCode });
   const desig = emp.designation?.name || (typeof emp.designation === 'string' ? emp.designation : 'Field Officer');
   const dept = emp.department?.name || (typeof emp.department === 'string' ? emp.department : 'Operations');
@@ -241,6 +254,10 @@ export async function loginWithMpin(req, res) {
   if (!ok) throw new HttpError(401, 'Incorrect mPIN');
 
   const user = await ensureUserForEmployee(emp);
+  if (isEmployeeSupervisor(emp, user)) {
+    throw new HttpError(403, 'Access denied: You are registered as a Supervisor. Please use the Supervisor App.');
+  }
+
   mpinDoc.lastLoginAt = new Date();
   await mpinDoc.save();
 
@@ -631,13 +648,15 @@ export async function getTodayDueList(req, res) {
     loanPayment: { $in: loanIds },
     status: 'paid',
     paidOn: { $gte: startDay, $lte: asOf },
-  }).select('loanPayment memberCode amountPaise').lean() : [];
+  }).select('loanPayment memberCode amountPaise receiptNo').lean() : [];
+
+  const paidReceipts = new Set(paidToday.map((p) => p.receiptNo).filter(Boolean));
 
   const appPaidToday = loanIds.length ? await AppEmiCollection.find({
     loanPayment: { $in: loanIds },
-    status: { $in: ['pending', 'approved'] },
+    status: 'pending',
     collectedOn: { $gte: startDay, $lte: asOf },
-  }).select('loanPayment memberCode amountPaise').lean() : [];
+  }).select('loanPayment memberCode amountPaise receiptNo').lean() : [];
 
   const paidTodayMap = new Map();
   for (const p of paidToday) {
@@ -645,6 +664,7 @@ export async function getTodayDueList(req, res) {
     paidTodayMap.set(k, (paidTodayMap.get(k) || 0) + (p.amountPaise || 0) / 100);
   }
   for (const ap of appPaidToday) {
+    if (ap.receiptNo && paidReceipts.has(ap.receiptNo)) continue;
     const k = `${String(ap.loanPayment)}_${ap.memberCode}`;
     paidTodayMap.set(k, (paidTodayMap.get(k) || 0) + (ap.amountPaise || 0) / 100);
   }
@@ -2674,11 +2694,14 @@ export async function getGroupEmiMembers(req, res) {
     status: 'paid',
   }).lean();
 
+  const allPastReceipts = new Set(allPastPayments.map((p) => p.receiptNo).filter(Boolean));
+
+  // Only include pending AppEmiCollections that DO NOT already have a corresponding EmiPayment
   const appCollections = allLoanIds.length ? await AppEmiCollection.find({
     loanPayment: { $in: allLoanIds },
-    status: { $in: ['pending', 'approved'] },
+    status: 'pending',
     collectedOn: { $gte: startDay, $lte: endDay },
-  }).select('loanPayment memberCode amountPaise').lean() : [];
+  }).select('loanPayment memberCode amountPaise receiptNo').lean() : [];
 
   const paymentsByKey = new Map();
   for (const p of allPastPayments) {
@@ -2691,6 +2714,8 @@ export async function getGroupEmiMembers(req, res) {
     paymentsByKey.set(k, cur);
   }
   for (const ac of appCollections) {
+    // Avoid double counting if already present in allPastPayments!
+    if (ac.receiptNo && allPastReceipts.has(ac.receiptNo)) continue;
     const k = `${String(ac.loanPayment)}_${ac.memberCode}`;
     const cur = paymentsByKey.get(k) || { totalPaise: 0, todayPaise: 0 };
     cur.todayPaise += (ac.amountPaise || 0);
@@ -2817,8 +2842,9 @@ export async function collectBulkEmi(req, res) {
         status: 'paid',
       });
 
-      // Also record in AppEmiCollection so it appears in App Section -> Loan EMI Collection Approval
+      // Also record in AppEmiCollection with receiptNo linked so it does not duplicate with EmiPayment
       await AppEmiCollection.create({
+        receiptNo: doc.receiptNo,
         loanPayment: p._id,
         loanId: p.loanId || p.formId,
         branch: p.branch?._id || p.branch,
@@ -2832,8 +2858,7 @@ export async function collectBulkEmi(req, res) {
         reference: it.reference || reference || '',
         collectedBy: req.user._id,
         collectedByCode: staffCode,
-        status: 'pending',
-        receiptNo: doc.receiptNo,
+        status: 'approved', // Already received and created as paid EmiPayment
       }).catch(() => {});
 
       results.push({

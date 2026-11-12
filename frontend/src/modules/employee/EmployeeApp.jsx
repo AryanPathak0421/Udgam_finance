@@ -37,13 +37,44 @@ import EmployeeNotifications from './pages/EmployeeNotifications.jsx';
 import './employee.css';
 
 function EmployeeAppRoutes() {
-  const { empUser, loading } = useEmployeeApp();
+  const { empUser, loading, logout } = useEmployeeApp();
   const location = useLocation();
 
   if (loading) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: 'var(--emp-bg)' }}>
         <div style={{ color: 'var(--emp-primary)', fontWeight: 700 }}>Loading Employee Portal...</div>
+      </div>
+    );
+  }
+
+  // Guard: If logged in as Supervisor, redirect to Supervisor App
+  if (empUser && (empUser.isSupervisor || ['supervisor', 'branch_manager', 'area_manager'].includes(empUser.role))) {
+    return (
+      <div className="emp-app-shell">
+        <div className="emp-app-container" style={{ padding: '40px 20px', textAlign: 'center', justifyContent: 'center', minHeight: '80vh' }}>
+          <div style={{ fontSize: '3rem', marginBottom: 12 }}>🛡️</div>
+          <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--emp-text)' }}>Supervisor Account Detected</h2>
+          <p style={{ fontSize: '0.88rem', color: 'var(--emp-text-muted)', margin: '10px 0 24px', lineHeight: 1.5 }}>
+            You are signed in with a Supervisor profile (<strong>{empUser.name}</strong>). The Employee App is for field staff only. Please switch to the dedicated Supervisor App.
+          </p>
+          <a
+            href="/supervisor"
+            className="emp-btn-primary"
+            style={{ display: 'inline-block', padding: '12px 24px', textDecoration: 'none', fontWeight: 800, borderRadius: 8 }}
+          >
+            Go to Supervisor App ➔
+          </a>
+          <div style={{ marginTop: 20 }}>
+            <button
+              type="button"
+              onClick={logout}
+              style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600 }}
+            >
+              Log out and use field staff account
+            </button>
+          </div>
+        </div>
       </div>
     );
   }

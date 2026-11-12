@@ -322,6 +322,9 @@ export default function EmployeeTodayDue() {
                   <div style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
                     Code: <strong>{d.memberCode}</strong> | Group: <strong>{d.groupName}</strong>
                   </div>
+                  <div style={{ fontSize: '0.8rem', color: '#059669', fontWeight: 700, marginTop: 2 }}>
+                    EMI Amount: ₹{Number(d.installmentAmount || d.emiAmount || 0).toLocaleString('en-IN')}
+                  </div>
                   {d.groupActualCollection > 0 && (
                     <div style={{ fontSize: '0.72rem', color: '#0369a1', marginTop: 3, background: '#f0f9ff', padding: '2px 8px', borderRadius: 4, display: 'inline-block' }}>
                       Whole Group Actual: <strong>₹{Number(d.groupActualCollection).toLocaleString('en-IN')}</strong> • Collect: <strong style={{ color: '#16a34a' }}>₹{Number(d.groupTotalCollected || 0).toLocaleString('en-IN')}</strong> • Due: <strong style={{ color: '#dc2626' }}>₹{Number(d.groupPendingDue || 0).toLocaleString('en-IN')}</strong>
