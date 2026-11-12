@@ -491,6 +491,18 @@ export async function groupDetail(req, res) {
         unverifiedDocs: getUnverifiedKycDocs(m),
         // shown with the member's loan on the group form
         guarantorName: m.guarantor?.name || '',
+        guarantor: m.guarantor ? {
+          name: m.guarantor.name || '',
+          relation: m.guarantor.relation || '',
+          mobile: m.guarantor.mobile || '',
+          aadhaar: m.guarantor.aadhaar || '',
+          pan: m.guarantor.pan || '',
+          photo: m.guarantor.photo || '',
+          signature: m.guarantor.signature || '',
+          aadhaarPhoto: m.guarantor.aadhaarPhoto || '',
+          aadhaarBackPhoto: m.guarantor.aadhaarBackPhoto || '',
+          jointPhoto: m.guarantor.jointPhoto || '',
+        } : null,
         previousLoan: rupees(prevLoans.get(String(m._id)) || 0),
         civilScore: civil.get(String(m._id)) ?? null,
         // schemes in which this member still has an unfinished loan
