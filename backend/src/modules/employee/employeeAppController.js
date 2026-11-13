@@ -78,7 +78,7 @@ async function findEmployee(identifier) {
   const last10 = digits.length >= 10 ? digits.slice(-10) : '';
   const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(id);
 
-  const query = { isDeleted: false };
+  const query = { isDeleted: { $ne: true } };
   if (isEmail) {
     query.email = id.toLowerCase();
   } else if (last10) {
@@ -110,9 +110,9 @@ async function findEmployee(identifier) {
     }
     const user = await User.findOne(userQuery);
     if (user) {
-      emp = await Employee.findOne({ user: user._id, isDeleted: false }).populate('branch', 'code name city pincode').populate('department', 'name').populate('designation', 'name');
+      emp = await Employee.findOne({ user: user._id, isDeleted: { $ne: true } }).populate('branch', 'code name city pincode').populate('department', 'name').populate('designation', 'name');
       if (!emp && user.employeeCode) {
-        emp = await Employee.findOne({ employeeCode: user.employeeCode, isDeleted: false }).populate('branch', 'code name city pincode').populate('department', 'name').populate('designation', 'name');
+        emp = await Employee.findOne({ employeeCode: user.employeeCode, isDeleted: { $ne: true } }).populate('branch', 'code name city pincode').populate('department', 'name').populate('designation', 'name');
         if (emp) {
           emp.user = user._id;
           await emp.save();
@@ -211,21 +211,21 @@ export async function getEmployeeContext(req) {
   if (code) {
     emp = await Employee.findOne({
       employeeCode: new RegExp(`^${code}$`, 'i'),
-      isDeleted: false,
+      isDeleted: { $ne: true },
     }).populate('branch', 'code name city pincode').lean();
   }
 
   if (!emp && user?._id) {
     emp = await Employee.findOne({
       user: user._id,
-      isDeleted: false,
+      isDeleted: { $ne: true },
     }).populate('branch', 'code name city pincode').lean();
   }
 
   if (!emp && user?.email) {
     emp = await Employee.findOne({
       email: user.email.toLowerCase(),
-      isDeleted: false,
+      isDeleted: { $ne: true },
     }).populate('branch', 'code name city pincode').lean();
   }
 
@@ -234,9 +234,24 @@ export async function getEmployeeContext(req) {
     if (last10) {
       emp = await Employee.findOne({
         mobile: { $regex: `${last10}$` },
-        isDeleted: false,
+        isDeleted: { $ne: true },
       }).populate('branch', 'code name city pincode').lean();
     }
+  }
+
+  if (!emp && user) {
+    const userCode = user.employeeCode || `EMP${String(user._id).slice(-4).toUpperCase()}`;
+    const newEmp = await Employee.create({
+      employeeCode: userCode,
+      user: user._id,
+      name: user.name || user.username || 'Employee',
+      email: user.email,
+      mobile: user.mobile,
+      branch: (user.branches || [])[0],
+      status: user.isActive === false ? 'left' : 'active',
+      isDeleted: false,
+    });
+    emp = await Employee.findById(newEmp._id).populate('branch', 'code name city pincode').lean();
   }
 
   const resolvedCode = (emp?.employeeCode || code || '').trim().toUpperCase();
@@ -287,7 +302,7 @@ export async function createMpin(req, res) {
   if (!code) throw new HttpError(400, 'Employee code is required');
   if (!/^\d{4,6}$/.test(mpin)) throw new HttpError(400, 'mPIN must be 4 to 6 digits');
 
-  const emp = await Employee.findOne({ employeeCode: code, isDeleted: false }).populate('designation');
+  const emp = await Employee.findOne({ employeeCode: code, isDeleted: { $ne: true } }).populate('designation');
   if (!emp) throw new HttpError(404, 'Employee not found');
 
   // Prevent unlimited mPIN recreation / overwrite without OTP
