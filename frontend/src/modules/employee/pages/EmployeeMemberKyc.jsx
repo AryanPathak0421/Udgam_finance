@@ -28,6 +28,7 @@ export default function EmployeeMemberKyc() {
   // Phone Change OTP state
   const [showPhoneModal, setShowPhoneModal] = useState(false);
   const [newMobile, setNewMobile] = useState('');
+  const [phoneChallengeId, setPhoneChallengeId] = useState('');
   const [phoneStep, setPhoneStep] = useState(1); // 1: input phone, 2: enter otp
   const [phoneOtp, setPhoneOtp] = useState('');
   const [phoneDevOtp, setPhoneDevOtp] = useState('');
@@ -129,7 +130,8 @@ export default function EmployeeMemberKyc() {
 
   const handleSendPhoneOtp = async (e) => {
     e?.preventDefault();
-    if (!/^\d{10}$/.test(newMobile.trim())) {
+    const cleanNum = newMobile.trim().replace(/\D/g, '').slice(-10);
+    if (!/^\d{10}$/.test(cleanNum)) {
       setPhoneError('Please enter a valid 10-digit mobile number');
       return;
     }
@@ -137,8 +139,9 @@ export default function EmployeeMemberKyc() {
     setPhoneError('');
     try {
       const res = await api.employeeApp.sendPhoneChangeOtp(member.id || member._id || member.code, {
-        newMobile: newMobile.trim(),
+        newMobile: cleanNum,
       });
+      if (res.challengeId) setPhoneChallengeId(res.challengeId);
       if (res.devOtp) setPhoneDevOtp(res.devOtp);
       setPhoneStep(2);
     } catch (err) {
@@ -150,7 +153,9 @@ export default function EmployeeMemberKyc() {
 
   const handleVerifyPhoneOtp = async (e) => {
     e?.preventDefault();
-    if (!/^\d{6}$/.test(phoneOtp.trim())) {
+    const cleanNum = newMobile.trim().replace(/\D/g, '').slice(-10);
+    const otpClean = phoneOtp.trim();
+    if (!/^\d{4,6}$/.test(otpClean)) {
       setPhoneError('Enter the 6-digit OTP');
       return;
     }
@@ -158,14 +163,16 @@ export default function EmployeeMemberKyc() {
     setPhoneError('');
     try {
       await api.employeeApp.verifyPhoneChange(member.id || member._id || member.code, {
-        newMobile: newMobile.trim(),
-        otp: phoneOtp.trim(),
+        newMobile: cleanNum,
+        otp: otpClean,
+        challengeId: phoneChallengeId,
       });
-      setSuccessMsg(`Mobile number successfully updated to +91 ${newMobile.trim()}!`);
+      setSuccessMsg(`Mobile number successfully updated to +91 ${cleanNum}!`);
       setShowPhoneModal(false);
       setPhoneStep(1);
       setNewMobile('');
       setPhoneOtp('');
+      setPhoneChallengeId('');
       loadMemberKyc(member.code || member.id || member._id);
       fetchRecent();
     } catch (err) {

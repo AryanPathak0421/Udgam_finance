@@ -265,7 +265,7 @@ export default function BorrowerSynopsis() {
                     <td data-label="Members" className="num">{g.memberCount}</td>
                     <td data-label="Added on">{fmtTime(g.addedAt)}</td>
                     <td data-label="Added by">{g.addedBy ? `${g.addedBy.name}${g.addedBy.employeeCode ? ` · ${g.addedBy.employeeCode}` : ''}` : '—'}</td>
-                    <td data-label="Status"><span className={`badge ${g.isActive ? 'green' : 'grey'}`}>{g.isActive ? 'Active' : 'Inactive'}</span></td>
+                    <td data-label="Status"><span className={`badge ${g.isCurrent ? 'green' : 'grey'}`}>{g.statusLabel || (g.isCurrent ? 'Active' : 'Previous / Transferred')}</span></td>
                   </tr>
                 ))}
               </tbody>

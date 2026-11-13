@@ -118,10 +118,28 @@ export default function EmployeeNpaRecovery() {
     }
   };
 
-  // Filter options for dropdowns
+  // Filter options for dropdowns (Item 18 Fix: Center & Staff options mapped with label & code)
   const branchOptions = Array.from(new Set(npaLoans.map((i) => i.branchName).filter(Boolean)));
-  const centerOptions = Array.from(new Set(npaLoans.map((i) => i.groupName).filter(Boolean)));
-  const staffOptions = Array.from(new Set(npaLoans.map((i) => i.staffCode).filter(Boolean)));
+
+  const centerMap = new Map();
+  npaLoans.forEach((i) => {
+    const val = i.groupCode || i.groupName;
+    if (val && !centerMap.has(val)) {
+      const label = i.groupCode && i.groupName && i.groupCode !== i.groupName
+        ? `${i.groupCode} — ${i.groupName}`
+        : (i.groupName || i.groupCode);
+      centerMap.set(val, label);
+    }
+  });
+
+  const staffMap = new Map();
+  npaLoans.forEach((i) => {
+    const code = (i.staffCode || '').trim();
+    if (code && !staffMap.has(code)) {
+      const label = i.staffName && i.staffName !== code ? `${code} — ${i.staffName}` : code;
+      staffMap.set(code, label);
+    }
+  });
 
   // Filter NPA loans by dropdowns, search, category, and Point 15 Loan Kind
   const filteredNpa = npaLoans.filter((item) => {
@@ -145,8 +163,29 @@ export default function EmployeeNpaRecovery() {
     }
 
     if (selectedBranch !== 'all' && item.branchName !== selectedBranch) return false;
-    if (selectedCenter !== 'all' && item.groupName !== selectedCenter) return false;
-    if (selectedStaff !== 'all' && item.staffCode !== selectedStaff) return false;
+
+    // Item 18 Fix: Robust case-insensitive Center matching
+    if (selectedCenter !== 'all') {
+      const sc = selectedCenter.toLowerCase();
+      const matchCenter =
+        (item.groupCode && item.groupCode.toLowerCase() === sc) ||
+        (item.groupName && item.groupName.toLowerCase() === sc) ||
+        (item.groupCode && sc.includes(item.groupCode.toLowerCase())) ||
+        (item.groupName && sc.includes(item.groupName.toLowerCase()));
+      if (!matchCenter) return false;
+    }
+
+    // Item 18 Fix: Robust case-insensitive Staff matching
+    if (selectedStaff !== 'all') {
+      const ss = selectedStaff.toLowerCase();
+      const matchStaff =
+        (item.staffCode && item.staffCode.toLowerCase() === ss) ||
+        (item.staffName && item.staffName.toLowerCase() === ss) ||
+        (item.staffCode && ss.includes(item.staffCode.toLowerCase())) ||
+        (item.staffName && ss.includes(item.staffName.toLowerCase()));
+      if (!matchStaff) return false;
+    }
+
     if (categoryFilter !== 'all' && (item.npaCategory || '').toLowerCase() !== categoryFilter.toLowerCase()) {
       return false;
     }
@@ -205,8 +244,8 @@ export default function EmployeeNpaRecovery() {
               style={{ fontSize: '0.8rem', padding: '6px 8px', width: '100%' }}
             >
               <option value="all">All Centers</option>
-              {centerOptions.map((c) => (
-                <option key={c} value={c}>{c}</option>
+              {Array.from(centerMap.entries()).map(([val, label]) => (
+                <option key={val} value={val}>{label}</option>
               ))}
             </select>
           </div>
@@ -219,8 +258,8 @@ export default function EmployeeNpaRecovery() {
               style={{ fontSize: '0.8rem', padding: '6px 8px', width: '100%' }}
             >
               <option value="all">All Staff</option>
-              {staffOptions.map((s) => (
-                <option key={s} value={s}>{s}</option>
+              {Array.from(staffMap.entries()).map(([code, label]) => (
+                <option key={code} value={code}>{label}</option>
               ))}
             </select>
           </div>

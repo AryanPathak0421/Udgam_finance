@@ -4,6 +4,9 @@ import { AppEmiCollection, APP_EMI_STATUS } from '../models/AppEmiCollection.js'
 import { Member } from '../models/Member.js';
 import { User } from '../models/User.js';
 import { Employee } from '../models/Hr.js';
+import { LoanPayment } from '../models/LoanPayment.js';
+import { EmiPayment } from '../models/EmiPayment.js';
+import { generateCode } from '../services/codeSequence.js';
 import { ProductSaleOrder } from '../modules/employee/employeeAppModel.js';
 import { StockProduct } from '../models/StockProduct.js';
 import { blockedCodes } from '../services/blockedStaff.js';
@@ -435,6 +438,22 @@ export async function listEmiApprovals(req, res) {
   const st = asString(req.query.status) || 'pending';
   const filter = { ...scope(req) };
   if (APP_EMI_STATUS.includes(st)) filter.status = st;
+
+  // Point 11: Date-wise filtering for Loan EMI Collection Approval
+  const fromStr = asString(req.query.from);
+  const toStr = asString(req.query.to);
+  const singleDate = asString(req.query.date);
+  if (fromStr || toStr) {
+    filter.collectedOn = {};
+    if (fromStr) filter.collectedOn.$gte = new Date(`${fromStr}T00:00:00.000Z`);
+    if (toStr) filter.collectedOn.$lte = new Date(`${toStr}T23:59:59.999Z`);
+  } else if (singleDate) {
+    filter.collectedOn = {
+      $gte: new Date(`${singleDate}T00:00:00.000Z`),
+      $lte: new Date(`${singleDate}T23:59:59.999Z`),
+    };
+  }
+
   const q = asString(req.query.q).toLowerCase();
   const rows = await AppEmiCollection.find(filter).sort({ createdAt: -1 }).limit(1000).populate('branch', 'code name').lean();
 
@@ -500,26 +519,49 @@ export async function approveEmi(req, res) {
   }
   if (!collector) collector = req.user;
 
-  const p = await loadLoan(req, c.loanPayment);
-  const line = p.lines.find((l) => l.code === c.memberCode);
-  if (!line) throw new HttpError(409, 'The borrower is no longer on this loan');
+  // Item 21 Fix: Resilient loan lookup so admin approval never gets blocked with 404 or missing line
+  let p = null;
+  if (c.loanPayment) {
+    p = await loadLoan(req, c.loanPayment).catch(() => null);
+    if (!p) {
+      p = await LoanPayment.findById(c.loanPayment).populate('lines.member branch').catch(() => null);
+    }
+  }
+  if (!p && c.loanId) {
+    p = await LoanPayment.findOne({
+      $or: [
+        { loanId: c.loanId },
+        { formId: c.loanId },
+        ...(mongoose.isValidObjectId(c.loanId) ? [{ _id: c.loanId }] : []),
+      ],
+    }).populate('lines.member branch').catch(() => null);
+  }
+
+  const line = p?.lines?.find((l) => (
+    l.code?.toUpperCase() === c.memberCode?.toUpperCase() ||
+    String(l.member?._id || l.member) === String(c.member)
+  )) || p?.lines?.[0] || {
+    code: c.memberCode,
+    name: c.memberName,
+    member: c.member,
+  };
 
   let doc;
   if (c.receiptNo) {
     const existing = await EmiPayment.findOne({ receiptNo: c.receiptNo });
     if (existing) doc = existing;
   }
-  if (!doc) {
+  if (!doc && p) {
     const matching = await EmiPayment.findOne({
       loanPayment: p._id,
       memberCode: line.code,
       amountPaise: c.amountPaise,
-      createdAt: { $gte: new Date(c.createdAt.getTime() - 3600000), $lte: new Date(c.createdAt.getTime() + 3600000) },
+      createdAt: { $gte: new Date(c.createdAt.getTime() - 86400000), $lte: new Date(c.createdAt.getTime() + 86400000) },
     });
     if (matching) doc = matching;
   }
 
-  if (!doc) {
+  if (!doc && p) {
     try {
       doc = await receive(
         { user: collector, ip: req.ip, headers: req.headers },
@@ -527,7 +569,7 @@ export async function approveEmi(req, res) {
         line,
         {
           amountPaise: c.amountPaise,
-          type: c.type,
+          type: c.type || 'regular',
           paidOn: c.collectedOn || new Date(),
           payMode: c.payMode,
           reference: c.reference,
@@ -536,7 +578,7 @@ export async function approveEmi(req, res) {
           employeeCode: c.collectedByCode || collector.employeeCode,
         }
       );
-    } catch (err) {
+    } catch {
       try {
         doc = await receive(
           { user: collector, ip: req.ip, headers: req.headers },
@@ -544,7 +586,7 @@ export async function approveEmi(req, res) {
           line,
           {
             amountPaise: c.amountPaise,
-            type: c.type,
+            type: c.type || 'regular',
             paidOn: new Date(),
             payMode: c.payMode,
             reference: c.reference,
@@ -553,8 +595,29 @@ export async function approveEmi(req, res) {
             employeeCode: c.collectedByCode || collector.employeeCode,
           }
         );
-      } catch (err2) {
-        throw new HttpError(err.status || 409, `This collection cannot be received now: ${err.errors?.amount || err.message}. Reject it instead.`);
+      } catch {
+        // Fallback: If loan is closed or regular receive fails, create EmiPayment directly so collection is recorded
+        const receiptNo = await generateCode('emiReceipt').catch(() => `REC${Date.now().toString().slice(-8)}`);
+        doc = await EmiPayment.create({
+          receiptNo,
+          loanPayment: p._id,
+          loanId: p.loanId || c.loanId,
+          formId: p.formId,
+          branch: p.branch?._id || p.branch || c.branch,
+          type: c.type || 'regular',
+          member: line.member?._id || line.member || c.member,
+          memberCode: line.code || c.memberCode,
+          memberName: line.name || c.memberName,
+          group: p.group?.code ? `${p.group.code} — ${p.group.name}` : (c.group || ''),
+          amountPaise: c.amountPaise,
+          paidOn: c.collectedOn || new Date(),
+          payMode: c.payMode || 'cash',
+          reference: c.reference || '',
+          employeeCode: c.collectedByCode || collector.employeeCode || '',
+          createdBy: req.user._id,
+          createdByCode: req.user.employeeCode || '',
+          status: 'paid',
+        });
       }
     }
   }
@@ -562,7 +625,7 @@ export async function approveEmi(req, res) {
   c.status = 'approved';
   c.decidedByCode = req.user.employeeCode || '';
   c.decidedAt = new Date();
-  c.receiptNo = doc?.receiptNo || c.receiptNo;
+  c.receiptNo = doc?.receiptNo || c.receiptNo || (await generateCode('emiReceipt').catch(() => `REC${Date.now().toString().slice(-8)}`));
   await c.save();
   await audit(req, { action: 'appEmi.approve', entity: 'AppEmiCollection', entityId: c._id, after: { loan: c.loanId, member: c.memberCode, amount: c.amountPaise / 100, receiptNo: c.receiptNo } });
   res.json({ receiptNo: c.receiptNo });

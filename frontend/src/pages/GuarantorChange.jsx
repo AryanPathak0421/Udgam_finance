@@ -98,6 +98,7 @@ export default function GuarantorChange() {
     if (!form.aadhaarPhoto) found.aadhaarPhoto = 'Aadhaar front photo is required';
     if (!form.aadhaarBackPhoto) found.aadhaarBackPhoto = 'Aadhaar back photo is required';
     if (form.pan && !form.panPhoto) found.panPhoto = 'PAN photo is required when a PAN is given';
+    if (!form.jointPhoto) found.jointPhoto = 'Member & guarantor joint photo is required';
     if (form.reason.trim().length < 3) found.reason = 'Enter the reason for the change';
     setErrors(found);
     if (Object.keys(found).length) return toast.error('Please correct the highlighted fields');
@@ -173,13 +174,27 @@ export default function GuarantorChange() {
 
       <div className="panel" style={{ padding: 16, marginBottom: 14 }}>
         <h3 className="section-title">Member details</h3>
-        <DetailList
-          items={[
-            ['Member code', member.code], ['Branch', member.branch ? `${member.branch.code} — ${member.branch.name}` : ''],
-            ['Mobile', member.mobile], ['Aadhaar', member.aadhaar],
-            ['Address', `${member.address}, ${member.district}, ${member.state} - ${member.pincode}`], ['Employee ID', member.employeeCode],
-          ]}
-        />
+        <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          {(member.photo || member.memberPhoto) && (
+            <div style={{ textAlign: 'center' }}>
+              <div className="detail-label" style={{ marginBottom: 4 }}>Member Photo</div>
+              <img
+                src={member.photo || member.memberPhoto}
+                alt="Member"
+                style={{ width: 100, height: 100, objectFit: 'cover', borderRadius: 8, border: '2px solid #0284c7' }}
+              />
+            </div>
+          )}
+          <div style={{ flex: 1, minWidth: 260 }}>
+            <DetailList
+              items={[
+                ['Member code', member.code], ['Branch', member.branch ? `${member.branch.code} — ${member.branch.name}` : ''],
+                ['Mobile', member.mobile], ['Aadhaar', member.aadhaar],
+                ['Address', `${member.address}, ${member.district}, ${member.state} - ${member.pincode}`], ['Employee ID', member.employeeCode],
+              ]}
+            />
+          </div>
+        </div>
       </div>
 
       {!member.guarantor ? (
@@ -220,14 +235,14 @@ export default function GuarantorChange() {
                   <input id="reason" value={form.reason} onChange={set('reason')} maxLength={200} />
                 </FormField>
               </div>
-              <h3 className="section-title">Photos</h3>
+              <h3 className="section-title">Photos (Member &amp; Guarantor Own + Joint Photos)</h3>
               <div className="form-grid">
-                <PhotoField id="photo" label="Guarantor photo" required value={form.photo} error={errors.photo} onChange={setPhoto('photo')} />
-                <PhotoField id="signature" label="Signature" required value={form.signature} error={errors.signature} onChange={setPhoto('signature')} />
-                <PhotoField id="aadhaarPhoto" label="Aadhaar front photo" required value={form.aadhaarPhoto} error={errors.aadhaarPhoto} onChange={setPhoto('aadhaarPhoto')} />
-                <PhotoField id="aadhaarBackPhoto" label="Aadhaar back photo" required value={form.aadhaarBackPhoto} error={errors.aadhaarBackPhoto} onChange={setPhoto('aadhaarBackPhoto')} />
+                <PhotoField id="photo" label="Guarantor own photo *" required value={form.photo} error={errors.photo} onChange={setPhoto('photo')} />
+                <PhotoField id="jointPhoto" label="Member & guarantor joint photo *" required value={form.jointPhoto} error={errors.jointPhoto} onChange={setPhoto('jointPhoto')} />
+                <PhotoField id="signature" label="Signature *" required value={form.signature} error={errors.signature} onChange={setPhoto('signature')} />
+                <PhotoField id="aadhaarPhoto" label="Aadhaar front photo *" required value={form.aadhaarPhoto} error={errors.aadhaarPhoto} onChange={setPhoto('aadhaarPhoto')} />
+                <PhotoField id="aadhaarBackPhoto" label="Aadhaar back photo *" required value={form.aadhaarBackPhoto} error={errors.aadhaarBackPhoto} onChange={setPhoto('aadhaarBackPhoto')} />
                 <PhotoField id="panPhoto" label="PAN photo" required={Boolean(form.pan)} value={form.panPhoto} error={errors.panPhoto} onChange={setPhoto('panPhoto')} />
-                <PhotoField id="jointPhoto" label="Member & guarantor joint photo (optional)" value={form.jointPhoto} error={errors.jointPhoto} onChange={setPhoto('jointPhoto')} />
               </div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>

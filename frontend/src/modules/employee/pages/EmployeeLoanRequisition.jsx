@@ -722,7 +722,10 @@ export default function EmployeeLoanRequisition() {
       .catch(async () => {
         const m = await api.employeeApp.memberSynopsis(debouncedSearch.trim()).catch(() => null);
         if (live && m?.member && !m.member.isBlocked) {
-          setBorrowerCandidates([{ id: m.member._id, code: m.member.code, name: m.member.name, mobile: m.member.mobile, isBlocked: m.member.isBlocked }]);
+          const mBranch = String(m.member.branch?._id || m.member.branch || '');
+          if (!selectedBranch || !mBranch || mBranch === String(selectedBranch)) {
+            setBorrowerCandidates([{ id: m.member._id, code: m.member.code, name: m.member.name, mobile: m.member.mobile, isBlocked: m.member.isBlocked }]);
+          }
         }
       })
       .finally(() => {
@@ -1061,10 +1064,10 @@ export default function EmployeeLoanRequisition() {
       if (!otpChallengeId) found['business.otp'] = 'Registered Mobile OTP verification is mandatory for Business / MSME loan';
       if (!biz.businessName.trim()) found['business.name'] = 'Enter business name';
       if (!biz.gstNumber.trim() || biz.gstNumber.trim().length !== 15) found['business.gst'] = 'Enter valid 15-character GST number';
-      if (biz.loanType === 'msme' && !biz.udgamNumber.trim()) found['business.udgam'] = 'Udyam Registration Number is required';
+      if (['msme', 'business'].includes(biz.loanType) && !biz.udgamNumber.trim()) found['business.udgam'] = 'Udyam Registration Number is required';
       if (!biz.shopPhotos[0] || !biz.shopPhotos[1] || !biz.shopPhotos[2]) found['business.photos'] = 'All 3 shop photos (including Staff+Shop) are required';
       if (!biz.bankStatement) found['business.bank'] = 'Upload bank statement';
-      if (biz.loanType === 'msme' && !biz.udyamCertificate) found['business.udyamCert'] = 'Upload Udyam Certificate';
+      if (['msme', 'business'].includes(biz.loanType) && !biz.udyamCertificate) found['business.udyamCert'] = 'Upload Udyam Certificate';
     }
 
     setErrors(found);
@@ -1998,7 +2001,7 @@ export default function EmployeeLoanRequisition() {
                   {gstInfo?.ok && <div style={{ fontSize: '0.7rem', color: '#16a34a', fontWeight: 600 }}>✓ Valid GST (State {gstInfo.stateCode})</div>}
                   {errors['business.gst'] && <div style={{ fontSize: '0.7rem', color: '#dc2626', fontWeight: 600 }}>{errors['business.gst']}</div>}
                 </div>
-                {biz.loanType === 'msme' && (
+                {['msme', 'business'].includes(biz.loanType) && (
                   <div>
                     <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>
                       Udyam Registration Number *

@@ -540,7 +540,7 @@ function RequisitionForm({ kind }) {
     if (isBusiness) {
       if (!biz.loanType) found['business.loanType'] = 'Select Business or MSME';
       if (biz.businessName.trim().length < 2) found['business.businessName'] = 'Enter the business name';
-      if (biz.loanType === 'msme' && !biz.udgamNumber.trim()) found['business.udgamNumber'] = 'Udyam number is required for an MSME loan';
+      if (['msme', 'business'].includes(biz.loanType) && !biz.udgamNumber.trim()) found['business.udgamNumber'] = 'Udyam number is required for a business / MSME loan';
       // the GST number is mandatory for a business loan and for an MSME loan; its format is checked here and again by the server
       if (!biz.gstNumber.trim()) found['business.gstNumber'] = 'GST number is required for a business / MSME loan';
       else if (!/^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(biz.gstNumber.trim().toUpperCase())) found['business.gstNumber'] = 'Enter a valid 15-character GST number (e.g. 27ABCPD1234F1ZC)';
@@ -598,7 +598,7 @@ function RequisitionForm({ kind }) {
         ...(isGroup && extraRows.length ? { additional: extraRows.map((r) => ({ member: r.m.id, stockProduct: r.p.id, quantity: r.qty })) } : {}),
         ...(isGroup ? { group: picked.id, memberIds: effective.map((m) => m.id) } : { member: picked.id }),
         ...(isBusiness
-          ? { business: { loanType: biz.loanType, businessName: biz.businessName.trim(), gstNumber: biz.gstNumber.trim(), udgamNumber: biz.loanType === 'msme' ? biz.udgamNumber.trim() : '', civilScore: Number(biz.civilScore), shopPhotos: biz.shopPhotos, bankStatement: biz.bankStatement, itr: biz.itr, agreement: biz.agreement, udyamCertificate: biz.udyamCertificate, otpChallengeId: otpId } }
+          ? { business: { loanType: biz.loanType, businessName: biz.businessName.trim(), gstNumber: biz.gstNumber.trim(), udgamNumber: ['business', 'msme'].includes(biz.loanType) ? biz.udgamNumber.trim() : '', civilScore: Number(biz.civilScore), shopPhotos: biz.shopPhotos, bankStatement: biz.bankStatement, itr: biz.itr, agreement: biz.agreement, udyamCertificate: biz.udyamCertificate, otpChallengeId: otpId } }
           : {}),
       };
       const r = await api.loanRequisitions.create(kind, payload);
@@ -916,7 +916,7 @@ function RequisitionForm({ kind }) {
                 hint={detail?.borrower?.civilCheck ? `Actual check score: ${detail.borrower.civilCheck.score} (${detail.borrower.civilCheck.reportDate})` : 'No civil check on record. Complete Civil Check first.'}>
                 <input id="civilScore" value={biz.civilScore || ''} readOnly disabled placeholder="No civil check on record" />
               </FormField>
-              {biz.loanType === 'msme' && (
+              {['msme', 'business'].includes(biz.loanType) && (
                 <FormField id="udgamNumber" label="Udyam number" required error={errors['business.udgamNumber']}>
                   <input id="udgamNumber" value={biz.udgamNumber} onChange={(e) => { setBiz((x) => ({ ...x, udgamNumber: e.target.value.toUpperCase() })); setErrors((er) => ({ ...er, 'business.udgamNumber': undefined })); }} maxLength={30} />
                 </FormField>

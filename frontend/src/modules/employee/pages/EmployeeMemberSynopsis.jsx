@@ -379,8 +379,8 @@ export default function EmployeeMemberSynopsis() {
                         <td style={{ padding: '6px 8px' }}>{g.memberCount}</td>
                         <td style={{ padding: '6px 8px', fontSize: '0.72rem' }}>{fmtTime(g.addedAt)}</td>
                         <td style={{ padding: '6px 8px' }}>
-                          <span style={{ fontSize: '0.7rem', fontWeight: 700, padding: '2px 6px', borderRadius: 8, background: g.isActive ? '#dcfce7' : '#f1f5f9', color: g.isActive ? '#15803d' : '#64748b' }}>
-                            {g.isActive ? 'Active' : 'Inactive'}
+                          <span style={{ fontSize: '0.7rem', fontWeight: 700, padding: '2px 6px', borderRadius: 8, background: g.isCurrent ? '#dcfce7' : '#f1f5f9', color: g.isCurrent ? '#15803d' : '#64748b' }}>
+                            {g.statusLabel || (g.isCurrent ? 'Active (Current)' : 'Previous / Transferred')}
                           </span>
                         </td>
                       </tr>

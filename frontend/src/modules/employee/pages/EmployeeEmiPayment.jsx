@@ -106,7 +106,18 @@ export default function EmployeeEmiPayment() {
     setSearchQuery('');
     try {
       const res = await api.employeeApp.groupEmiMembers(group.groupCode, { date });
-      const members = res.members || [];
+      const rawMembers = res.members || [];
+      // Item 10 Fix: Deduplicate by memberCode so duplicate loans never show members twice in group EMI payment
+      const memberMap = new Map();
+      rawMembers.forEach((m) => {
+        const code = (m.memberCode || '').toUpperCase();
+        if (code && !memberMap.has(code)) {
+          memberMap.set(code, m);
+        } else if (!code) {
+          memberMap.set(m.loanPaymentId || Math.random(), m);
+        }
+      });
+      const members = Array.from(memberMap.values());
       setGroupMembers(members);
 
       // Whole group collection summary

@@ -1161,15 +1161,18 @@ const TIMELINE_LABELS = {
 async function memberGroups(memberId) {
   const groups = await Group.find({ 'members.member': memberId, isDeleted: false })
     .populate('members.addedBy', 'name employeeCode')
-    .sort({ createdAt: 1 });
-  return groups.map((g) => {
+    .sort({ createdAt: -1 });
+  return groups.map((g, idx) => {
     const row = g.members.find((x) => String(x.member) === String(memberId));
+    const isCurrent = idx === 0 && g.isActive;
     return {
       id: g._id,
       code: g.code,
       name: g.name,
       leaderName: g.leaderName,
-      isActive: g.isActive,
+      isActive: isCurrent,
+      isCurrent,
+      statusLabel: isCurrent ? 'Active (Current)' : 'Previous / Transferred',
       memberCount: g.members.length,
       addedAt: row?.addedAt || null,
       addedBy: row?.addedBy ? { name: row.addedBy.name, employeeCode: row.addedBy.employeeCode || '' } : null,

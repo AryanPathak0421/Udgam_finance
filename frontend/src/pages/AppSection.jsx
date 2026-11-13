@@ -20,6 +20,8 @@ function useQueue(fetcher) {
   const [branch, setBranch] = useState('');
   const [status, setStatus] = useState('pending');
   const [search, setSearch] = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
   const q = useDebounce(search, 350);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -28,15 +30,15 @@ function useQueue(fetcher) {
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
-    try { setData(await fetcher({ branch, status, q })); } catch (err) { setError(err.message); } finally { setLoading(false); }
-  }, [branch, status, q]); // eslint-disable-line react-hooks/exhaustive-deps
+    try { setData(await fetcher({ branch, status, q, from, to })); } catch (err) { setError(err.message); } finally { setLoading(false); }
+  }, [branch, status, q, from, to]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [load]);
-  return { branches, branch, setBranch, status, setStatus, search, setSearch, data, loading, error, load };
+  return { branches, branch, setBranch, status, setStatus, search, setSearch, from, setFrom, to, setTo, data, loading, error, load };
 }
 
 function Toolbar({ qu, placeholder }) {
   return (
-    <div className="toolbar" style={{ flexWrap: 'wrap' }}>
+    <div className="toolbar" style={{ flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
       {qu.branches.length > 1 && (
         <select value={qu.branch} onChange={(e) => qu.setBranch(e.target.value)} aria-label="Branch">
           <option value="">All branches</option>
@@ -50,6 +52,34 @@ function Toolbar({ qu, placeholder }) {
         <option value="all">All</option>
       </select>
       <input type="search" placeholder={placeholder} value={qu.search} onChange={(e) => qu.setSearch(e.target.value)} aria-label="Search" style={{ minWidth: 200 }} />
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.8rem' }}>
+        <span style={{ color: 'var(--text-muted, #64748b)', fontWeight: 600 }}>From:</span>
+        <input
+          type="date"
+          value={qu.from || ''}
+          onChange={(e) => qu.setFrom(e.target.value)}
+          aria-label="From Date"
+          style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border, #cbd5e1)' }}
+        />
+        <span style={{ color: 'var(--text-muted, #64748b)', fontWeight: 600 }}>To:</span>
+        <input
+          type="date"
+          value={qu.to || ''}
+          onChange={(e) => qu.setTo(e.target.value)}
+          aria-label="To Date"
+          style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border, #cbd5e1)' }}
+        />
+        {(qu.from || qu.to) && (
+          <button
+            type="button"
+            className="btn ghost sm"
+            onClick={() => { qu.setFrom(''); qu.setTo(''); }}
+            title="Clear date filter"
+          >
+            ✕ Clear
+          </button>
+        )}
+      </div>
       <button className="btn" onClick={qu.load} disabled={qu.loading}>{qu.loading ? 'Refreshing…' : 'Refresh'}</button>
     </div>
   );

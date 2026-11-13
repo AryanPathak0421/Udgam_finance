@@ -55,7 +55,17 @@ export default function SupervisorEmiPayment() {
     try {
       const gIdentifier = grp.code || grp.groupCode || grp._id;
       const res = await api.supervisorApp.groupEmiMembers(gIdentifier, { date });
-      const list = res.members || [];
+      const rawList = res.members || [];
+      const memberMap = new Map();
+      rawList.forEach((m) => {
+        const code = (m.memberCode || '').toUpperCase();
+        if (code && !memberMap.has(code)) {
+          memberMap.set(code, m);
+        } else if (!code) {
+          memberMap.set(m.loanPaymentId || Math.random(), m);
+        }
+      });
+      const list = Array.from(memberMap.values());
       setMembers(list);
       const initial = {};
       list.forEach((m) => {
