@@ -1046,18 +1046,23 @@ export function createRequisition(kind) {
       }
     }
 
-    // Employee: chosen on the web form, otherwise the signed-in employee.
+    // Employee: chosen on the web form, otherwise the signed-in employee (supervisors cannot be field officer).
     let employeeCode = asString(b.employeeCode).toUpperCase();
     if (employeeCode) {
-      const emp = await User.findOne({ employeeCode: { $eq: employeeCode, $nin: await blockedCodes() }, $or: [{ isActive: true }, { legacyImport: true }] }).select('role branches'); // an employee from the old system can be named too
-      const ok = emp && (['super_admin', 'admin'].includes(emp.role) || (emp.branches || []).some((x) => String(x) === branchId));
+      const isSup = await Employee.exists({ employeeCode, isDeleted: false, $or: [{ isSupervisor: true }] });
+      const u = await User.findOne({ employeeCode: { $eq: employeeCode, $nin: await blockedCodes() }, $or: [{ isActive: true }, { legacyImport: true }] }).select('role branches');
+      if (isSup || u?.role === 'supervisor') throw invalid({ employeeCode: 'Supervisor cannot be assigned as field officer for loan' });
+      const emp = u || (await Employee.findOne({ employeeCode, isDeleted: false, isBlocked: { $ne: true }, status: 'active', branch: branchId }));
+      const ok = emp && (['super_admin', 'admin'].includes(emp.role) || (emp.branches || [emp.branch]).some((x) => String(x?._id || x) === branchId));
       if (!ok) throw invalid({ employeeCode: 'Select a valid employee of this branch' });
-    } else {
+    } else if (req.user.role !== 'supervisor') {
       employeeCode = req.user.employeeCode;
       if (!employeeCode) {
         employeeCode = await generateCode('employee');
         await User.updateOne({ _id: req.user._id, employeeCode: { $exists: false } }, { $set: { employeeCode } });
       }
+    } else {
+      throw invalid({ employeeCode: 'Select the field employee for this requisition' });
     }
 
     const amountPaise = Math.round(r.input.amount * 100);
@@ -1677,18 +1682,23 @@ export async function createGroupRequisition(req, res) {
   }
   if (Object.keys(errors).length) throw new HttpError(422, 'Please correct the highlighted fields', errors);
 
-  // Employee: chosen on the form, otherwise the signed-in employee.
+  // Employee: chosen on the form, otherwise the signed-in employee (supervisors cannot be field officer).
   let employeeCode = asString(b.employeeCode).toUpperCase();
   if (employeeCode) {
-    const emp = await User.findOne({ employeeCode: { $eq: employeeCode, $nin: await blockedCodes() }, $or: [{ isActive: true }, { legacyImport: true }] }).select('role branches');
-    const ok = emp && (['super_admin', 'admin'].includes(emp.role) || (emp.branches || []).some((x) => String(x) === branchId));
+    const isSup = await Employee.exists({ employeeCode, isDeleted: false, $or: [{ isSupervisor: true }] });
+    const u = await User.findOne({ employeeCode: { $eq: employeeCode, $nin: await blockedCodes() }, $or: [{ isActive: true }, { legacyImport: true }] }).select('role branches');
+    if (isSup || u?.role === 'supervisor') throw invalid({ employeeCode: 'Supervisor cannot be assigned as field officer for loan' });
+    const emp = u || (await Employee.findOne({ employeeCode, isDeleted: false, isBlocked: { $ne: true }, status: 'active', branch: branchId }));
+    const ok = emp && (['super_admin', 'admin'].includes(emp.role) || (emp.branches || [emp.branch]).some((x) => String(x?._id || x) === branchId));
     if (!ok) throw invalid({ employeeCode: 'Select a valid employee of this branch' });
-  } else {
+  } else if (req.user.role !== 'supervisor') {
     employeeCode = req.user.employeeCode;
     if (!employeeCode) {
       employeeCode = await generateCode('employee');
       await User.updateOne({ _id: req.user._id, employeeCode: { $exists: false } }, { $set: { employeeCode } });
     }
+  } else {
+    throw invalid({ employeeCode: 'Select the field employee for this requisition' });
   }
   // the civil scores typed on the form go into the members' civil checks
   for (const p of prepared) await recordCivil({ gate: p.gate, member: p.m, branchId, req }); // eslint-disable-line no-await-in-loop
