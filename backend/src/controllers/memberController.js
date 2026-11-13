@@ -549,6 +549,14 @@ export async function createMember(req, res) {
     after: { code: doc.code, formId: doc.formId, name: doc.name, branch: String(doc.branch._id), aadhaar: maskAadhaar(doc.aadhaar), pan: maskPan(doc.pan) },
   });
   notifyApprovers({ branch: doc.branch._id, exceptUser: req.user._id, title: 'New member registered', message: `${doc.name} (${doc.code}) was registered at ${doc.branch.code} — ${doc.branch.name}. The documents are waiting for KYC approval.` });
+  if (doc.mobile) {
+    sendSms({
+      to: doc.mobile,
+      type: 'new_member',
+      name: doc.name,
+      memberId: doc.code,
+    }).catch((err) => console.warn('[NewMember SMS] failed:', err.message));
+  }
   res.status(201).json({ member: present(doc, req.user) });
 }
 

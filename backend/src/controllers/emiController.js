@@ -17,6 +17,7 @@ import { audit } from '../utils/audit.js';
 import { notifyApprovers } from '../services/notify.js';
 import { branchFilter, isAdmin, showMobile } from './groupController.js';
 import { loadHolidays, offDaysOf, nextWorking, assertNotSundayOrHoliday } from '../services/holidays.js';
+import { sendSms } from '../services/sms.js';
 
 const invalid = (errors) => new HttpError(422, 'Please correct the highlighted fields', errors);
 const POPULATE = [{ path: 'branch', select: 'code name' }];
@@ -271,7 +272,10 @@ export async function receive(req, p, line, { amountPaise, count, type, paidOn, 
   }
   await doc.populate(POPULATE);
   // the last installment is paid: the loan closes by itself (auto settle)
-  if (st.totals.outstanding === pay) await autoSettleLine(p, line, paidOn).catch((err) => console.error('auto settle failed', err.message));
+  const isSettled = st.totals.outstanding === pay;
+  if (isSettled) {
+    await autoSettleLine(p, line, paidOn).catch((err) => console.error('auto settle failed', err.message));
+  }
   await audit(req, { action: 'emi.pay', entity: 'EmiPayment', entityId: doc._id, after: { receiptNo: doc.receiptNo, loanId: p.loanId, member: line.code, type: kind, installments: doc.installments, amount: pay / 100 } });
   notifyApprovers({
     branch: doc.branch?._id || doc.branch,
@@ -279,6 +283,31 @@ export async function receive(req, p, line, { amountPaise, count, type, paidOn, 
     message: `EMI payment of ₹${doc.amountPaise / 100} received (Receipt ${doc.receiptNo}) for ${line.name || line.code} (Loan ${p.loanId}).`,
     extraUsers: [req.user._id],
   });
+
+  // Send DLT EMI Collect or Loan Settle SMS
+  try {
+    const memberMobile = line.mobile || doc.member?.mobile;
+    if (memberMobile) {
+      if (isSettled) {
+        sendSms({
+          to: memberMobile,
+          type: 'loan_settle',
+          amount: Math.round(pay / 100),
+          loanId: p.loanId,
+        }).catch((err) => console.warn('[LoanSettle SMS] failed:', err.message));
+      } else {
+        sendSms({
+          to: memberMobile,
+          type: 'emi_collect',
+          amount: Math.round(doc.amountPaise / 100),
+          loanId: p.loanId,
+        }).catch((err) => console.warn('[EmiCollect SMS] failed:', err.message));
+      }
+    }
+  } catch (err) {
+    console.warn('[EmiCollect/Settle SMS] failed:', err.message);
+  }
+
   return doc;
 }
 

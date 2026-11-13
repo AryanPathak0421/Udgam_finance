@@ -218,6 +218,7 @@ export const NAV_SECTIONS = [
           { label: 'Company Summary Report', path: '/super-admin/company-summary', icon: 'file' },
           { label: 'Monitoring Report', path: '/super-admin/monitoring', icon: 'eye' },
           { label: 'Company Graph', path: '/super-admin/graph', icon: 'chart' },
+          { label: 'SMS Gateway & DLT', path: '/super-admin/sms-gateway', icon: 'send' },
         ],
       },
     ],

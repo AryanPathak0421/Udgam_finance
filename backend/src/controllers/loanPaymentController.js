@@ -16,6 +16,7 @@ import { audit } from '../utils/audit.js';
 import { notifyApprovers } from '../services/notify.js';
 import { branchFilter, isAdmin } from './groupController.js';
 import { reserveStock, releaseStock } from './loanRequisitionController.js';
+import { sendSms } from '../services/sms.js';
 
 const invalid = (errors) => new HttpError(422, 'Please correct the highlighted fields', errors);
 const POPULATE = [{ path: 'branch', select: 'code name' }, { path: 'requisition', select: 'employeeCode' }, { path: 'createdBy', select: 'employeeCode name username' }];
@@ -282,6 +283,22 @@ async function pay(req, r, b) {
     message: `Loan payment ${doc.receiptNo} (₹${doc.totalCashPaise / 100}) disbursed to ${doc.borrower?.name || 'Borrower'} (${doc.borrower?.code || ''}). Form ${r.formId}.`,
     extraUsers: [r.createdBy, req.user._id].filter(Boolean),
   });
+  // Send DLT Loan Disburse SMS to borrower(s)
+  try {
+    for (const line of (doc.lines || [])) {
+      const mobile = line.member?.mobile || line.mobile || doc.borrower?.mobile || r.borrower?.mobile;
+      if (mobile) {
+        sendSms({
+          to: mobile,
+          type: 'loan_disburse',
+          amount: Math.round((line.amountPaise || doc.totalAmountPaise || r.amountPaise || 0) / 100),
+          loanId: doc.loanId || doc.receiptNo || r.formId,
+        }).catch((err) => console.warn('[LoanDisburse SMS] error:', err.message));
+      }
+    }
+  } catch (err) {
+    console.warn('[LoanDisburse SMS] error:', err.message);
+  }
   return doc;
 }
 

@@ -38,6 +38,7 @@ import CenterSurveys from './pages/CenterSurveys.jsx';
 import { AppUsers, MemberApproval, EmiApproval, ProductBookingApproval } from './pages/AppSection.jsx';
 import { StockEntry, QuantityReport } from './pages/StockEntryPages.jsx';
 import { BulkNotification, HolidayMaster, ProfitLoss, ComplaintOverview, CompanySummary, Monitoring, CompanyGraph } from './pages/SuperAdminPages.jsx';
+import SmsGatewaySettings from './pages/SmsGatewaySettings.jsx';
 import { RoomRent, Tasks, Complaints, Requirements, LeaveApply, LeaveApproval, Resignations, PromotionTransfer, Letters, EmployeeList } from './pages/HrExtraPages.jsx';
 import { DepartmentMaster, DesignationMaster, EmployeeRegistration, SetSalary, Attendance, SalaryGenerate, SalaryPayment, BranchSalary } from './pages/HrPages.jsx';
 import SupervisorAssign from './pages/SupervisorAssign.jsx';
@@ -103,6 +104,7 @@ const PAGES = {
   '/super-admin/company-summary': CompanySummary,
   '/super-admin/monitoring': Monitoring,
   '/super-admin/graph': CompanyGraph,
+  '/super-admin/sms-gateway': SmsGatewaySettings,
   '/hr/room-rent': RoomRent,
   '/hr/tasks': Tasks,
   '/hr/complaints': Complaints,

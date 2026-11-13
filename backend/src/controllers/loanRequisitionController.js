@@ -1188,6 +1188,15 @@ export function createRequisition(kind) {
       },
     });
     notifyApprovers({ branch: doc.branch._id || doc.branch, exceptUser: req.user._id, includeManagers: kind !== 'business', title: 'New loan requisition', message: `${KIND_LABEL[kind] || 'Loan'} requisition ${doc.formId} for ${m ? `${m.code} ${m.name}` : `${g.code} ${g.name}`}: ₹${r.input.amount}. It waits for approval.` });
+    const borrowerMobile = m?.mobile || doc.borrower?.mobile;
+    if (borrowerMobile) {
+      sendSms({
+        to: borrowerMobile,
+        type: 'loan_requisition',
+        amount: Math.round(r.input.amount),
+        loanId: doc.formId,
+      }).catch((err) => console.warn('[LoanRequisition SMS] failed:', err.message));
+    }
     res.status(201).json({ requisition: present(doc, req.user, { detail: true }) });
   };
 }
@@ -1499,6 +1508,15 @@ async function applyApproval(req, r, b) {
     message: `Loan requisition ${r.formId} for ${r.member?.name || r.group?.name || 'Borrower'} (₹${r.amountPaise / 100}) has been approved. Waiting for disbursement.`,
     extraUsers: [r.createdBy].filter(Boolean),
   });
+  const borrowerMobile = r.member?.mobile || r.borrower?.mobile;
+  if (borrowerMobile) {
+    sendSms({
+      to: borrowerMobile,
+      type: 'loan_approval',
+      amount: Math.round(r.amountPaise / 100),
+      loanId: r.formId,
+    }).catch((err) => console.warn('[LoanApproval SMS] failed:', err.message));
+  }
   return r;
 }
 

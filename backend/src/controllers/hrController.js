@@ -791,6 +791,14 @@ export async function createEmployee(req, res) {
     if (e.employeeCode) await User.updateMany({ employeeCode: e.employeeCode }, { $set: { branches: allBranches } });
     await e.populate(EMP_POPULATE);
     await audit(req, { action: 'employee.register', entity: 'Employee', entityId: e._id, after: { employeeCode: e.employeeCode, name: e.name } });
+    if (e.mobile) {
+      sendSms({
+        to: e.mobile,
+        type: 'new_collector',
+        name: e.name,
+        code: e.employeeCode,
+      }).catch((err) => console.warn('[NewCollector SMS] failed:', err.message));
+    }
     res.status(201).json({ item: presentEmployee(e, req.user) });
   } catch (err) {
     if (err.code === 11000) throw new HttpError(409, 'This employee is already registered', { name: 'Already registered' });

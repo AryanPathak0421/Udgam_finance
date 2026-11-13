@@ -17,8 +17,8 @@ import { Complaint, Task, Leave, Requirement } from '../models/HrExtra.js';
 import { SecurityWithdrawal } from '../models/SecurityWithdrawal.js';
 import { GroupLeaderCommission } from '../models/GroupLeaderCommission.js';
 import { slowRun } from '../services/slowRun.js';
-import { sendSms } from '../services/sms.js';
-import { AppSetting, SMS_CONFIG_KEY, getSmsConfig } from '../models/AppSetting.js';
+import { sendSms, DLT_TEMPLATES } from '../services/sms.js';
+import { AppSetting, SMS_CONFIG_KEY, getSmsConfig, DEFAULT_SMS_CONFIG } from '../models/AppSetting.js';
 import { asString, parseDateOnly, HttpError, startOfToday, todayDateString } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
 import { cashbookData, CATEGORY_LABEL } from './cashbookController.js';
@@ -444,23 +444,35 @@ export async function getSmsGatewaySettings(req, res) {
   const config = await getSmsConfig();
   res.json({
     config: {
-      provider: config.provider || (process.env.FAST2SMS_API_KEY ? 'fast2sms' : 'dev'),
-      url: config.url || process.env.SMS_API_URL || '',
-      apiKey: config.apiKey ? '••••••••' : (process.env.FAST2SMS_API_KEY ? '••••••••' : ''),
-      senderId: config.senderId || '',
-      hasKey: Boolean(config.apiKey || process.env.FAST2SMS_API_KEY || process.env.SMS_API_KEY),
+      provider: config.provider || 'jdsms',
+      url: config.url || DEFAULT_SMS_CONFIG.url,
+      apiKey: config.apiKey ? '••••••••' : '',
+      senderId: config.senderId || DEFAULT_SMS_CONFIG.senderId,
+      peId: config.peId || DEFAULT_SMS_CONFIG.peId,
+      routeId: config.routeId || DEFAULT_SMS_CONFIG.routeId,
+      campaign: config.campaign || DEFAULT_SMS_CONFIG.campaign,
+      hasKey: Boolean(config.apiKey),
     },
+    templates: Object.entries(DLT_TEMPLATES).map(([key, t]) => ({
+      key,
+      id: t.id,
+      name: t.name,
+      sample: t.format({ otp: '123456', name: 'Ramesh Kumar', amount: '25,000', loanId: 'LN001', memberId: 'MEM001', code: 'COL01', date: '15-Aug-2026', occasion: 'Independence Day', fromDate: '15-Aug-2026', toDate: '16-Aug-2026' }),
+    })),
   });
 }
 
 export async function saveSmsGatewaySettings(req, res) {
-  const { provider, url, apiKey, senderId } = req.body || {};
+  const { provider, url, apiKey, senderId, peId, routeId, campaign } = req.body || {};
   const current = await getSmsConfig();
   const next = {
-    provider: provider || current.provider || 'fast2sms',
-    url: url !== undefined ? url : current.url || '',
-    apiKey: apiKey && !apiKey.includes('••') ? apiKey : current.apiKey || process.env.FAST2SMS_API_KEY || '',
-    senderId: senderId || current.senderId || '',
+    provider: provider || current.provider || 'jdsms',
+    url: url !== undefined ? url : current.url || DEFAULT_SMS_CONFIG.url,
+    apiKey: apiKey && !apiKey.includes('••') ? apiKey : current.apiKey || DEFAULT_SMS_CONFIG.apiKey,
+    senderId: senderId || current.senderId || DEFAULT_SMS_CONFIG.senderId,
+    peId: peId || current.peId || DEFAULT_SMS_CONFIG.peId,
+    routeId: routeId || current.routeId || DEFAULT_SMS_CONFIG.routeId,
+    campaign: campaign || current.campaign || DEFAULT_SMS_CONFIG.campaign,
   };
   await AppSetting.findOneAndUpdate(
     { key: SMS_CONFIG_KEY },
@@ -469,4 +481,38 @@ export async function saveSmsGatewaySettings(req, res) {
   );
   await audit(req, { action: 'settings.smsGateway', entity: 'AppSetting', entityId: SMS_CONFIG_KEY, after: { provider: next.provider } });
   res.json({ success: true, message: 'SMS Gateway settings updated successfully!' });
+}
+
+export async function testSmsGateway(req, res) {
+  const { mobile, templateId, templateKey, params } = req.body || {};
+  if (!mobile) throw new HttpError(400, 'Enter a 10-digit mobile number for the test');
+  const cleanTo = String(mobile).replace(/\D/g, '').slice(-10);
+  if (cleanTo.length !== 10) throw new HttpError(400, 'Enter a valid 10-digit mobile number');
+
+  const sendPayload = {
+    to: cleanTo,
+    templateId,
+    type: templateKey ? templateKey.toLowerCase() : undefined,
+    otp: params?.otp || '568912',
+    name: params?.name || req.user.name || 'Admin',
+    amount: params?.amount || '1000',
+    loanId: params?.loanId || 'TEST01',
+    memberId: params?.memberId || 'MEMTEST',
+    code: params?.code || 'EMP01',
+    date: params?.date || '14-Nov-2026',
+    occasion: params?.occasion || 'Test',
+  };
+
+  const result = await sendSms(sendPayload);
+  res.json({
+    success: Boolean(result.sent),
+    provider: result.provider || 'jdsms',
+    shootId: result.shootId || null,
+    dev: Boolean(result.dev),
+    otp: result.otp,
+    error: result.error || null,
+    message: result.sent
+      ? (result.shootId ? `SMS submitted successfully to gateway! (Shoot ID: ${result.shootId})` : 'SMS dispatched!')
+      : `Gateway error: ${result.error || 'Failed to dispatch'}`,
+  });
 }
