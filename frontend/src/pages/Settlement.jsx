@@ -139,31 +139,126 @@ function printNoc(s) {
 function SettlementDialog({ settlement: s, onClose }) {
   const toast = useToast();
   const [full, setFull] = useState(null);
+  const [zoomImg, setZoomImg] = useState(null);
   useEffect(() => {
     if (s.kind === 'death') api.settlements.get(s.id).then((r) => setFull(r.settlement)).catch(() => {});
   }, [s]);
   const cert = full?.certificate;
+  const houseVisitPhoto = full?.houseVisitPhoto;
+  const deathPhotos = Array.isArray(full?.deathPhotos) ? full.deathPhotos : [];
+
   return (
-    <Modal open title={`${s.kind === 'death' ? 'Death settlement' : s.kind === 'auto' ? 'Auto settlement' : 'Loan settlement'} ${s.receiptNo}`} onClose={onClose} size="lg"
-      footer={<>
-        <button className="btn" onClick={onClose}>Close</button>
-        <button className="btn" onClick={() => { if (!printSettlement(s)) toast.error('Allow pop-ups to print'); }}>Receipt</button>
-        <button className="btn primary" onClick={() => { if (!printNoc(s)) toast.error('Allow pop-ups to print'); }}>NOC</button>
-      </>}>
-      <DetailList items={[
-        ['Loan ID', s.loanId || s.formId], ['Branch', s.branch ? `${s.branch.code} — ${s.branch.name}` : ''], ['Borrower', `${s.memberCode} — ${s.memberName}`], ...(s.group ? [['Group', s.group]] : []),
-        ['Settlement date', dmy(s.settledOn)], ['Outstanding', inr(s.outstanding)], [s.kind === 'death' ? 'Settled against insurance' : 'Waived', inr(s.waiver)], ['Amount received', inr(s.amount)],
-        ...(s.kind === 'loan' && s.payMode ? [['Paid by', `${MODE_LABEL[s.payMode]}${s.reference ? ` · ${s.reference}` : ''}`]] : []),
-        ...(s.kind === 'death' ? [['Date of death', dmy(s.deathDate)], ['Verified by', s.verifier ? `${s.verifier.code} — ${s.verifier.name}` : ''], ...(s.claimRef ? [['Insurance claim', s.claimRef]] : [])] : []),
-        ...(s.remark ? [['Remark', s.remark]] : []), ['Status', s.status === 'cancelled' ? `Cancelled: ${s.cancelReason}` : 'Settled'],
-      ]} />
-      {s.kind === 'death' && (
-        <div style={{ marginTop: 12 }}>
-          <div className="detail-label">Death certificate</div>
-          {!full ? <Spinner label="Loading…" /> : cert?.startsWith('data:image') ? <img src={cert} alt="Death certificate" className="stamp-img" style={{ maxWidth: '100%' }} /> : cert ? <a className="btn sm" href={cert} target="_blank" rel="noreferrer" download={`${s.receiptNo}-death-certificate`}>Open / download</a> : <span className="muted">—</span>}
-        </div>
+    <>
+      <Modal open title={`${s.kind === 'death' ? 'Death settlement' : s.kind === 'auto' ? 'Auto settlement' : 'Loan settlement'} ${s.receiptNo}`} onClose={onClose} size="lg"
+        footer={<>
+          <button className="btn" onClick={onClose}>Close</button>
+          <button className="btn" onClick={() => { if (!printSettlement(s)) toast.error('Allow pop-ups to print'); }}>Receipt</button>
+          <button className="btn primary" onClick={() => { if (!printNoc(s)) toast.error('Allow pop-ups to print'); }}>NOC</button>
+        </>}>
+        <DetailList items={[
+          ['Loan ID', s.loanId || s.formId], ['Branch', s.branch ? `${s.branch.code} — ${s.branch.name}` : ''], ['Borrower', `${s.memberCode} — ${s.memberName}`], ...(s.group ? [['Group', s.group]] : []),
+          ['Settlement date', dmy(s.settledOn)], ['Outstanding', inr(s.outstanding)], [s.kind === 'death' ? 'Settled against insurance' : 'Waived', inr(s.waiver)], ['Amount received', inr(s.amount)],
+          ...(s.kind === 'loan' && s.payMode ? [['Paid by', `${MODE_LABEL[s.payMode]}${s.reference ? ` · ${s.reference}` : ''}`]] : []),
+          ...(s.kind === 'death' ? [['Date of death', dmy(s.deathDate)], ['Verified by', s.verifier ? `${s.verifier.code} — ${s.verifier.name}` : ''], ...(s.claimRef ? [['Insurance claim', s.claimRef]] : [])] : []),
+          ...(s.remark ? [['Remark', s.remark]] : []), ['Status', s.status === 'cancelled' ? `Cancelled: ${s.cancelReason}` : s.status === 'pending' ? 'Pending Approval' : s.status === 'rejected' ? `Rejected: ${s.cancelReason}` : 'Settled (Approved)'],
+        ]} />
+
+        {s.kind === 'death' && (
+          <div style={{ marginTop: 18, borderTop: '1px solid #e2e8f0', paddingTop: 14 }}>
+            <h4 style={{ margin: '0 0 12px', fontSize: '0.95rem', fontWeight: 600, color: '#1e293b' }}>
+              Verification Documents &amp; Photos Uploaded from App
+            </h4>
+
+            {!full ? (
+              <Spinner label="Loading verification documents and photos…" />
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                {/* 1. Death Certificate */}
+                <div style={{ background: '#f8fafc', padding: 10, borderRadius: 8, border: '1px solid #e2e8f0' }}>
+                  <div style={{ fontWeight: 600, fontSize: '0.85rem', marginBottom: 6, color: '#334155' }}>
+                    1. Death Certificate
+                  </div>
+                  {cert?.startsWith('data:image') ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <img
+                        src={cert}
+                        alt="Death certificate"
+                        style={{ width: 100, height: 75, objectFit: 'cover', borderRadius: 6, cursor: 'pointer', border: '1px solid #cbd5e1' }}
+                        onClick={() => setZoomImg({ url: cert, title: 'Death Certificate' })}
+                        title="Click to zoom"
+                      />
+                      <button type="button" className="btn sm" onClick={() => setZoomImg({ url: cert, title: 'Death Certificate' })}>View Full Size</button>
+                    </div>
+                  ) : cert ? (
+                    <a className="btn sm primary" href={cert} target="_blank" rel="noreferrer" download={`${s.receiptNo}-death-certificate`}>
+                      Open / Download Document
+                    </a>
+                  ) : (
+                    <span className="muted small">Not uploaded</span>
+                  )}
+                </div>
+
+                {/* 2. Staff House Visit Photo */}
+                <div style={{ background: '#f8fafc', padding: 10, borderRadius: 8, border: '1px solid #e2e8f0' }}>
+                  <div style={{ fontWeight: 600, fontSize: '0.85rem', marginBottom: 6, color: '#334155' }}>
+                    2. Staff House Visit Verification Photo
+                  </div>
+                  {houseVisitPhoto ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <img
+                        src={houseVisitPhoto}
+                        alt="Staff House Visit"
+                        style={{ width: 100, height: 75, objectFit: 'cover', borderRadius: 6, cursor: 'pointer', border: '1px solid #cbd5e1' }}
+                        onClick={() => setZoomImg({ url: houseVisitPhoto, title: 'Staff House Visit Verification Photo' })}
+                        title="Click to zoom"
+                      />
+                      <button type="button" className="btn sm" onClick={() => setZoomImg({ url: houseVisitPhoto, title: 'Staff House Visit Verification Photo' })}>View Full Size</button>
+                    </div>
+                  ) : (
+                    <span className="muted small">No house visit photo uploaded</span>
+                  )}
+                </div>
+
+                {/* 3. Three Death Photos Clicked via App */}
+                <div style={{ background: '#f8fafc', padding: 10, borderRadius: 8, border: '1px solid #e2e8f0' }}>
+                  <div style={{ fontWeight: 600, fontSize: '0.85rem', marginBottom: 6, color: '#334155' }}>
+                    3. Death Spot / Cremation Photos (3 Photos clicked via App)
+                  </div>
+                  {deathPhotos.length > 0 ? (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                      {deathPhotos.map((photo, idx) => (
+                        <div key={idx} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                          <img
+                            src={photo}
+                            alt={`Death photo ${idx + 1}`}
+                            style={{ width: 90, height: 70, objectFit: 'cover', borderRadius: 6, cursor: 'pointer', border: '1px solid #cbd5e1' }}
+                            onClick={() => setZoomImg({ url: photo, title: `Death Photo ${idx + 1} of ${deathPhotos.length}` })}
+                            title="Click to zoom"
+                          />
+                          <span className="muted small">Photo {idx + 1}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="muted small">No death photos uploaded</span>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
+
+      {/* Image Preview / Zoom Modal */}
+      {zoomImg && (
+        <Modal open title={zoomImg.title} onClose={() => setZoomImg(null)} size="lg"
+          footer={<button className="btn" onClick={() => setZoomImg(null)}>Close</button>}>
+          <div style={{ textAlign: 'center', maxHeight: '75vh', overflow: 'auto' }}>
+            <img src={zoomImg.url} alt={zoomImg.title} style={{ maxWidth: '100%', maxHeight: '70vh', objectFit: 'contain', borderRadius: 6 }} />
+          </div>
+        </Modal>
       )}
-    </Modal>
+    </>
   );
 }
 
@@ -455,7 +550,7 @@ function DeathSettleForm({ loanId, member, canSettle, onDone }) {
 function GuarantorDeathForm({ loanId, member, canSettle, onDone }) {
   const toast = useToast();
   const { data: d, error, load } = usePreview(loanId, member);
-  const [form, setForm] = useState({ deathDate: '', remark: '', certificate: '', certificateName: '' });
+  const [form, setForm] = useState({ deathDate: '', remark: '', certificate: '', certificateName: '', closeLoan: false });
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
   const fileRef = useRef(null);
@@ -488,8 +583,13 @@ function GuarantorDeathForm({ loanId, member, canSettle, onDone }) {
     setBusy(true);
     try {
       const r = await api.settlements.recordGuarantorDeath({ loan: loanId, member, ...form });
-      toast.success(`${r.message}. ${d.borrower.name} needs a new guarantor before the next loan.`);
-      onDone(null);
+      if (r.loanClosed) {
+        toast.success(r.message || 'Guarantor death recorded and loan closed under settlement!');
+        onDone(r.settlement);
+      } else {
+        toast.success(`${r.message}. ${d.borrower.name} needs a new guarantor before the next loan.`);
+        onDone(null);
+      }
     } catch (err) {
       setErrors(err.errors || {});
       toast.error(err.message);
@@ -512,6 +612,28 @@ function GuarantorDeathForm({ loanId, member, canSettle, onDone }) {
             <FormField id="gdeath" label="Date of death" required error={errors.deathDate}>
               <input id="gdeath" type="date" max={todayISO()} value={form.deathDate} onChange={(e) => { setForm((f) => ({ ...f, deathDate: e.target.value })); setErrors((x) => ({ ...x, deathDate: undefined })); }} />
             </FormField>
+            <FormField id="gaction" label="Guarantor Demise Action" className="span-2">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                  <input
+                    type="radio"
+                    name="closeLoanOpt"
+                    checked={form.closeLoan === true}
+                    onChange={() => setForm((f) => ({ ...f, closeLoan: true }))}
+                  />
+                  <span><strong>Close this loan under Demise Settlement</strong> (Outstanding waived against insurance &amp; loan officially closed)</span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                  <input
+                    type="radio"
+                    name="closeLoanOpt"
+                    checked={form.closeLoan !== true}
+                    onChange={() => setForm((f) => ({ ...f, closeLoan: false }))}
+                  />
+                  <span><strong>Keep loan active &amp; require Guarantor Change</strong> (Borrower continues paying EMI; requires new guarantor for future loans)</span>
+                </label>
+              </div>
+            </FormField>
             <FormField id="gver-code" label="Verifier employee code" hint="Taken from your login"><input id="gver-code" value={d.verifier.code} disabled /></FormField>
             <FormField id="gver-name" label="Verifier name" hint="Taken from your login"><input id="gver-name" value={d.verifier.name} disabled /></FormField>
             <FormField id="gcert" label="Death certificate" required error={errors.certificate} className="span-2" hint="PDF or image, up to 800 KB">
@@ -529,9 +651,13 @@ function GuarantorDeathForm({ loanId, member, canSettle, onDone }) {
             </FormField>
           </div>
           <div className="notice warn" style={{ margin: '10px 0' }}>
-            The loan is <strong>not</strong> settled and {d.borrower.name} keeps paying the EMI. Before a new loan requisition can be made for {d.borrower.name}, an admin has to change the guarantor.
+            {form.closeLoan ? (
+              <>The outstanding on this loan will be <strong>waived and closed under Guarantor Demise Settlement</strong>.</>
+            ) : (
+              <>The loan is <strong>not</strong> settled and {d.borrower.name} keeps paying the EMI. Before a new loan requisition can be made for {d.borrower.name}, an admin has to change the guarantor.</>
+            )}
           </div>
-          <button className="btn primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Record guarantor death'}</button>
+          <button className="btn primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : form.closeLoan ? 'Settle & Close Loan' : 'Record guarantor death'}</button>
         </div>
       )}
     </>

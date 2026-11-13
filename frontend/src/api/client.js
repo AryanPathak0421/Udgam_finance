@@ -205,6 +205,7 @@ export const api = {
     employees: (params) => request(`/hr/employees${qs(params)}`),
     employee: (id) => request(`/hr/employees/${id}`),
     employeePincode: (pin) => request(`/hr/employees/pincode/${pin}`),
+    supervisorAssign: (data) => request('/hr/supervisor-assign', { method: 'POST', body: data }),
     supervisorTransfer: (data) => request('/hr/supervisor-transfer', { method: 'POST', body: data }),
     supervisorBranchTransfer: (data) => request('/hr/supervisor-branch-transfer', { method: 'POST', body: data }),
     supervisorVisits: (params) => request(`/hr/supervisor-visits${qs(params)}`),

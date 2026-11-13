@@ -498,6 +498,60 @@ export async function supervisorBranchTransfer(req, res) {
   res.json({ moved: toMove.length });
 }
 
+/** Assigns or updates the supervisor for selected employees. */
+export async function supervisorAssign(req, res) {
+  const b = req.body || {};
+  const employeeIds = (Array.isArray(b.employeeIds) ? b.employeeIds : []).filter((id) => mongoose.isValidObjectId(String(id)));
+  if (!employeeIds.length) throw invalid({ employees: 'Select at least one employee to assign' });
+
+  let supervisor = null;
+  if (b.supervisorId) {
+    if (!mongoose.isValidObjectId(String(b.supervisorId))) throw invalid({ supervisorId: 'Select a valid supervisor' });
+    supervisor = await Employee.findOne({ _id: b.supervisorId, isDeleted: false }).select('employeeCode name designation branch').lean();
+    if (!supervisor) throw invalid({ supervisorId: 'Supervisor employee not found' });
+  }
+
+  // Prevent assigning an employee as their own supervisor
+  const targetIds = supervisor ? employeeIds.filter((id) => String(id) !== String(supervisor._id)) : employeeIds;
+  if (!targetIds.length) throw invalid({ employees: 'Cannot assign employee as their own supervisor' });
+
+  await Employee.updateMany(
+    { _id: { $in: targetIds } },
+    { $set: { supervisor: supervisor ? supervisor._id : null } }
+  );
+
+  if (supervisor) {
+    await Leave.updateMany(
+      { employee: { $in: targetIds }, status: 'pending' },
+      { $set: { approver: supervisor._id, approverCode: supervisor.employeeCode, approverName: supervisor.name } }
+    );
+    notifyEmployee(
+      supervisor._id,
+      'Employees assigned to you',
+      `${targetIds.length} employee${targetIds.length === 1 ? ' was' : 's were'} assigned under you as supervisor.`
+    );
+  }
+
+  await audit(req, {
+    action: 'employee.supervisor-assign',
+    entity: 'Employee',
+    after: {
+      supervisor: supervisor ? `${supervisor.employeeCode} ${supervisor.name}` : 'Unassigned',
+      count: targetIds.length,
+      employees: targetIds,
+    },
+  });
+
+  res.json({
+    success: true,
+    assigned: targetIds.length,
+    supervisor: supervisor ? { id: supervisor._id, code: supervisor.employeeCode, name: supervisor.name } : null,
+    message: supervisor
+      ? `${targetIds.length} employee${targetIds.length === 1 ? '' : 's'} assigned to supervisor ${supervisor.name} (${supervisor.employeeCode})`
+      : `${targetIds.length} employee${targetIds.length === 1 ? '' : 's'} unassigned from supervisor`,
+  });
+}
+
 export async function listSupervisorVisits(req, res) {
   const filter = {};
   if (mongoose.isValidObjectId(req.query.supervisor)) filter.supervisor = req.query.supervisor;

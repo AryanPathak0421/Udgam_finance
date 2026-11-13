@@ -28,6 +28,8 @@ const loanSettlementSchema = new mongoose.Schema(
     // death settlement
     deathDate: Date,
     certificate: { type: String, select: false }, // death certificate (PDF or image)
+    deathPhotos: [{ type: String }], // Up to 3 death photos captured from app
+    houseVisitPhoto: { type: String }, // Staff house visit verification photo
     claimRef: String, // insurance claim reference
     verifier: { code: String, name: String }, // the employee who verified it
     status: { type: String, enum: ['active', 'cancelled', 'pending', 'rejected'], default: 'active' },

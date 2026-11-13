@@ -31,6 +31,8 @@ const personSchema = new mongoose.Schema(
     // Guarantor only: recorded under Death Settlement. A member whose guarantor has died needs a new guarantor before a new loan.
     deceasedOn: { type: Date },
     deathCertificate: { type: String, select: false },
+    deathPhotos: [{ type: String }],
+    houseVisitPhoto: { type: String },
     deathRemark: { type: String },
     deathRecordedAt: { type: Date },
     deathRecordedByCode: { type: String },

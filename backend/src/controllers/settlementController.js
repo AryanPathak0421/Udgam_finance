@@ -3,7 +3,9 @@ import { offDaysFor, isOff, nextWorking } from '../services/holidays.js';
 import { readBankAccount } from '../services/bankAccountPick.js';
 import mongoose from 'mongoose';
 import { LoanSettlement } from '../models/LoanSettlement.js';
+import { LoanPayment } from '../models/LoanPayment.js';
 import { Member } from '../models/Member.js';
+import { DeathRequest } from '../modules/employee/employeeAppModel.js';
 import { generateCode } from '../services/codeSequence.js';
 import { asString, escapeRegex, parseDateOnly, parsePaging, HttpError } from '../utils/http.js';
 import { toMinor } from '../utils/money.js';
@@ -32,8 +34,106 @@ const present = (s, { full = false } = {}) => ({
   auto: s.kind === 'auto', memberCode: s.memberCode, memberName: s.memberName, group: s.group || '', outstanding: money(s.outstandingPaise), amount: money(s.amountPaise), waiver: money(s.waiverPaise),
   payMode: s.payMode || '', reference: s.reference || '', settledOn: iso(s.settledOn), remark: s.remark || '', deathDate: iso(s.deathDate), claimRef: s.claimRef || '',
   verifier: s.verifier?.code ? { code: s.verifier.code, name: s.verifier.name } : null, status: s.status, cancelReason: s.cancelReason || '', createdAt: s.createdAt,
+  deathPhotos: Array.isArray(s.deathPhotos) ? s.deathPhotos : [],
+  houseVisitPhoto: s.houseVisitPhoto || null,
   ...(full ? { certificate: s.certificate || null } : { hasCertificate: s.kind === 'death' }),
 });
+
+/** Closes all other active running loans for a deceased member so no loan remains active. */
+export async function closeAllLoansForDeceasedMember({
+  memberId,
+  memberCode,
+  settledOn,
+  deathDate,
+  certificate,
+  deathPhotos,
+  houseVisitPhoto,
+  sourceReceiptNo,
+  verifier,
+  user,
+  primaryLoanPaymentId,
+}) {
+  if (!memberId && !memberCode) return [];
+  const orConds = [];
+  if (memberId && mongoose.isValidObjectId(memberId)) orConds.push({ 'lines.member': memberId });
+  if (memberCode) orConds.push({ 'lines.code': new RegExp(`^${memberCode}$`, 'i') });
+  if (!orConds.length) return [];
+
+  const filter = {
+    status: 'paid',
+    $or: orConds,
+  };
+  if (primaryLoanPaymentId) filter._id = { $ne: primaryLoanPaymentId };
+
+  const activeLoans = await LoanPayment.find(filter).populate('group branch');
+  const closedSettlements = [];
+
+  for (const p of activeLoans) {
+    const line = (p.lines || []).find((l) =>
+      (memberId && String(l.member) === String(memberId)) ||
+      (memberCode && String(l.code).toUpperCase() === String(memberCode).toUpperCase())
+    );
+    if (!line) continue;
+
+    // Check if an active settlement already exists for this member on this loan
+    const existing = await LoanSettlement.findOne({
+      loanPayment: p._id,
+      memberCode: line.code,
+      status: { $in: ['active', 'pending'] },
+    });
+    if (existing) {
+      if (existing.status === 'pending') {
+        existing.status = 'active';
+        existing.settledOn = settledOn || new Date();
+        await existing.save();
+        closedSettlements.push(existing);
+      }
+      continue;
+    }
+
+    let outstandingPaise = 0;
+    try {
+      const st = await borrowerState(p, line, settledOn || startOfToday());
+      outstandingPaise = st.totals?.outstanding || 0;
+    } catch {
+      outstandingPaise = line.amountPaise || 0;
+    }
+
+    const receiptNo = await generateCode('settlementReceipt');
+    const autoSettlement = await LoanSettlement.create({
+      kind: 'death',
+      receiptNo,
+      loanPayment: p._id,
+      loanId: p.loanId || p.formId,
+      formId: p.formId || p.loanId,
+      branch: p.branch?._id || p.branch,
+      member: line.member,
+      memberCode: line.code,
+      memberName: line.name,
+      group: p.group?.code ? `${p.group.code} — ${p.group.name}` : '',
+      outstandingPaise,
+      amountPaise: 0,
+      waiverPaise: outstandingPaise,
+      settledOn: settledOn || startOfToday(),
+      deathDate: deathDate || new Date(),
+      certificate: certificate || '',
+      deathPhotos: Array.isArray(deathPhotos) ? deathPhotos : [],
+      houseVisitPhoto: houseVisitPhoto || '',
+      remark: `[Auto-closed: Member Demise] All loans settled under Death Settlement (${sourceReceiptNo || 'Member Demised'})`,
+      verifier: verifier || { code: user?.employeeCode || '', name: user?.name || '' },
+      status: 'active',
+      createdBy: user?._id,
+    }).catch((err) => {
+      console.error('Error auto-settling sibling loan on member death:', err);
+      return null;
+    });
+
+    if (autoSettlement) {
+      closedSettlements.push(autoSettlement);
+    }
+  }
+  return closedSettlements;
+}
 
 /** What the settlement screens show for one borrower of a loan: the outstanding and who verifies. */
 export async function preview(req, res) {
@@ -162,11 +262,29 @@ export async function settleDeath(req, res) {
   const status = isAdminUser ? 'active' : 'pending';
 
   const s = await save(req, p, line, {
-    kind: 'death', outstandingPaise, amountPaise: 0, waiverPaise: outstandingPaise, settledOn, remark, deathDate, certificate, claimRef: asString(b.claimRef).slice(0, 60), verifier, status,
+    kind: 'death', outstandingPaise, amountPaise: 0, waiverPaise: outstandingPaise, settledOn, remark, deathDate, certificate,
+    deathPhotos: Array.isArray(b.deathPhotos) ? b.deathPhotos.filter(Boolean).slice(0, 3) : [],
+    houseVisitPhoto: b.houseVisitPhoto || '',
+    claimRef: asString(b.claimRef).slice(0, 60), verifier, status,
   });
   // After an approved death settlement the member is blocked (the same record the Block / Unblock screen keeps).
   let blocked = false;
   if (status === 'active' && line.member) {
+    // Close ALL active loans of this member across the software
+    await closeAllLoansForDeceasedMember({
+      memberId: line.member,
+      memberCode: line.code,
+      settledOn,
+      deathDate,
+      certificate,
+      deathPhotos: Array.isArray(b.deathPhotos) ? b.deathPhotos.filter(Boolean).slice(0, 3) : [],
+      houseVisitPhoto: b.houseVisitPhoto || '',
+      sourceReceiptNo: s.receiptNo,
+      verifier,
+      user: req.user,
+      primaryLoanPaymentId: p._id,
+    });
+
     const m = await Member.findById(line.member).select('isBlocked');
     if (m && !m.isBlocked) {
       await Member.updateOne({ _id: m._id }, { $set: { isBlocked: true }, $push: { blockHistory: { action: 'block', reason: `Death settlement ${s.receiptNo} (died on ${iso(deathDate)})`, at: new Date(), by: req.user._id, byCode: verifier.code } } });
@@ -184,7 +302,7 @@ export async function settleDeath(req, res) {
     branch: s.branch?._id || s.branch,
     title: isAdminUser ? 'Death settlement' : 'Death settlement request',
     message: isAdminUser
-      ? `Loan ${p.loanId} for ${line.name || line.code} closed under death settlement (Receipt ${s.receiptNo}).`
+      ? `Loan ${p.loanId} for ${line.name || line.code} closed under death settlement (Receipt ${s.receiptNo}). All active loans closed.`
       : `Death settlement request submitted for Loan ${p.loanId} (${line.name || line.code}) awaiting Admin approval.`,
     extraUsers: [req.user._id],
   });
@@ -192,8 +310,9 @@ export async function settleDeath(req, res) {
 }
 
 /**
- * Guarantor death: the guarantor of a member has died. The loan itself carries on (the member keeps paying), but before the member
- * can have a new loan requisition the guarantor has to be changed (an admin does that under Member Details → Guarantor & Nominee).
+ * Guarantor death: the guarantor of a member has died.
+ * If closeLoan is selected, closes the loan under guarantor demise settlement;
+ * otherwise records the guarantor demise so guarantor can be changed before future loans.
  */
 export async function recordGuarantorDeath(req, res) {
   const b = req.body || {};
@@ -201,7 +320,7 @@ export async function recordGuarantorDeath(req, res) {
   const line = findLine(p, b.member);
   const m = await Member.findOne({ _id: line.member, isDeleted: false }).select('code name guarantor.name guarantor.deceasedOn');
   if (!m || !m.guarantor?.name) throw new HttpError(409, 'This member has no guarantor');
-  if (m.guarantor.deceasedOn) throw new HttpError(409, `The death of the guarantor ${m.guarantor.name} is already recorded (${iso(m.guarantor.deceasedOn)})`);
+  if (m.guarantor.deceasedOn && !b.closeLoan) throw new HttpError(409, `The death of the guarantor ${m.guarantor.name} is already recorded (${iso(m.guarantor.deceasedOn)})`);
   const today = startOfToday();
   const deathDate = parseDateOnly(asString(b.deathDate));
   if (!deathDate) throw invalid({ deathDate: 'Enter the date of death' });
@@ -210,12 +329,72 @@ export async function recordGuarantorDeath(req, res) {
   if (!certificate) throw invalid({ certificate: 'Upload the death certificate' });
   if (!DOC_RE.test(certificate)) throw invalid({ certificate: 'The death certificate must be a PDF or an image' });
   if (certificate.length > MAX_DOC_CHARS) throw invalid({ certificate: 'The death certificate must be 800 KB or smaller' });
+
+  const cleanDeathPhotos = Array.isArray(b.deathPhotos) ? b.deathPhotos.filter(Boolean).slice(0, 3) : [];
+  const houseVisitPhoto = b.houseVisitPhoto || '';
+
   await Member.updateOne({ _id: m._id }, { $set: {
-    'guarantor.deceasedOn': deathDate, 'guarantor.deathCertificate': certificate, 'guarantor.deathRemark': asString(b.remark).slice(0, 300),
-    'guarantor.deathRecordedAt': new Date(), 'guarantor.deathRecordedByCode': req.user.employeeCode || '',
+    'guarantor.deceasedOn': deathDate,
+    'guarantor.deathCertificate': certificate,
+    'guarantor.deathPhotos': cleanDeathPhotos,
+    'guarantor.houseVisitPhoto': houseVisitPhoto,
+    'guarantor.deathRemark': asString(b.remark).slice(0, 300),
+    'guarantor.deathRecordedAt': new Date(),
+    'guarantor.deathRecordedByCode': req.user.employeeCode || '',
   } });
-  await audit(req, { action: 'settlement.guarantorDeath', entity: 'Member', entityId: m._id, after: { member: m.code, guarantor: m.guarantor.name, deathDate: iso(deathDate), loanId: p.loanId } });
-  res.status(201).json({ message: 'The death of the guarantor is recorded', member: { code: m.code, name: m.name }, guarantor: m.guarantor.name, deathDate: iso(deathDate) });
+
+  let loanSettled = null;
+  // If closeLoan option selected, close this loan under death settlement
+  if (b.closeLoan) {
+    let settledOn = await defaultWorkDate(p.branch?._id || p.branch, req.user);
+    const off = await offDaysFor(p.branch?._id || p.branch);
+    if (isOff(settledOn, off)) settledOn = nextWorking(settledOn, off);
+    const st = await borrowerState(p, line, settledOn);
+    const outstandingPaise = st.totals.outstanding || line.amountPaise || 0;
+    const receiptNo = await generateCode('settlementReceipt');
+    loanSettled = await LoanSettlement.create({
+      kind: 'death',
+      receiptNo,
+      loanPayment: p._id,
+      loanId: p.loanId,
+      formId: p.formId,
+      branch: p.branch._id,
+      member: line.member,
+      memberCode: line.code,
+      memberName: `${line.name} (Guarantor: ${m.guarantor.name})`,
+      group: p.group?.code ? `${p.group.code} — ${p.group.name}` : '',
+      outstandingPaise,
+      amountPaise: 0,
+      waiverPaise: outstandingPaise,
+      settledOn,
+      deathDate,
+      certificate,
+      deathPhotos: cleanDeathPhotos,
+      houseVisitPhoto,
+      remark: `[Guarantor Demise Settlement] Guarantor: ${m.guarantor.name}. Remark: ${asString(b.remark).slice(0, 200)}`,
+      verifier: { code: req.user.employeeCode || '', name: req.user.name || '' },
+      status: 'active',
+      createdBy: req.user._id,
+    });
+  }
+
+  await audit(req, {
+    action: 'settlement.guarantorDeath',
+    entity: 'Member',
+    entityId: m._id,
+    after: { member: m.code, guarantor: m.guarantor.name, deathDate: iso(deathDate), loanId: p.loanId, loanClosed: Boolean(loanSettled) }
+  });
+
+  res.status(201).json({
+    message: loanSettled
+      ? `Guarantor death recorded and loan ${p.loanId} closed under settlement (${loanSettled.receiptNo})`
+      : 'The death of the guarantor is recorded',
+    member: { code: m.code, name: m.name },
+    guarantor: m.guarantor.name,
+    deathDate: iso(deathDate),
+    loanClosed: Boolean(loanSettled),
+    settlement: loanSettled ? present(loanSettled) : null,
+  });
 }
 
 /** Members whose guarantor has died and who still have to change the guarantor. */
@@ -265,7 +444,7 @@ export async function listSettlements(req, res) {
 
 export async function approveDeathSettlement(req, res) {
   if (!['super_admin', 'admin'].includes(req.user.role)) throw new HttpError(403, 'Only admin can approve death settlement');
-  const s = await LoanSettlement.findOne({ _id: req.params.id, status: 'pending', kind: 'death' });
+  const s = await LoanSettlement.findOne({ _id: req.params.id, status: 'pending', kind: 'death' }).select('+certificate +deathPhotos +houseVisitPhoto');
   if (!s) throw new HttpError(404, 'Pending death settlement request not found');
 
   const settledOn = await defaultWorkDate(s.branch, req.user);
@@ -274,6 +453,21 @@ export async function approveDeathSettlement(req, res) {
   s.status = 'active';
   s.settledOn = settledOn;
   await s.save();
+
+  // Close ALL other active loans of this member across the software
+  const siblingLoansClosed = await closeAllLoansForDeceasedMember({
+    memberId: s.member,
+    memberCode: s.memberCode,
+    settledOn,
+    deathDate: s.deathDate,
+    certificate: s.certificate,
+    deathPhotos: s.deathPhotos,
+    houseVisitPhoto: s.houseVisitPhoto,
+    sourceReceiptNo: s.receiptNo,
+    verifier: s.verifier,
+    user: req.user,
+    primaryLoanPaymentId: s.loanPayment,
+  });
 
   let blocked = false;
   if (s.member) {
@@ -302,17 +496,22 @@ export async function approveDeathSettlement(req, res) {
     action: 'settlement.deathApprove',
     entity: 'LoanSettlement',
     entityId: s._id,
-    after: { receiptNo: s.receiptNo, loanId: s.loanId, member: s.memberCode, deathDate: iso(s.deathDate), blocked },
+    after: { receiptNo: s.receiptNo, loanId: s.loanId, member: s.memberCode, deathDate: iso(s.deathDate), blocked, otherLoansClosed: siblingLoansClosed.length },
   });
 
   notifyApprovers({
     branch: s.branch,
     title: 'Death settlement approved',
-    message: `Death settlement for Loan ${s.loanId} (${s.memberName || s.memberCode}) has been approved by Admin. Loan closed.`,
+    message: `Death settlement for Loan ${s.loanId} (${s.memberName || s.memberCode}) has been approved by Admin. ${siblingLoansClosed.length > 0 ? `All ${siblingLoansClosed.length + 1} active loans closed.` : 'Loan closed.'}`,
     extraUsers: [s.createdBy],
   });
 
-  res.json({ message: 'Death settlement approved and loan closed', settlement: present(s), memberBlocked: blocked });
+  res.json({
+    message: `Death settlement approved — loan ${s.loanId} closed${siblingLoansClosed.length > 0 ? ` and ${siblingLoansClosed.length} other active loan(s) closed` : ''}`,
+    settlement: present(s),
+    memberBlocked: blocked,
+    closedSiblingLoansCount: siblingLoansClosed.length,
+  });
 }
 
 export async function rejectDeathSettlement(req, res) {
@@ -346,8 +545,24 @@ export async function rejectDeathSettlement(req, res) {
 
 export async function getSettlement(req, res) {
   if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Settlement not found');
-  const s = await LoanSettlement.findOne({ _id: req.params.id, ...branchFilter(req.user) }).select('+certificate').populate(POPULATE);
+  const s = await LoanSettlement.findOne({ _id: req.params.id, ...branchFilter(req.user) }).select('+certificate +deathPhotos +houseVisitPhoto').populate(POPULATE);
   if (!s) throw new HttpError(404, 'Settlement not found');
+
+  // If photos or certificate missing from LoanSettlement, check corresponding DeathRequest
+  if (s.kind === 'death' && (!s.certificate || !s.houseVisitPhoto || !s.deathPhotos?.length)) {
+    const dReq = await DeathRequest.findOne({
+      $or: [
+        ...(s.member ? [{ member: s.member }] : []),
+        ...(s.memberCode ? [{ memberCode: s.memberCode }] : []),
+      ],
+    }).sort({ createdAt: -1 }).lean();
+    if (dReq) {
+      if (!s.certificate && dReq.deathCertificate) s.certificate = dReq.deathCertificate;
+      if (!s.houseVisitPhoto && dReq.houseVisitPhoto) s.houseVisitPhoto = dReq.houseVisitPhoto;
+      if ((!s.deathPhotos || !s.deathPhotos.length) && dReq.deathPhotos?.length) s.deathPhotos = dReq.deathPhotos;
+    }
+  }
+
   res.json({ settlement: present(s, { full: true }) });
 }
 

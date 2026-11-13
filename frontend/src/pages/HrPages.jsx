@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { staffLabel, branchLabel } from '../utils/staffLabel.js';
 import FormField from '../components/ui/FormField.jsx';
@@ -828,6 +829,7 @@ export function EmployeeRegistration() {
           <input type="search" placeholder="Search name, code, mobile" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search" style={{ minWidth: 200 }} />
           <Refresh onClick={list.load} loading={list.loading} />
           <button className="btn" onClick={sync} disabled={syncing} title="Makes an employee record of every staff login that has none">{syncing ? 'Adding…' : 'Add all staff logins'}</button>
+          <Link to="/hr/supervisor-assign" className="btn" style={{ fontWeight: 600, color: '#166534', background: '#f0fdf4', border: '1px solid #bbf7d0' }}>Supervisor Assign</Link>
           <button className="btn" onClick={() => setPending(true)}>Pending verification</button>
           <button className="btn" onClick={() => setTransferring(true)}>Transfer supervisor</button>
           <button className="btn" onClick={() => setBranchTransferring(true)}>Supervisor branch transfer</button>

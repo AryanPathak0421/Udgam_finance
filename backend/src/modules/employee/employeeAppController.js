@@ -5545,6 +5545,8 @@ export async function submitDeathRequest(req, res) {
       settledOn: new Date(),
       deathDate: cleanDeathDate,
       certificate: deathCertificate,
+      deathPhotos: cleanDeathPhotos,
+      houseVisitPhoto: houseVisitPhoto || '',
       remark: `[Submitted via Staff App: ${emp?.name || code}] Cause: ${deathReason}`,
       verifier: { code: emp?.employeeCode || code || 'APP', name: emp?.name || 'Staff' },
       status: 'pending',
@@ -5558,6 +5560,61 @@ export async function submitDeathRequest(req, res) {
     member.guarantor = member.guarantor || {};
     member.guarantor.deceasedOn = cleanDeathDate;
     member.guarantor.deathCertificate = deathCertificate;
+    member.guarantor.deathPhotos = cleanDeathPhotos;
+    member.guarantor.houseVisitPhoto = houseVisitPhoto || '';
+    member.guarantor.deathReason = cleanStr(deathReason);
+    member.guarantor.deathRemark = cleanStr(deathReason);
+    member.guarantor.deathRecordedAt = new Date();
+    member.guarantor.deathRecordedByCode = emp?.employeeCode || code || 'APP';
+    member.guarantor.verifiedBy = { code: emp?.employeeCode || code || 'APP', name: emp?.name || 'Staff' };
+    await member.save().catch(() => {});
+
+    // Also create a pending death settlement so Admin sees it in Death Settlement queue
+    const loan = await LoanPayment.findOne({
+      $or: [{ 'lines.member': member._id }, { 'lines.code': member.code }],
+      status: 'paid',
+    }).populate('group branch').sort({ createdAt: -1 });
+
+    if (loan) {
+      let outstandingPaise = 0;
+      const line = (loan.lines || []).find((l) => String(l.member) === String(member._id) || l.code === member.code);
+      if (line) {
+        try {
+          const state = await borrowerState(loan, line, new Date());
+          outstandingPaise = toMinor(state.outstanding || 0);
+        } catch {
+          outstandingPaise = line.amountPaise || 0;
+        }
+      }
+      const dthReceiptNo = `GDTH-${Date.now().toString().slice(-8)}`;
+      loanSettlementDoc = await LoanSettlement.create({
+        kind: 'death',
+        receiptNo: dthReceiptNo,
+        loanPayment: loan._id,
+        loanId: loan.loanId || loan.formId,
+        formId: loan.formId || loan.loanId,
+        branch: branchId || loan.branch?._id || loan.branch || member.branch,
+        member: member._id,
+        memberCode: member.code,
+        memberName: `${member.name} (Guarantor: ${member.guarantor?.name || guarantorName || 'Demised'})`,
+        group: loan.group?.code ? `${loan.group.code} — ${loan.group.name}` : '',
+        outstandingPaise,
+        amountPaise: 0,
+        waiverPaise: outstandingPaise,
+        settledOn: new Date(),
+        deathDate: cleanDeathDate,
+        certificate: deathCertificate,
+        deathPhotos: cleanDeathPhotos,
+        houseVisitPhoto: houseVisitPhoto || '',
+        remark: `[Guarantor Demise Request via Staff App: ${emp?.name || code}] Guarantor: ${member.guarantor?.name || guarantorName || ''}. Cause: ${deathReason}`,
+        verifier: { code: emp?.employeeCode || code || 'APP', name: emp?.name || 'Staff' },
+        status: 'pending',
+        createdBy: req.user?._id,
+      }).catch((e) => {
+        console.error('Failed to auto-create Guarantor LoanSettlement:', e.message);
+        return null;
+      });
+    }
     member.guarantor.deathReason = cleanStr(deathReason);
     member.guarantor.deathRemark = cleanStr(deathReason);
     member.guarantor.deathRecordedAt = new Date();
