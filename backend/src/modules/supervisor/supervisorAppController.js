@@ -38,6 +38,8 @@ const cleanStr = (s) => String(s || '').trim();
 // Strictly checks if employee / user is authorized as a Supervisor or Manager
 export function isEmployeeSupervisor(emp, user = null) {
   if (!emp) return false;
+  // If an employee has a supervisor assigned over them, they are a field employee, NOT a supervisor
+  if (emp.supervisor && String(emp.supervisor) !== String(emp._id)) return false;
   if (emp.isSupervisor === true) return true;
   if (Array.isArray(emp.supervisedBranches) && emp.supervisedBranches.length > 0) return true;
   const desigName = (emp.designation?.name || '').toLowerCase();

@@ -121,20 +121,18 @@ export default function EmployeeEmiPayment() {
         pendingDue: res.pendingDue ?? Math.max(0, actualCol - colToday),
       }));
 
-      // Pre-fill collection map
+      // Pre-fill collection map: 100% of members pre-filled with regular EMI to match Actual Collection
       const initialMap = {};
       members.forEach((m) => {
         const k = getLoanKey(m);
-        const isFullyPaid = m.isAdvancePaid || (m.todayPaidAmount >= m.totalDue && m.dueAmount <= 0);
-        const canCollect = !isFullyPaid && (m.dueAmount > 0 || !m.alreadyPaidToday);
         const defaultEmi = m.emiAmount || m.suggestedAmount || 0;
         initialMap[k] = {
-          selected: canCollect,
+          selected: true,
           amount: defaultEmi,
           loanPaymentId: m.loanPaymentId,
           memberId: m.memberId,
           memberCode: m.memberCode,
-          isAdvancePaid: m.isAdvancePaid,
+          isAdvancePaid: Boolean(m.isAdvancePaid),
         };
       });
       setCollectionMap(initialMap);
@@ -737,12 +735,12 @@ export default function EmployeeEmiPayment() {
                       groupMembers.forEach((m) => {
                         const k = getLoanKey(m);
                         reset[k] = {
-                          selected: !m.isAdvancePaid,
+                          selected: true,
                           amount: m.emiAmount || m.suggestedAmount || 0,
                           loanPaymentId: m.loanPaymentId,
                           memberId: m.memberId,
                           memberCode: m.memberCode,
-                          isAdvancePaid: m.isAdvancePaid,
+                          isAdvancePaid: Boolean(m.isAdvancePaid),
                         };
                       });
                       setCollectionMap(reset);

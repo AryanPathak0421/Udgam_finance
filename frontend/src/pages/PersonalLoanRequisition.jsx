@@ -25,6 +25,36 @@ const EXTRA_PERCENT_TOPUP = 25;
 const UNIT_DAYS = { days: 1, weeks: 7, months: 30 };
 const MODE_DAYS = { daily: 1, weekly: 7, biweekly: 14, monthly: 30, quarterly: 90, halfyearly: 180, yearly: 360 };
 
+const normalizeModes = (modes) => {
+  if (!modes) return [];
+  if (Array.isArray(modes)) {
+    return modes.map((m) => {
+      if (typeof m === 'object' && m !== null) {
+        const val = String(m.value || m.id || m.mode || 'weekly');
+        return {
+          value: val,
+          label: String(m.label || m.name || val.charAt(0).toUpperCase() + val.slice(1)),
+          unit: m.unit || '',
+        };
+      }
+      const s = String(m || 'weekly');
+      return {
+        value: s,
+        label: s.charAt(0).toUpperCase() + s.slice(1),
+        unit: s === 'daily' ? 'days' : s === 'weekly' ? 'weeks' : s === 'monthly' ? 'months' : '',
+      };
+    });
+  }
+  if (typeof modes === 'string') {
+    return modes.split(',').map((x) => x.trim()).filter(Boolean).map((s) => ({
+      value: s,
+      label: s.charAt(0).toUpperCase() + s.slice(1),
+      unit: s === 'daily' ? 'days' : s === 'weekly' ? 'weeks' : s === 'monthly' ? 'months' : '',
+    }));
+  }
+  return [];
+};
+
 const KINDS = {
   personal: { title: 'Personal Loan Requisition', desc: 'Choose the borrower and the loan scheme, check the EMI, then confirm and submit.', path: '' },
   group: { title: 'Group Loan Requisition', desc: 'Filter the group by branch and employee, choose the group and the loan scheme, then confirm and submit.', path: '/group' },
@@ -390,7 +420,7 @@ function RequisitionForm({ kind }) {
       schemeId: e.target.value,
       // Starting values from the scheme, so the EMI is shown straight away; the user can change them.
       amount: s && !isProduct ? String(s.amountMin) : form.amount,
-      mode: s ? s.modes[0].value : '',
+      mode: s ? (normalizeModes(s.modes)[0]?.value || 'weekly') : '',
       term: s ? String(s.termMin) : '',
       rate: s ? String(s.roiMin) : '',
     }));
@@ -593,7 +623,7 @@ function RequisitionForm({ kind }) {
   const memberOk = (m) => !m.isBlocked && !m.runningInGroup && !(form.schemeId && m.runningSchemeIds?.includes(form.schemeId));
   const effective = isGroup && g ? g.members.filter((m) => chosen.includes(m.id) && memberOk(m)) : [];
   const sum = preview?.summary;
-  const modeUnit = scheme?.modes.find((m) => m.value === form.mode)?.unit;
+  const modeUnit = normalizeModes(scheme?.modes).find((m) => m.value === form.mode)?.unit;
   const members = isGroup && g ? effective.length : 1;
   const amountNum = Number(form.amount) || 0;
   const schemeLabel = kind === 'product' ? 'Product' : 'Loan scheme';
@@ -966,7 +996,7 @@ function RequisitionForm({ kind }) {
                     ['Term', `${scheme.termMin} – ${scheme.termMax} ${scheme.termUnit}`],
                     ['Interest', `${scheme.roiMin}% – ${scheme.roiMax}% p.a. (${scheme.calculationType})`],
                     ['Age', `${scheme.ageMin} – ${scheme.ageMax} years`],
-                    ['Repayment', scheme.modes.map((m) => m.label).join(', ')],
+                    ['Repayment', normalizeModes(scheme.modes).map((m) => m.label).join(', ')],
                     ['Security', scheme.securityType === 'none' ? 'None' : `${scheme.securityType.replace('_', ' ')} (${scheme.securityDeposit?.type === 'fixed' ? inr(scheme.securityDeposit.value) : `${scheme.securityDeposit?.value ?? scheme.securityPercent}%`})`],
                   ]}
                 />
@@ -978,7 +1008,7 @@ function RequisitionForm({ kind }) {
                 <FormField id="mode" label="Repayment mode" required error={errors.mode}>
                   <select id="mode" value={form.mode} onChange={setF('mode')}>
                     <option value="">Select mode</option>
-                    {scheme.modes.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+                    {normalizeModes(scheme.modes).map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
                   </select>
                 </FormField>
                 <FormField id="term" label={`Loan term (${scheme.termUnit})`} required error={errors.term}
@@ -1087,7 +1117,7 @@ function RequisitionForm({ kind }) {
               ...(isGroup && g ? [['Members getting the loan', effective.map((m) => m.code).join(', ')], ['Number of members', String(members)], ['Group total', inr(amountNum * members)]] : []),
               ...(isGroup && extraRows.length ? [['Additional products', extraRows.map((r, i) => `${r.m.code}: ${r.p.name} × ${r.qty} = ${inr(r.value)}${preview?.extras?.[i]?.installmentAmount ? ` (EMI ${inr(preview.extras[i].installmentAmount)})` : ''}`).join('; ')]] : []),
               ['Loan term', `${form.term} ${scheme.termUnit}`],
-              ['Mode & installments', `${scheme.modes.find((m) => m.value === form.mode)?.label}, ${installments} installments`],
+              ['Mode & installments', `${normalizeModes(scheme?.modes).find((m) => m.value === form.mode)?.label || form.mode}, ${installments} installments`],
               ['Interest rate', `${form.rate}% p.a.`], ['EMI', inr(sum.installmentAmount)], ['Total payable', inr(sum.totalPayable)],
               ...(preview?.charges ? [['Processing fee', inr(preview.charges.processingFee)], ['Insurance fee', inr(preview.charges.cost)], ['Security amount', inr(preview.charges.securityAmount)], [isGroup ? 'Cash per member' : 'Cash in hand', inr(preview.cash)]] : []),
               ...(preview?.charges && isGroup ? [['Total cash', inr(preview.cash * members)]] : []),

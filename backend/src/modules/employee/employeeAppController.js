@@ -263,10 +263,6 @@ export async function lookupEmployee(req, res) {
     ],
   }).lean();
 
-  if (isEmployeeSupervisor(emp, user)) {
-    throw new HttpError(403, 'Access denied: You are registered as a Supervisor. Please use the Supervisor App.');
-  }
-
   const mpinRecord = await EmployeeMpin.findOne({ employeeCode: emp.employeeCode });
   const desig = emp.designation?.name || (typeof emp.designation === 'string' ? emp.designation : 'Field Officer');
   const dept = emp.department?.name || (typeof emp.department === 'string' ? emp.department : 'Operations');
@@ -294,6 +290,12 @@ export async function createMpin(req, res) {
   const emp = await Employee.findOne({ employeeCode: code, isDeleted: false }).populate('designation');
   if (!emp) throw new HttpError(404, 'Employee not found');
 
+  // Prevent unlimited mPIN recreation / overwrite without OTP
+  const existingRecord = await EmployeeMpin.findOne({ employeeCode: code });
+  if (existingRecord && existingRecord.mpinHash) {
+    throw new HttpError(400, 'mPIN is already created for this account. If you forgot your mPIN, please use Forgot mPIN to reset via OTP verification.');
+  }
+
   const user = await ensureUserForEmployee(emp);
   const mpinHash = await EmployeeMpin.hashMpin(mpin);
   const isSupervisor = Boolean(
@@ -302,7 +304,7 @@ export async function createMpin(req, res) {
     /supervisor/i.test(emp.designation?.name || '')
   );
 
-  let record = await EmployeeMpin.findOne({ employeeCode: code });
+  let record = existingRecord;
   if (record) {
     record.mpinHash = mpinHash;
     record.mobile = emp.mobile;
@@ -343,9 +345,6 @@ export async function loginWithMpin(req, res) {
   if (!ok) throw new HttpError(401, 'Incorrect mPIN');
 
   const user = await ensureUserForEmployee(emp);
-  if (isEmployeeSupervisor(emp, user)) {
-    throw new HttpError(403, 'Access denied: You are registered as a Supervisor. Please use the Supervisor App.');
-  }
 
   mpinDoc.lastLoginAt = new Date();
   await mpinDoc.save();
@@ -1836,7 +1835,15 @@ export async function getEmployeeLoanSchemes(req, res) {
       termMax: s.termMax,
       roiMin: (s.roiMinBp || 0) / 100,
       roiMax: (s.roiMaxBp || 0) / 100,
-      modes: s.modes || ['weekly', 'monthly'],
+      modes: (Array.isArray(s.modes) && s.modes.length ? s.modes : ['weekly', 'monthly']).map((m) =>
+        typeof m === 'object' && m !== null
+          ? m
+          : {
+              value: String(m),
+              label: String(m).charAt(0).toUpperCase() + String(m).slice(1),
+              unit: m === 'daily' ? 'days' : m === 'weekly' ? 'weeks' : m === 'monthly' ? 'months' : '',
+            }
+      ),
       calculationType: s.calculationType || 'flat',
     })),
   });

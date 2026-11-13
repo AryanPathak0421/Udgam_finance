@@ -1296,8 +1296,11 @@ export async function employeeOptions(req, res) {
       isBlocked: { $ne: true },
       status: { $ne: 'left' },
       isSupervisor: { $ne: true },
-      branch,
-    }).populate('designation', 'name').select('name employeeCode designation status isSupervisor').sort({ employeeCode: 1 }).lean(),
+      $or: [
+        { branch },
+        { supervisedBranches: branch },
+      ],
+    }).populate('designation', 'name').select('name employeeCode designation status isSupervisor branch').sort({ employeeCode: 1 }).lean(),
   ]);
 
   const isSupervisorDesig = (e) => {

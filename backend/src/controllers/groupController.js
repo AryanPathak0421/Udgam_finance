@@ -147,12 +147,29 @@ async function readGroup(b, user, v, { current } = {}) {
 
   // Employee looking after the group.
   out.employeeCode = asString(b.employeeCode).toUpperCase();
-  if (!out.employeeCode) v.add('employeeCode', 'Select the employee');
-  else if (branch) {
-    const emp = await User.findOne({ employeeCode: { $eq: out.employeeCode, $nin: await blockedCodes() }, $or: [{ isActive: true }, { legacyImport: true }] }).select('role branches');
-    const ok = emp && (ADMIN_ROLES.includes(emp.role) || (emp.branches || []).some((x) => String(x) === String(branch._id)));
-    if (!emp) v.add('employeeCode', 'Select a valid employee');
-    else if (!ok) v.add('employeeCode', 'This employee does not belong to the selected branch');
+  if (!out.employeeCode) {
+    v.add('employeeCode', 'Select the employee');
+  } else if (branch) {
+    const blocked = await blockedCodes();
+    if (blocked.includes(out.employeeCode)) {
+      v.add('employeeCode', 'This employee is blocked');
+    } else {
+      let u = await User.findOne({ employeeCode: out.employeeCode, $or: [{ isActive: true }, { legacyImport: true }] }).select('role branches');
+      const hrEmp = await Employee.findOne({ employeeCode: out.employeeCode, isDeleted: false, status: { $ne: 'left' } }).select('branch supervisedBranches');
+
+      const userOk = u && (ADMIN_ROLES.includes(u.role) || (u.branches || []).some((x) => String(x) === String(branch._id)));
+      const hrOk = hrEmp && (String(hrEmp.branch) === String(branch._id) || (hrEmp.supervisedBranches || []).some((x) => String(x) === String(branch._id)));
+
+      if (!u && !hrEmp) {
+        v.add('employeeCode', 'Select a valid employee');
+      } else if (!userOk && !hrOk) {
+        v.add('employeeCode', 'This employee does not belong to the selected branch');
+      } else if (u && !userOk && hrOk) {
+        // Auto-link branch to user account so permissions stay in sync
+        u.branches = [...(u.branches || []), branch._id];
+        await u.save().catch(() => {});
+      }
+    }
   }
 
   Object.assign(out, readSchedule(b, v));

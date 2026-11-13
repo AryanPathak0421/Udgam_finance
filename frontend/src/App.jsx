@@ -1,3 +1,4 @@
+import React, { Component } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext.jsx';
 import Login from './pages/Login.jsx';
@@ -213,29 +214,70 @@ function RequirePath({ path, children }) {
 
 const routes = routableItems().filter((i) => i.path !== '/');
 
+class AppErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error('AppErrorBoundary caught error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: 24, textAlign: 'center', margin: '40px auto', maxWidth: 480, background: '#fff', borderRadius: 12, boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
+          <h2 style={{ color: '#dc2626', marginBottom: 12, fontSize: '1.25rem' }}>Page Rendering Error</h2>
+          <p style={{ color: '#64748b', fontSize: '0.88rem', marginBottom: 16 }}>
+            {this.state.error?.message || 'An unexpected rendering error occurred while loading this section.'}
+          </p>
+          <button
+            type="button"
+            className="btn primary"
+            onClick={() => {
+              this.setState({ hasError: false, error: null });
+              window.location.reload();
+            }}
+          >
+            Reload Page
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
   return (
-    <Routes>
-      <Route path="/employee/*" element={<EmployeeApp />} />
-      <Route path="/supervisor/*" element={<SupervisorApp />} />
-      <Route path="/member/*" element={<MemberApp />} />
-      <Route path="/login" element={<PublicOnly><Login /></PublicOnly>} />
-      <Route path="/forgot-password" element={<PublicOnly><ForgotPassword /></PublicOnly>} />
-      <Route path="/reset-password" element={<ResetPassword />} />
-      <Route element={<RequireAuth><Layout /></RequireAuth>}>
-        <Route index element={<Dashboard />} />
-        <Route path="/admin-master" element={<Navigate to="/admin-master/company-profile" replace />} />
-        <Route path="/groups" element={<Navigate to="/group-master/list" replace />} />
-        <Route path="/members/nominee-detail" element={<Navigate to="/members/guarantor-detail" replace />} />
-        <Route path="/loan-requisition" element={<Navigate to="/loan-requisition/list" replace />} />
-        <Route path="/group-master" element={<Navigate to="/group-master/list" replace />} />
-        {routes.map((r) => {
-          const Page = PAGES[r.path] || ModulePlaceholder;
-          return <Route key={r.path} path={r.path} element={<RequirePath path={r.path}><Page /></RequirePath>} />;
-        })}
-      </Route>
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <AppErrorBoundary>
+      <Routes>
+        <Route path="/employee/*" element={<EmployeeApp />} />
+        <Route path="/supervisor/*" element={<SupervisorApp />} />
+        <Route path="/member/*" element={<MemberApp />} />
+        <Route path="/login" element={<PublicOnly><Login /></PublicOnly>} />
+        <Route path="/forgot-password" element={<PublicOnly><ForgotPassword /></PublicOnly>} />
+        <Route path="/reset-password" element={<ResetPassword />} />
+        <Route element={<RequireAuth><Layout /></RequireAuth>}>
+          <Route index element={<Dashboard />} />
+          <Route path="/admin-master" element={<Navigate to="/admin-master/company-profile" replace />} />
+          <Route path="/groups" element={<Navigate to="/group-master/list" replace />} />
+          <Route path="/members/nominee-detail" element={<Navigate to="/members/guarantor-detail" replace />} />
+          <Route path="/loan-requisition" element={<Navigate to="/loan-requisition/list" replace />} />
+          <Route path="/group-master" element={<Navigate to="/group-master/list" replace />} />
+          {routes.map((r) => {
+            const Page = PAGES[r.path] || ModulePlaceholder;
+            return <Route key={r.path} path={r.path} element={<RequirePath path={r.path}><AppErrorBoundary><Page /></AppErrorBoundary></RequirePath>} />;
+          })}
+        </Route>
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </AppErrorBoundary>
   );
 }
 

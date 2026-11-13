@@ -14,6 +14,36 @@ const EXTRA_PERCENT = 25;
 const UNIT_DAYS = { days: 1, weeks: 7, months: 30 };
 const MODE_DAYS = { daily: 1, weekly: 7, biweekly: 14, monthly: 30, quarterly: 90, halfyearly: 180, yearly: 360 };
 
+const normalizeModes = (modes) => {
+  if (!modes) return [];
+  if (Array.isArray(modes)) {
+    return modes.map((m) => {
+      if (typeof m === 'object' && m !== null) {
+        const val = String(m.value || m.id || m.mode || 'weekly');
+        return {
+          value: val,
+          label: String(m.label || m.name || val.charAt(0).toUpperCase() + val.slice(1)),
+          unit: m.unit || '',
+        };
+      }
+      const s = String(m || 'weekly');
+      return {
+        value: s,
+        label: s.charAt(0).toUpperCase() + s.slice(1),
+        unit: s === 'daily' ? 'days' : s === 'weekly' ? 'weeks' : s === 'monthly' ? 'months' : '',
+      };
+    });
+  }
+  if (typeof modes === 'string') {
+    return modes.split(',').map((x) => x.trim()).filter(Boolean).map((s) => ({
+      value: s,
+      label: s.charAt(0).toUpperCase() + s.slice(1),
+      unit: s === 'daily' ? 'days' : s === 'weekly' ? 'weeks' : s === 'monthly' ? 'months' : '',
+    }));
+  }
+  return [];
+};
+
 const LOAN_TYPES = [
   { id: 'group', label: 'Group Loan', desc: 'Joint liability microfinance loan for SHG members', icon: 'group' },
   { id: 'personal', label: 'Personal Loan', desc: 'Direct unsecured loan for individual borrowers', icon: 'customer' },
@@ -612,7 +642,8 @@ export default function EmployeeLoanRequisition() {
       setForm((f) => ({ ...f, schemeId: '' }));
       return;
     }
-    const sMode = s.modes?.[0]?.value || s.modes?.[0] || 'weekly';
+    const safeModes = normalizeModes(s.modes);
+    const sMode = safeModes[0]?.value || 'weekly';
     const sTerm = String(s.termMin || s.termMax || (sMode === 'weekly' ? 52 : 12));
     const sRate = String(s.roiMin ?? s.roiMax ?? 24);
     const sAmount = isProduct ? form.amount : String(s.amountMin || 30000);
@@ -2096,7 +2127,7 @@ export default function EmployeeLoanRequisition() {
                   <div><span style={{ color: '#64748b' }}>Term:</span> <strong>{scheme.termMin} – {scheme.termMax} {scheme.termUnit}</strong></div>
                   <div><span style={{ color: '#64748b' }}>Interest ROI:</span> <strong>{scheme.roiMin}% – {scheme.roiMax}% p.a.</strong></div>
                   <div><span style={{ color: '#64748b' }}>Age Range:</span> {scheme.ageMin} – {scheme.ageMax} yrs</div>
-                  <div><span style={{ color: '#64748b' }}>Modes:</span> {scheme.modes?.map((m) => m.label || m).join(', ')}</div>
+                  <div><span style={{ color: '#64748b' }}>Modes:</span> {normalizeModes(scheme.modes).map((m) => m.label).join(', ') || 'Weekly'}</div>
                   <div><span style={{ color: '#64748b' }}>Security Deposit:</span> {scheme.securityType === 'none' ? 'None' : `${scheme.securityPercent || 5}%`}</div>
                   {(scheme.minCivilScore || scheme.cibilMin) && (
                     <div><span style={{ color: '#64748b' }}>Min CIBIL:</span> <strong style={{ color: '#dc2626' }}>{scheme.minCivilScore || scheme.cibilMin}</strong></div>
@@ -2209,9 +2240,9 @@ export default function EmployeeLoanRequisition() {
                   value={form.mode}
                   onChange={(e) => setForm((f) => ({ ...f, mode: e.target.value }))}
                 >
-                  {scheme?.modes ? (
-                    scheme.modes.map((m) => (
-                      <option key={m.value || m} value={m.value || m}>{m.label || m}</option>
+                  {normalizeModes(scheme?.modes).length > 0 ? (
+                    normalizeModes(scheme.modes).map((m) => (
+                      <option key={m.value} value={m.value}>{m.label}</option>
                     ))
                   ) : (
                     <>

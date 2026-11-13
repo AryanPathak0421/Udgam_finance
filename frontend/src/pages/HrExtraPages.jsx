@@ -1081,6 +1081,16 @@ export function EmployeeList() {
   async function unblock(e) {
     try { await api.hr.blockEmployee(e.id, { block: false }); toast.success(`${e.employeeCode} is unblocked`); list.load(); } catch (err) { toast.error(err.message); }
   }
+  async function toggleStatus(e) {
+    const nextStatus = e.status === 'active' ? 'left' : 'active';
+    try {
+      await api.hr.setEmployeeStatus(e.id, { status: nextStatus });
+      toast.success(nextStatus === 'active' ? `${e.employeeCode} rejoined successfully!` : `${e.employeeCode} marked as left`);
+      list.load();
+    } catch (err) {
+      toast.error(err.message);
+    }
+  }
   return (
     <>
       <PageHeader title="Employee List & Block" description="All employees. Blocking an employee stops the staff login and the app of that employee at once; unblock gives it back." />
@@ -1103,7 +1113,20 @@ export function EmployeeList() {
                     <td data-label="Department">{e.department?.name || '—'}<div className="muted small">{e.designation?.name || '—'}</div></td>
                     <td data-label="Branch">{branchLabel(e.branch)}</td><td data-label="Mobile">{e.mobile || '—'}</td>
                     <td data-label="Status">{e.isBlocked ? <><span className="badge danger">Blocked</span><div className="muted small">{e.blockReason}</div></> : <span className={`badge ${e.status === 'active' ? 'green' : 'grey'}`}>{e.status === 'active' ? 'Working' : `Left ${dmy(e.leftOn)}`}</span>}</td>
-                    <td>{e.isBlocked ? <button className="btn sm" onClick={() => unblock(e)}>Unblock</button> : <button className="btn sm danger-outline" onClick={() => setBlocking(e)}>Block</button>}</td>
+                    <td>
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        {e.status === 'left' ? (
+                          <button type="button" className="btn sm primary" onClick={() => toggleStatus(e)}>Rejoin</button>
+                        ) : (
+                          <button type="button" className="btn sm" onClick={() => toggleStatus(e)}>Mark Left</button>
+                        )}
+                        {e.isBlocked ? (
+                          <button type="button" className="btn sm" onClick={() => unblock(e)}>Unblock</button>
+                        ) : (
+                          <button type="button" className="btn sm danger-outline" onClick={() => setBlocking(e)}>Block</button>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>

@@ -20,7 +20,43 @@ const EXTRA_PERCENT = 25;
 // Days in one term unit / one repayment period (the same 30-day month the scheme limits use).
 const UNIT_DAYS = { days: 1, weeks: 7, months: 30 };
 const MODE_DAYS = { daily: 1, weekly: 7, biweekly: 14, monthly: 30, quarterly: 90, halfyearly: 180, yearly: 360 };
-const installmentsFor = (s, mode) => Math.max(1, Math.round((s.termMin * UNIT_DAYS[s.termUnit]) / MODE_DAYS[mode]));
+
+const normalizeModes = (modes) => {
+  if (!modes) return [];
+  if (Array.isArray(modes)) {
+    return modes.map((m) => {
+      if (typeof m === 'object' && m !== null) {
+        const val = String(m.value || m.id || m.mode || 'weekly');
+        return {
+          value: val,
+          label: String(m.label || m.name || val.charAt(0).toUpperCase() + val.slice(1)),
+          unit: m.unit || '',
+        };
+      }
+      const s = String(m || 'weekly');
+      return {
+        value: s,
+        label: s.charAt(0).toUpperCase() + s.slice(1),
+        unit: s === 'daily' ? 'days' : s === 'weekly' ? 'weeks' : s === 'monthly' ? 'months' : '',
+      };
+    });
+  }
+  if (typeof modes === 'string') {
+    return modes.split(',').map((x) => x.trim()).filter(Boolean).map((s) => ({
+      value: s,
+      label: s.charAt(0).toUpperCase() + s.slice(1),
+      unit: s === 'daily' ? 'days' : s === 'weekly' ? 'weeks' : s === 'monthly' ? 'months' : '',
+    }));
+  }
+  return [];
+};
+
+const installmentsFor = (s, mode) => {
+  const d = MODE_DAYS[mode] || 7;
+  const unitD = (s && UNIT_DAYS[s.termUnit]) || 7;
+  const minTerm = (s && s.termMin) || 52;
+  return Math.max(1, Math.round((minTerm * unitD) / d));
+};
 const blank = { civilScore: '', schemeId: '', amount: '', mode: '', term: '', rate: '', front: '', back: '', extraId: '', extraQty: '1', extraScheme: '' };
 const eligible = (m) => !m.isBlocked && !m.runningInGroup && !(m.issues && m.issues.length);
 
@@ -47,7 +83,20 @@ function MemberLoan({ index, m, e, schemes, productSchemes, stock, errors, onCha
 
   function chooseScheme(ev) {
     const s = schemes.find((x) => x.id === ev.target.value);
-    onChange(s ? { civilScore: m.civilScore != null ? String(m.civilScore) : '', schemeId: s.id, amount: String(s.amountMin), mode: s.modes[0].value, term: String(installmentsFor(s, s.modes[0].value)), rate: String(s.roiMin) } : { civilScore: '', schemeId: '', amount: '', mode: '', term: '', rate: '' });
+    if (!s) {
+      onChange({ civilScore: '', schemeId: '', amount: '', mode: '', term: '', rate: '' });
+      return;
+    }
+    const safeModes = normalizeModes(s.modes);
+    const mVal = safeModes[0]?.value || 'weekly';
+    onChange({
+      civilScore: m.civilScore != null ? String(m.civilScore) : '',
+      schemeId: s.id,
+      amount: String(s.amountMin || 30000),
+      mode: mVal,
+      term: String(installmentsFor(s, mVal)),
+      rate: String(s.roiMin ?? 24),
+    });
   }
   const err = (f) => errors?.[`entries.${m.id}.${f}`];
   const extraProduct = stock.find((p) => p.id === e.extraId);
@@ -80,7 +129,7 @@ function MemberLoan({ index, m, e, schemes, productSchemes, stock, errors, onCha
           <>
             <FormField id={`mode-${m.id}`} label="Repayment mode" required error={err('mode')}>
               <select id={`mode-${m.id}`} value={e.mode} onChange={(ev) => onChange({ mode: ev.target.value, term: String(installmentsFor(scheme, ev.target.value)) })}>
-                {scheme.modes.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
+                {normalizeModes(scheme.modes).map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
               </select>
             </FormField>
             <FormField id={`term-${m.id}`} label="Installments" required error={err('term')} hint={`Loan term ${scheme.termMin} to ${scheme.termMax} ${scheme.termUnit}`}>
@@ -150,7 +199,11 @@ export default function GroupLoanRequisition() {
   const [saving, setSaving] = useState(false);
   // a daily group has daily schemes only, a weekly group weekly, a monthly group monthly
   const meeting = detail?.group?.meetingType || '';
-  const usable = meeting ? schemes.filter((s) => s.modes.some((x) => x.value === meeting)).map((s) => ({ ...s, modes: s.modes.filter((x) => x.value === meeting) })) : schemes;
+  const usable = meeting
+    ? schemes
+        .filter((s) => normalizeModes(s.modes).some((x) => x.value === meeting))
+        .map((s) => ({ ...s, modes: normalizeModes(s.modes).filter((x) => x.value === meeting) }))
+    : schemes.map((s) => ({ ...s, modes: normalizeModes(s.modes) }));
 
   useEffect(() => {
     api.groups.branchOptions().then((r) => {
@@ -388,7 +441,7 @@ export default function GroupLoanRequisition() {
                         <td data-label="Member"><strong>{m.code}</strong> {m.name}</td>
                         <td data-label="Scheme">{s ? `${s.code} — ${s.name}` : '—'}</td>
                         <td data-label="Amount" className="num">{inr(Number(x.amount))}</td>
-                        <td data-label="Installments">{x.term} ({s?.modes.find((y) => y.value === x.mode)?.label}) at {x.rate}%</td>
+                        <td data-label="Installments">{x.term} ({normalizeModes(s?.modes).find((y) => y.value === x.mode)?.label || x.mode}) at {x.rate}%</td>
                         <td data-label="EMI" className="num">{pv ? inr(pv.summary.installmentAmount) : '—'}</td>
                         <td data-label="Cash" className="num">{pv ? inr(pv.cash) : '—'}</td>
                         <td data-label="Product">{p ? `${p.name} × ${x.extraQty}` : '—'}{p && <div className="muted small">{productSchemes.find((y) => y.id === x.extraScheme)?.name || ''}</div>}</td>

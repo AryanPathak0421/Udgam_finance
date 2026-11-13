@@ -236,44 +236,91 @@ export default function EmployeeRegistration() {
             </div>
           </div>
 
-          <form onSubmit={handleCreateMpin}>
-            <div className="emp-input-group">
-              <label className="emp-label">Set 4-digit mPIN</label>
-              <input
-                type="password"
-                inputMode="numeric"
-                maxLength={4}
-                pattern="[0-9]{4}"
-                className="emp-input"
-                required
-                placeholder="••••"
-                value={mpin}
-                onChange={(e) => setMpin(e.target.value.replace(/\D/g, '').slice(0, 4))}
-              />
-            </div>
+          {foundEmp.hasMpin ? (
+            <div style={{ textAlign: 'center', padding: '16px 8px' }}>
+              <div style={{
+                background: '#eff6ff',
+                border: '1px solid #bfdbfe',
+                borderRadius: 8,
+                padding: '12px 14px',
+                color: '#1e40af',
+                fontSize: '0.85rem',
+                marginBottom: 16,
+                textAlign: 'left',
+                lineHeight: 1.5,
+              }}>
+                <div style={{ fontWeight: 700, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Icon name="checkcircle" size={16} />
+                  <span>mPIN Already Active</span>
+                </div>
+                Your account already has an active secret mPIN. For security, direct creation cannot overwrite an existing mPIN without OTP verification.
+              </div>
 
-            <div className="emp-input-group">
-              <label className="emp-label">Confirm 4-digit mPIN</label>
-              <input
-                type="password"
-                inputMode="numeric"
-                maxLength={4}
-                pattern="[0-9]{4}"
-                className="emp-input"
-                required
-                placeholder="••••"
-                value={confirmMpin}
-                onChange={(e) => setConfirmMpin(e.target.value.replace(/\D/g, '').slice(0, 4))}
-              />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <Link
+                  to="/employee/login"
+                  className="emp-btn"
+                  style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                >
+                  Login with Existing mPIN
+                </Link>
+                <Link
+                  to="/employee/forgot-mpin"
+                  className="emp-btn secondary"
+                  style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                >
+                  Forgot mPIN? (Reset via Phone OTP)
+                </Link>
+                <button
+                  type="button"
+                  className="emp-btn secondary sm"
+                  style={{ width: '100%', marginTop: 4 }}
+                  onClick={() => setFoundEmp(null)}
+                >
+                  Change Account
+                </button>
+              </div>
             </div>
+          ) : (
+            <form onSubmit={handleCreateMpin}>
+              <div className="emp-input-group">
+                <label className="emp-label">Set 4-digit mPIN</label>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={4}
+                  pattern="[0-9]{4}"
+                  className="emp-input"
+                  required
+                  placeholder="••••"
+                  value={mpin}
+                  onChange={(e) => setMpin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                />
+              </div>
 
-            <button type="submit" className="emp-btn" disabled={busy} style={{ marginTop: 8 }}>
-              {busy ? 'Setting mPIN…' : 'Save mPIN & Continue'}
-            </button>
-            <button type="button" className="emp-btn secondary sm" style={{ marginTop: 8, width: '100%' }} onClick={() => setFoundEmp(null)}>
-              Change Account
-            </button>
-          </form>
+              <div className="emp-input-group">
+                <label className="emp-label">Confirm 4-digit mPIN</label>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={4}
+                  pattern="[0-9]{4}"
+                  className="emp-input"
+                  required
+                  placeholder="••••"
+                  value={confirmMpin}
+                  onChange={(e) => setConfirmMpin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                />
+              </div>
+
+              <button type="submit" className="emp-btn" disabled={busy} style={{ marginTop: 8 }}>
+                {busy ? 'Setting mPIN…' : 'Save mPIN & Continue'}
+              </button>
+              <button type="button" className="emp-btn secondary sm" style={{ marginTop: 8, width: '100%' }} onClick={() => setFoundEmp(null)}>
+                Change Account
+              </button>
+            </form>
+          )}
         </div>
       )}
     </div>

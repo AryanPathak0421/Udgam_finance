@@ -57,7 +57,11 @@ const presentScheme = (s) => ({
   ageMax: s.ageMax,
   roiMin: s.roiMinBp / 100,
   roiMax: s.roiMaxBp / 100,
-  modes: s.modes.map((m) => ({ value: m, label: MODES[m]?.label || m, unit: MODES[m]?.unit || '' })),
+  modes: (Array.isArray(s.modes) ? s.modes : ['weekly', 'monthly']).map((m) =>
+    typeof m === 'object' && m !== null
+      ? m
+      : { value: String(m), label: MODES[m]?.label || String(m).charAt(0).toUpperCase() + String(m).slice(1), unit: MODES[m]?.unit || '' }
+  ),
   calculationType: s.calculationType,
   emiType: s.emiType,
   securityType: s.securityType,

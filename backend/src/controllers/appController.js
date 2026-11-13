@@ -45,13 +45,12 @@ export async function listAppUsers(req, res) {
     const existingUserIds = new Set(existingAppUsers.map((a) => String(a.user)));
     const existingCodes = new Set(existingAppUsers.map((a) => (a.employeeCode || '').toUpperCase()));
 
-    const activeEmployees = await Employee.find({
-      isDeleted: false,
-      status: 'active',
+    const allEmployees = await Employee.find({
+      isDeleted: { $ne: true },
       isBlocked: { $ne: true },
     }).populate('branch', 'code name').lean();
 
-    for (const emp of activeEmployees) {
+    for (const emp of allEmployees) {
       const codeUpper = (emp.employeeCode || '').toUpperCase();
       if (!existingCodes.has(codeUpper)) {
         let u = null;
@@ -63,6 +62,18 @@ export async function listAppUsers(req, res) {
         }
         if (!u && codeUpper) {
           u = await User.findOne({ employeeCode: new RegExp(`^${codeUpper}$`, 'i') });
+        }
+        if (!u && codeUpper) {
+          u = await User.create({
+            name: emp.name,
+            email: emp.email || `${codeUpper.toLowerCase()}@udgam.local`,
+            mobile: emp.mobile,
+            employeeCode: codeUpper,
+            password: 'Password@123',
+            role: 'field_officer',
+            branches: emp.branch?._id ? [emp.branch._id] : [],
+            isActive: true,
+          }).catch(() => null);
         }
         if (u) {
           if (!u.employeeCode && codeUpper) {
@@ -137,10 +148,9 @@ export async function staffOptions(_req, res) {
   const takenCodes = new Set(taken.map((a) => (a.employeeCode || '').toUpperCase()));
   const blocked = await blockedCodes();
 
-  // 1. Active employees in HR
+  // 1. All employees in HR (active, legacy, and existing staff)
   const employees = await Employee.find({
-    isDeleted: false,
-    status: 'active',
+    isDeleted: { $ne: true },
     isBlocked: { $ne: true },
   })
     .populate('branch', 'code name')
