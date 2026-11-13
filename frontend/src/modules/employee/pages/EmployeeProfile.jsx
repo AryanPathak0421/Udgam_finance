@@ -208,6 +208,96 @@ export default function EmployeeProfile() {
         </div>
       </div>
 
+      {/* Registration Details: Family & Personal */}
+      <div className="emp-card">
+        <div className="emp-card-title">Family &amp; Personal Details</div>
+        <div className="emp-stat-row">
+          <span className="emp-stat-label">Father's Name</span>
+          <span className="emp-stat-value">{data.fatherName || '—'}</span>
+        </div>
+        <div className="emp-stat-row">
+          <span className="emp-stat-label">Father's Mobile</span>
+          <span className="emp-stat-value">{data.fatherMobile || '—'}</span>
+        </div>
+        <div className="emp-stat-row">
+          <span className="emp-stat-label">Mother's Name</span>
+          <span className="emp-stat-value">{data.motherName || '—'}</span>
+        </div>
+        <div className="emp-stat-row">
+          <span className="emp-stat-label">Marital Status</span>
+          <span className="emp-stat-value" style={{ textTransform: 'capitalize' }}>{data.maritalStatus || '—'}</span>
+        </div>
+      </div>
+
+      {/* Registration Details: Identity & KYC */}
+      <div className="emp-card">
+        <div className="emp-card-title">Identity &amp; KYC Details</div>
+        <div className="emp-stat-row">
+          <span className="emp-stat-label">Aadhaar Number</span>
+          <span className="emp-stat-value">{data.aadhaarNo || '—'}</span>
+        </div>
+        <div className="emp-stat-row">
+          <span className="emp-stat-label">PAN Number</span>
+          <span className="emp-stat-value">{data.panNo || '—'}</span>
+        </div>
+        <div className="emp-stat-row">
+          <span className="emp-stat-label">Voter ID</span>
+          <span className="emp-stat-value">{data.voterIdNo || '—'}</span>
+        </div>
+        <div className="emp-stat-row">
+          <span className="emp-stat-label">Driving Licence</span>
+          <span className="emp-stat-value">{data.drivingLicenceNo || '—'}</span>
+        </div>
+      </div>
+
+      {/* Registration Details: Bank & Salary Account */}
+      <div className="emp-card">
+        <div className="emp-card-title">Bank &amp; Salary Account</div>
+        <div className="emp-stat-row">
+          <span className="emp-stat-label">Bank Name</span>
+          <span className="emp-stat-value">{data.bankName || '—'}</span>
+        </div>
+        <div className="emp-stat-row">
+          <span className="emp-stat-label">Account Number</span>
+          <span className="emp-stat-value">{data.bankAccountNo || '—'}</span>
+        </div>
+        <div className="emp-stat-row">
+          <span className="emp-stat-label">IFSC Code</span>
+          <span className="emp-stat-value">{data.bankIfsc || '—'}</span>
+        </div>
+        <div className="emp-stat-row">
+          <span className="emp-stat-label">Bank Branch</span>
+          <span className="emp-stat-value">{data.bankBranch || '—'}</span>
+        </div>
+      </div>
+
+      {/* Registration Details: Experience & Statutory */}
+      {(data.hasExperience || data.pfDeduction || data.esiDeduction || data.uanNumber !== '—') && (
+        <div className="emp-card">
+          <div className="emp-card-title">Experience &amp; Statutory Details</div>
+          {data.hasExperience && (
+            <>
+              <div className="emp-stat-row">
+                <span className="emp-stat-label">Previous Company</span>
+                <span className="emp-stat-value">{data.previousCompany || '—'}</span>
+              </div>
+              <div className="emp-stat-row">
+                <span className="emp-stat-label">Previous Post</span>
+                <span className="emp-stat-value">{data.previousPost || '—'}</span>
+              </div>
+            </>
+          )}
+          <div className="emp-stat-row">
+            <span className="emp-stat-label">PF UAN Number</span>
+            <span className="emp-stat-value">{data.uanNumber || data.pfNumber || '—'}</span>
+          </div>
+          <div className="emp-stat-row">
+            <span className="emp-stat-label">ESI Number</span>
+            <span className="emp-stat-value">{data.esiNumber || '—'}</span>
+          </div>
+        </div>
+      )}
+
       {/* Security Passbook / Deductions */}
       {data.passbook && data.passbook.length > 0 && (
         <div className="emp-card">

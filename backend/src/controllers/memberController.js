@@ -1273,20 +1273,29 @@ export async function employeeOptions(req, res) {
   if (!isAdmin(req.user) && !(req.user.branches || []).some((x) => String(x) === String(branch))) {
     throw new HttpError(403, 'You can only use branches assigned to you');
   }
-  // the employees of the branch: User records and Employee (HR) records, plus legacy staff
+  // the employees of the branch: User records and Employee (HR) records, plus legacy staff.
+  // Supervisors and blocked staff are excluded from loan requisition, approval and payment staff selection.
   const branchDoc = await Branch.findById(branch).select('code name').lean();
   const [users, emps] = await Promise.all([
     User.find({
       employeeCode: { $exists: true, $nin: await blockedCodes() },
       branches: branch,
+      role: { $nin: ['supervisor', 'admin', 'super_admin'] },
       $or: [{ isActive: true }, { legacyImport: true }],
     }).select('name employeeCode role isActive').sort({ employeeCode: 1 }).lean(),
     Employee.find({
       isDeleted: false,
       isBlocked: { $ne: true },
+      status: { $ne: 'left' },
+      isSupervisor: { $ne: true },
       branch,
-    }).select('name employeeCode designation status').sort({ employeeCode: 1 }).lean(),
+    }).populate('designation', 'name').select('name employeeCode designation status isSupervisor').sort({ employeeCode: 1 }).lean(),
   ]);
+
+  const isSupervisorDesig = (e) => {
+    const dName = e.designation?.name || (typeof e.designation === 'string' ? e.designation : '');
+    return Boolean(e.isSupervisor || /supervisor/i.test(dName) || /supervisor/i.test(e.name || ''));
+  };
 
   const map = new Map();
   users.forEach((u) => {
@@ -1300,6 +1309,7 @@ export async function employeeOptions(req, res) {
     });
   });
   emps.forEach((e) => {
+    if (isSupervisorDesig(e)) return;
     const k = String(e.employeeCode).toUpperCase();
     if (!map.has(k)) {
       map.set(k, {

@@ -257,12 +257,65 @@ export function EmiApproval() {
     <>
       <PageHeader title="Loan EMI Collection Approval" description="EMI collected in the mobile app. It counts (cashbook, loan balance) only after it is approved here; then the EMI receipt is made." />
       <div className="panel">
-        <Toolbar qu={qu} placeholder="Search loan, member, staff" />
+        <Toolbar qu={qu} placeholder="Search employee name, code, loan, member" />
+
+        {/* Point 9: KPI Summary breakdown cards with Grand Total = [  ] */}
+        {qu.data?.summary && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, margin: '14px 0 16px' }}>
+            <div style={{ padding: '10px 14px', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8 }}>
+              <div style={{ fontSize: '0.74rem', color: '#0369a1', fontWeight: 700, textTransform: 'uppercase' }}>Online Receive</div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#0284c7', marginTop: 3 }}>
+                {inr(qu.data.summary.onlineReceive || 0)}
+              </div>
+              <div style={{ fontSize: '0.7rem', color: '#64748b' }}>UPI, Bank &amp; Cheque</div>
+            </div>
+
+            <div style={{ padding: '10px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8 }}>
+              <div style={{ fontSize: '0.74rem', color: '#15803d', fontWeight: 700, textTransform: 'uppercase' }}>Offline Receive</div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#16a34a', marginTop: 3 }}>
+                {inr(qu.data.summary.offlineReceive || 0)}
+              </div>
+              <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Cash Collection</div>
+            </div>
+
+            <div style={{ padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8 }}>
+              <div style={{ fontSize: '0.74rem', color: '#b91c1c', fontWeight: 700, textTransform: 'uppercase' }}>NPA Receive</div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#dc2626', marginTop: 3 }}>
+                {inr(qu.data.summary.npaReceive || 0)}
+              </div>
+              <div style={{ fontSize: '0.7rem', color: '#64748b' }}>NPA Collections</div>
+            </div>
+
+            <div style={{ padding: '10px 14px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8 }}>
+              <div style={{ fontSize: '0.74rem', color: '#b45309', fontWeight: 700, textTransform: 'uppercase' }}>Advance Receive</div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#d97706', marginTop: 3 }}>
+                {inr(qu.data.summary.advanceReceive || 0)}
+              </div>
+              <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Advance EMIs</div>
+            </div>
+
+            <div style={{ padding: '10px 14px', background: '#faf5ff', border: '1px solid #e9d5ff', borderRadius: 8 }}>
+              <div style={{ fontSize: '0.74rem', color: '#6b21a8', fontWeight: 700, textTransform: 'uppercase' }}>Product Booking</div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#7c3aed', marginTop: 3 }}>
+                {inr(qu.data.summary.productBookingAmount || 0)}
+              </div>
+              <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Booking Amount</div>
+            </div>
+
+            <div style={{ padding: '10px 14px', background: 'linear-gradient(135deg, #0f172a, #1e293b)', color: '#fff', borderRadius: 8, boxShadow: '0 2px 6px rgba(0,0,0,0.1)' }}>
+              <div style={{ fontSize: '0.74rem', color: '#94a3b8', fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5 }}>Total = [ &nbsp; ]</div>
+              <div style={{ fontSize: '1.3rem', fontWeight: 900, color: '#38bdf8', marginTop: 3 }}>
+                [ {inr(qu.data.summary.grandTotal ?? qu.data.summary.amount ?? 0)} ]
+              </div>
+              <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{qu.data.summary.requests} Collections</div>
+            </div>
+          </div>
+        )}
+
         {qu.loading && !qu.data ? <Spinner label="Loading…" /> : qu.error ? <ErrorState message={qu.error} onRetry={qu.load} /> : items.length === 0 ? (
           <EmptyState title="Nothing here" description="No EMI collection from the app for this filter." />
         ) : (
           <>
-            <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', margin: '8px 0' }}><span>Collections <strong>{qu.data.summary.requests}</strong></span><span>Amount <strong>{inr(qu.data.summary.amount)}</strong></span></div>
             {pending.length > 0 && (
               <div className="toolbar" style={{ gap: 12 }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}><input type="checkbox" checked={allOn} onChange={() => setPicked(allOn ? new Set() : new Set(pending.map((c) => c.id)))} /> Tick all ({pending.length})</label>
@@ -280,7 +333,7 @@ export function EmiApproval() {
                       <td data-label="Borrower">{c.memberCode} {c.memberName}</td>
                       <td data-label="Branch">{c.branch?.code}</td>
                       <td data-label="Amount" className="num">{inr(c.amount)}{c.installments ? <div className="muted small">{c.installments} installment{c.installments === 1 ? "" : "s"} ({c.type})</div> : null}</td>
-                      <td data-label="Collected">{dmy(c.collectedOn)} · {MODE_LABEL[c.payMode] || c.payMode}<div className="muted small">by {c.collectedBy || '—'}{c.reference ? ` · ${c.reference}` : ''}</div></td>
+                      <td data-label="Collected">{dmy(c.collectedOn)} · {MODE_LABEL[c.payMode] || c.payMode}<div className="muted small">by {c.collectorName ? `${c.collectorName} (${c.collectedBy})` : (c.collectedBy || '—')}{c.reference ? ` · ${c.reference}` : ''}</div></td>
                       <td data-label="Status"><Badge s={c.status} />{c.status === 'approved' && <div className="muted small">{c.receiptNo}</div>}{c.status === 'rejected' && c.reason && <div className="muted small">{c.reason}</div>}</td>
                       <td>{c.status === 'pending' && <div style={{ display: 'flex', gap: 6 }}><button className="btn sm primary" disabled={busy === c.id} onClick={() => approve(c)}>{busy === c.id ? '…' : 'Approve'}</button><button className="btn sm danger-outline" onClick={() => setRejecting(c)}>Reject</button></div>}</td>
                     </tr>

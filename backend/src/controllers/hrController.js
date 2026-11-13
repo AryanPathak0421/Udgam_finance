@@ -183,8 +183,12 @@ export async function listEmployees(req, res) {
   const filter = { isDeleted: false, ...scope(req) };
   const st = asString(req.query.status);
   if (['active', 'left'].includes(st)) filter.status = st;
-  // the pickers (leave, resignation ...) do not offer a blocked employee
-  if (asString(req.query.pick) === '1') filter.isBlocked = { $ne: true };
+  // Blocked employees should not show anywhere across software unless explicitly filtered by 'blocked' status
+  if (st === 'blocked') {
+    filter.isBlocked = true;
+  } else {
+    filter.isBlocked = { $ne: true };
+  }
   for (const k of ['department', 'designation', 'supervisor']) if (mongoose.isValidObjectId(asString(req.query[k]))) filter[k] = req.query[k];
   const q = asString(req.query.q).toLowerCase();
   const rows = await Employee.find(filter).sort({ employeeCode: 1 }).limit(3000).populate(EMP_POPULATE);
@@ -470,15 +474,6 @@ export async function supervisorBranchTransfer(req, res) {
   const toMove = chosen.length ? fromBranchIds.filter((x) => chosen.includes(x)) : fromBranchIds;
   if (!toMove.length) throw invalid({ branches: 'Select at least one branch to transfer' });
 
-  // Check city compatibility if target supervisor has a home branch
-  if (to.branch?.city) {
-    const sBranches = await Branch.find({ _id: { $in: toMove } }).select('code name city').lean();
-    const diffCity = sBranches.filter((br) => br.city && br.city.toLowerCase().trim() !== to.branch.city.toLowerCase().trim());
-    if (diffCity.length) {
-      throw invalid({ branches: `Supervisor ${to.name} can only supervise branches in the same city (${to.branch.city}). Different city: ${diffCity.map((x) => x.name).join(', ')}` });
-    }
-  }
-
   // Update from supervisor: remove transferred branches
   const newFromBranches = fromBranchIds.filter((x) => !toMove.includes(x));
   await Employee.updateOne({ _id: from._id }, { $set: { supervisedBranches: newFromBranches } });
@@ -487,6 +482,19 @@ export async function supervisorBranchTransfer(req, res) {
   const existingToBranches = (to.supervisedBranches || []).map(String);
   const newToBranches = [...new Set([...existingToBranches, ...toMove])];
   await Employee.updateOne({ _id: to._id }, { $set: { supervisedBranches: newToBranches } });
+
+  // Sync branches on linked User accounts so supervisor app and login permissions reflect immediately
+  await User.updateMany({ employeeCode: to.employeeCode }, { $addToSet: { branches: { $each: newToBranches } } });
+  if (to.user) await User.updateOne({ _id: to.user }, { $addToSet: { branches: { $each: newToBranches } } });
+
+  await User.updateMany({ employeeCode: from.employeeCode }, { $set: { branches: newFromBranches } });
+  if (from.user) await User.updateOne({ _id: from.user }, { $set: { branches: newFromBranches } });
+
+  // Re-assign employees in the transferred branches who were supervised by 'from' to 'to'
+  await Employee.updateMany(
+    { branch: { $in: toMove }, supervisor: from._id, isDeleted: false },
+    { $set: { supervisor: to._id } }
+  );
 
   await audit(req, {
     action: 'employee.supervisor-branch-transfer',
@@ -645,10 +653,14 @@ export async function createSupervisorVisit(req, res) {
   res.status(201).json({ item: visit });
 }
 
-/** Staff logins that have no HR record yet. */
+/** Staff logins that have no HR record yet (blocked staff excluded). */
 export async function employeeStaffOptions(_req, res) {
   const linked = (await Employee.find({ isDeleted: false, user: { $exists: true } }).select('user').lean()).map((e) => e.user);
-  const users = await User.find({ _id: { $nin: linked }, employeeCode: { $exists: true, $ne: '' } }).select('name employeeCode mobile role branches').populate('branches', 'code').sort({ name: 1 }).lean();
+  const users = await User.find({
+    _id: { $nin: linked },
+    employeeCode: { $exists: true, $ne: '', $nin: await blockedCodes() },
+    isActive: { $ne: false },
+  }).select('name employeeCode mobile role branches').populate('branches', 'code').sort({ name: 1 }).lean();
   res.json({ items: users.map((u) => ({ id: u._id, employeeCode: u.employeeCode, name: u.name, mobile: u.mobile || '', role: u.role, branches: (u.branches || []).map((b) => b.code).join(', ') })) });
 }
 

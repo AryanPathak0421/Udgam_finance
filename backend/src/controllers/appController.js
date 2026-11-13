@@ -427,8 +427,50 @@ export async function listEmiApprovals(req, res) {
   if (APP_EMI_STATUS.includes(st)) filter.status = st;
   const q = asString(req.query.q).toLowerCase();
   const rows = await AppEmiCollection.find(filter).sort({ createdAt: -1 }).limit(1000).populate('branch', 'code name').lean();
-  const items = rows.map(presentEmi).filter((c) => !q || [c.loanId, c.memberCode, c.memberName, c.collectedBy, c.group].some((v) => String(v).toLowerCase().includes(q)));
-  res.json({ items, summary: { requests: items.length, amount: items.reduce((s, c) => s + c.amount, 0) } });
+
+  const collectorCodes = [...new Set(rows.map((r) => r.collectedByCode).filter(Boolean))];
+  const collectorUserIds = [...new Set(rows.map((r) => r.collectedBy).filter(Boolean))];
+  const [empDocs, userDocs] = await Promise.all([
+    Employee.find({ employeeCode: { $in: collectorCodes } }).select('employeeCode name').lean(),
+    User.find({ _id: { $in: collectorUserIds } }).select('employeeCode name username').lean(),
+  ]);
+  const nameByCode = new Map(empDocs.map((e) => [String(e.employeeCode).toUpperCase(), e.name]));
+  const nameById = new Map(userDocs.map((u) => [String(u._id), u.name || u.username]));
+  userDocs.forEach((u) => { if (u.employeeCode) nameByCode.set(String(u.employeeCode).toUpperCase(), u.name || u.username); });
+
+  const items = rows.map((r) => {
+    const item = presentEmi(r);
+    item.collectorName = nameByCode.get(String(r.collectedByCode || '').toUpperCase()) || nameById.get(String(r.collectedBy)) || r.collectedByCode || '';
+    return item;
+  }).filter((c) => !q || [c.loanId, c.memberCode, c.memberName, c.collectedBy, c.collectorName, c.group].some((v) => String(v).toLowerCase().includes(q)));
+
+  const onlineReceive = items.filter((c) => ['bank', 'upi', 'cheque'].includes(c.payMode)).reduce((s, c) => s + c.amount, 0);
+  const offlineReceive = items.filter((c) => c.payMode === 'cash').reduce((s, c) => s + c.amount, 0);
+  const npaReceive = items.filter((c) => c.type === 'npa').reduce((s, c) => s + c.amount, 0);
+  const advanceReceive = items.filter((c) => c.type === 'advance').reduce((s, c) => s + c.amount, 0);
+
+  const productAgg = await ProductSaleOrder.aggregate([
+    { $match: { isDeleted: false, ...branchFilter(req.user) } },
+    { $group: { _id: null, totalPaise: { $sum: '$totalAmountPaise' } } },
+  ]).catch(() => [{ totalPaise: 0 }]);
+  const productBookingAmount = (productAgg[0]?.totalPaise || 0) / 100;
+
+  const totalAmount = items.reduce((s, c) => s + c.amount, 0);
+  const grandTotal = totalAmount + productBookingAmount;
+
+  res.json({
+    items,
+    summary: {
+      requests: items.length,
+      amount: totalAmount,
+      onlineReceive,
+      offlineReceive,
+      npaReceive,
+      advanceReceive,
+      productBookingAmount,
+      grandTotal,
+    },
+  });
 }
 
 async function loadEmiRequest(req) {
@@ -442,30 +484,78 @@ async function loadEmiRequest(req) {
 /** Approved: the EMI is received now, as if the collector had entered it (the receipt carries the collector's employee code). */
 export async function approveEmi(req, res) {
   const c = await loadEmiRequest(req);
-  const collector = await User.findById(c.collectedBy);
-  if (!collector) throw new HttpError(409, 'The staff member who collected this no longer exists');
+  let collector = c.collectedBy ? await User.findById(c.collectedBy) : null;
+  if (!collector && c.collectedByCode) {
+    collector = await User.findOne({ employeeCode: c.collectedByCode });
+  }
+  if (!collector) collector = req.user;
+
   const p = await loadLoan(req, c.loanPayment);
   const line = p.lines.find((l) => l.code === c.memberCode);
   if (!line) throw new HttpError(409, 'The borrower is no longer on this loan');
+
   let doc;
   if (c.receiptNo) {
     const existing = await EmiPayment.findOne({ receiptNo: c.receiptNo });
     if (existing) doc = existing;
   }
   if (!doc) {
+    const matching = await EmiPayment.findOne({
+      loanPayment: p._id,
+      memberCode: line.code,
+      amountPaise: c.amountPaise,
+      createdAt: { $gte: new Date(c.createdAt.getTime() - 3600000), $lte: new Date(c.createdAt.getTime() + 3600000) },
+    });
+    if (matching) doc = matching;
+  }
+
+  if (!doc) {
     try {
-      doc = await receive({ user: collector, ip: req.ip, headers: req.headers }, p, line, { amountPaise: c.amountPaise, type: c.type, paidOn: c.collectedOn, payMode: c.payMode, reference: c.reference, bankAccount: c.bankAccount, dueOnly: c.type !== 'advance' });
+      doc = await receive(
+        { user: collector, ip: req.ip, headers: req.headers },
+        p,
+        line,
+        {
+          amountPaise: c.amountPaise,
+          type: c.type,
+          paidOn: c.collectedOn || new Date(),
+          payMode: c.payMode,
+          reference: c.reference,
+          bankAccount: c.bankAccount,
+          dueOnly: false,
+          employeeCode: c.collectedByCode || collector.employeeCode,
+        }
+      );
     } catch (err) {
-      throw new HttpError(err.status || 409, `This collection cannot be received now: ${err.errors?.amount || err.message}. Reject it instead.`);
+      try {
+        doc = await receive(
+          { user: collector, ip: req.ip, headers: req.headers },
+          p,
+          line,
+          {
+            amountPaise: c.amountPaise,
+            type: c.type,
+            paidOn: new Date(),
+            payMode: c.payMode,
+            reference: c.reference,
+            bankAccount: c.bankAccount,
+            dueOnly: false,
+            employeeCode: c.collectedByCode || collector.employeeCode,
+          }
+        );
+      } catch (err2) {
+        throw new HttpError(err.status || 409, `This collection cannot be received now: ${err.errors?.amount || err.message}. Reject it instead.`);
+      }
     }
   }
+
   c.status = 'approved';
   c.decidedByCode = req.user.employeeCode || '';
   c.decidedAt = new Date();
-  c.receiptNo = doc.receiptNo;
+  c.receiptNo = doc?.receiptNo || c.receiptNo;
   await c.save();
-  await audit(req, { action: 'appEmi.approve', entity: 'AppEmiCollection', entityId: c._id, after: { loan: c.loanId, member: c.memberCode, amount: c.amountPaise / 100, receiptNo: doc.receiptNo } });
-  res.json({ receiptNo: doc.receiptNo });
+  await audit(req, { action: 'appEmi.approve', entity: 'AppEmiCollection', entityId: c._id, after: { loan: c.loanId, member: c.memberCode, amount: c.amountPaise / 100, receiptNo: c.receiptNo } });
+  res.json({ receiptNo: c.receiptNo });
 }
 export async function rejectEmi(req, res) {
   const c = await loadEmiRequest(req);

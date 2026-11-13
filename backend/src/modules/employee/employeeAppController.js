@@ -110,6 +110,13 @@ async function findEmployee(identifier) {
     const user = await User.findOne(userQuery);
     if (user) {
       emp = await Employee.findOne({ user: user._id, isDeleted: false }).populate('branch', 'code name city pincode').populate('department', 'name').populate('designation', 'name');
+      if (!emp && user.employeeCode) {
+        emp = await Employee.findOne({ employeeCode: user.employeeCode, isDeleted: false }).populate('branch', 'code name city pincode').populate('department', 'name').populate('designation', 'name');
+        if (emp) {
+          emp.user = user._id;
+          await emp.save();
+        }
+      }
       if (!emp) {
         const empCode = user.employeeCode || `EMP${String(user._id).slice(-4).toUpperCase()}`;
         emp = await Employee.create({
@@ -444,6 +451,31 @@ export async function getEmployeeProfile(req, res) {
       email: emp.email || req.user?.email || '',
       address: fullAddress,
       dob: emp.dob ? emp.dob.toISOString().slice(0, 10) : '',
+      fatherName: emp.fatherName || '—',
+      fatherMobile: emp.fatherMobile || '—',
+      motherName: emp.motherName || '—',
+      maritalStatus: emp.maritalStatus || '—',
+      aadhaarNo: emp.aadhaarNo || '—',
+      panNo: emp.panNo || '—',
+      bankAccountNo: emp.bankAccountNo || '—',
+      bankIfsc: emp.bankIfsc || '—',
+      bankName: emp.bankName || '—',
+      bankBranch: emp.bankBranch || '—',
+      drivingLicenceNo: emp.drivingLicenceNo || '—',
+      voterIdNo: emp.voterIdNo || '—',
+      pincode: emp.pincode || '',
+      district: emp.district || '',
+      state: emp.state || '',
+      area: emp.area || '',
+      homeTown: emp.homeTown || '',
+      hasExperience: Boolean(emp.hasExperience),
+      previousCompany: emp.previousCompany || '—',
+      previousPost: emp.previousPost || '—',
+      pfDeduction: Boolean(emp.pfDeduction),
+      esiDeduction: Boolean(emp.esiDeduction),
+      pfNumber: emp.pfNumber || '—',
+      uanNumber: emp.uanNumber || '—',
+      esiNumber: emp.esiNumber || '—',
       originalMarksheet: Boolean(emp.originalMarksheet),
       marksheetTypes: emp.originalMarksheetTypes || [],
       marksheetOther: emp.originalMarksheetOther || '',

@@ -388,10 +388,20 @@ export function Tasks() {
 function PlainTasks() {
   const toast = useToast();
   const [branch, setBranch] = useState('');
+  const [department, setDepartment] = useState('');
+  const [designation, setDesignation] = useState('');
+  const [opts, setOpts] = useState({ departments: [], designations: [] });
   const [status, setStatus] = useState('active');
   const [search, setSearch] = useState('');
   const q = useDebounce(search, 300);
-  const list = useLoad(() => api.hr.tasks({ branch, status, q }), [branch, status, q]);
+
+  useEffect(() => {
+    Promise.all([api.hr.departments({}), api.hr.designations({})])
+      .then(([d, des]) => setOpts({ departments: d.items || [], designations: des.items || [] }))
+      .catch(() => {});
+  }, []);
+
+  const list = useLoad(() => api.hr.tasks({ branch, status, department, designation, q }), [branch, status, department, designation, q]);
   const [adding, setAdding] = useState(false);
   const [f, setF] = useState({});
   const [editing, setEditing] = useState(null);
@@ -405,21 +415,31 @@ function PlainTasks() {
       <div className="panel">
         <div className="toolbar" style={{ flexWrap: 'wrap' }}>
           <BranchSelect value={branch} onChange={setBranch} />
+          <select value={department} onChange={(e) => { setDepartment(e.target.value); setDesignation(''); }} aria-label="Department">
+            <option value="">All departments</option>
+            {opts.departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+          </select>
+          <select value={designation} onChange={(e) => setDesignation(e.target.value)} aria-label="Designation">
+            <option value="">All designations</option>
+            {opts.designations.filter((d) => !department || String(d.department?.id || d.department) === String(department)).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+          </select>
           <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status"><option value="active">Open and in progress</option><option value="done">Done</option><option value="cancelled">Cancelled</option><option value="">All</option></select>
-          <input type="search" placeholder="Search task, employee" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search" />
+          <input type="search" placeholder="Search task, employee, dept" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search" />
           <Refresh onClick={list.load} loading={list.loading} />
-          <button className="btn primary" onClick={() => { setF({ employee: '', title: '', description: '', dueDate: '', priority: 'medium' }); sv.setErrors({}); setAdding(true); }}>Give a task</button>
+          <button className="btn primary" onClick={() => { setF({ employee: '', department: '', designation: '', title: '', description: '', dueDate: '', priority: 'medium' }); sv.setErrors({}); setAdding(true); }}>Give a task</button>
         </div>
         <Body list={list} empty="No task for this filter.">{() => (<>
           <Summary items={[['Tasks', s.tasks], ['Open', s.open], ['In progress', s.inProgress], ['Done', s.done], ['Overdue', s.overdue]]} />
           <div className="table-wrap">
             <table className="data-table">
-              <thead><tr><th>Task</th><th>Given to</th><th>Branch</th><th>Due</th><th>Priority</th><th>Status</th><th /></tr></thead>
+              <thead><tr><th>Task</th><th>Given to</th><th>Department</th><th>Designation</th><th>Branch</th><th>Due</th><th>Priority</th><th>Status</th><th /></tr></thead>
               <tbody>
                 {items.map((t) => (
                   <tr key={t.id}>
                     <td data-label="Task"><strong>{t.title}</strong>{t.description && <div className="muted small">{t.description}</div>}</td>
                     <td data-label="Given to">{t.assignedTo.code} {t.assignedTo.name}<div className="muted small">by {t.createdBy}</div></td>
+                    <td data-label="Department">{t.department || '—'}</td>
+                    <td data-label="Designation">{t.designation || '—'}</td>
                     <td data-label="Branch">{branchLabel(t.branch)}</td>
                     <td data-label="Due">{dmy(t.dueDate)}{t.overdue && <div><span className="badge danger">Overdue</span></div>}</td>
                     <td data-label="Priority"><span className={`badge ${t.priority === 'high' ? 'danger' : t.priority === 'medium' ? 'amber' : 'grey'}`}>{cap(t.priority)}</span></td>
@@ -435,6 +455,18 @@ function PlainTasks() {
       {adding && (
         <FormModal title="Give a task" onClose={() => setAdding(false)} busy={sv.busy} onSave={() => sv.run(() => api.hr.createTask(f), 'Task given')}>
           <div className="form-grid">
+            <FormField id="tkdept" label="Department">
+              <select id="tkdept" value={f.department || ''} onChange={(e) => setF((x) => ({ ...x, department: e.target.value, designation: '' }))}>
+                <option value="">Auto from employee</option>
+                {opts.departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+            </FormField>
+            <FormField id="tkdesig" label="Designation">
+              <select id="tkdesig" value={f.designation || ''} onChange={(e) => setF((x) => ({ ...x, designation: e.target.value }))}>
+                <option value="">Auto from employee</option>
+                {opts.designations.filter((d) => !f.department || String(d.department?.id || d.department) === String(f.department)).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+            </FormField>
             <EmployeePick id="tkemp" value={f.employee} onChange={(v) => setF((x) => ({ ...x, employee: v }))} error={sv.errors.employee} label="Give it to" />
             <FormField id="tkt" label="Task" required className="span-2" error={sv.errors.title}><input id="tkt" value={f.title} maxLength={120} onChange={(e) => setF((x) => ({ ...x, title: e.target.value }))} /></FormField>
             <FormField id="tkd" label="Details" className="span-2"><input id="tkd" value={f.description} maxLength={500} onChange={(e) => setF((x) => ({ ...x, description: e.target.value }))} /></FormField>

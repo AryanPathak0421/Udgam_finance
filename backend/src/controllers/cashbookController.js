@@ -28,13 +28,21 @@ const DAY = 24 * 3600 * 1000;
 // The lines of the cashbook, in the order of the paper cashbook. `optional` lines are shown only when they have an amount;
 // `memo` lines are figures for information and are not part of the totals.
 const RECEIVE = [
-  { key: 'daily_collection', label: 'Daily collection amount (Group)' },
-  { key: 'weekly_collection', label: 'Weekly collection amount (Group)' },
+  { key: 'daily_collection', label: 'Group loan daily collection' },
+  { key: 'weekly_collection', label: 'Group loan weekly collection' },
   { key: 'group_other_collection', label: 'Monthly / other group collection', optional: true },
-  { key: 'product_collection', label: 'Product loan collection' },
-  { key: 'personal_collection', label: 'Personal loan collection' },
-  { key: 'business_collection', label: 'Business loan collection' },
-  { key: 'msme_collection', label: 'MSME loan collection' },
+  { key: 'product_daily_collection', label: 'Product loan daily collection' },
+  { key: 'product_weekly_collection', label: 'Product loan weekly collection' },
+  { key: 'product_collection', label: 'Product loan collection', optional: true },
+  { key: 'personal_daily_collection', label: 'Personal loan daily collection' },
+  { key: 'personal_weekly_collection', label: 'Personal loan weekly collection' },
+  { key: 'personal_collection', label: 'Personal loan collection', optional: true },
+  { key: 'business_daily_collection', label: 'Business loan daily collection' },
+  { key: 'business_weekly_collection', label: 'Business loan weekly collection' },
+  { key: 'business_collection', label: 'Business loan collection', optional: true },
+  { key: 'msme_daily_collection', label: 'MSME loan daily collection' },
+  { key: 'msme_weekly_collection', label: 'MSME loan weekly collection' },
+  { key: 'msme_collection', label: 'MSME loan collection', optional: true },
   { key: 'processing_fee', label: 'Processing fee' },
   { key: 'legal_fee', label: 'Legal charges', optional: true },
   { key: 'insurance_fee', label: 'Insurance fee' },
@@ -66,10 +74,19 @@ const PAYMENT = [
   { key: 'business_disbursement', label: 'Business loan disbursement' },
   { key: 'daily_due', label: 'Daily today due (Group)', memo: true, optional: true },
   { key: 'weekly_due', label: 'Weekly today due (Group)', memo: true, optional: true },
+  { key: 'product_daily_due', label: 'Product daily today due', memo: true, optional: true },
+  { key: 'product_weekly_due', label: 'Product weekly today due', memo: true, optional: true },
   { key: 'product_due', label: 'Product today due', memo: true, optional: true },
+  { key: 'personal_daily_due', label: 'Personal daily today due', memo: true, optional: true },
+  { key: 'personal_weekly_due', label: 'Personal weekly today due', memo: true, optional: true },
   { key: 'personal_due', label: 'Personal today due', memo: true, optional: true },
+  { key: 'business_daily_due', label: 'Business daily today due', memo: true, optional: true },
+  { key: 'business_weekly_due', label: 'Business weekly today due', memo: true, optional: true },
   { key: 'business_due', label: 'Business today due', memo: true, optional: true },
+  { key: 'msme_daily_due', label: 'MSME daily today due', memo: true, optional: true },
+  { key: 'msme_weekly_due', label: 'MSME weekly today due', memo: true, optional: true },
   { key: 'msme_due', label: 'MSME today due', memo: true, optional: true },
+  { key: 'total_due', label: 'Total today due (Balance due)', memo: true },
   { key: 'leader_commission', label: 'Group leader commission' },
   { key: 'security_return', label: 'Security return' },
   { key: 'bank_deposit', label: 'Bank deposit' },
@@ -84,10 +101,15 @@ const PAYMENT = [
 export const CATEGORY_LABEL = new Map([...RECEIVE, ...PAYMENT].map((x) => [x.key, x.label]));
 const KNOWN = new Set([...RECEIVE, ...PAYMENT].map((x) => x.key));
 
-// Which cashbook line a loan belongs to: group loans by how they are collected (daily / weekly), the others by their type.
+// Which cashbook line a loan belongs to: group loans by how they are collected (daily / weekly), the others by their type and mode.
 const groupMode = (l) => (l.mode === 'daily' ? 'daily' : l.mode === 'weekly' ? 'weekly' : 'group_other');
 const typeOf = (l) => l.loanType || l.kind || 'personal';
-const collectionKey = (l) => (l.kind === 'group' ? `${groupMode(l)}_collection` : typeOf(l) === 'business' ? 'business_collection' : typeOf(l) === 'msme' ? 'msme_collection' : `${typeOf(l)}_collection`);
+const collectionKey = (l) => {
+  const m = l.mode === 'daily' ? 'daily' : l.mode === 'weekly' ? 'weekly' : '';
+  if (l.kind === 'group') return `${groupMode(l)}_collection`;
+  const t = typeOf(l);
+  return m ? `${t}_${m}_collection` : `${t}_collection`;
+};
 const settlementKey = (l) => {
   if (l.kind === 'group') return `${groupMode(l)}_settlement`;
   const t = typeOf(l);
@@ -229,12 +251,18 @@ async function fastDue(scope, asOf, receivedByCat = new Map()) {
       {
         $cond: [
           { $eq: ['$loanType', 'business'] },
-          'business_due',
+          { $cond: [{ $eq: ['$mode', 'daily'] }, 'business_daily_due', { $cond: [{ $eq: ['$mode', 'weekly'] }, 'business_weekly_due', 'business_due'] }] },
           {
             $cond: [
               { $eq: ['$loanType', 'msme'] },
-              'msme_due',
-              { $concat: [{ $ifNull: ['$loanType', 'personal'] }, '_due'] },
+              { $cond: [{ $eq: ['$mode', 'daily'] }, 'msme_daily_due', { $cond: [{ $eq: ['$mode', 'weekly'] }, 'msme_weekly_due', 'msme_due'] }] },
+              {
+                $cond: [
+                  { $eq: ['$loanType', 'product'] },
+                  { $cond: [{ $eq: ['$mode', 'daily'] }, 'product_daily_due', { $cond: [{ $eq: ['$mode', 'weekly'] }, 'product_weekly_due', 'product_due'] }] },
+                  { $cond: [{ $eq: ['$mode', 'daily'] }, 'personal_daily_due', { $cond: [{ $eq: ['$mode', 'weekly'] }, 'personal_weekly_due', 'personal_due'] }] },
+                ],
+              },
             ],
           },
         ],
@@ -250,24 +278,39 @@ async function fastDue(scope, asOf, receivedByCat = new Map()) {
   ]);
 
   const catMap = {
-    daily_due: 'daily_collection',
-    weekly_due: 'weekly_collection',
-    product_due: 'product_collection',
-    personal_due: 'personal_collection',
-    business_due: 'business_collection',
-    msme_due: 'msme_collection',
+    daily_due: ['daily_collection'],
+    weekly_due: ['weekly_collection'],
+    product_daily_due: ['product_daily_collection'],
+    product_weekly_due: ['product_weekly_collection'],
+    product_due: ['product_collection', 'product_daily_collection', 'product_weekly_collection'],
+    personal_daily_due: ['personal_daily_collection'],
+    personal_weekly_due: ['personal_weekly_collection'],
+    personal_due: ['personal_collection', 'personal_daily_collection', 'personal_weekly_collection'],
+    business_daily_due: ['business_daily_collection'],
+    business_weekly_due: ['business_weekly_collection'],
+    business_due: ['business_collection', 'business_daily_collection', 'business_weekly_collection'],
+    msme_daily_due: ['msme_daily_collection'],
+    msme_weekly_due: ['msme_weekly_collection'],
+    msme_due: ['msme_collection', 'msme_daily_collection', 'msme_weekly_collection'],
   };
 
   const dueBy = new Map();
+  let totalBalanceDue = 0;
   scheduled.forEach((s) => {
     const key = s._id;
     if (!key) return;
     const totalScheduled = s.totalScheduled || 0;
-    const recKey = catMap[key];
-    const recAmount = (recKey && receivedByCat.get(recKey)) || 0;
+    const recKeys = catMap[key] || [key];
+    const recAmount = recKeys.reduce((sum, k) => sum + (receivedByCat.get(k) || 0), 0);
     const balanceDue = Math.max(0, totalScheduled - recAmount);
-    if (balanceDue > 0) dueBy.set(key, balanceDue);
+    if (balanceDue > 0) {
+      dueBy.set(key, balanceDue);
+      totalBalanceDue += balanceDue;
+    }
   });
+  if (totalBalanceDue > 0) {
+    dueBy.set('total_due', totalBalanceDue);
+  }
   return dueBy;
 }
 

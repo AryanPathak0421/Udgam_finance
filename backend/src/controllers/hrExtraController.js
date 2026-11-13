@@ -53,7 +53,7 @@ const dateRange = (req, field) => {
 /** An employee of the user's branches. */
 async function employeeOf(req, id, field = 'employee') {
   if (!oid(id)) throw invalid({ [field]: 'Select the employee' });
-  const e = await Employee.findOne({ _id: id, isDeleted: false, ...branchFilter(req.user) }).populate([{ path: 'designation', select: 'name' }, POP_BRANCH]);
+  const e = await Employee.findOne({ _id: id, isDeleted: false, ...branchFilter(req.user) }).populate([{ path: 'department', select: 'name' }, { path: 'designation', select: 'name' }, POP_BRANCH]);
   if (!e) throw invalid({ [field]: 'Employee not found in your branches' });
   return e;
 }
@@ -264,16 +264,34 @@ export async function deleteRentParty(req, res) {
 
 // ---- Task --------------------------------------------------------------------------------------------------------------------
 
-const presentTask = (t) => ({ id: t._id, title: t.title, description: t.description || '', branch: brRef(t.branch), assignedTo: { code: t.assignedToCode, name: t.assignedToName }, dueDate: iso(t.dueDate), priority: t.priority, status: t.status, overdue: Boolean(t.dueDate && t.dueDate < startOfToday() && ['open', 'in_progress'].includes(t.status)), history: (t.history || []).map((h) => ({ status: h.status, remark: h.remark || '', by: h.byCode || '', at: h.at })), createdBy: t.createdByCode || '' });
+const presentTask = (t) => ({
+  id: t._id,
+  title: t.title,
+  description: t.description || '',
+  branch: brRef(t.branch),
+  department: t.departmentName || t.department?.name || '',
+  departmentId: t.department?._id || t.department || null,
+  designation: t.designationName || t.designation?.name || '',
+  designationId: t.designation?._id || t.designation || null,
+  assignedTo: { code: t.assignedToCode, name: t.assignedToName },
+  dueDate: iso(t.dueDate),
+  priority: t.priority,
+  status: t.status,
+  overdue: Boolean(t.dueDate && t.dueDate < startOfToday() && ['open', 'in_progress'].includes(t.status)),
+  history: (t.history || []).map((h) => ({ status: h.status, remark: h.remark || '', by: h.byCode || '', at: h.at })),
+  createdBy: t.createdByCode || ''
+});
 
 export async function listTasks(req, res) {
   const filter = { ...scope(req) };
   const st = asString(req.query.status);
   if (TASK_STATUS.includes(st)) filter.status = st;
   else if (st === 'active') filter.status = { $in: ['open', 'in_progress'] };
+  if (oid(req.query.department)) filter.department = req.query.department;
+  if (oid(req.query.designation)) filter.designation = req.query.designation;
   const q = asString(req.query.q).toLowerCase();
-  const rows = await Task.find(filter).sort({ dueDate: 1, createdAt: -1 }).limit(1000).populate(POP_BRANCH).lean();
-  const items = rows.map(presentTask).filter((t) => !q || [t.title, t.assignedTo.code, t.assignedTo.name].some((v) => String(v).toLowerCase().includes(q)));
+  const rows = await Task.find(filter).sort({ dueDate: 1, createdAt: -1 }).limit(1000).populate([POP_BRANCH, { path: 'department', select: 'name' }, { path: 'designation', select: 'name' }]).lean();
+  const items = rows.map(presentTask).filter((t) => !q || [t.title, t.assignedTo.code, t.assignedTo.name, t.department, t.designation].some((v) => String(v).toLowerCase().includes(q)));
   res.json({ items, summary: { tasks: items.length, open: items.filter((t) => t.status === 'open').length, inProgress: items.filter((t) => t.status === 'in_progress').length, done: items.filter((t) => t.status === 'done').length, overdue: items.filter((t) => t.overdue).length } });
 }
 export async function createTask(req, res) {
@@ -283,11 +301,29 @@ export async function createTask(req, res) {
   if (title.length < 3 || title.length > 120) throw invalid({ title: 'Enter the task (3–120 characters)' });
   const priority = asString(b.priority) || 'medium';
   if (!['low', 'medium', 'high'].includes(priority)) throw invalid({ priority: 'Choose low, medium or high' });
+
+  const dept = b.department && oid(b.department) ? b.department : e.department?._id || e.department;
+  const deptDoc = dept ? (dept === e.department?._id ? e.department : await Department.findById(dept).select('name')) : null;
+  const desig = b.designation && oid(b.designation) ? b.designation : e.designation?._id || e.designation;
+  const desigDoc = desig ? (desig === e.designation?._id ? e.designation : await Designation.findById(desig).select('name')) : null;
+
   const t = await Task.create({
-    title, description: asString(b.description).slice(0, 500), branch: e.branch?._id, assignedTo: e._id, assignedToCode: e.employeeCode, assignedToName: e.name, dueDate: b.dueDate ? readDate(b.dueDate, 'dueDate') : undefined, priority,
-    history: [{ status: 'open', remark: 'Task given', byCode: req.user.employeeCode || '', at: new Date() }], createdByCode: req.user.employeeCode || '',
+    title,
+    description: asString(b.description).slice(0, 500),
+    branch: e.branch?._id || e.branch,
+    department: dept || undefined,
+    departmentName: deptDoc?.name || '',
+    designation: desig || undefined,
+    designationName: desigDoc?.name || '',
+    assignedTo: e._id,
+    assignedToCode: e.employeeCode,
+    assignedToName: e.name,
+    dueDate: b.dueDate ? readDate(b.dueDate, 'dueDate') : undefined,
+    priority,
+    history: [{ status: 'open', remark: 'Task given', byCode: req.user.employeeCode || '', at: new Date() }],
+    createdByCode: req.user.employeeCode || '',
   });
-  await t.populate(POP_BRANCH);
+  await t.populate([POP_BRANCH, { path: 'department', select: 'name' }, { path: 'designation', select: 'name' }]);
   await audit(req, { action: 'task.create', entity: 'Task', entityId: t._id, after: { title, employee: e.employeeCode } });
   res.status(201).json({ item: presentTask(t) });
 }
