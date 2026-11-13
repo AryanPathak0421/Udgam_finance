@@ -72,7 +72,15 @@ const matches = (q, ...vals) => !q || vals.some((v) => String(v || '').toLowerCa
  * opts.light: no mobile numbers (a summary does not need them). opts.split: also the outstanding principal and interest of every borrower.
  */
 export async function scanBorrowers(req, asOf, pick, opts = {}) {
-  const ids = (await LoanPayment.find({ status: 'paid', ...branchScope(req), ...(opts.dueOn ? { 'schedule.dueDate': opts.dueOn } : {}), ...(opts.ended ? { emiEndDate: opts.ended } : {}) }).sort({ createdAt: -1 }).select('_id').limit(20000).lean()).map((x) => x._id);
+  let dueRange = {};
+  if (opts.dueOn) {
+    const dStart = new Date(opts.dueOn);
+    dStart.setHours(0, 0, 0, 0);
+    const dEnd = new Date(opts.dueOn);
+    dEnd.setHours(23, 59, 59, 999);
+    dueRange = { 'schedule.dueDate': { $gte: dStart, $lte: dEnd } };
+  }
+  const ids = (await LoanPayment.find({ status: 'paid', ...branchScope(req), ...dueRange, ...(opts.ended ? { emiEndDate: opts.ended } : {}) }).sort({ createdAt: -1 }).select('_id').limit(20000).lean()).map((x) => x._id);
   const branches = new Map((await Branch.find({}).select('code name').lean()).map((b) => [String(b._id), b]));
   const rows = [];
   const doBatch = async (part) => {
@@ -195,7 +203,7 @@ const REPORTS = {
   async due(req) {
     const asOf = parseDateOnly(asString(req.query.date)) || startOfToday();
     const q = asString(req.query.q).toLowerCase();
-    const rows = (await scanBorrowers(req, asOf, (r) => (r.due > 0 && r.overdueDays === 0 && borrowerMatch(q)(r) ? r : null), { dueOn: asOf })).sort((a, b) => b.due - a.due);
+    const rows = (await scanBorrowers(req, asOf, (r) => (r.due > 0 && borrowerMatch(q)(r) ? r : null), { dueOn: asOf })).sort((a, b) => b.due - a.due);
     return { asOf: iso(asOf), rows, summary: { borrowers: rows.length, due: sumOf(rows, 'due') } };
   },
   // borrowers with an installment that is older than the date and still not paid
@@ -467,15 +475,46 @@ Object.assign(REPORTS, {
     const q = asString(req.query.q).toLowerCase();
     const ids = (await LoanPayment.find({ status: 'paid', kind: 'group', ...branchScope(req) }).select('_id').limit(20000).lean()).map((x) => x._id);
     const branches = new Map((await Branch.find({}).select('code').lean()).map((b) => [String(b._id), b.code]));
+
+    // Pre-fetch all groups to resolve center leader, meeting day and assigned staff for old software CDS format
+    const allGroups = await Group.find({ isDeleted: { $ne: true } }).select('code name leaderName leaderMobile employeeCode center meetingType').lean();
+    const groupMeta = new Map();
+    allGroups.forEach((g) => {
+      if (g.code) groupMeta.set(g.code.toUpperCase(), g);
+    });
+
+    const staffCodes = [...new Set(allGroups.map((g) => g.employeeCode).filter(Boolean))];
+    const staffDocs = await User.find({ employeeCode: { $in: staffCodes } }).select('employeeCode name').lean();
+    const staffMap = new Map();
+    staffDocs.forEach((u) => staffMap.set(String(u.employeeCode).toUpperCase(), u.name));
+
     const groups = new Map();
     const at = (l) => {
-      const k = l.group?.code ? `${l.group.code} — ${l.group.name}` : 'No group';
-      if (!groups.has(k)) groups.set(k, { key: k, group: k, branch: branches.get(String(l.branch)) || '', members: new Set(), demand: 0, collected: 0 });
+      const gCode = (l.group?.code || '').toUpperCase();
+      const gName = l.group?.name || gCode;
+      const k = gCode ? `${gCode} — ${gName}` : 'No group';
+      if (!groups.has(k)) {
+        const gm = groupMeta.get(gCode);
+        const staffName = gm?.employeeCode ? (staffMap.get(gm.employeeCode.toUpperCase()) || gm.employeeCode) : (l.employeeCode ? (staffMap.get(l.employeeCode.toUpperCase()) || l.employeeCode) : '');
+        groups.set(k, {
+          key: k,
+          group: k,
+          groupCode: gCode || '—',
+          groupName: gName,
+          centerLeader: [gm?.leaderName, gm?.center].filter(Boolean).join(' • ') || '—',
+          staff: staffName,
+          branch: branches.get(String(l.branch)) || '',
+          members: new Set(),
+          demand: 0,
+          collected: 0,
+        });
+      }
       return groups.get(k);
     };
+
     for (let i = 0; i < ids.length; i += 250) {
       // eslint-disable-next-line no-await-in-loop
-      const loans = await LoanPayment.find({ _id: { $in: ids.slice(i, i + 250) } }).select('branch group lines schedule.dueDate schedule.installmentPaise').lean();
+      const loans = await LoanPayment.find({ _id: { $in: ids.slice(i, i + 250) } }).select('branch group employeeCode lines schedule.dueDate schedule.installmentPaise').lean();
       loans.forEach((l) => {
         const g = at(l);
         const inRange = l.schedule.filter((x) => new Date(x.dueDate) >= from && new Date(x.dueDate) <= to);
@@ -486,18 +525,79 @@ Object.assign(REPORTS, {
         });
       });
     }
+
     const coll = await EmiPayment.aggregate([
       { $match: { status: 'paid', group: { $ne: '' }, ...branchScope(req), paidOn: { $gte: from, $lte: to } } },
       { $group: { _id: '$group', amount: { $sum: '$amountPaise' } } },
     ]);
-    coll.forEach((c) => { if (groups.has(c._id)) groups.get(c._id).collected = c.amount; else groups.set(c._id, { key: c._id, group: c._id, branch: '', members: new Set(), demand: 0, collected: c.amount }); });
-    const rows = [...groups.values()].filter((g) => (g.demand || g.collected) && matches(q, g.group, g.branch)).map((g) => ({
-      key: g.key, group: g.group, branch: g.branch, members: g.members.size, demand: rupees(g.demand), collected: rupees(g.collected), balance: rupees(g.demand - g.collected),
-      efficiency: g.demand ? Math.round((g.collected / g.demand) * 1000) / 10 : null,
-    })).sort((a, b) => a.group.localeCompare(b.group));
-    const demand = sumOf(rows, 'demand');
-    const collected = sumOf(rows, 'collected');
-    return { rows, summary: { groups: rows.length, demand, collected, balance: Math.round((demand - collected) * 100) / 100 } };
+
+    coll.forEach((c) => {
+      if (groups.has(c._id)) {
+        groups.get(c._id).collected = c.amount;
+      } else {
+        const rawCode = String(c._id).split('—')[0].trim().toUpperCase();
+        const gm = groupMeta.get(rawCode);
+        const staffName = gm?.employeeCode ? (staffMap.get(gm.employeeCode.toUpperCase()) || gm.employeeCode) : '';
+        groups.set(c._id, {
+          key: c._id,
+          group: c._id,
+          groupCode: rawCode || '—',
+          groupName: c._id,
+          centerLeader: [gm?.leaderName, gm?.center].filter(Boolean).join(' • ') || '—',
+          staff: staffName,
+          branch: '',
+          members: new Set(),
+          demand: 0,
+          collected: c.amount,
+        });
+      }
+    });
+
+    const rows = [...groups.values()]
+      .filter((g) => (g.demand || g.collected) && matches(q, g.group, g.groupCode, g.groupName, g.branch, g.centerLeader, g.staff))
+      .map((g) => {
+        const dem = rupees(g.demand);
+        const col = rupees(g.collected);
+        const shortage = dem > col ? Math.round((dem - col) * 100) / 100 : 0;
+        const advance = col > dem ? Math.round((col - dem) * 100) / 100 : 0;
+        const balance = Math.round((dem - col) * 100) / 100;
+        const efficiency = dem ? Math.round((col / dem) * 1000) / 10 : null;
+        return {
+          key: g.key,
+          group: g.group,
+          groupCode: g.groupCode,
+          groupName: g.groupName,
+          centerLeader: g.centerLeader,
+          staff: g.staff,
+          branch: g.branch,
+          members: g.members.size,
+          demand: dem,
+          collected: col,
+          shortage,
+          advance,
+          balance,
+          efficiency,
+        };
+      })
+      .sort((a, b) => a.group.localeCompare(b.group));
+
+    const totalDemand = sumOf(rows, 'demand');
+    const totalCollected = sumOf(rows, 'collected');
+    const totalShortage = sumOf(rows, 'shortage');
+    const totalAdvance = sumOf(rows, 'advance');
+
+    return {
+      rows,
+      summary: {
+        groups: rows.length,
+        demand: totalDemand,
+        collected: totalCollected,
+        shortage: totalShortage,
+        advance: totalAdvance,
+        balance: Math.round((totalDemand - totalCollected) * 100) / 100,
+        overallEfficiency: totalDemand > 0 ? Math.round((totalCollected / totalDemand) * 1000) / 10 : 0,
+      },
+    };
   },
 });
 const NAMES = { due: 'due', overdue: 'overdue', outstanding: 'outstanding', npa: 'npa', 'personal-collection-sheet': 'personalCollectionSheet', 'msme-collection-sheet': 'msmeCollectionSheet', 'group-collection-sheet': 'groupCollectionSheet', 'collection-sheet': 'allCollectionSheet', 'write-off': 'writeOff', 'staff-npa': 'staffNpa', 'staff-npa-payment': 'staffNpaPayment', 'staff-disbursement': 'staffDisbursement', 'group-collection': 'groupCollection', 'group-wise-collection': 'groupWiseCollection', 'emi-collection': 'emiCollection', disbursement: 'disbursement', requisition: 'requisition', approval: 'approval', 'member-joining': 'memberJoining' };

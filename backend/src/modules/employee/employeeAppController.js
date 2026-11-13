@@ -26,6 +26,7 @@ import { StockProduct } from '../../models/StockProduct.js';
 import { Holiday, Notification, UserNotification } from '../../models/SuperAdmin.js';
 import { AuditLog } from '../../models/AuditLog.js';
 import { CivilCheck } from '../../models/CivilCheck.js';
+import { civilFeePaise } from '../../models/AppSetting.js';
 import { Company } from '../../models/Company.js';
 import { BankAccount } from '../../models/BankAccount.js';
 import { AppUser } from '../../models/AppUser.js';
@@ -3316,7 +3317,8 @@ export async function getGroupEmiMembers(req, res) {
 
 export async function collectBulkEmi(req, res) {
   const { items, date, payMode = 'cash', reference = '' } = req.body || {};
-  if (!Array.isArray(items) || !items.length) {
+  const inputList = Array.isArray(items) ? items : (Array.isArray(req.body?.payments) ? req.body.payments : []);
+  if (!inputList.length) {
     throw new HttpError(400, 'Please select at least one member to collect EMI');
   }
 
@@ -3327,15 +3329,25 @@ export async function collectBulkEmi(req, res) {
   // Point 23: Block EMI collection on Sundays and Holidays
   await assertNotSundayOrHoliday(paidOn);
 
-  for (const it of items) {
+  for (const it of inputList) {
     try {
       const amount = Number(it.amount);
       if (!amount || amount < 1) continue;
 
-      const p = await LoanPayment.findById(it.loanPaymentId);
+      let p = null;
+      if (it.loanPaymentId) {
+        p = await LoanPayment.findById(it.loanPaymentId);
+      } else if (it.loanId) {
+        p = await LoanPayment.findOne({
+          $or: [
+            { loanId: it.loanId },
+            ...(mongoose.isValidObjectId(it.loanId) ? [{ _id: it.loanId }] : []),
+          ],
+        });
+      }
       if (!p) throw new Error('Loan not found');
 
-      const line = (p.lines || []).find((l) => l.code === it.memberCode || String(l.member) === String(it.memberId));
+      const line = (p.lines || []).find((l) => (it.memberCode && l.code === it.memberCode) || (it.memberId && String(l.member) === String(it.memberId))) || p.lines?.[0];
       if (!line) throw new Error('Borrower not found in loan');
 
       const receiptNo = await generateCode('emiReceipt').catch(() => `REC${Date.now().toString().slice(-8)}`);
@@ -4575,7 +4587,13 @@ export async function getAttendanceHistory(req, res) {
 // -----------------------------------------------------------------------------
 export async function recordCenterVisit(req, res) {
   const code = req.user?.employeeCode;
-  const emp = await Employee.findOne({ employeeCode: code });
+  const emp = await Employee.findOne({
+    $or: [
+      ...(code ? [{ employeeCode: new RegExp(`^${code}$`, 'i') }] : []),
+      ...(req.user?._id ? [{ user: req.user._id }] : []),
+    ],
+  });
+  const targetBranch = emp?.branch || req.user?.branch || (req.user?.branches && req.user.branches[0]);
   const { centerName, contactName, contactNumber, location, image, notes } = req.body || {};
 
   if (!centerName || !contactName || !contactNumber) {
@@ -4583,9 +4601,9 @@ export async function recordCenterVisit(req, res) {
   }
 
   const visit = await CenterVisit.create({
-    employeeCode: code,
-    employeeName: emp?.name,
-    branch: emp?.branch,
+    employeeCode: code || emp?.employeeCode || 'APP',
+    employeeName: emp?.name || req.user?.name || '',
+    branch: targetBranch,
     centerName,
     contactName,
     contactNumber,
@@ -4596,20 +4614,21 @@ export async function recordCenterVisit(req, res) {
   });
 
   // Sync to CenterSurvey so it immediately appears in Software's New Center Survey Report
-  if (emp?.branch) {
+  if (targetBranch) {
     try {
       const surveyNo = await generateCode('centerSurvey').catch(() => `SRV${Date.now().toString().slice(-8)}`);
       await CenterSurvey.create({
         surveyNo,
-        branch: emp.branch,
+        branch: targetBranch,
         centerName: centerName.trim(),
         leaderName: contactName.trim(),
         leaderMobile: contactNumber.trim(),
+        area: location?.address || '',
         surveyDate: new Date(),
         remark: notes || 'Recorded via Employee App (New Center Visit)',
         status: 'surveyed',
-        surveyedByCode: code,
-        statusHistory: [{ status: 'surveyed', remark: 'New center visit via Employee App', byCode: code, at: new Date() }],
+        surveyedByCode: code || emp?.employeeCode || '',
+        statusHistory: [{ status: 'surveyed', remark: 'New center visit via Employee App', byCode: code || emp?.employeeCode || '', at: new Date() }],
       });
     } catch (err) {
       console.warn('Failed to sync to CenterSurvey:', err.message);
@@ -5267,6 +5286,7 @@ export async function checkCivilScore(req, res) {
   }
 
   let civilCheckRecord = null;
+  const currentCivilFeePaise = (await civilFeePaise()) || 10000;
   if (memberDoc) {
     civilCheckRecord = await CivilCheck.create({
       member: memberDoc._id,
@@ -5277,7 +5297,7 @@ export async function checkCivilScore(req, res) {
       reportNumber,
       remark: createdNewMember ? 'Auto-checked and created from Employee App' : 'Checked from Employee App',
       employeeCode: emp?.employeeCode || code || 'APP',
-      feePaise: 0,
+      feePaise: currentCivilFeePaise,
       createdBy: req.user?._id,
     });
   }
@@ -5361,6 +5381,7 @@ export async function addCivilCheckedMember(req, res) {
   });
 
   if (score) {
+    const defaultCivilFeePaise = (await civilFeePaise()) || 10000;
     await CivilCheck.create({
       member: member._id,
       branch: branchId,
@@ -5370,7 +5391,7 @@ export async function addCivilCheckedMember(req, res) {
       reportNumber: reportNumber || `REP-${Date.now().toString().slice(-8)}`,
       remark: 'Auto-linked during Civil Check member creation from Employee App',
       employeeCode: emp?.employeeCode || code || 'APP',
-      feePaise: 0,
+      feePaise: defaultCivilFeePaise,
       createdBy: req.user?._id,
     });
   }

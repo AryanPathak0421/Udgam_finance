@@ -45,6 +45,8 @@ export default function SupervisorEmiPayment() {
     }
   }
 
+  const getMemberKey = (m) => `${m.loanPaymentId || m.loanId || ''}_${m.memberCode || m.code || m.memberId || m._id}`;
+
   async function selectGroup(grp) {
     setSelectedGroup(grp);
     setLoading(true);
@@ -57,8 +59,8 @@ export default function SupervisorEmiPayment() {
       setMembers(list);
       const initial = {};
       list.forEach((m) => {
-        const key = m.loanId || m._id;
-        initial[key] = m.emiAmount || 0;
+        const key = getMemberKey(m);
+        initial[key] = m.emiAmount || m.suggestedAmount || 0;
       });
       setCollections(initial);
     } catch (err) {
@@ -73,22 +75,35 @@ export default function SupervisorEmiPayment() {
     setBusy(true);
     setError('');
     try {
-      const payments = Object.entries(collections)
-        .filter(([, amt]) => Number(amt) > 0)
-        .map(([loanId, amount]) => ({ loanId, amount: Number(amount) }));
+      const items = members
+        .map((m) => {
+          const key = getMemberKey(m);
+          const amount = Number(collections[key]);
+          if (!amount || amount < 1) return null;
+          return {
+            loanPaymentId: m.loanPaymentId,
+            memberCode: m.memberCode || m.code,
+            memberId: m.memberId || m._id,
+            amount,
+            payMode: 'cash',
+          };
+        })
+        .filter(Boolean);
 
-      if (payments.length === 0) {
+      if (items.length === 0) {
         setError('Please enter collection amount for at least one borrower');
         setBusy(false);
         return;
       }
 
-      const res = await api.supervisorApp.collectBulkEmi({
+      await api.supervisorApp.collectBulkEmi({
+        items,
         groupId: selectedGroup._id || selectedGroup.id || selectedGroup.code || selectedGroup.groupCode,
-        payments,
+        date,
       });
 
-      setSuccess(`✓ Successfully recorded ${payments.length} collections (Receipts generated & pending Approval)`);
+      const totalAmt = items.reduce((s, x) => s + x.amount, 0);
+      setSuccess(`✓ Successfully recorded ₹${totalAmt.toLocaleString('en-IN')} across ${items.length} collection(s) (Receipts generated & pending Approval)`);
       setTimeout(() => {
         setSelectedGroup(null);
         setMembers([]);
@@ -276,12 +291,29 @@ export default function SupervisorEmiPayment() {
           </div>
 
           <form onSubmit={handleBulkSubmit}>
-            <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--sup-text-muted)', marginBottom: 8 }}>
-              MEMBER-WISE EMI COLLECTION
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--sup-text-muted)' }}>
+                MEMBER-WISE EMI COLLECTION ({members.length})
+              </div>
+              <button
+                type="button"
+                className="sup-btn sm secondary"
+                style={{ fontSize: '0.72rem', padding: '2px 8px' }}
+                onClick={() => {
+                  const reset = {};
+                  members.forEach((m) => {
+                    const key = getMemberKey(m);
+                    reset[key] = m.emiAmount || m.suggestedAmount || 0;
+                  });
+                  setCollections(reset);
+                }}
+              >
+                Reset to Scheduled EMI
+              </button>
             </div>
 
             {members.map((m) => {
-              const key = m.loanId || m._id;
+              const key = getMemberKey(m);
               return (
                 <div
                   key={key}
@@ -297,7 +329,7 @@ export default function SupervisorEmiPayment() {
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: '0.9rem', fontWeight: 600 }}>{m.name || m.memberName}</div>
                     <div style={{ fontSize: '0.72rem', color: 'var(--sup-text-muted)' }}>
-                      Code: {m.memberCode || m.code || '—'} • Loan #{m.loanId || m.loanNo}
+                      Code: {m.memberCode || m.code || '—'} • Loan #{m.loanId || m.loanNo} • EMI: ₹{m.emiAmount || 0}
                     </div>
                     {m.oldDue > 0 && (
                       <div style={{ fontSize: '0.7rem', color: 'var(--sup-danger)', fontWeight: 600 }}>

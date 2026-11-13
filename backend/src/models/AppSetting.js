@@ -17,3 +17,13 @@ export async function civilFeePaise() {
   const s = await AppSetting.findOne({ key: CIVIL_FEE_KEY });
   return Number.isInteger(s?.value) && s.value > 0 ? s.value : 0;
 }
+
+export const SMS_CONFIG_KEY = 'smsGatewayConfig';
+export async function getSmsConfig() {
+  try {
+    const s = await AppSetting.findOne({ key: SMS_CONFIG_KEY });
+    return s?.value || {};
+  } catch {
+    return {};
+  }
+}

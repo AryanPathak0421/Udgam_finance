@@ -1833,11 +1833,17 @@ export async function recordSupervisorCenterVisit(req, res) {
 
   if (!centerName) throw new HttpError(400, 'Center name is required');
 
-  const emp = await Employee.findOne({ employeeCode: code });
+  const emp = await Employee.findOne({
+    $or: [
+      ...(code ? [{ employeeCode: new RegExp(`^${code}$`, 'i') }] : []),
+      ...(req.user?._id ? [{ user: req.user._id }] : []),
+    ],
+  });
+  const targetBranch = emp?.branch || req.user?.branch || req.user?.branchId || (req.user?.branches && req.user.branches[0]);
   const visit = await CenterVisit.create({
-    employeeCode: code,
-    employeeName: emp?.name || 'Supervisor',
-    branch: emp?.branch || req.user?.branchId,
+    employeeCode: code || emp?.employeeCode || 'SUP',
+    employeeName: emp?.name || req.user?.name || 'Supervisor',
+    branch: targetBranch,
     centerName,
     contactName: contactName || groupName || 'Center Group',
     contactNumber: contactNumber || '—',
@@ -1846,6 +1852,27 @@ export async function recordSupervisorCenterVisit(req, res) {
     visitDate: new Date(),
     notes: notes || '',
   });
+
+  if (targetBranch) {
+    try {
+      const surveyNo = await generateCode('centerSurvey').catch(() => `SRV${Date.now().toString().slice(-8)}`);
+      await CenterSurvey.create({
+        surveyNo,
+        branch: targetBranch,
+        centerName: centerName.trim(),
+        leaderName: contactName || groupName || 'Center Group',
+        leaderMobile: contactNumber || '9876543210',
+        area: location?.address || '',
+        surveyDate: new Date(),
+        remark: notes || 'Supervisor Center Visit Report',
+        status: 'surveyed',
+        surveyedByCode: code || emp?.employeeCode || '',
+        statusHistory: [{ status: 'surveyed', remark: 'Supervisor Center Visit via App', byCode: code || emp?.employeeCode || '', at: new Date() }],
+      });
+    } catch (err) {
+      console.warn('Failed to sync to CenterSurvey:', err.message);
+    }
+  }
 
   res.status(201).json({ status: 'ok', message: 'Center visit report submitted successfully!', visit });
 }

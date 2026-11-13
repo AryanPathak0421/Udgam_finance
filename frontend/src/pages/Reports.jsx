@@ -99,7 +99,19 @@ COLS['staff-npa'] = [['Staff', staffCell], ['NPA borrowers', (r) => r.borrowers,
 COLS['staff-npa-payment'] = [['Staff', staffCell], ['NPA receipts', (r) => r.receipts, true], ['Collected', (r) => <strong>{inr(r.amount)}</strong>, true]];
 COLS['staff-disbursement'] = [['Staff', staffCell], ['Loans', (r) => r.loans, true], ['Borrowers', (r) => r.borrowers, true], ['Loan amount', (r) => <strong>{inr(r.amount)}</strong>, true], ['Cash paid', (r) => inr(r.cash), true]];
 COLS['group-wise-collection'] = [['Group', (r) => <strong>{r.group}</strong>], ['Branch', (r) => r.branch || '—'], ['Members who paid', (r) => r.members, true], ['Receipts', (r) => r.receipts, true], ['Collected', (r) => <strong>{inr(r.collected)}</strong>, true], ['Collected by', (r) => r.collectedBy || '—'], ['Last collection', (r) => dmy(r.lastDate)]];
-COLS['group-collection'] = [['Group', (r) => <strong>{r.group}</strong>], ['Branch', (r) => r.branch || '—'], ['Members', (r) => r.members, true], ['Demand', (r) => inr(r.demand), true], ['Collected', (r) => inr(r.collected), true], ['Balance', (r) => inr(r.balance), true], ['Collection %', (r) => (r.efficiency === null ? '—' : <span className={`badge ${r.efficiency >= 95 ? 'green' : r.efficiency >= 70 ? 'grey' : 'danger'}`}>{r.efficiency}%</span>)]];
+COLS['group-collection'] = [
+  ['Group Code', (r) => <strong>{r.groupCode || r.group}</strong>],
+  ['Group Name', (r) => r.groupName || r.group],
+  ['Center / Leader', (r) => r.centerLeader || '—'],
+  ['Staff / LO', (r) => r.staff || '—'],
+  ['Branch', (r) => r.branch || '—'],
+  ['Members', (r) => r.members, true],
+  ['Demand', (r) => inr(r.demand), true],
+  ['Collected', (r) => inr(r.collected), true],
+  ['Shortage', (r) => inr(r.shortage || 0), true],
+  ['Advance', (r) => inr(r.advance || 0), true],
+  ['Collection %', (r) => (r.efficiency === null ? '—' : <span className={`badge ${r.efficiency >= 95 ? 'green' : r.efficiency >= 70 ? 'grey' : 'danger'}`}>{r.efficiency}%</span>)],
+];
 
 const REPORTS = {
   requisition: { title: 'Loan Requisition Report', description: 'Every loan requisition with its status, by the loan date.', range: true, status: ['pending', 'approved', 'rejected', 'cancelled'], from: monthStart },
@@ -120,7 +132,7 @@ const REPORTS = {
   'staff-npa-payment': { title: 'Staff wise NPA Payment Report', description: 'What every staff member collected on NPA loans (NPA payment), by the date it was received.', range: true, from: monthStart, noCall: true, staffFilter: true },
   'staff-disbursement': { title: 'Staff wise Disbursement Report', description: 'Loans paid out for every staff member, by the payment date.', range: true, from: monthStart, noCall: true },
   'group-wise-collection': { title: 'Group wise Collection Report', description: 'What every group paid in the dates: the members who paid, the receipts, the amount, who collected it and when last. The CDS Report shows the demand against the collection.', range: true, from: today, noCall: true },
-  'group-collection': { title: 'CDS Report (Collection & Demand Statement)', description: 'For every group: the EMI that fell due in the period (demand), what was collected and the share collected (Collection and Demand Statement).', range: true, from: monthStart, noCall: true },
+  'group-collection': { title: 'CDS Report (Collection & Demand Statement)', description: 'For every group: the EMI that fell due in the period (demand), what was collected, shortage, advance and collection percentage (CDS format like the old software).', range: true, from: monthStart, noCall: true, print: true },
 };
 
 /** "Call done": the borrower of the row was called. Shows who called last and when. */

@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import { CenterSurvey, SURVEY_STATUS } from '../models/CenterSurvey.js';
+import { CenterVisit } from '../modules/employee/employeeAppModel.js';
 import { Branch } from '../models/Branch.js';
 import { generateCode } from '../services/codeSequence.js';
 import { asString, parseDateOnly, HttpError, startOfToday } from '../utils/http.js';
@@ -38,6 +39,50 @@ export async function listSurveys(req, res) {
 
   const q = asString(req.query.q).toLowerCase();
   const rows = await CenterSurvey.find(filter).sort({ surveyDate: -1, createdAt: -1 }).limit(2000).populate('branch', 'code name');
+
+  // Point 14: Also include CenterVisit records recorded via Employee & Supervisor App
+  const visitFilter = { ...branchFilter(req.user) };
+  if (mongoose.isValidObjectId(wanted)) {
+    const own = visitFilter.branch?.$in?.map(String);
+    visitFilter.branch = own && !own.includes(wanted) ? { $in: [] } : new mongoose.Types.ObjectId(wanted);
+  }
+  if (from || to) {
+    visitFilter.visitDate = { ...(from ? { $gte: from } : {}), ...(to ? { $lte: to } : {}) };
+  }
+  if (empCode) {
+    visitFilter.employeeCode = new RegExp(`^${empCode}$`, 'i');
+  } else if (req.user?.employeeCode && ['field_officer', 'collection_officer'].includes(req.user?.role)) {
+    visitFilter.employeeCode = req.user.employeeCode;
+  }
+
+  const visitRows = await CenterVisit.find(visitFilter).sort({ visitDate: -1, createdAt: -1 }).limit(1000).populate('branch', 'code name');
+  const existingNames = new Set(rows.map((r) => `${(r.centerName || '').trim().toLowerCase()}_${(r.surveyedByCode || '').toUpperCase()}`));
+
+  for (const cv of visitRows) {
+    const key = `${(cv.centerName || '').trim().toLowerCase()}_${(cv.employeeCode || '').toUpperCase()}`;
+    if (!existingNames.has(key)) {
+      existingNames.add(key);
+      rows.push({
+        _id: cv._id,
+        surveyNo: `VIS-${String(cv._id).slice(-6).toUpperCase()}`,
+        branch: cv.branch,
+        centerName: cv.centerName,
+        area: cv.location?.address || '',
+        pincode: '',
+        district: '',
+        surveyDate: cv.visitDate || cv.createdAt,
+        expectedMembers: 0,
+        meetingType: '',
+        leaderName: cv.contactName || '',
+        leaderMobile: cv.contactNumber || '',
+        remark: cv.notes || (cv.image ? 'Visit with photo from App' : 'App Center Visit'),
+        status: cv.status === 'done' ? 'surveyed' : cv.status || 'surveyed',
+        statusHistory: [{ status: 'surveyed', remark: cv.notes || 'Recorded via Mobile App', byCode: cv.employeeCode || '', at: cv.visitDate || cv.createdAt }],
+        surveyedByCode: cv.employeeCode || cv.employeeName || '',
+      });
+    }
+  }
+
   const items = rows.map(present).filter((s) => !q || [s.surveyNo, s.centerName, s.area, s.leaderName, s.district, s.surveyedBy].some((v) => String(v).toLowerCase().includes(q)));
   const count = (st) => items.filter((s) => s.status === st).length;
   res.json({ items, summary: { surveys: items.length, expectedMembers: items.reduce((t, s) => t + s.expectedMembers, 0), ...Object.fromEntries(SURVEY_STATUS.map((st) => [st, count(st)])) } });

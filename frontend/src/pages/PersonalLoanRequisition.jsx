@@ -694,6 +694,7 @@ function RequisitionForm({ kind }) {
                     ['Gender', cap(b.gender)], ['Phone', b.mobile], ['Guarantor name', b.guarantorName],
                     ['Previous loan amount', inr(b.previousLoanAmount)],
                     ['Civil score', b.civilCheck ? `${b.civilCheck.score} (${b.civilCheck.bureau}, ${b.civilCheck.reportDate})` : 'No civil check yet — use Civil Check'],
+                    ['Civil charge / fee', b.civilCheck ? inr(b.civilCheck.fee || 0) : '—'],
                     ['Address', b.address],
                     ['Pincode', b.pincode], ['District / State', `${b.district}, ${b.state}`],
                   ]}

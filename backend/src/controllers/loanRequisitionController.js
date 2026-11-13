@@ -16,6 +16,7 @@ import { audit } from '../utils/audit.js';
 import { checkGstin, verifyGstin } from '../services/gstVerify.js';
 import { StockProduct } from '../models/StockProduct.js';
 import { CivilCheck } from '../models/CivilCheck.js';
+import { civilFeePaise } from '../models/AppSetting.js';
 import { checkPanFormat, kycProviderConfigured } from '../services/kycVerify.js';
 import { takeVerified, consumeChallenge, issueOtp } from '../services/otpChallenges.js';
 import { sendSms } from '../services/sms.js';
@@ -189,12 +190,22 @@ async function runningSchemes(memberIds) {
 // The newest civil check of a member, for the forms and as a snapshot on a requisition.
 async function civilSnapshot(memberId) {
   const c = await CivilCheck.findOne({ member: memberId, isDeleted: false }).sort({ reportDate: -1, createdAt: -1 });
-  return c ? { score: c.score, reportDate: dateOnly(c.reportDate), bureau: c.bureau, daysOld: Math.floor((Date.now() - c.reportDate.getTime()) / 86_400_000) } : null;
+  if (!c) return null;
+  const configuredFee = (await civilFeePaise()) || 10000;
+  const feePaise = (c.feePaise && c.feePaise > 0) ? c.feePaise : configuredFee;
+  return {
+    score: c.score,
+    reportDate: dateOnly(c.reportDate),
+    bureau: c.bureau,
+    daysOld: Math.floor((Date.now() - c.reportDate.getTime()) / 86_400_000),
+    fee: feePaise / 100,
+    feePaise,
+  };
 }
 
 async function civilFor(memberId) {
   const c = await civilSnapshot(memberId);
-  return c ? { civilCheck: { score: c.score, reportDate: new Date(c.reportDate), bureau: c.bureau } } : {};
+  return c ? { civilCheck: { score: c.score, reportDate: new Date(c.reportDate), bureau: c.bureau, fee: c.fee } } : {};
 }
 
 /**
@@ -455,10 +466,14 @@ export async function groupDetail(req, res) {
   // the last loan amount and the newest civil score of each member
   const prevLoans = new Map();
   const civil = new Map();
+  const civilFee = new Map();
   await Promise.all(members.map(async (m) => {
     prevLoans.set(String(m._id), await previousLoanPaise(m._id));
     const cs = await civilSnapshot(m._id);
-    if (cs) civil.set(String(m._id), cs.score);
+    if (cs) {
+      civil.set(String(m._id), cs.score);
+      civilFee.set(String(m._id), cs.fee);
+    }
   }));
   const groupLoans = await unfinishedRows(await LoanRequisition.find({ isDeleted: false, kind: 'group', group: g._id, status: { $in: RUNNING }, members: { $in: ids } })
     .select('formId members amountPaise additionalProducts schemeName mode term annualRateBp status disbursedAt'));
@@ -505,6 +520,7 @@ export async function groupDetail(req, res) {
         } : null,
         previousLoan: rupees(prevLoans.get(String(m._id)) || 0),
         civilScore: civil.get(String(m._id)) ?? null,
+        civilFee: civilFee.get(String(m._id)) ?? 0,
         // schemes in which this member still has an unfinished loan
         runningSchemeIds: [...(running.get(String(m._id)) || [])],
         // the loan this member has running in this group (one per member); more is only a product top-up

@@ -72,7 +72,7 @@ async function activity(type, p) {
   let rows;
   if (type === 'collection') {
     rows = await EmiPayment.aggregate([
-      { $match: { status: 'paid', legacy: { $ne: true }, paidOn: range } },
+      { $match: { status: 'paid', paidOn: range } },
       { $group: { ...byEmployee, count: { $sum: 1 }, amount: { $sum: '$amountPaise' } } },
     ]);
   } else if (type in KIND) {
@@ -146,9 +146,13 @@ function rulesFor(rules, user) {
   const general = rules.filter((r) => !r.rank && !ownTypes.has(r.commissionFor));
   const combined = [...own, ...general];
   if (combined.length) return combined;
-  // Old employees or staff without an explicit rank assigned:
-  // Fall back to general rules, own activity rules, or legacy employee commission rules
-  return rules.filter((r) => !r.rank || r.scope === 'own' || r.commissionFor === 'employee');
+  // Fallback for staff or old/migrated employees without an explicit rank:
+  // Match the first active rule for each commission type so they are never excluded
+  const fallback = new Map();
+  for (const r of rules) {
+    if (!fallback.has(r.commissionFor)) fallback.set(r.commissionFor, r);
+  }
+  return [...fallback.values()];
 }
 
 /** What an employee achieved for a rule: his own activity, or that of his branches (a supervisor, those he supervises). */
@@ -239,7 +243,21 @@ export async function generateEmployeeCommission(month, by) {
       const key = `${rule.commissionFor}|${p.from.getTime()}`;
       // eslint-disable-next-line no-await-in-loop
       if (!cache.has(key)) cache.set(key, await activity(rule.commissionFor, p));
-      const rows = cache.get(key);
+      const rows = cache.get(key) || [];
+      // Also register any old staff codes that had activity in this period
+      for (const row of rows) {
+        if (row.code && !userCodes.has(row.code)) {
+          allStaff.push({
+            _id: new mongoose.Types.ObjectId(),
+            name: row.code,
+            employeeCode: row.code,
+            role: 'field_officer',
+            rank: null,
+            branches: row.branch ? [row.branch] : [],
+          });
+          userCodes.add(row.code);
+        }
+      }
       for (const user of allStaff) {
         if (!rulesFor(rules, user).includes(rule)) continue;
         const got = achieved(rows, rule, user);

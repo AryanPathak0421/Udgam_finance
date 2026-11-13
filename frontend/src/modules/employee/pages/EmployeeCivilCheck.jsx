@@ -209,49 +209,61 @@ export default function EmployeeCivilCheck() {
           </div>
         )}
 
+        {mode === 'existing' && selectedMember && (
+          <div style={{ background: '#eff6ff', color: '#1e40af', border: '1px solid #bfdbfe', padding: '10px 14px', borderRadius: 8, fontSize: '0.82rem', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Icon name="shield-check" size={18} />
+            <div>
+              <strong>Existing Member Record Locked ({selectedMember.code}):</strong> Member details cannot be modified during Civil Check.
+            </div>
+          </div>
+        )}
+
         <form onSubmit={handleCheckScore} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div>
             <label style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>
-              Full Name *
+              Full Name * {mode === 'existing' && selectedMember && <span style={{ fontSize: '0.75rem', color: '#64748b' }}>(Locked)</span>}
             </label>
             <input
               type="text"
               required
+              readOnly={mode === 'existing' && Boolean(selectedMember)}
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Candidate Full Name"
               className="emp-input"
-              style={{ width: '100%' }}
+              style={{ width: '100%', ...(mode === 'existing' && selectedMember ? { background: '#f1f5f9', color: '#334155', cursor: 'not-allowed' } : {}) }}
             />
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div>
               <label style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>
-                Mobile Number *
+                Mobile Number * {mode === 'existing' && selectedMember && <span style={{ fontSize: '0.75rem', color: '#64748b' }}>(Locked)</span>}
               </label>
               <input
                 type="tel"
                 maxLength={10}
+                readOnly={mode === 'existing' && Boolean(selectedMember)}
                 value={mobile}
                 onChange={(e) => setMobile(e.target.value.replace(/\D/g, ''))}
                 placeholder="10-digit mobile"
                 className="emp-input"
-                style={{ width: '100%' }}
+                style={{ width: '100%', ...(mode === 'existing' && selectedMember ? { background: '#f1f5f9', color: '#334155', cursor: 'not-allowed' } : {}) }}
               />
             </div>
             <div>
               <label style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>
-                PAN Number
+                PAN Number {mode === 'existing' && selectedMember && <span style={{ fontSize: '0.75rem', color: '#64748b' }}>(Locked)</span>}
               </label>
               <input
                 type="text"
                 maxLength={10}
+                readOnly={mode === 'existing' && Boolean(selectedMember)}
                 value={pan}
                 onChange={(e) => setPan(e.target.value.toUpperCase())}
                 placeholder="ABCDE1234F"
                 className="emp-input"
-                style={{ width: '100%' }}
+                style={{ width: '100%', ...(mode === 'existing' && selectedMember ? { background: '#f1f5f9', color: '#334155', cursor: 'not-allowed' } : {}) }}
               />
             </div>
           </div>
@@ -259,28 +271,30 @@ export default function EmployeeCivilCheck() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div>
               <label style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>
-                Aadhaar (Last 4 or 12)
+                Aadhaar (Last 4 or 12) {mode === 'existing' && selectedMember && <span style={{ fontSize: '0.75rem', color: '#64748b' }}>(Locked)</span>}
               </label>
               <input
                 type="text"
                 maxLength={12}
+                readOnly={mode === 'existing' && Boolean(selectedMember)}
                 value={aadhaar}
                 onChange={(e) => setAadhaar(e.target.value.replace(/\D/g, ''))}
                 placeholder="Aadhaar number"
                 className="emp-input"
-                style={{ width: '100%' }}
+                style={{ width: '100%', ...(mode === 'existing' && selectedMember ? { background: '#f1f5f9', color: '#334155', cursor: 'not-allowed' } : {}) }}
               />
             </div>
             <div>
               <label style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>
-                Date of Birth
+                Date of Birth {mode === 'existing' && selectedMember && <span style={{ fontSize: '0.75rem', color: '#64748b' }}>(Locked)</span>}
               </label>
               <input
                 type="date"
+                readOnly={mode === 'existing' && Boolean(selectedMember)}
                 value={dob}
                 onChange={(e) => setDob(e.target.value)}
                 className="emp-input"
-                style={{ width: '100%' }}
+                style={{ width: '100%', ...(mode === 'existing' && selectedMember ? { background: '#f1f5f9', color: '#334155', cursor: 'not-allowed' } : {}) }}
               />
             </div>
           </div>
@@ -288,9 +302,15 @@ export default function EmployeeCivilCheck() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div>
               <label style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>
-                Gender
+                Gender {mode === 'existing' && selectedMember && <span style={{ fontSize: '0.75rem', color: '#64748b' }}>(Locked)</span>}
               </label>
-              <select value={gender} onChange={(e) => setGender(e.target.value)} className="emp-input" style={{ width: '100%' }}>
+              <select
+                disabled={mode === 'existing' && Boolean(selectedMember)}
+                value={gender}
+                onChange={(e) => setGender(e.target.value)}
+                className="emp-input"
+                style={{ width: '100%', ...(mode === 'existing' && selectedMember ? { background: '#f1f5f9', color: '#334155', cursor: 'not-allowed' } : {}) }}
+              >
                 <option value="female">Female</option>
                 <option value="male">Male</option>
                 <option value="other">Other</option>

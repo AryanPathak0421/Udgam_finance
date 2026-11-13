@@ -12,6 +12,7 @@ import { CashbookPhoto } from '../models/CashbookPhoto.js';
 import { Branch } from '../models/Branch.js';
 import { Ledger } from '../models/Ledger.js';
 import { CivilCheck } from '../models/CivilCheck.js';
+import { civilFeePaise } from '../models/AppSetting.js';
 import { DayClose } from '../models/DayClose.js';
 import { assertDayOpen, defaultWorkDate } from '../services/dayOpen.js';
 import { asString, parseDateOnly, startOfToday, HttpError } from '../utils/http.js';
@@ -438,8 +439,14 @@ export async function cashbookData(req, query) {
 
     // the fee of every civil check (the amount the admin set on the Civil Check page), received in cash
     if (!mode || mode === 'cash') {
-      const civil = await CivilCheck.find({ ...scope, isDeleted: false, feePaise: { $gt: 0 }, ...stampRange('createdAt', before) }).populate('member', 'code name').limit(20000);
-      civil.forEach((c) => add('receive', 'civil_fee', { date: iso(c.createdAt), particulars: `Civil check fee — ${c.member?.code || ''} ${c.member?.name || ''}`.trim(), ref: c.employeeCode ? `by ${c.employeeCode}` : '', mode: 'cash', amount: c.feePaise, branchId: c.branch }));
+      const civil = await CivilCheck.find({ ...scope, isDeleted: false, ...stampRange('createdAt', before) }).populate('member', 'code name').limit(20000);
+      const configuredFee = (await civilFeePaise()) || 10000;
+      civil.forEach((c) => {
+        const fee = (c.feePaise && c.feePaise > 0) ? c.feePaise : configuredFee;
+        if (fee > 0) {
+          add('receive', 'civil_fee', { date: iso(c.createdAt), particulars: `Civil check fee — ${c.member?.code || ''} ${c.member?.name || ''}`.trim(), ref: c.employeeCode ? `by ${c.employeeCode}` : '', mode: 'cash', amount: fee, branchId: c.branch });
+        }
+      });
     }
 
     // entries typed in by hand

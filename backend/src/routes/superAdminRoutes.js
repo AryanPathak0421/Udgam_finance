@@ -3,7 +3,7 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler as h } from '../utils/http.js';
 import {
   notificationPreview, sendNotification, listNotifications, myNotifications, readNotifications, listHolidays, createHoliday, updateHoliday, removeHoliday,
-  profitLoss, complaintOverview, companySummary, monitoring, graph,
+  profitLoss, complaintOverview, companySummary, monitoring, graph, getSmsGatewaySettings, saveSmsGatewaySettings,
 } from '../controllers/superAdminController.js';
 
 const router = Router();
@@ -25,5 +25,7 @@ router.get('/super-admin/complaints', requireAuth, requireRole(...ADMIN), h(comp
 router.get('/super-admin/company-summary', requireAuth, requireRole(...ADMIN), h(companySummary));
 router.get('/super-admin/monitoring', requireAuth, requireRole(...ADMIN), h(monitoring));
 router.get('/super-admin/graph', requireAuth, requireRole(...ADMIN), h(graph));
+router.get('/super-admin/sms-gateway', requireAuth, requireRole(...ADMIN), h(getSmsGatewaySettings));
+router.post('/super-admin/sms-gateway', requireAuth, requireRole(...ADMIN), h(saveSmsGatewaySettings));
 
 export default router;

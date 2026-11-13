@@ -79,6 +79,8 @@ export default function EmployeeEmiPayment() {
   const [qrModal, setQrModal] = useState(null);
   const [qrLoading, setQrLoading] = useState(false);
 
+  const getLoanKey = (m) => `${m.loanPaymentId || ''}_${m.memberCode || ''}`;
+
   // 1. Fetch Groups when loanType === 'group' or mode/date changes
   const fetchGroups = async (keepActive = false) => {
     setLoadingGroups(true);
@@ -122,15 +124,16 @@ export default function EmployeeEmiPayment() {
       // Pre-fill collection map
       const initialMap = {};
       members.forEach((m) => {
+        const k = getLoanKey(m);
         const isFullyPaid = m.isAdvancePaid || (m.todayPaidAmount >= m.totalDue && m.dueAmount <= 0);
         const canCollect = !isFullyPaid && (m.dueAmount > 0 || !m.alreadyPaidToday);
-        // Item 4 Fix: Default to regular installment EMI amount, NOT total due!
         const defaultEmi = m.emiAmount || m.suggestedAmount || 0;
-        initialMap[m.memberCode] = {
+        initialMap[k] = {
           selected: canCollect,
           amount: defaultEmi,
           loanPaymentId: m.loanPaymentId,
           memberId: m.memberId,
+          memberCode: m.memberCode,
           isAdvancePaid: m.isAdvancePaid,
         };
       });
@@ -153,15 +156,16 @@ export default function EmployeeEmiPayment() {
 
       const initialMap = {};
       items.forEach((item) => {
+        const k = getLoanKey(item);
         const isFullyPaid = item.isAdvancePaid || (item.todayPaidAmount >= item.totalDue && item.dueAmount <= 0);
         const canCollect = !isFullyPaid && (item.dueAmount > 0 || !item.alreadyPaidToday);
-        // Item 4 Fix: Default to regular installment EMI amount
         const defaultEmi = item.emiAmount || item.suggestedAmount || 0;
-        initialMap[item.memberCode] = {
+        initialMap[k] = {
           selected: canCollect,
           amount: defaultEmi,
           loanPaymentId: item.loanPaymentId,
           memberId: item.memberId,
+          memberCode: item.memberCode,
           isAdvancePaid: item.isAdvancePaid,
         };
       });
@@ -183,13 +187,13 @@ export default function EmployeeEmiPayment() {
   }, [loanType, mode, date]);
 
   // Handle single tick checkbox toggle
-  const toggleSelect = (memberCode) => {
+  const toggleSelect = (key) => {
     setCollectionMap((prev) => {
-      const current = prev[memberCode] || {};
+      const current = prev[key] || {};
       if (current.isAdvancePaid) return prev;
       return {
         ...prev,
-        [memberCode]: {
+        [key]: {
           ...current,
           selected: !current.selected,
         },
@@ -198,11 +202,11 @@ export default function EmployeeEmiPayment() {
   };
 
   // Handle editable amount change
-  const handleAmountChange = (memberCode, val) => {
+  const handleAmountChange = (key, val) => {
     setCollectionMap((prev) => ({
       ...prev,
-      [memberCode]: {
-        ...prev[memberCode],
+      [key]: {
+        ...prev[key],
         amount: val,
       },
     }));
@@ -213,10 +217,11 @@ export default function EmployeeEmiPayment() {
     setCollectionMap((prev) => {
       const next = { ...prev };
       list.forEach((m) => {
+        const k = getLoanKey(m);
         const isFullyPaid = m.isAdvancePaid || (m.todayPaidAmount >= m.totalDue && m.dueAmount <= 0);
         if (!isFullyPaid) {
-          next[m.memberCode] = {
-            ...next[m.memberCode],
+          next[k] = {
+            ...next[k],
             selected: checked,
           };
         }
@@ -259,11 +264,11 @@ export default function EmployeeEmiPayment() {
       setMessage({ text: 'EMI collections and Loan Requisitions are blocked on Sundays (Weekly Off).', type: 'error' });
       return;
     }
-    const itemsToPay = Object.entries(collectionMap)
-      .filter(([, v]) => v.selected && Number(v.amount) > 0)
-      .map(([code, v]) => ({
+    const itemsToPay = Object.values(collectionMap)
+      .filter((v) => v.selected && Number(v.amount) > 0)
+      .map((v) => ({
         loanPaymentId: v.loanPaymentId,
-        memberCode: code,
+        memberCode: v.memberCode,
         memberId: v.memberId,
         amount: Number(v.amount),
         payMode,
@@ -716,22 +721,47 @@ export default function EmployeeEmiPayment() {
                     type="checkbox"
                     checked={
                       filteredGroupMembers.length > 0 &&
-                      filteredGroupMembers.filter((m) => !m.isAdvancePaid).every((m) => collectionMap[m.memberCode]?.selected)
+                      filteredGroupMembers.filter((m) => !m.isAdvancePaid).every((m) => collectionMap[getLoanKey(m)]?.selected)
                     }
                     onChange={(e) => handleSelectAll(e.target.checked, filteredGroupMembers)}
                   />
                   Select All Unpaid
                 </label>
-                <span style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)' }}>{filteredGroupMembers.length} Members</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <button
+                    type="button"
+                    className="emp-btn-secondary"
+                    style={{ fontSize: '0.72rem', padding: '2px 8px' }}
+                    onClick={() => {
+                      const reset = {};
+                      groupMembers.forEach((m) => {
+                        const k = getLoanKey(m);
+                        reset[k] = {
+                          selected: !m.isAdvancePaid,
+                          amount: m.emiAmount || m.suggestedAmount || 0,
+                          loanPaymentId: m.loanPaymentId,
+                          memberId: m.memberId,
+                          memberCode: m.memberCode,
+                          isAdvancePaid: m.isAdvancePaid,
+                        };
+                      });
+                      setCollectionMap(reset);
+                    }}
+                  >
+                    Reset to Group EMI
+                  </button>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)' }}>{filteredGroupMembers.length} Members</span>
+                </div>
               </div>
 
               {filteredGroupMembers.map((m) => {
-                const itemState = collectionMap[m.memberCode] || { selected: false, amount: m.emiAmount };
+                const k = getLoanKey(m);
+                const itemState = collectionMap[k] || { selected: false, amount: m.emiAmount };
                 const isAdvance = m.isAdvancePaid;
 
                 return (
                   <div
-                    key={m.memberCode}
+                    key={k}
                     className="emp-card"
                     style={{
                       margin: 0,
@@ -746,7 +776,7 @@ export default function EmployeeEmiPayment() {
                         type="checkbox"
                         checked={itemState.selected}
                         disabled={isAdvance}
-                        onChange={() => toggleSelect(m.memberCode)}
+                        onChange={() => toggleSelect(k)}
                         style={{ marginTop: 4, width: 18, height: 18, cursor: isAdvance ? 'not-allowed' : 'pointer' }}
                       />
 
@@ -810,7 +840,7 @@ export default function EmployeeEmiPayment() {
                               className="emp-input"
                               disabled={isAdvance || !itemState.selected}
                               value={itemState.amount}
-                              onChange={(e) => handleAmountChange(m.memberCode, e.target.value)}
+                              onChange={(e) => handleAmountChange(k, e.target.value)}
                               style={{
                                 width: 90,
                                 padding: '4px 8px',
@@ -918,7 +948,7 @@ export default function EmployeeEmiPayment() {
                     type="checkbox"
                     checked={
                       filteredIndividualLoans.length > 0 &&
-                      filteredIndividualLoans.filter((m) => !m.isAdvancePaid).every((m) => collectionMap[m.memberCode]?.selected)
+                      filteredIndividualLoans.filter((m) => !m.isAdvancePaid).every((m) => collectionMap[getLoanKey(m)]?.selected)
                     }
                     onChange={(e) => handleSelectAll(e.target.checked, filteredIndividualLoans)}
                   />
@@ -930,13 +960,14 @@ export default function EmployeeEmiPayment() {
               </div>
 
               {filteredIndividualLoans.map((item) => {
-                const itemState = collectionMap[item.memberCode] || { selected: false, amount: item.emiAmount };
+                const k = getLoanKey(item);
+                const itemState = collectionMap[k] || { selected: false, amount: item.emiAmount };
                 const isAdvance = item.isAdvancePaid;
                 const isCompleted = item.isCompleted || item.alreadyPaidToday;
 
                 return (
                   <div
-                    key={item.memberCode}
+                    key={k}
                     className="emp-card"
                     style={{
                       margin: 0,
@@ -952,7 +983,7 @@ export default function EmployeeEmiPayment() {
                         type="checkbox"
                         checked={itemState.selected}
                         disabled={isAdvance || isCompleted}
-                        onChange={() => toggleSelect(item.memberCode)}
+                        onChange={() => toggleSelect(k)}
                         style={{ marginTop: 4, width: 18, height: 18, cursor: isAdvance ? 'not-allowed' : 'pointer' }}
                       />
 
@@ -1016,7 +1047,7 @@ export default function EmployeeEmiPayment() {
                               className="emp-input"
                               disabled={isAdvance || isCompleted || !itemState.selected}
                               value={itemState.amount}
-                              onChange={(e) => handleAmountChange(item.memberCode, e.target.value)}
+                              onChange={(e) => handleAmountChange(k, e.target.value)}
                               style={{
                                 width: 90,
                                 padding: '4px 8px',

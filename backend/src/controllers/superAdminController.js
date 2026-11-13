@@ -18,6 +18,7 @@ import { SecurityWithdrawal } from '../models/SecurityWithdrawal.js';
 import { GroupLeaderCommission } from '../models/GroupLeaderCommission.js';
 import { slowRun } from '../services/slowRun.js';
 import { sendSms } from '../services/sms.js';
+import { AppSetting, SMS_CONFIG_KEY, getSmsConfig } from '../models/AppSetting.js';
 import { asString, parseDateOnly, HttpError, startOfToday, todayDateString } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
 import { cashbookData, CATEGORY_LABEL } from './cashbookController.js';
@@ -437,4 +438,35 @@ async function buildGraph(req) {
   const bw = await branchBorrowers(req, startOfToday());
   const branches = [...bw.entries()].map(([branch, v]) => ({ branch, outstanding: round2(v.outstanding), overdue: round2(v.overdue), npa: round2(v.npaOutstanding) })).sort((a, b) => b.outstanding - a.outstanding);
   return { months, series, branches };
+}
+
+export async function getSmsGatewaySettings(req, res) {
+  const config = await getSmsConfig();
+  res.json({
+    config: {
+      provider: config.provider || (process.env.FAST2SMS_API_KEY ? 'fast2sms' : 'dev'),
+      url: config.url || process.env.SMS_API_URL || '',
+      apiKey: config.apiKey ? '••••••••' : (process.env.FAST2SMS_API_KEY ? '••••••••' : ''),
+      senderId: config.senderId || '',
+      hasKey: Boolean(config.apiKey || process.env.FAST2SMS_API_KEY || process.env.SMS_API_KEY),
+    },
+  });
+}
+
+export async function saveSmsGatewaySettings(req, res) {
+  const { provider, url, apiKey, senderId } = req.body || {};
+  const current = await getSmsConfig();
+  const next = {
+    provider: provider || current.provider || 'fast2sms',
+    url: url !== undefined ? url : current.url || '',
+    apiKey: apiKey && !apiKey.includes('••') ? apiKey : current.apiKey || process.env.FAST2SMS_API_KEY || '',
+    senderId: senderId || current.senderId || '',
+  };
+  await AppSetting.findOneAndUpdate(
+    { key: SMS_CONFIG_KEY },
+    { $set: { value: next, updatedBy: req.user?._id } },
+    { upsert: true, new: true }
+  );
+  await audit(req, { action: 'settings.smsGateway', entity: 'AppSetting', entityId: SMS_CONFIG_KEY, after: { provider: next.provider } });
+  res.json({ success: true, message: 'SMS Gateway settings updated successfully!' });
 }
