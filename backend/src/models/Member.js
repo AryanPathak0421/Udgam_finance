@@ -92,6 +92,21 @@ const blockSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// History of phone number updates (Item 24: retain old numbers)
+const phoneHistorySchema = new mongoose.Schema(
+  {
+    targetType: { type: String, enum: ['member', 'guarantor'], required: true },
+    oldNumber: { type: String, required: true },
+    newNumber: { type: String, required: true },
+    reason: { type: String, default: '' },
+    requestedByCode: { type: String, default: '' },
+    requestedAt: { type: Date, default: Date.now },
+    approvedByCode: { type: String, default: '' },
+    approvedAt: { type: Date },
+  },
+  { _id: false }
+);
+
 // A borrower (member). Photos are stored as small PNG/JPEG data URLs.
 const memberSchema = new mongoose.Schema(
   {
@@ -131,6 +146,7 @@ const memberSchema = new mongoose.Schema(
     employeeCode: { type: String },
     guarantor: { type: personSchema },
     guarantorHistory: { type: [historySchema], default: [] },
+    phoneHistory: { type: [phoneHistorySchema], default: [] },
     // Which documents exist (kept in step with the uploads) and how each was reviewed.
     kycKeys: { type: [String], default: [] },
     // kept in step with the documents when the member is saved (see below): a document waits for its review / a document was rejected

@@ -176,9 +176,9 @@ export function AppUsers() {
                     <td data-label="Role">{a.role.replace(/_/g, ' ')}</td>
                     <td data-label="Branches">{a.branches.map((b) => branchLabel(b)).join(', ') || '—'}</td>
                     <td data-label="Note">{a.note || '—'}</td>
-                    <td data-label="Status"><span className={`badge ${a.isActive && a.staffActive ? 'green' : 'grey'}`}>{a.isActive ? (a.staffActive ? 'Active' : 'Login stopped') : 'Stopped'}</span></td>
+                    <td data-label="Status"><span className={`badge ${a.isActive && a.staffActive ? 'green' : a.isActive ? 'amber' : 'grey'}`}>{a.isActive ? (a.staffActive ? 'Active' : 'Locked / Inactive') : 'Stopped'}</span></td>
                     <td data-label="Created">{dmy(a.createdAt)}<div className="muted small">{a.createdBy ? `by ${a.createdBy}` : ''}</div></td>
-                    <td><div style={{ display: 'flex', gap: 6 }}><button className="btn sm" onClick={() => toggle(a)}>{a.isActive ? 'Stop' : 'Allow'}</button><button className="btn sm danger-outline" onClick={() => setRemoving(a)}>Remove</button></div></td>
+                    <td><div style={{ display: 'flex', gap: 6 }}><button className="btn sm" onClick={() => toggle(a)}>{a.isActive && a.staffActive ? 'Stop' : 'Allow / Unlock'}</button><button className="btn sm danger-outline" onClick={() => setRemoving(a)}>Remove</button></div></td>
                   </tr>
                 ))}
               </tbody>
@@ -580,6 +580,139 @@ export function ProductBookingApproval() {
           onSend={async (reason) => {
             await api.app.rejectProductBooking(rejecting.id, reason);
             toast.success('Product booking rejected and stock restored');
+            setRejecting(null);
+            qu.load();
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------
+export function PhoneApproval() {
+  const toast = useToast();
+  const qu = useQueue((p) => api.app.phoneApprovals(p));
+  const [rejecting, setRejecting] = useState(null);
+  const [busy, setBusy] = useState('');
+
+  async function approve(item) {
+    if (!window.confirm(`Approve phone number update for ${item.memberName} (${item.memberCode})?\n\nTarget: ${item.targetType === 'guarantor' ? 'Guarantor' : 'Member'}\nOld: ${item.oldNumber || 'None'}\nNew: ${item.newNumber}`)) return;
+    setBusy(item.id);
+    try {
+      await api.app.approvePhoneUpdate(item.id);
+      toast.success(`Phone update for ${item.memberCode} approved`);
+      qu.load();
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setBusy('');
+    }
+  }
+
+  return (
+    <>
+      <PageHeader
+        title="Phone Number Update Approvals"
+        description="Borrower and guarantor phone number update requests verified with OTP. Approving updates the active phone number and preserves old numbers in history."
+      />
+      <div className="panel">
+        <Toolbar qu={qu} placeholder="Search by member code, name, phone or staff ID" />
+        {qu.loading && !qu.data ? (
+          <Spinner label="Loading approvals…" />
+        ) : qu.error ? (
+          <ErrorState message={qu.error} onRetry={qu.load} />
+        ) : !qu.data || qu.data.items.length === 0 ? (
+          <EmptyState title="No phone update requests" description="No phone update approval requests match these filters." />
+        ) : (
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Date & Time</th>
+                  <th>Member</th>
+                  <th>Branch</th>
+                  <th>Target</th>
+                  <th>Old Number</th>
+                  <th>New Number</th>
+                  <th>Reason</th>
+                  <th>Requested By</th>
+                  <th>OTP Status</th>
+                  <th>Status</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {qu.data.items.map((x) => (
+                  <tr key={x.id}>
+                    <td data-label="Date">{dmy(x.createdAt)}</td>
+                    <td data-label="Member">
+                      <strong>{x.memberCode}</strong>
+                      <div>{x.memberName}</div>
+                    </td>
+                    <td data-label="Branch">{x.branch?.code || '—'}</td>
+                    <td data-label="Target">
+                      <span className={`badge ${x.targetType === 'guarantor' ? 'blue' : 'grey'}`}>
+                        {x.targetType === 'guarantor' ? 'Guarantor' : 'Member'}
+                      </span>
+                    </td>
+                    <td data-label="Old Number" style={{ textDecoration: 'line-through', color: '#64748b' }}>
+                      {x.oldNumber || '—'}
+                    </td>
+                    <td data-label="New Number">
+                      <strong style={{ color: '#059669' }}>{x.newNumber}</strong>
+                    </td>
+                    <td data-label="Reason">{x.reason || '—'}</td>
+                    <td data-label="Requested By">{x.requestedByCode || '—'}</td>
+                    <td data-label="OTP Status">
+                      <span className={`badge ${x.otpVerified ? 'green' : 'amber'}`}>
+                        {x.otpVerified ? 'OTP Verified ✓' : 'Unverified'}
+                      </span>
+                    </td>
+                    <td data-label="Status">
+                      <Badge s={x.status} />
+                      {x.status === 'rejected' && x.rejectReason && (
+                        <div className="muted small">{x.rejectReason}</div>
+                      )}
+                      {x.status === 'approved' && x.decidedByCode && (
+                        <div className="muted small">by {x.decidedByCode}</div>
+                      )}
+                    </td>
+                    <td>
+                      {x.status === 'pending' && (
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button
+                            className="btn sm primary"
+                            disabled={busy === x.id}
+                            onClick={() => approve(x)}
+                          >
+                            {busy === x.id ? '…' : 'Approve'}
+                          </button>
+                          <button
+                            className="btn sm danger-outline"
+                            onClick={() => setRejecting(x)}
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {rejecting && (
+        <ReasonDialog
+          title="Reject Phone Number Update"
+          subject={`Reject update for ${rejecting.memberCode} ${rejecting.memberName} (${rejecting.targetType}: ${rejecting.oldNumber || '—'} → ${rejecting.newNumber})`}
+          onClose={() => setRejecting(null)}
+          onSend={async (reason) => {
+            await api.app.rejectPhoneUpdate(rejecting.id, reason);
+            toast.success('Phone update request rejected');
             setRejecting(null);
             qu.load();
           }}

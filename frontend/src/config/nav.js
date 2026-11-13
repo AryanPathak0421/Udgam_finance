@@ -59,6 +59,7 @@ export const NAV_SECTIONS = [
           { label: 'New Borrower', path: '/members/new-borrower', icon: 'userplus' },
           { label: 'Guarantor & Nominee', path: '/members/guarantor-detail', icon: 'users' },
           { label: 'KYC Approval', path: '/members/kyc-approval', icon: 'kyc' },
+          { label: 'Phone Update Approval', path: '/members/phone-approval', icon: 'check' },
           { label: 'KYC Re-upload', path: '/members/kyc-reupload', icon: 'kyc', roles: ['super_admin', 'admin', 'branch_manager', 'loan_officer', 'field_officer'] },
           { label: 'Guarantor Change', path: '/members/guarantor-change', icon: 'users', grantOnly: true },
           { label: 'Borrower Synopsis', path: '/members/borrower-synopsis', icon: 'file' },
@@ -266,6 +267,7 @@ export const NAV_SECTIONS = [
         children: [
           { label: 'App User Creation', path: '/app/app-users', icon: 'userplus', roles: ALL_ADMIN },
           { label: 'Member Joining Approval', path: '/app/member-approval', icon: 'check' },
+          { label: 'Phone Update Approval', path: '/app/phone-approval', icon: 'check' },
           { label: 'Loan EMI Collection Approval', path: '/app/emi-approval', icon: 'cash' },
           { label: 'Product Booking Approval', path: '/app/product-booking', icon: 'product' },
         ],

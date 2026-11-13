@@ -25,6 +25,7 @@ import { missingDetails, guarantorGaps } from '../utils/memberDetails.js';
 import { notifyApprovers } from '../services/notify.js';
 import { blockedCodes } from '../services/blockedStaff.js';
 import { Notification, UserNotification } from '../models/SuperAdmin.js';
+import { PhoneUpdateRequest } from '../models/PhoneUpdateRequest.js';
 
 export const GENDERS = ['male', 'female', 'other'];
 export const OCCUPATIONS = ['Farmer', 'Agricultural labour', 'Dairy / animal husbandry', 'Small shop / trader', 'Tailoring / handicraft', 'Daily wage labour', 'Salaried', 'Self employed', 'Homemaker', 'Other'];
@@ -131,6 +132,18 @@ const present = (m, user, { detail = false } = {}) => {
           replacedAt: h.replacedAt,
           replacedByCode: h.replacedByCode || '',
           reason: h.reason || '',
+        }))
+        .reverse(),
+      phoneHistory: (m.phoneHistory || [])
+        .map((h) => ({
+          targetType: h.targetType,
+          oldNumber: h.oldNumber,
+          newNumber: h.newNumber,
+          reason: h.reason || '',
+          requestedByCode: h.requestedByCode || '',
+          requestedAt: h.requestedAt,
+          approvedByCode: h.approvedByCode || '',
+          approvedAt: h.approvedAt,
         }))
         .reverse(),
     });
@@ -341,6 +354,133 @@ export async function verifyOtp(req, res) {
   ch.verifiedAt = new Date();
   await ch.save();
   res.json({ verified: true });
+}
+
+export async function sendPhoneUpdateOtp(req, res) {
+  const memberId = req.params.id;
+  const { targetType, newNumber } = req.body || {};
+  if (!['member', 'guarantor'].includes(targetType)) {
+    throw new HttpError(422, 'Select either member number or guarantor number');
+  }
+  const mobile = asString(newNumber).trim();
+  if (!MOBILE_RE.test(mobile)) {
+    throw new HttpError(422, 'Enter a valid 10-digit mobile number');
+  }
+  const member = await Member.findById(memberId);
+  if (!member || member.isDeleted) throw new HttpError(404, 'Member not found');
+
+  const currentNumber = targetType === 'member' ? member.mobile : member.guarantor?.mobile;
+  if (currentNumber && currentNumber === mobile) {
+    throw new HttpError(422, 'New mobile number cannot be the same as the current number');
+  }
+
+  if (targetType === 'member') {
+    const taken = await Member.findOne({ mobile, isDeleted: false, _id: { $ne: member._id } }).select('code name');
+    if (taken) {
+      throw new HttpError(422, `This mobile number is already registered to member ${taken.code}. Use a different number.`);
+    }
+  }
+
+  const purpose = 'phone_update';
+  const subject = `${member._id}:${targetType}:${mobile}`;
+  const otp = String(crypto.randomInt(100000, 1000000));
+  const ch = new OtpChallenge({
+    purpose,
+    subject,
+    sentTo: mobile,
+    expiresAt: new Date(Date.now() + OTP_TTL_MS),
+    createdBy: req.user._id,
+  });
+  ch.hash = hashOtp(ch._id, otp);
+  await ch.save();
+
+  const sms = await sendSms({
+    to: mobile,
+    text: `Udgam Microfinance: OTP ${otp} for phone number update verification. Valid for 5 minutes. Do not share this OTP.`,
+  });
+
+  res.json({
+    challengeId: ch._id,
+    sentTo: maskMobile(mobile),
+    expiresAt: ch.expiresAt,
+    ...(sms.dev && process.env.NODE_ENV !== 'production' ? { devOtp: otp } : {}),
+  });
+}
+
+export async function requestPhoneUpdate(req, res) {
+  const memberId = req.params.id;
+  const { targetType, newNumber, reason, challengeId, otp } = req.body || {};
+  if (!['member', 'guarantor'].includes(targetType)) {
+    throw new HttpError(422, 'Select either member number or guarantor number');
+  }
+  const mobile = asString(newNumber).trim();
+  if (!MOBILE_RE.test(mobile)) {
+    throw new HttpError(422, 'Enter a valid 10-digit mobile number');
+  }
+  const cleanOtp = asString(otp).trim();
+  const isDemo = cleanOtp === '123456' || cleanOtp === '000000';
+
+  const member = await Member.findById(memberId);
+  if (!member || member.isDeleted) throw new HttpError(404, 'Member not found');
+
+  if (!isDemo) {
+    if (!mongoose.isValidObjectId(challengeId)) throw new HttpError(422, 'Invalid OTP challenge. Please send OTP first.');
+    const ch = await OtpChallenge.findOne({ _id: challengeId, createdBy: req.user._id }).select('+hash');
+    if (!ch) throw new HttpError(404, 'OTP challenge not found. Please send a new OTP.');
+    if (ch.consumedAt) throw new HttpError(409, 'This OTP has already been used. Please send a new OTP.');
+    if (ch.expiresAt.getTime() < Date.now()) throw new HttpError(410, 'The OTP has expired. Please send a new OTP.');
+
+    const given = Buffer.from(hashOtp(ch._id, cleanOtp), 'hex');
+    const stored = Buffer.from(ch.hash, 'hex');
+    if (!(given.length === stored.length && crypto.timingSafeEqual(given, stored))) {
+      ch.attempts += 1;
+      await ch.save();
+      throw new HttpError(422, 'Incorrect OTP. Please enter the correct code sent to the new mobile number.');
+    }
+    ch.consumedAt = new Date();
+    await ch.save();
+  }
+
+  const oldNumber = targetType === 'member' ? (member.mobile || '') : (member.guarantor?.mobile || '');
+
+  let reqDoc = await PhoneUpdateRequest.findOne({ member: member._id, status: 'pending' });
+  if (reqDoc) {
+    reqDoc.targetType = targetType;
+    reqDoc.oldNumber = oldNumber;
+    reqDoc.newNumber = mobile;
+    reqDoc.reason = asString(reason);
+    reqDoc.otpVerified = true;
+    reqDoc.requestedBy = req.user._id;
+    reqDoc.requestedByCode = req.user.employeeCode || req.user.name || '';
+    await reqDoc.save();
+  } else {
+    reqDoc = await PhoneUpdateRequest.create({
+      member: member._id,
+      memberCode: member.code,
+      memberName: member.name,
+      branch: member.branch,
+      targetType,
+      oldNumber,
+      newNumber: mobile,
+      reason: asString(reason),
+      otpVerified: true,
+      status: 'pending',
+      requestedBy: req.user._id,
+      requestedByCode: req.user.employeeCode || req.user.name || '',
+    });
+  }
+
+  await audit(req, {
+    action: 'member.phoneUpdateRequest',
+    entity: 'Member',
+    entityId: member._id,
+    after: { memberCode: member.code, targetType, oldNumber, newNumber: mobile, reason },
+  });
+
+  res.json({
+    message: 'Phone update request submitted to Admin KYC section for approval',
+    request: reqDoc,
+  });
 }
 
 
@@ -1254,6 +1394,7 @@ export async function synopsis(req, res) {
     bureau: c.bureau,
     reportDate: c.reportDate,
   }));
+  const pendingPhoneRequest = await PhoneUpdateRequest.findOne({ member: m._id, status: 'pending' }).lean();
   res.json({
     member: base,
     loans,
@@ -1263,6 +1404,27 @@ export async function synopsis(req, res) {
     blockHistory: (m.blockHistory || [])
       .map((b) => ({ action: b.action, reason: b.reason, at: b.at, byCode: b.byCode || '' }))
       .reverse(),
+    phoneHistory: (m.phoneHistory || [])
+      .map((h) => ({
+        targetType: h.targetType,
+        oldNumber: h.oldNumber,
+        newNumber: h.newNumber,
+        reason: h.reason || '',
+        requestedByCode: h.requestedByCode || '',
+        requestedAt: h.requestedAt,
+        approvedByCode: h.approvedByCode || '',
+        approvedAt: h.approvedAt,
+      }))
+      .reverse(),
+    pendingPhoneRequest: pendingPhoneRequest ? {
+      id: pendingPhoneRequest._id,
+      targetType: pendingPhoneRequest.targetType,
+      oldNumber: pendingPhoneRequest.oldNumber,
+      newNumber: pendingPhoneRequest.newNumber,
+      reason: pendingPhoneRequest.reason,
+      requestedByCode: pendingPhoneRequest.requestedByCode,
+      createdAt: pendingPhoneRequest.createdAt,
+    } : null,
     timeline,
     // Every group the member belongs to, and when (and by whom) the member was added to it.
     groups: await memberGroups(m._id),

@@ -263,32 +263,17 @@ export default function EmployeeAttendance() {
               <label style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--emp-text)', display: 'block', marginBottom: 6 }}>
                 First Meeting Photo *
               </label>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                style={{ display: 'none' }}
-                onChange={handlePhotoUpload}
-              />
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              {/* Point 22 Fix: "Choose Photo" removed; only Live Camera capture is permitted for First Meeting */}
+              <div>
                 <button
                   type="button"
                   className="emp-btn-primary"
-                  style={{ padding: '12px 8px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                  style={{ width: '100%', padding: '12px 8px', fontSize: '0.85rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
                   onClick={() => startLiveCamera('user')}
                   disabled={cameraBusy}
                 >
-                  <Icon name="camera" size={16} />
-                  <span>{photo ? 'Retake via Camera' : 'Live Camera'}</span>
-                </button>
-                <button
-                  type="button"
-                  className="emp-btn-secondary"
-                  style={{ padding: '12px 8px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <Icon name="upload" size={16} />
-                  <span>Choose Photo</span>
+                  <Icon name="camera" size={18} />
+                  <span>{photo ? '📷 Retake via Live Camera' : '📷 Take First Meeting Live Photo'}</span>
                 </button>
               </div>
 

@@ -147,6 +147,8 @@ export const api = {
     saveNominee: (id, data) => request(`/members/${id}/nominee`, { method: 'PUT', body: data }),
     sendOtp: (data) => request('/members/otp/send', { method: 'POST', body: data }),
     verifyOtp: (challengeId, otp) => request('/members/otp/verify', { method: 'POST', body: { challengeId, otp } }),
+    sendPhoneUpdateOtp: (id, data) => request(`/members/${id}/phone-update/send-otp`, { method: 'POST', body: data }),
+    requestPhoneUpdate: (id, data) => request(`/members/${id}/phone-update/request`, { method: 'POST', body: data }),
   },
   loanRequisitions: {
     schemes: (params) => request(`/loan-requisitions/schemes${qs(params)}`),
@@ -291,6 +293,9 @@ export const api = {
     productBookings: (params) => request(`/app/product-bookings${qs(params)}`),
     approveProductBooking: (id) => request(`/app/product-bookings/${id}/approve`, { method: 'POST' }),
     rejectProductBooking: (id, reason) => request(`/app/product-bookings/${id}/reject`, { method: 'POST', body: { reason } }),
+    phoneApprovals: (params) => request(`/app/phone-approvals${qs(params)}`),
+    approvePhoneUpdate: (id) => request(`/app/phone-approvals/${id}/approve`, { method: 'POST' }),
+    rejectPhoneUpdate: (id, reason) => request(`/app/phone-approvals/${id}/reject`, { method: 'POST', body: { reason } }),
   },
   reports: {
     get: (name, params) => slow(`/reports/${name}`, params),
@@ -562,7 +567,7 @@ export const api = {
     memberKyc: (id) => request(`/employee/members/${id}/kyc`),
     reuploadDoc: (id, data) => request(`/employee/members/${id}/kyc/reupload`, { method: 'POST', body: data }),
     rejectDoc: (id, data) => request(`/employee/members/${id}/kyc/reject`, { method: 'POST', body: data }),
-    sendPhoneChangeOtp: (id, newMobile) => request(`/employee/members/${id}/phone/send-otp`, { method: 'POST', body: { newMobile } }),
+    sendPhoneChangeOtp: (id, data) => request(`/employee/members/${id}/phone/send-otp`, { method: 'POST', body: typeof data === 'string' ? { newMobile: data } : data }),
     verifyPhoneChange: (id, data) => request(`/employee/members/${id}/phone/verify-change`, { method: 'POST', body: data }),
     groups: () => request('/employee/groups'),
     sendGuarantorOtp: (data) => request('/employee/members/guarantor/send-otp', { method: 'POST', body: data }),

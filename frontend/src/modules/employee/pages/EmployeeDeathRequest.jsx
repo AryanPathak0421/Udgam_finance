@@ -506,46 +506,25 @@ export default function EmployeeDeathRequest() {
                     Live Verification
                   </span>
                 </div>
-                <input
-                  ref={hvpInputRef}
-                  type="file"
-                  accept="image/*"
-                  id="hvp"
-                  style={{ display: 'none' }}
-                  onChange={(e) => handleImageFile(e, setHouseVisitPhoto)}
-                />
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                {/* Point 23 Fix: Staff House Visit photo requires live camera verification */}
+                <div>
                   <button
                     type="button"
                     className="emp-btn-primary"
                     style={{
+                      width: '100%',
                       padding: '12px 8px',
-                      fontSize: '0.8rem',
+                      fontSize: '0.85rem',
+                      fontWeight: 700,
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      gap: 6,
+                      gap: 8,
                     }}
                     onClick={() => startLiveCamera('environment')}
                   >
-                    <Icon name="camera" size={16} />
-                    <span>{houseVisitPhoto ? 'Retake via Camera' : 'Live Camera'}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="emp-btn-secondary"
-                    style={{
-                      padding: '12px 8px',
-                      fontSize: '0.8rem',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 6,
-                    }}
-                    onClick={() => hvpInputRef.current?.click()}
-                  >
-                    <Icon name="upload" size={16} />
-                    <span>Upload File</span>
+                    <Icon name="camera" size={18} />
+                    <span>{houseVisitPhoto ? '📷 Retake via Live Camera' : '📷 Take House Visit Live Photo'}</span>
                   </button>
                 </div>
                 {houseVisitPhoto && (

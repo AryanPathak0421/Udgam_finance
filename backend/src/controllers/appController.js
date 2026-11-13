@@ -10,6 +10,7 @@ import { generateCode } from '../services/codeSequence.js';
 import { ProductSaleOrder } from '../modules/employee/employeeAppModel.js';
 import { StockProduct } from '../models/StockProduct.js';
 import { blockedCodes } from '../services/blockedStaff.js';
+import { PhoneUpdateRequest } from '../models/PhoneUpdateRequest.js';
 import { asString, HttpError } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
 import { branchFilter, showMobile } from './groupController.js';
@@ -116,6 +117,16 @@ export async function listAppUsers(req, res) {
     employeeCode: { $in: rows.map((r) => r.employeeCode) },
   }).populate('branch', 'code name').lean();
   const empMap = new Map(empList.map((e) => [(e.employeeCode || '').toUpperCase(), e]));
+
+  // Auto-heal: Ensure active app users have active User accounts so old employees do not display as locked / login stopped
+  for (const a of rows) {
+    const u = users.get(String(a.user));
+    const emp = empMap.get((a.employeeCode || '').toUpperCase());
+    if (a.isActive && u && u.isActive === false && (!emp || !emp.isBlocked)) {
+      await User.updateOne({ _id: u._id }, { $set: { isActive: true } });
+      u.isActive = true;
+    }
+  }
 
   res.json({
     items: rows.map((a) => {
@@ -313,9 +324,23 @@ export async function setAppUserStatus(req, res) {
   if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'App user not found');
   const a = await AppUser.findById(req.params.id);
   if (!a) throw new HttpError(404, 'App user not found');
-  a.isActive = Boolean(req.body?.isActive);
-  a.deactivatedAt = a.isActive ? undefined : new Date();
+  const nextActive = req.body?.isActive !== undefined ? Boolean(req.body.isActive) : true;
+  a.isActive = nextActive;
+  a.deactivatedAt = nextActive ? undefined : new Date();
   await a.save();
+
+  // Sync associated User and Employee records so old employees are not left in a locked / login stopped state
+  if (a.user) {
+    await User.updateOne({ _id: a.user }, { $set: { isActive: nextActive } });
+  }
+  if (a.employeeCode) {
+    const codeReg = new RegExp(`^${a.employeeCode}$`, 'i');
+    await User.updateMany({ employeeCode: codeReg }, { $set: { isActive: nextActive } });
+    if (nextActive) {
+      await Employee.updateMany({ employeeCode: codeReg }, { $set: { isBlocked: false, status: 'active' } });
+    }
+  }
+
   await audit(req, { action: 'appUser.status', entity: 'AppUser', entityId: a._id, after: { employeeCode: a.employeeCode, isActive: a.isActive } });
   res.json({ isActive: a.isActive });
 }
@@ -777,4 +802,140 @@ export async function rejectProductBooking(req, res) {
   });
 
   res.json({ success: true, message: `Booking ${order.receiptNo} rejected and stock restored.`, status: 'rejected' });
+}
+
+// ---- Phone Number Update Approvals (Item 24) ---------------------------------------------------------------------
+
+export async function listPhoneApprovals(req, res) {
+  const { branch, status = 'pending', q, from, to } = req.query || {};
+  const filter = {};
+  if (status && status !== 'all') {
+    filter.status = status;
+  }
+  if (branch && mongoose.isValidObjectId(branch)) {
+    filter.branch = branch;
+  } else {
+    const s = scope(req);
+    if (s.branch) filter.branch = s.branch;
+  }
+  if (from || to) {
+    filter.createdAt = {};
+    if (from) filter.createdAt.$gte = new Date(from);
+    if (to) {
+      const end = new Date(to);
+      end.setHours(23, 59, 59, 999);
+      filter.createdAt.$lte = end;
+    }
+  }
+  if (q) {
+    const rx = new RegExp(escapeRegex(q.trim()), 'i');
+    filter.$or = [{ memberCode: rx }, { memberName: rx }, { oldNumber: rx }, { newNumber: rx }, { requestedByCode: rx }];
+  }
+
+  const items = await PhoneUpdateRequest.find(filter)
+    .populate('branch', 'code name')
+    .sort({ createdAt: -1 })
+    .limit(200)
+    .lean();
+
+  const pendingCount = await PhoneUpdateRequest.countDocuments({ status: 'pending', ...(filter.branch ? { branch: filter.branch } : {}) });
+
+  res.json({
+    items: items.map((x) => ({
+      id: x._id,
+      memberId: x.member,
+      memberCode: x.memberCode,
+      memberName: x.memberName,
+      branch: x.branch ? { id: x.branch._id, code: x.branch.code, name: x.branch.name } : null,
+      targetType: x.targetType,
+      oldNumber: x.oldNumber,
+      newNumber: x.newNumber,
+      reason: x.reason || '',
+      otpVerified: x.otpVerified,
+      status: x.status,
+      requestedByCode: x.requestedByCode || '',
+      createdAt: x.createdAt,
+      decidedByCode: x.decidedByCode || '',
+      decidedAt: x.decidedAt,
+      rejectReason: x.rejectReason || '',
+    })),
+    total: items.length,
+    pendingCount,
+  });
+}
+
+export async function approvePhoneUpdate(req, res) {
+  if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Request not found');
+  const reqDoc = await PhoneUpdateRequest.findById(req.params.id);
+  if (!reqDoc) throw new HttpError(404, 'Request not found');
+  if (reqDoc.status !== 'pending') throw new HttpError(400, `This request is already ${reqDoc.status}`);
+
+  const member = await Member.findById(reqDoc.member);
+  if (!member) throw new HttpError(404, 'Member record not found');
+
+  const historyEntry = {
+    targetType: reqDoc.targetType,
+    oldNumber: reqDoc.oldNumber,
+    newNumber: reqDoc.newNumber,
+    reason: reqDoc.reason || '',
+    requestedByCode: reqDoc.requestedByCode || '',
+    requestedAt: reqDoc.createdAt,
+    approvedByCode: req.user.employeeCode || req.user.name || '',
+    approvedAt: new Date(),
+  };
+
+  if (!member.phoneHistory) member.phoneHistory = [];
+  member.phoneHistory.push(historyEntry);
+
+  if (reqDoc.targetType === 'member') {
+    member.mobile = reqDoc.newNumber;
+    member.mobileVerifiedAt = new Date();
+  } else if (reqDoc.targetType === 'guarantor') {
+    if (!member.guarantor) member.guarantor = {};
+    member.guarantor.mobile = reqDoc.newNumber;
+    member.guarantor.mobileVerifiedAt = new Date();
+  }
+
+  await member.save();
+
+  reqDoc.status = 'approved';
+  reqDoc.decidedBy = req.user._id;
+  reqDoc.decidedByCode = req.user.employeeCode || req.user.name || '';
+  reqDoc.decidedAt = new Date();
+  await reqDoc.save();
+
+  await audit(req, {
+    action: 'member.phoneUpdateApproved',
+    entity: 'Member',
+    entityId: member._id,
+    after: { memberCode: member.code, targetType: reqDoc.targetType, oldNumber: reqDoc.oldNumber, newNumber: reqDoc.newNumber },
+  });
+
+  res.json({ message: 'Phone number approved and updated', request: reqDoc });
+}
+
+export async function rejectPhoneUpdate(req, res) {
+  if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Request not found');
+  const reqDoc = await PhoneUpdateRequest.findById(req.params.id);
+  if (!reqDoc) throw new HttpError(404, 'Request not found');
+  if (reqDoc.status !== 'pending') throw new HttpError(400, `This request is already ${reqDoc.status}`);
+
+  const reason = asString(req.body?.reason).trim();
+  if (!reason) throw new HttpError(422, 'Provide a rejection reason', { reason: 'Reason is required' });
+
+  reqDoc.status = 'rejected';
+  reqDoc.rejectReason = reason;
+  reqDoc.decidedBy = req.user._id;
+  reqDoc.decidedByCode = req.user.employeeCode || req.user.name || '';
+  reqDoc.decidedAt = new Date();
+  await reqDoc.save();
+
+  await audit(req, {
+    action: 'member.phoneUpdateRejected',
+    entity: 'Member',
+    entityId: reqDoc.member,
+    after: { memberCode: reqDoc.memberCode, reason },
+  });
+
+  res.json({ message: 'Phone update request rejected', request: reqDoc });
 }

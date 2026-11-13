@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import FormField from '../components/ui/FormField.jsx';
@@ -187,6 +188,7 @@ export default function KycApproval({ mode = 'approval' } = {}) {
   const canUpload = UPLOADERS.includes(user?.role);
   const isAdmin = ADMINS.includes(user?.role);
 
+  const navigate = useNavigate();
   const [data, setData] = useState({ items: [], counts: { pending: 0, rejected: 0, approved: 0 }, total: 0, totalPages: 1 });
   const [branches, setBranches] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -233,6 +235,13 @@ export default function KycApproval({ mode = 'approval' } = {}) {
       <PageHeader
         title={reupload ? 'KYC Re-upload' : 'KYC Approval'}
         description={reupload ? 'Documents rejected by the admin are listed here. Upload them again; approved documents cannot be changed.' : 'Only an admin approves or rejects documents, date-wise. Rejected documents are uploaded again by the branch under KYC Re-upload.'}
+        actions={
+          !reupload ? (
+            <button className="btn primary" onClick={() => navigate('/members/phone-approval')}>
+              Phone Update Approvals
+            </button>
+          ) : null
+        }
       />
       <div className="panel">
         <div className="toolbar" style={{ flexWrap: 'wrap' }}>

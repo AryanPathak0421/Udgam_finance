@@ -31,6 +31,7 @@ import { Company } from '../../models/Company.js';
 import { BankAccount } from '../../models/BankAccount.js';
 import { AppUser } from '../../models/AppUser.js';
 import { CenterSurvey } from '../../models/CenterSurvey.js';
+import { PhoneUpdateRequest } from '../../models/PhoneUpdateRequest.js';
 import { generateCode } from '../../services/codeSequence.js';
 import { issueOtp, takeVerified, consumeChallenge } from '../../services/otpChallenges.js';
 import { sendSms } from '../../services/sms.js';
@@ -1548,7 +1549,8 @@ export async function rejectMemberKycDoc(req, res) {
 
 export async function sendMemberPhoneChangeOtp(req, res) {
   const q = cleanStr(req.params.id);
-  const newMobile = cleanStr(req.body?.newMobile).replace(/\D/g, '').slice(-10);
+  const targetType = req.body?.targetType === 'guarantor' ? 'guarantor' : 'member';
+  const newMobile = cleanStr(req.body?.newMobile || req.body?.newNumber).replace(/\D/g, '').slice(-10);
   if (!/^\d{10}$/.test(newMobile)) throw new HttpError(400, 'Enter a valid 10-digit mobile number');
 
   const m = await Member.findOne({
@@ -1556,12 +1558,12 @@ export async function sendMemberPhoneChangeOtp(req, res) {
   });
   if (!m) throw new HttpError(404, 'Member not found');
 
-  // Point 5: Once OTP is verified, phone number change is strictly blocked!
-  if (m.mobileVerifiedAt) {
-    throw new HttpError(403, 'Member mobile number is already verified via OTP and is permanently locked against changes.');
+  const currentNumber = targetType === 'member' ? m.mobile : m.guarantor?.mobile;
+  if (currentNumber && currentNumber === newMobile) {
+    throw new HttpError(400, 'New mobile number cannot be the same as the current number');
   }
 
-  const { otp, challengeId } = await issueOtp(`phone_change_${m._id}_${newMobile}`, { ttlSec: 300 });
+  const { otp, challengeId } = await issueOtp(`phone_change_${m._id}_${targetType}_${newMobile}`, { ttlSec: 300 });
   try {
     await sendSms({
       to: newMobile,
@@ -1583,8 +1585,9 @@ export async function sendMemberPhoneChangeOtp(req, res) {
 
 export async function verifyMemberPhoneChange(req, res) {
   const q = cleanStr(req.params.id);
-  const { challengeId, otp, newMobile } = req.body || {};
-  const cleanPhone = cleanStr(newMobile).replace(/\D/g, '').slice(-10);
+  const targetType = req.body?.targetType === 'guarantor' ? 'guarantor' : 'member';
+  const { challengeId, otp, newMobile, newNumber, reason } = req.body || {};
+  const cleanPhone = cleanStr(newMobile || newNumber).replace(/\D/g, '').slice(-10);
   if (!/^\d{10}$/.test(cleanPhone)) throw new HttpError(400, 'Enter a valid 10-digit mobile number');
 
   const m = await Member.findOne({
@@ -1595,28 +1598,54 @@ export async function verifyMemberPhoneChange(req, res) {
   const otpStr = String(otp || '').trim();
   const isDemo = otpStr === '123456' || otpStr === '000000';
   if (!isDemo) {
-    const challenge = await consumeChallenge(challengeId || `phone_change_${m._id}_${cleanPhone}`, otpStr);
+    const challenge = await consumeChallenge(challengeId || `phone_change_${m._id}_${targetType}_${cleanPhone}`, otpStr);
     if (!challenge) {
       throw new HttpError(400, 'Invalid or expired OTP');
     }
   }
 
-  const oldMobile = m.mobile;
-  m.mobile = cleanPhone;
-  m.mobileVerifiedAt = new Date();
-  await m.save();
+  const oldMobile = targetType === 'member' ? (m.mobile || '') : (m.guarantor?.mobile || '');
+
+  // Item 24: Submit to Admin KYC section for approval
+  let reqDoc = await PhoneUpdateRequest.findOne({ member: m._id, status: 'pending' });
+  if (reqDoc) {
+    reqDoc.targetType = targetType;
+    reqDoc.oldNumber = oldMobile;
+    reqDoc.newNumber = cleanPhone;
+    reqDoc.reason = cleanStr(reason);
+    reqDoc.otpVerified = true;
+    reqDoc.requestedBy = req.user._id;
+    reqDoc.requestedByCode = req.user.employeeCode || req.user.name || '';
+    await reqDoc.save();
+  } else {
+    reqDoc = await PhoneUpdateRequest.create({
+      member: m._id,
+      memberCode: m.code,
+      memberName: m.name,
+      branch: m.branch,
+      targetType,
+      oldNumber: oldMobile,
+      newNumber: cleanPhone,
+      reason: cleanStr(reason),
+      otpVerified: true,
+      status: 'pending',
+      requestedBy: req.user._id,
+      requestedByCode: req.user.employeeCode || req.user.name || '',
+    });
+  }
 
   await audit(req, {
-    action: 'member.updatePhoneWithOtp',
+    action: 'member.phoneUpdateRequest',
     entity: 'Member',
     entityId: m._id,
-    after: { oldMobile, newMobile: cleanPhone },
+    after: { memberCode: m.code, targetType, oldNumber: oldMobile, newNumber: cleanPhone, reason },
   });
 
   res.json({
     success: true,
     mobile: cleanPhone,
-    message: `Mobile number updated to ${cleanPhone} and verified successfully`,
+    message: 'OTP verified successfully! Phone update request has been submitted to Admin KYC for approval.',
+    request: reqDoc,
   });
 }
 
@@ -2318,10 +2347,22 @@ export async function getMemberSynopsis(req, res) {
     blockReason: m.blockReason || '',
     guarantor: m.guarantor || null,
     guarantorHistory: m.guarantorHistory || [],
+    phoneHistory: (m.phoneHistory || []).map((h) => ({
+      targetType: h.targetType,
+      oldNumber: h.oldNumber,
+      newNumber: h.newNumber,
+      reason: h.reason || '',
+      requestedByCode: h.requestedByCode || '',
+      requestedAt: h.requestedAt,
+      approvedByCode: h.approvedByCode || '',
+      approvedAt: h.approvedAt,
+    })).reverse(),
     nominee: m.nominee || null,
     totalBorrowed,
     loansCount: detailedLoans.length,
   };
+
+  const pendingPhoneRequest = await PhoneUpdateRequest.findOne({ member: m._id, status: 'pending' }).lean();
 
   res.json({
     member: memberData,
@@ -2331,6 +2372,16 @@ export async function getMemberSynopsis(req, res) {
     loans: detailedLoans,
     civilChecks,
     blockHistory: m.blockHistory || [],
+    phoneHistory: memberData.phoneHistory || [],
+    pendingPhoneRequest: pendingPhoneRequest ? {
+      id: pendingPhoneRequest._id,
+      targetType: pendingPhoneRequest.targetType,
+      oldNumber: pendingPhoneRequest.oldNumber,
+      newNumber: pendingPhoneRequest.newNumber,
+      reason: pendingPhoneRequest.reason,
+      requestedByCode: pendingPhoneRequest.requestedByCode,
+      createdAt: pendingPhoneRequest.createdAt,
+    } : null,
     editHistory: m.editHistory || [],
     timeline,
     recentEmis,

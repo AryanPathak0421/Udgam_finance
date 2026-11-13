@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { api } from '../api/client.js';
 import { DetailList, EmptyState, ErrorState, PageHeader, Spinner } from '../components/ui/Feedback.jsx';
 import { useToast } from '../components/ui/Toast.jsx';
+import Modal from '../components/ui/Modal.jsx';
+import FormField from '../components/ui/FormField.jsx';
 import useDebounce from '../hooks/useDebounce.js';
 import { downloadMemberPdf } from '../utils/memberPdf.js';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -49,12 +51,186 @@ function Person({ p }) {
   );
 }
 
+function UpdatePhoneModal({ member, onClose, onUpdated }) {
+  const toast = useToast();
+  const [targetType, setTargetType] = useState('member');
+  const [newNumber, setNewNumber] = useState('');
+  const [reason, setReason] = useState('');
+  const [challengeId, setChallengeId] = useState('');
+  const [otp, setOtp] = useState('');
+  const [otpSent, setOtpSent] = useState(false);
+  const [devOtp, setDevOtp] = useState('');
+  const [sending, setSending] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [countdown, setCountdown] = useState(0);
+
+  useEffect(() => {
+    if (countdown > 0) {
+      const t = setTimeout(() => setCountdown(countdown - 1), 1000);
+      return () => clearTimeout(t);
+    }
+  }, [countdown]);
+
+  const currentNumber = targetType === 'member' ? (member.mobile || 'None') : (member.guarantor?.mobile || 'None');
+
+  async function handleSendOtp() {
+    if (!/^\d{10}$/.test(newNumber.trim())) {
+      toast.error('Enter a valid 10-digit mobile number');
+      return;
+    }
+    if (newNumber.trim() === currentNumber) {
+      toast.error('New mobile number cannot be the same as current number');
+      return;
+    }
+    setSending(true);
+    try {
+      const res = await api.members.sendPhoneUpdateOtp(member.id, {
+        targetType,
+        newNumber: newNumber.trim(),
+      });
+      setChallengeId(res.challengeId);
+      setOtpSent(true);
+      setCountdown(60);
+      if (res.devOtp) setDevOtp(res.devOtp);
+      toast.success(`OTP sent to ${newNumber.trim()}`);
+    } catch (err) {
+      toast.error(err.message || 'Failed to send OTP');
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function handleSubmit() {
+    if (!otpSent) {
+      toast.error('Please send and verify OTP first');
+      return;
+    }
+    if (!/^\d{6}$/.test(otp.trim())) {
+      toast.error('Enter the 6-digit OTP');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const res = await api.members.requestPhoneUpdate(member.id, {
+        targetType,
+        newNumber: newNumber.trim(),
+        reason: reason.trim(),
+        challengeId,
+        otp: otp.trim(),
+      });
+      toast.success(res.message || 'Phone update request submitted to Admin KYC');
+      onUpdated();
+      onClose();
+    } catch (err) {
+      toast.error(err.message || 'Failed to submit request');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Modal
+      open
+      title={`Update Phone Number — ${member.name}`}
+      onClose={onClose}
+      busy={submitting}
+      footer={
+        <>
+          <button className="btn" onClick={onClose} disabled={submitting}>Cancel</button>
+          <button className="btn primary" onClick={handleSubmit} disabled={submitting || !otpSent || otp.length !== 6}>
+            {submitting ? 'Submitting…' : 'Submit for Admin Approval'}
+          </button>
+        </>
+      }
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <FormField label="Select Target to Update" required>
+          <div style={{ display: 'flex', gap: 16, marginTop: 4 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+              <input
+                type="radio"
+                name="targetType"
+                value="member"
+                checked={targetType === 'member'}
+                onChange={() => { setTargetType('member'); setOtpSent(false); setOtp(''); }}
+              />
+              <span>Member Number (Current: <strong>{member.mobile || '—'}</strong>)</span>
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+              <input
+                type="radio"
+                name="targetType"
+                value="guarantor"
+                checked={targetType === 'guarantor'}
+                onChange={() => { setTargetType('guarantor'); setOtpSent(false); setOtp(''); }}
+              />
+              <span>Guarantor Number (Current: <strong>{member.guarantor?.mobile || '—'}</strong>)</span>
+            </label>
+          </div>
+        </FormField>
+
+        <FormField label="New 10-Digit Mobile Number" required>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              type="tel"
+              maxLength={10}
+              placeholder="Enter new 10-digit mobile number"
+              value={newNumber}
+              onChange={(e) => { setNewNumber(e.target.value.replace(/\D/g, '')); setOtpSent(false); setOtp(''); }}
+              style={{ flex: 1 }}
+            />
+            <button
+              type="button"
+              className="btn"
+              onClick={handleSendOtp}
+              disabled={sending || newNumber.length !== 10 || countdown > 0}
+            >
+              {sending ? 'Sending…' : countdown > 0 ? `Resend (${countdown}s)` : otpSent ? 'Resend OTP' : 'Send OTP'}
+            </button>
+          </div>
+          {devOtp && (
+            <div className="muted small" style={{ marginTop: 4, color: '#059669' }}>
+              Dev OTP: <strong>{devOtp}</strong> (or use 123456)
+            </div>
+          )}
+        </FormField>
+
+        {otpSent && (
+          <FormField label="Enter 6-Digit OTP" required hint={`Sent to +91 ${newNumber}`}>
+            <input
+              type="text"
+              maxLength={6}
+              placeholder="Enter 6-digit OTP"
+              value={otp}
+              onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
+            />
+          </FormField>
+        )}
+
+        <FormField label="Reason for Phone Update" hint="Optional explanation for the admin">
+          <input
+            type="text"
+            placeholder="e.g. SIM card lost, borrower changed primary contact number"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+          />
+        </FormField>
+
+        <div className="notice info" style={{ fontSize: '0.82rem' }}>
+          Once submitted, this request will be sent to <strong>Admin KYC / Member Approval</strong> section. Upon Admin approval, the number will be updated and the previous number will remain in permanent history.
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 export default function BorrowerSynopsis() {
   const toast = useToast();
   const { user } = useAuth();
   const isAdmin = ['super_admin', 'admin'].includes(user?.role);
   const [editing, setEditing] = useState(null); // { branches, options } while the admin edits
   const [completing, setCompleting] = useState(null); // form options while the branch completes an imported member's details
+  const [updatingPhone, setUpdatingPhone] = useState(false);
   const [search, setSearch] = useState('');
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
@@ -176,11 +352,26 @@ export default function BorrowerSynopsis() {
           <>
             {m.missingDetails?.length > 0 && <button className="btn primary" onClick={startComplete}>Complete details</button>}
             {isAdmin && <button className="btn primary" onClick={startEdit}>Edit details</button>}
+            <button className="btn" onClick={() => setUpdatingPhone(true)}>Update Phone Number</button>
             <button className="btn" onClick={() => downloadMemberPdf(m)}>Download PDF</button>
             <button className="btn" onClick={() => setData(null)}>Search another</button>
           </>
         }
       />
+
+      {updatingPhone && (
+        <UpdatePhoneModal
+          member={m}
+          onClose={() => setUpdatingPhone(false)}
+          onUpdated={async () => setData(await api.members.synopsis(m.id))}
+        />
+      )}
+
+      {data.pendingPhoneRequest && (
+        <div className="notice warn" style={{ marginBottom: 14 }}>
+          <strong>Phone Update Request Pending Admin Approval:</strong> {data.pendingPhoneRequest.targetType === 'guarantor' ? 'Guarantor' : 'Member'} mobile {data.pendingPhoneRequest.oldNumber || '—'} → <strong>{data.pendingPhoneRequest.newNumber}</strong> waiting for Admin KYC approval. {data.pendingPhoneRequest.reason && `(Reason: ${data.pendingPhoneRequest.reason})`}
+        </div>
+      )}
 
       {completing && <CompleteDetails member={m} options={completing} onClose={() => setCompleting(null)} onSaved={async () => { setCompleting(null); setData(await api.members.synopsis(m.id)); }} />}
       {m.missingDetails?.length > 0 && (
@@ -212,6 +403,41 @@ export default function BorrowerSynopsis() {
             ['Address', m.address], ['Area / post office', m.area], ['District / State', `${m.district}, ${m.state}`], ['Pincode', m.pincode],
           ]}
         />
+      </Section>
+
+      <Section title={`Phone number history (${(data.phoneHistory || m.phoneHistory || []).length})`}>
+        {(data.phoneHistory || m.phoneHistory || []).length === 0 ? (
+          <span className="muted">No phone number changes recorded</span>
+        ) : (
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Date & Time</th>
+                  <th>Target</th>
+                  <th>Old Number</th>
+                  <th>New Number</th>
+                  <th>Reason</th>
+                  <th>Requested By</th>
+                  <th>Approved By</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(data.phoneHistory || m.phoneHistory || []).map((h, i) => (
+                  <tr key={i}>
+                    <td data-label="Date">{fmtTime(h.approvedAt || h.requestedAt)}</td>
+                    <td data-label="Target"><strong>{h.targetType === 'guarantor' ? 'Guarantor' : 'Member'}</strong></td>
+                    <td data-label="Old Number">{h.oldNumber || '—'}</td>
+                    <td data-label="New Number"><strong>{h.newNumber}</strong></td>
+                    <td data-label="Reason">{h.reason || '—'}</td>
+                    <td data-label="Requested By">{h.requestedByCode || '—'}</td>
+                    <td data-label="Approved By">{h.approvedByCode || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Section>
 
       <Section title="KYC & bank">

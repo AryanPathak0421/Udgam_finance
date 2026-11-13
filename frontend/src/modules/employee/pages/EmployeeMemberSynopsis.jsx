@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { api } from '../../../api/client.js';
 import { useEmployeeApp } from '../EmployeeAppContext.jsx';
 import Icon from '../../../components/Icon.jsx';
@@ -116,6 +116,25 @@ export default function EmployeeMemberSynopsis() {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
 
+  const [phoneModal, setPhoneModal] = useState(false);
+  const [phoneTarget, setPhoneTarget] = useState('member');
+  const [newPhone, setNewPhone] = useState('');
+  const [phoneReason, setPhoneReason] = useState('');
+  const [phoneOtp, setPhoneOtp] = useState('');
+  const [phoneChallengeId, setPhoneChallengeId] = useState('');
+  const [phoneOtpSent, setPhoneOtpSent] = useState(false);
+  const [phoneDevOtp, setPhoneDevOtp] = useState('');
+  const [phoneSending, setPhoneSending] = useState(false);
+  const [phoneSubmitting, setPhoneSubmitting] = useState(false);
+  const [phoneCountdown, setPhoneCountdown] = useState(0);
+
+  useEffect(() => {
+    if (phoneCountdown > 0) {
+      const timer = setTimeout(() => setPhoneCountdown(phoneCountdown - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [phoneCountdown]);
+
   const handleSearch = async (e) => {
     e?.preventDefault();
     if (!query.trim()) return;
@@ -129,6 +148,62 @@ export default function EmployeeMemberSynopsis() {
       setError(err.message || 'No member synopsis found for this query');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSendPhoneOtp = async () => {
+    if (!/^\d{10}$/.test(newPhone.trim())) {
+      alert('Enter a valid 10-digit mobile number');
+      return;
+    }
+    const currentPhone = phoneTarget === 'member' ? m?.mobile : m?.guarantor?.mobile;
+    if (currentPhone && currentPhone === newPhone.trim()) {
+      alert('New mobile number cannot be the same as current number');
+      return;
+    }
+    setPhoneSending(true);
+    try {
+      const res = await api.employee.sendPhoneChangeOtp(m.id || m._id, {
+        targetType: phoneTarget,
+        newMobile: newPhone.trim(),
+      });
+      setPhoneChallengeId(res.challengeId);
+      setPhoneOtpSent(true);
+      setPhoneCountdown(60);
+      if (res.devOtp) setPhoneDevOtp(res.devOtp);
+    } catch (err) {
+      alert(err.message || 'Failed to send OTP');
+    } finally {
+      setPhoneSending(false);
+    }
+  };
+
+  const handleSubmitPhoneUpdate = async () => {
+    if (!phoneOtpSent) {
+      alert('Please send and verify OTP first');
+      return;
+    }
+    if (!/^\d{6}$/.test(phoneOtp.trim())) {
+      alert('Enter the 6-digit OTP');
+      return;
+    }
+    setPhoneSubmitting(true);
+    try {
+      const res = await api.employee.verifyPhoneChange(m.id || m._id, {
+        targetType: phoneTarget,
+        newMobile: newPhone.trim(),
+        reason: phoneReason.trim(),
+        challengeId: phoneChallengeId,
+        otp: phoneOtp.trim(),
+      });
+      alert(res.message || 'Phone update request submitted to Admin KYC');
+      setPhoneModal(false);
+      const updated = await api.employeeApp.memberSynopsis(m.code || query);
+      setData(updated);
+    } catch (err) {
+      alert(err.message || 'Failed to submit phone update request');
+    } finally {
+      setPhoneSubmitting(false);
     }
   };
 
@@ -251,8 +326,29 @@ export default function EmployeeMemberSynopsis() {
                 <Icon name="download" size={14} />
                 <span>Download Member PDF</span>
               </button>
+              <button
+                type="button"
+                className="emp-btn-secondary"
+                onClick={() => {
+                  setPhoneModal(true);
+                  setPhoneOtpSent(false);
+                  setPhoneOtp('');
+                  setNewPhone('');
+                  setPhoneReason('');
+                }}
+                style={{ flex: 1, padding: '8px 12px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: '#f1f5f9' }}
+              >
+                <Icon name="phone" size={14} />
+                <span>Update Mobile</span>
+              </button>
             </div>
           </div>
+
+          {data.pendingPhoneRequest && (
+            <div style={{ background: '#fffbeb', border: '1px solid #fef3c7', color: '#92400e', padding: '10px 14px', borderRadius: 8, fontSize: '0.82rem', marginBottom: 12 }}>
+              <strong>Phone Update Pending Admin Approval:</strong> {data.pendingPhoneRequest.targetType === 'guarantor' ? 'Guarantor' : 'Member'} mobile {data.pendingPhoneRequest.oldNumber || '—'} → <strong>{data.pendingPhoneRequest.newNumber}</strong> {data.pendingPhoneRequest.reason && `(Reason: ${data.pendingPhoneRequest.reason})`}
+            </div>
+          )}
 
           {m.isBlocked && (
             <div style={{ background: '#fee2e2', color: '#991b1b', padding: '10px 14px', borderRadius: 8, fontSize: '0.82rem', marginBottom: 12 }}>
@@ -290,6 +386,31 @@ export default function EmployeeMemberSynopsis() {
               ]}
             />
           </Section>
+
+          {/* Phone Number History */}
+          {(data.phoneHistory || m.phoneHistory)?.length > 0 && (
+            <Section title={`Phone number history (${(data.phoneHistory || m.phoneHistory).length})`} count={(data.phoneHistory || m.phoneHistory).length}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {(data.phoneHistory || m.phoneHistory).map((h, hIdx) => (
+                  <div key={hIdx} style={{ background: '#f8fafc', padding: '8px 10px', borderRadius: 6, fontSize: '0.78rem', borderLeft: '3px solid #3b82f6' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600 }}>
+                      <span>{h.targetType === 'guarantor' ? 'Guarantor Mobile' : 'Member Mobile'}</span>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--emp-text-muted)' }}>{fmtTime(h.approvedAt || h.requestedAt)}</span>
+                    </div>
+                    <div style={{ marginTop: 2, display: 'flex', gap: 6 }}>
+                      <span style={{ textDecoration: 'line-through', color: '#64748b' }}>{h.oldNumber || '—'}</span>
+                      <span>→</span>
+                      <strong style={{ color: '#059669' }}>{h.newNumber}</strong>
+                    </div>
+                    {h.reason && <div style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>Reason: {h.reason}</div>}
+                    <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: 1 }}>
+                      Approved by: <strong>{h.approvedByCode || 'Admin'}</strong>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Section>
+          )}
 
           {/* 3. KYC & Bank */}
           <Section title="KYC & bank">
@@ -576,6 +697,132 @@ export default function EmployeeMemberSynopsis() {
                 ))}
               </div>
             </Section>
+          )}
+
+          {/* Update Phone Modal Sheet */}
+          {phoneModal && (
+            <div className="emp-modal-overlay" onClick={() => setPhoneModal(false)}>
+              <div className="emp-modal-sheet" onClick={(e) => e.stopPropagation()} style={{ maxHeight: '90vh', overflowY: 'auto' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 800 }}>Update Phone Number</h3>
+                  <button type="button" onClick={() => setPhoneModal(false)} style={{ background: 'none', border: 'none', fontSize: '1.2rem', cursor: 'pointer' }}>✕</button>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div>
+                    <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 6 }}>
+                      Select Target to Update *
+                    </label>
+                    <div style={{ display: 'flex', gap: 12 }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8rem', cursor: 'pointer' }}>
+                        <input
+                          type="radio"
+                          name="appPhoneTarget"
+                          value="member"
+                          checked={phoneTarget === 'member'}
+                          onChange={() => { setPhoneTarget('member'); setPhoneOtpSent(false); setPhoneOtp(''); }}
+                        />
+                        <span>Member ({m.mobile || '—'})</span>
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8rem', cursor: 'pointer' }}>
+                        <input
+                          type="radio"
+                          name="appPhoneTarget"
+                          value="guarantor"
+                          checked={phoneTarget === 'guarantor'}
+                          onChange={() => { setPhoneTarget('guarantor'); setPhoneOtpSent(false); setPhoneOtp(''); }}
+                        />
+                        <span>Guarantor ({m.guarantor?.mobile || '—'})</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                      New 10-Digit Mobile Number *
+                    </label>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <input
+                        type="tel"
+                        maxLength={10}
+                        placeholder="New 10-digit number"
+                        value={newPhone}
+                        onChange={(e) => { setNewPhone(e.target.value.replace(/\D/g, '')); setPhoneOtpSent(false); setPhoneOtp(''); }}
+                        className="emp-input"
+                        style={{ flex: 1 }}
+                      />
+                      <button
+                        type="button"
+                        className="emp-btn-primary"
+                        onClick={handleSendPhoneOtp}
+                        disabled={phoneSending || newPhone.length !== 10 || phoneCountdown > 0}
+                        style={{ padding: '6px 12px', fontSize: '0.75rem' }}
+                      >
+                        {phoneSending ? '...' : phoneCountdown > 0 ? `(${phoneCountdown}s)` : phoneOtpSent ? 'Resend' : 'Send OTP'}
+                      </button>
+                    </div>
+                    {phoneDevOtp && (
+                      <div style={{ fontSize: '0.7rem', color: '#059669', marginTop: 2 }}>
+                        Dev OTP: <strong>{phoneDevOtp}</strong> (or use 123456)
+                      </div>
+                    )}
+                  </div>
+
+                  {phoneOtpSent && (
+                    <div>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                        Enter 6-Digit OTP *
+                      </label>
+                      <input
+                        type="text"
+                        maxLength={6}
+                        placeholder="Enter 6-digit OTP"
+                        value={phoneOtp}
+                        onChange={(e) => setPhoneOtp(e.target.value.replace(/\D/g, ''))}
+                        className="emp-input"
+                      />
+                    </div>
+                  )}
+
+                  <div>
+                    <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                      Reason for Update
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. SIM card lost, number changed"
+                      value={phoneReason}
+                      onChange={(e) => setPhoneReason(e.target.value)}
+                      className="emp-input"
+                    />
+                  </div>
+
+                  <div style={{ background: '#f8fafc', padding: '8px 10px', borderRadius: 6, fontSize: '0.72rem', color: 'var(--emp-text-muted)' }}>
+                    Request will be submitted to Admin KYC. Upon Admin approval, the number updates and old number is retained in history.
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                    <button
+                      type="button"
+                      className="emp-btn-secondary"
+                      style={{ flex: 1 }}
+                      onClick={() => setPhoneModal(false)}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="emp-btn-primary"
+                      style={{ flex: 2 }}
+                      onClick={handleSubmitPhoneUpdate}
+                      disabled={phoneSubmitting || !phoneOtpSent || phoneOtp.length !== 6}
+                    >
+                      {phoneSubmitting ? 'Submitting...' : 'Submit to Admin KYC'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
           )}
         </>
       )}

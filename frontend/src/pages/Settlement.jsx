@@ -447,13 +447,26 @@ function DeathSettleForm({ loanId, member, canSettle, onDone }) {
   const isAdmin = ['super_admin', 'admin'].includes(user?.role);
   const toast = useToast();
   const { data: d, error, load } = usePreview(loanId, member);
-  const [form, setForm] = useState({ deathDate: '', settledOn: todayISO(), remark: '', claimRef: '', certificate: '', certificateName: '' });
+  const [form, setForm] = useState({ deathDate: '', settledOn: todayISO(), remark: '', claimRef: '', certificate: '', certificateName: '', deathPhoto: '' });
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
   const fileRef = useRef(null);
+  const photoRef = useRef(null);
   if (error) return <ErrorState message={error} onRetry={load} />;
   if (!d) return <Spinner label="Loading…" />;
   const set = (k) => (e) => { setForm((f) => ({ ...f, [k]: e.target.value })); setErrors((x) => ({ ...x, [k]: undefined })); };
+
+  async function pickPhoto(e) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const data = await compressImage(file, { maxSide: 1200, quality: 0.75 });
+      setForm((f) => ({ ...f, deathPhoto: data }));
+    } catch (ex) {
+      toast.error(ex.message);
+    }
+  }
 
   async function pick(e) {
     const file = e.target.files?.[0];
@@ -523,6 +536,17 @@ function DeathSettleForm({ loanId, member, canSettle, onDone }) {
                   <input id="dcert" ref={fileRef} type="file" accept="application/pdf,image/png,image/jpeg" onChange={pick} hidden />
                   <button type="button" className="btn sm" onClick={() => fileRef.current?.click()}>{form.certificate ? 'Change' : 'Upload'}</button>
                   {form.certificate && <button type="button" className="btn sm danger-outline" onClick={() => setForm((f) => ({ ...f, certificate: '', certificateName: '' }))}>Remove</button>}
+                </div>
+              </div>
+            </FormField>
+            {/* Point 23: Upload death photo */}
+            <FormField id="dphoto" label="Death photo / verification photo" className="span-2" hint="Optional photo of the deceased / verification">
+              <div className="stamp-upload">
+                {form.deathPhoto ? <img src={form.deathPhoto} alt="Death photo" style={{ height: 60, borderRadius: 4 }} /> : <div className="stamp-empty">No photo</div>}
+                <div className="stamp-actions">
+                  <input id="dphoto" ref={photoRef} type="file" accept="image/*" onChange={pickPhoto} hidden />
+                  <button type="button" className="btn sm" onClick={() => photoRef.current?.click()}>{form.deathPhoto ? 'Change' : 'Upload photo'}</button>
+                  {form.deathPhoto && <button type="button" className="btn sm danger-outline" onClick={() => setForm((f) => ({ ...f, deathPhoto: '' }))}>Remove</button>}
                 </div>
               </div>
             </FormField>
