@@ -4,7 +4,7 @@ import { EmployeeCommission } from '../models/EmployeeCommission.js';
 import { GroupLeaderCommission } from '../models/GroupLeaderCommission.js';
 import { Employee } from '../models/Hr.js';
 import { User } from '../models/User.js';
-import { generateEmployeeCommission, financialYearOf } from '../services/employeeCommission.js';
+import { generateEmployeeCommission, financialYearOf, getDistinctActivityMonths } from '../services/employeeCommission.js';
 import { syncAllGroups } from '../services/groupLeaderPayout.js';
 import { parseMonth } from '../services/groupLeaderCommission.js';
 import { typeMeta } from '../config/commissionTypes.js';
@@ -16,20 +16,54 @@ const currentMonth = () => todayDateString().slice(0, 7);
 
 function readMonth(raw) {
   const month = asString(raw) || currentMonth();
+  if (month === 'all') return 'all';
   if (parseMonth(month) === null) throw new HttpError(422, 'Choose a valid month', { month: 'Choose a valid month' });
-  if (month > currentMonth()) throw new HttpError(422, 'Commission cannot be generated for a future month', { month: 'Choose this month or an earlier month' });
   return month;
 }
 
 const sum = (list, f) => list.reduce((s, x) => s + f(x), 0);
 
-/** What has been generated for a month, for the Commission Generate screen. */
+/** Returns all distinct months that have loans, collections, groups, members, or commissions. */
+export async function availableMonths(req, res) {
+  const months = await getDistinctActivityMonths();
+  res.json({ months });
+}
+
+/** What has been generated for a month (or all months), for the Commission Generate screen. */
 export async function overview(req, res) {
   const month = readMonth(req.query.month);
+  if (month === 'all') {
+    const fy = await financialYearOf(currentMonth());
+    const [leaderRule, employeeRules, leader, employee] = await Promise.all([
+      Commission.countDocuments({ commissionFor: 'group_leader', isDeleted: false, isActive: true }),
+      Commission.countDocuments({ commissionFor: { $ne: 'group_leader' }, isDeleted: false, isActive: true }),
+      GroupLeaderCommission.find({ ...branchFilter(req.user) }).select('amountPaise status loans'),
+      EmployeeCommission.find({}).select('amountPaise employeeCode'),
+    ]);
+    return res.json({
+      month: 'all',
+      financialYear: fy ? { id: fy._id, name: 'All Financial Years / Complete History' } : null,
+      groupLeader: {
+        hasRule: leaderRule > 0,
+        groups: leader.length,
+        loans: sum(leader, (e) => e.loans),
+        amount: sum(leader, (e) => e.amountPaise) / 100,
+        pendingAmount: sum(leader.filter((e) => e.status === 'pending'), (e) => e.amountPaise) / 100,
+        depositedAmount: sum(leader.filter((e) => e.status === 'deposited'), (e) => e.amountPaise) / 100,
+      },
+      employee: {
+        hasRule: employeeRules > 0,
+        employees: new Set(employee.map((e) => e.employeeCode)).size,
+        entries: employee.length,
+        amount: sum(employee, (e) => e.amountPaise) / 100,
+      },
+    });
+  }
+
   const fy = await financialYearOf(month);
   const [leaderRule, employeeRules, leader, employee] = await Promise.all([
-    fy ? Commission.countDocuments({ commissionFor: 'group_leader', isDeleted: false, isActive: true, financialYear: fy._id }) : 0,
-    fy ? Commission.countDocuments({ commissionFor: { $ne: 'group_leader' }, isDeleted: false, isActive: true, financialYear: fy._id }) : 0,
+    Commission.countDocuments({ commissionFor: 'group_leader', isDeleted: false, isActive: true }),
+    Commission.countDocuments({ commissionFor: { $ne: 'group_leader' }, isDeleted: false, isActive: true }),
     GroupLeaderCommission.find({ month, ...branchFilter(req.user) }).select('amountPaise status loans'),
     EmployeeCommission.find({ month }).select('amountPaise employeeCode'),
   ]);
@@ -44,7 +78,12 @@ export async function overview(req, res) {
       pendingAmount: sum(leader.filter((e) => e.status === 'pending'), (e) => e.amountPaise) / 100,
       depositedAmount: sum(leader.filter((e) => e.status === 'deposited'), (e) => e.amountPaise) / 100,
     },
-    employee: { hasRule: employeeRules > 0, employees: new Set(employee.map((e) => e.employeeCode)).size, entries: employee.length, amount: sum(employee, (e) => e.amountPaise) / 100 },
+    employee: {
+      hasRule: employeeRules > 0,
+      employees: new Set(employee.map((e) => e.employeeCode)).size,
+      entries: employee.length,
+      amount: sum(employee, (e) => e.amountPaise) / 100,
+    },
   });
 }
 
@@ -53,6 +92,30 @@ export async function run(req, res) {
   const month = readMonth(req.body?.month);
   const kind = asString(req.body?.kind) || 'both';
   if (!['group_leader', 'employee', 'both'].includes(kind)) throw new HttpError(422, 'Choose what to generate', { kind: 'Choose what to generate' });
+
+  if (month === 'all' || req.body?.allMonths) {
+    const months = await getDistinctActivityMonths();
+    const out = { month: 'all', kind, monthsProcessed: months.length };
+    if (kind !== 'employee') {
+      out.groupLeader = await syncAllGroups(branchFilter(req.user));
+    }
+    if (kind !== 'group_leader') {
+      let totalEntries = 0;
+      let totalPaise = 0;
+      const allNotes = [];
+      for (const m of months) {
+        // eslint-disable-next-line no-await-in-loop
+        const e = await generateEmployeeCommission(m, req.user._id);
+        totalEntries += e.entries || 0;
+        totalPaise += e.totalPaise || 0;
+        if (e.notes && e.notes.length) allNotes.push(...e.notes.map((n) => `[${m}] ${n}`));
+      }
+      out.employee = { entries: totalEntries, totalPaise, total: totalPaise / 100, notes: allNotes.slice(0, 10) };
+    }
+    await audit(req, { action: 'commission.generate.all', entity: 'Commission', entityId: 'all', after: out });
+    return res.json(out);
+  }
+
   const out = { month, kind };
   if (kind !== 'employee') {
     out.groupLeader = await syncAllGroups(branchFilter(req.user));
@@ -70,6 +133,7 @@ const present = (e) => {
   const unit = e.unit === 'amount' ? 'amount' : e.unit;
   return {
     id: e._id,
+    month: e.month,
     employeeCode: e.employeeCode,
     employeeName: e.employeeName,
     commissionFor: e.commissionFor,
@@ -88,12 +152,14 @@ const present = (e) => {
 /** The employee commission generated for a month, with the total of each employee. */
 export async function employeeList(req, res) {
   const month = readMonth(req.query.month);
-  const filter = { month };
+  const filter = {};
+  if (month !== 'all') {
+    filter.month = month;
+  }
   if (mongoose.isValidObjectId(req.query.branch)) filter.branches = req.query.branch;
   const q = asString(req.query.q);
   if (q) filter.$or = [{ employeeCode: new RegExp(escapeRegex(q), 'i') }, { employeeName: new RegExp(escapeRegex(q), 'i') }];
-  const entries = await EmployeeCommission.find(filter).sort({ employeeCode: 1, commissionFor: 1, periodFrom: 1 });
-  const codes = [...new Set(entries.map((e) => String(e.employeeCode || '').toUpperCase()))];
+  const entries = await EmployeeCommission.find(filter).sort({ month: -1, employeeCode: 1, commissionFor: 1, periodFrom: 1 });
   const [emps, users] = await Promise.all([
     Employee.find({}).select('employeeCode name').lean(),
     User.find({}).select('employeeCode name username').lean(),
@@ -109,6 +175,7 @@ export async function employeeList(req, res) {
     if (!byEmployee.has(e.employeeCode)) byEmployee.set(e.employeeCode, { employeeCode: e.employeeCode, employeeName: resolvedName, total: 0, items: [] });
     const g = byEmployee.get(e.employeeCode);
     const p = present(e);
+    p.month = e.month;
     p.employeeName = resolvedName;
     g.items.push(p);
     g.total += e.amountPaise / 100;

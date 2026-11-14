@@ -451,6 +451,7 @@ export const api = {
     overview: (month) => request(`/commission/generate${qs({ month })}`),
     run: (data) => request('/commission/generate', { method: 'POST', body: data }),
     employees: (params) => request(`/commission/employee${qs(params)}`),
+    months: () => request('/commission/months'),
   },
   ranks: {
     list: (params) => request(`${AM}/ranks${qs(params)}`),

@@ -12,7 +12,12 @@ const monthStart = (m) => new Date(`${m}-01T00:00:00.000Z`);
 export async function loadRuleContext() {
   const [fys, rules] = await Promise.all([
     FinancialYear.find().sort({ startDate: 1 }),
-    Commission.find({ commissionFor: 'group_leader', isDeleted: false, isActive: true, rank: { $exists: false } }),
+    Commission.find({
+      commissionFor: 'group_leader',
+      isDeleted: false,
+      isActive: true,
+      $or: [{ rank: { $exists: false } }, { rank: null }, { rank: '' }],
+    }),
   ]);
   const byFy = new Map();
   for (const r of rules) {
@@ -29,7 +34,12 @@ export async function loadRuleContext() {
 export function ruleForMonth(ctx, month) {
   const d = monthStart(month);
   const fy = ctx.fys.find((f) => f.startDate <= d && d <= f.endDate);
-  return fy ? ctx.byFy.get(String(fy._id)) || null : null;
+  const rule = fy ? ctx.byFy.get(String(fy._id)) || null : null;
+  if (rule) return rule;
+  if (ctx.byFy.size > 0) {
+    return ctx.byFy.values().next().value;
+  }
+  return null;
 }
 
 /** Months in which a disbursement of `month` earns commission under `rule`. */

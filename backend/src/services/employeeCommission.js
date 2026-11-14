@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import { Commission } from '../models/Commission.js';
 import { FinancialYear } from '../models/FinancialYear.js';
 import { User } from '../models/User.js';
@@ -7,20 +8,52 @@ import { Group } from '../models/Group.js';
 import { Member } from '../models/Member.js';
 import { Employee } from '../models/Hr.js';
 import { EmployeeCommission } from '../models/EmployeeCommission.js';
+import { GroupLeaderCommission } from '../models/GroupLeaderCommission.js';
 import { legacyUnit, legacyBasis, typeMeta, isCountUnit } from '../config/commissionTypes.js';
 import { computeTierCommission } from './tierCommission.js';
 import { parseMonth, monthKey } from './groupLeaderCommission.js';
+import { todayDateString } from '../utils/http.js';
 
 const DAY = 24 * 3600 * 1000;
 const dayStart = (d) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
 const monthStart = (m) => new Date(`${m}-01T00:00:00.000Z`);
 const iso = (d) => d.toISOString().slice(0, 10);
-const monthName = (m) => monthStart(m).toLocaleDateString('en-IN', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+const monthName = (m) => {
+  if (!m || m === 'all') return 'All Months';
+  try {
+    return monthStart(m).toLocaleDateString('en-IN', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  } catch {
+    return m;
+  }
+};
+
+export function normalizeCode(c) {
+  if (!c) return '';
+  const s = String(c).trim().toUpperCase();
+  const m = s.match(/^EMP0*(\d+)$/i);
+  if (m) return `EMP${m[1]}`;
+  return s;
+}
+
+export function matchesCode(c1, c2) {
+  if (!c1 || !c2) return false;
+  const s1 = String(c1).trim().toUpperCase();
+  const s2 = String(c2).trim().toUpperCase();
+  if (s1 === s2) return true;
+  return normalizeCode(s1) === normalizeCode(s2);
+}
 
 /** The financial year a month falls in (months never cross a financial year). */
 export async function financialYearOf(month) {
+  if (!month || month === 'all') {
+    return FinancialYear.findOne({}).sort({ endDate: -1 });
+  }
   const d = monthStart(month);
-  return FinancialYear.findOne({ startDate: { $lte: d }, endDate: { $gte: d } });
+  let fy = await FinancialYear.findOne({ startDate: { $lte: d }, endDate: { $gte: d } });
+  if (!fy) {
+    fy = await FinancialYear.findOne({}).sort({ endDate: -1 });
+  }
+  return fy;
 }
 
 /**
@@ -60,7 +93,6 @@ const KIND = {
   business_loan_disbursement: 'business',
   msme_loan_disbursement: 'msme',
 };
-const byEmployee = { _id: { code: '$employeeCode', branch: '$branch' } };
 const COUNTED = ['collection', 'new_group_opening', 'new_member_joining', 'product_sell', 'employee', ...Object.keys(KIND)];
 
 /**
@@ -73,32 +105,159 @@ async function activity(type, p) {
   if (type === 'collection') {
     rows = await EmiPayment.aggregate([
       { $match: { status: 'paid', paidOn: range } },
-      { $group: { ...byEmployee, count: { $sum: 1 }, amount: { $sum: '$amountPaise' } } },
+      {
+        $project: {
+          empCode: {
+            $toUpper: {
+              $trim: {
+                input: {
+                  $ifNull: ['$employeeCode', { $ifNull: ['$createdByCode', ''] }],
+                },
+              },
+            },
+          },
+          branch: 1,
+          amountPaise: 1,
+        },
+      },
+      {
+        $group: {
+          _id: { code: '$empCode', branch: '$branch' },
+          count: { $sum: 1 },
+          amount: { $sum: { $ifNull: ['$amountPaise', 0] } },
+        },
+      },
     ]);
   } else if (type in KIND) {
     const kind = KIND[type];
     rows = await LoanPayment.aggregate([
       { $match: { status: 'paid', paidOn: range, ...(kind ? { $or: [{ loanType: kind }, { kind }] } : {}) } },
-      { $group: { ...byEmployee, count: { $sum: { $size: { $ifNull: ['$lines', []] } } }, amount: { $sum: { $ifNull: ['$totalAmountPaise', 0] } } } },
+      {
+        $lookup: {
+          from: 'loanrequisitions',
+          localField: 'requisition',
+          foreignField: '_id',
+          as: 'reqDoc',
+        },
+      },
+      {
+        $project: {
+          empCode: {
+            $toUpper: {
+              $trim: {
+                input: {
+                  $ifNull: [
+                    '$employeeCode',
+                    {
+                      $ifNull: [
+                        '$createdByCode',
+                        { $ifNull: [{ $arrayElemAt: ['$reqDoc.employeeCode', 0] }, ''] },
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+          },
+          branch: {
+            $ifNull: [
+              '$branch',
+              { $arrayElemAt: ['$reqDoc.branch', 0] },
+            ],
+          },
+          lines: 1,
+          totalAmountPaise: 1,
+        },
+      },
+      {
+        $group: {
+          _id: { code: '$empCode', branch: '$branch' },
+          count: {
+            $sum: {
+              $cond: [
+                { $gt: [{ $size: { $ifNull: ['$lines', []] } }, 0] },
+                { $size: { $ifNull: ['$lines', []] } },
+                1,
+              ],
+            },
+          },
+          amount: { $sum: { $ifNull: ['$totalAmountPaise', 0] } },
+        },
+      },
     ]);
   } else if (type === 'new_group_opening') {
     rows = await Group.aggregate([
       // a group counts from its opening date (an imported group has no creation date of its own)
       { $match: { isDeleted: false, $or: [{ openingDate: range }, { openingDate: { $exists: false }, createdAt: range }] } },
-      { $group: { ...byEmployee, count: { $sum: 1 }, amount: { $sum: 0 } } },
+      {
+        $project: {
+          empCode: {
+            $toUpper: {
+              $trim: {
+                input: {
+                  $ifNull: ['$employeeCode', ''],
+                },
+              },
+            },
+          },
+          branch: 1,
+        },
+      },
+      {
+        $group: {
+          _id: { code: '$empCode', branch: '$branch' },
+          count: { $sum: 1 },
+          amount: { $sum: 0 },
+        },
+      },
     ]);
   } else if (type === 'new_member_joining') {
     rows = await Member.aggregate([
       { $match: { isDeleted: false, joiningDate: range } },
-      { $group: { ...byEmployee, count: { $sum: 1 }, amount: { $sum: 0 } } },
+      {
+        $project: {
+          empCode: {
+            $toUpper: {
+              $trim: {
+                input: {
+                  $ifNull: ['$employeeCode', ''],
+                },
+              },
+            },
+          },
+          branch: 1,
+        },
+      },
+      {
+        $group: {
+          _id: { code: '$empCode', branch: '$branch' },
+          count: { $sum: 1 },
+          amount: { $sum: 0 },
+        },
+      },
     ]);
   } else if (type === 'product_sell') {
     rows = await LoanPayment.aggregate([
       { $match: { status: 'paid', paidOn: range } },
       { $unwind: '$lines' },
       {
+        $project: {
+          empCode: {
+            $toUpper: {
+              $trim: {
+                input: {
+                  $ifNull: ['$employeeCode', { $ifNull: ['$createdByCode', ''] }],
+                },
+              },
+            },
+          },
+          branch: 1,
+          lines: 1,
+        },
+      },
+      {
         $group: {
-          ...byEmployee,
+          _id: { code: '$empCode', branch: '$branch' },
           count: { $sum: { $reduce: { input: { $ifNull: ['$lines.products', []] }, initialValue: 0, in: { $add: ['$$value', { $ifNull: ['$$this.quantity', 0] }] } } } },
           amount: { $sum: { $ifNull: ['$lines.productPaise', 0] } },
         },
@@ -107,7 +266,12 @@ async function activity(type, p) {
   } else {
     return null;
   }
-  return rows.filter((r) => r._id.code).map((r) => ({ code: String(r._id.code).toUpperCase(), branch: r._id.branch ? String(r._id.branch) : '', count: r.count || 0, amount: r.amount || 0 }));
+  return rows.filter((r) => r._id && r._id.code).map((r) => ({
+    code: String(r._id.code).toUpperCase(),
+    branch: r._id.branch ? String(r._id.branch) : '',
+    count: r.count || 0,
+    amount: r.amount || 0,
+  }));
 }
 
 // ---- the rules -------------------------------------------------------------------------------------------------------------------
@@ -122,7 +286,13 @@ const effective = (c) => ({
 
 /** The active rules of a financial year, one entry per (type, rank, basis, whose activity) with its slabs. The group leader rule is not here. */
 async function loadRules(fyId) {
-  const docs = await Commission.find({ financialYear: fyId, isDeleted: false, isActive: true, commissionFor: { $nin: ['group_leader', 'employee'] } });
+  let docs = [];
+  if (fyId) {
+    docs = await Commission.find({ financialYear: fyId, isDeleted: false, isActive: true, commissionFor: { $nin: ['group_leader', 'employee'] } });
+  }
+  if (!docs.length) {
+    docs = await Commission.find({ isDeleted: false, isActive: true, commissionFor: { $nin: ['group_leader', 'employee'] } });
+  }
   const map = new Map();
   for (const d of docs) {
     const e = effective(d);
@@ -160,10 +330,13 @@ function achieved(rows, rule, user) {
   const mine = String(user.employeeCode).toUpperCase();
   const branches = new Set((user.branches || []).map(String));
   let list;
-  if (rule.scope === 'own') list = rows.filter((r) => r.code === mine);
-  else if (rule.scope === 'branch') list = rows.filter((r) => r.branch && branches.has(r.branch));
-  else if (user.role === 'branch_manager') list = rows.filter((r) => r.branch && branches.has(r.branch));
-  else return null; // "supervised branches" belongs to a supervisor only
+  if (rule.scope === 'own') {
+    list = rows.filter((r) => matchesCode(r.code, mine));
+  } else if (rule.scope === 'branch' || user.role === 'branch_manager') {
+    list = rows.filter((r) => (r.branch && branches.has(String(r.branch))) || matchesCode(r.code, mine));
+  } else {
+    list = rows.filter((r) => (r.branch && branches.has(String(r.branch))) || matchesCode(r.code, mine));
+  }
   return { count: list.reduce((s, r) => s + r.count, 0), amount: list.reduce((s, r) => s + r.amount, 0) };
 }
 
@@ -211,24 +384,57 @@ export async function generateEmployeeCommission(month, by) {
   });
   const [users, emps] = await Promise.all([
     User.find({ employeeCode: { $exists: true, $ne: '' } }).select('name employeeCode role rank branches').lean(),
-    Employee.find({}).select('name employeeCode branch user designation').lean(),
+    Employee.find({}).select('name employeeCode branch user designation status').lean(),
   ]);
   const nameMap = new Map();
-  users.forEach((u) => { if (u.employeeCode && u.name) nameMap.set(String(u.employeeCode).toUpperCase(), u.name); });
-  emps.forEach((e) => { if (e.employeeCode && e.name) nameMap.set(String(e.employeeCode).toUpperCase(), e.name); });
+  const branchMap = new Map();
 
-  const userCodes = new Set(users.map((u) => String(u.employeeCode).toUpperCase()));
-  const allStaff = [...users];
+  users.forEach((u) => {
+    const c = String(u.employeeCode).trim().toUpperCase();
+    if (u.name) nameMap.set(c, u.name);
+    if (u.branches && u.branches.length) {
+      if (!branchMap.has(c)) branchMap.set(c, new Set());
+      u.branches.forEach((b) => branchMap.get(c).add(String(b)));
+    }
+  });
+
+  emps.forEach((e) => {
+    const c = String(e.employeeCode).trim().toUpperCase();
+    if (e.name) nameMap.set(c, e.name);
+    if (e.branch) {
+      if (!branchMap.has(c)) branchMap.set(c, new Set());
+      branchMap.get(c).add(String(e.branch));
+    }
+  });
+
+  const userCodes = new Set();
+  const allStaff = [];
+
+  for (const u of users) {
+    const code = String(u.employeeCode).trim().toUpperCase();
+    userCodes.add(code);
+    const branches = branchMap.has(code) ? Array.from(branchMap.get(code)) : (u.branches || []).map(String);
+    allStaff.push({
+      _id: u._id,
+      name: u.name,
+      employeeCode: u.employeeCode,
+      role: u.role,
+      rank: u.rank,
+      branches,
+    });
+  }
+
   for (const emp of emps) {
-    const code = String(emp.employeeCode).toUpperCase();
+    const code = String(emp.employeeCode).trim().toUpperCase();
     if (!userCodes.has(code)) {
+      const branches = branchMap.has(code) ? Array.from(branchMap.get(code)) : (emp.branch ? [String(emp.branch)] : []);
       allStaff.push({
         _id: emp._id,
         name: emp.name,
         employeeCode: emp.employeeCode,
         role: 'field_officer',
         rank: null,
-        branches: emp.branch ? [emp.branch] : [],
+        branches,
       });
       userCodes.add(code);
     }
@@ -253,7 +459,7 @@ export async function generateEmployeeCommission(month, by) {
             employeeCode: row.code,
             role: 'field_officer',
             rank: null,
-            branches: row.branch ? [row.branch] : [],
+            branches: row.branch ? [String(row.branch)] : [],
           });
           userCodes.add(row.code);
         }
@@ -294,4 +500,53 @@ export async function generateEmployeeCommission(month, by) {
   summary.totalPaise = entries.reduce((s, e) => s + e.amountPaise, 0);
   if (!entries.length && !notes.length) notes.push(`No employee earned commission in ${monthName(month)} under these rules (nothing reached the minimum, or there was no activity).`);
   return summary;
+}
+
+/**
+ * Scans loans, EMIs, groups, members and existing commissions to find all distinct months where data exists.
+ */
+export async function getDistinctActivityMonths() {
+  const monthsSet = new Set();
+  const cur = todayDateString().slice(0, 7);
+  monthsSet.add(cur);
+
+  try {
+    const [loanDates, emiDates, groupDates, memberDates, commMonths, glMonths] = await Promise.all([
+      LoanPayment.aggregate([
+        { $match: { paidOn: { $exists: true } } },
+        { $project: { m: { $substr: [{ $dateToString: { format: '%Y-%m', date: '$paidOn' } }, 0, 7] } } },
+        { $group: { _id: '$m' } },
+      ]),
+      EmiPayment.aggregate([
+        { $match: { paidOn: { $exists: true } } },
+        { $project: { m: { $substr: [{ $dateToString: { format: '%Y-%m', date: '$paidOn' } }, 0, 7] } } },
+        { $group: { _id: '$m' } },
+      ]),
+      Group.aggregate([
+        { $project: { d: { $ifNull: ['$openingDate', '$createdAt'] } } },
+        { $match: { d: { $exists: true, $ne: null } } },
+        { $project: { m: { $substr: [{ $dateToString: { format: '%Y-%m', date: '$d' } }, 0, 7] } } },
+        { $group: { _id: '$m' } },
+      ]),
+      Member.aggregate([
+        { $project: { d: { $ifNull: ['$joiningDate', '$createdAt'] } } },
+        { $match: { d: { $exists: true, $ne: null } } },
+        { $project: { m: { $substr: [{ $dateToString: { format: '%Y-%m', date: '$d' } }, 0, 7] } } },
+        { $group: { _id: '$m' } },
+      ]),
+      EmployeeCommission.distinct('month'),
+      GroupLeaderCommission.distinct('month'),
+    ]);
+
+    loanDates.forEach((r) => { if (r._id && /^\d{4}-\d{2}$/.test(r._id)) monthsSet.add(r._id); });
+    emiDates.forEach((r) => { if (r._id && /^\d{4}-\d{2}$/.test(r._id)) monthsSet.add(r._id); });
+    groupDates.forEach((r) => { if (r._id && /^\d{4}-\d{2}$/.test(r._id)) monthsSet.add(r._id); });
+    memberDates.forEach((r) => { if (r._id && /^\d{4}-\d{2}$/.test(r._id)) monthsSet.add(r._id); });
+    commMonths.forEach((m) => { if (m && /^\d{4}-\d{2}$/.test(m)) monthsSet.add(m); });
+    glMonths.forEach((m) => { if (m && /^\d{4}-\d{2}$/.test(m)) monthsSet.add(m); });
+  } catch (err) {
+    // Non-fatal, fallback to collected set
+  }
+
+  return Array.from(monthsSet).filter(Boolean).sort().reverse();
 }
