@@ -16,7 +16,7 @@ export async function loadRuleContext() {
       commissionFor: 'group_leader',
       isDeleted: false,
       isActive: true,
-      $or: [{ rank: { $exists: false } }, { rank: null }, { rank: '' }],
+      $or: [{ rank: { $exists: false } }, { rank: null }],
     }),
   ]);
   const byFy = new Map();

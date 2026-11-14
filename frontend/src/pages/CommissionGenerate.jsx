@@ -33,7 +33,7 @@ export default function CommissionGenerate() {
   const toast = useToast();
   const { user } = useAuth();
   const canGenerate = FINANCE.includes(user?.role);
-  const [month, setMonth] = useState(thisMonth());
+  const [month, setMonth] = useState('all');
   const [availableMonths, setAvailableMonths] = useState([]);
   const [info, setInfo] = useState(null);
   const [list, setList] = useState(null);

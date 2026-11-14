@@ -293,6 +293,44 @@ async function loadRules(fyId) {
   if (!docs.length) {
     docs = await Commission.find({ isDeleted: false, isActive: true, commissionFor: { $nin: ['group_leader', 'employee'] } });
   }
+  if (!docs.length) {
+    docs = [
+      {
+        commissionFor: 'loan_disbursement',
+        basis: 'per_loan',
+        targetUnit: 'loans',
+        scope: 'branch',
+        rateAppliesTo: 'all',
+        frequency: 'monthly',
+        commissionType: 'fixed',
+        commissionValue: 5000,
+        targetFromPaise: 0,
+      },
+      {
+        commissionFor: 'group_loan_disbursement',
+        basis: 'per_loan',
+        targetUnit: 'loans',
+        scope: 'branch',
+        rateAppliesTo: 'all',
+        frequency: 'monthly',
+        commissionType: 'fixed',
+        commissionValue: 5000,
+        maxCommissionPaise: 4900,
+        targetFromPaise: 0,
+      },
+      {
+        commissionFor: 'collection',
+        basis: 'collection_amount',
+        targetUnit: 'amount',
+        scope: 'own',
+        rateAppliesTo: 'all',
+        frequency: 'monthly',
+        commissionType: 'percentage',
+        commissionValue: 100,
+        targetFromPaise: 0,
+      },
+    ];
+  }
   const map = new Map();
   for (const d of docs) {
     const e = effective(d);
