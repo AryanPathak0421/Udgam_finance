@@ -299,7 +299,7 @@ async function loadRules(fyId) {
         commissionFor: 'loan_disbursement',
         basis: 'per_loan',
         targetUnit: 'loans',
-        scope: 'branch',
+        scope: 'own',
         rateAppliesTo: 'all',
         frequency: 'monthly',
         commissionType: 'fixed',
@@ -310,12 +310,11 @@ async function loadRules(fyId) {
         commissionFor: 'group_loan_disbursement',
         basis: 'per_loan',
         targetUnit: 'loans',
-        scope: 'branch',
+        scope: 'own',
         rateAppliesTo: 'all',
         frequency: 'monthly',
         commissionType: 'fixed',
         commissionValue: 5000,
-        maxCommissionPaise: 4900,
         targetFromPaise: 0,
       },
       {
@@ -370,10 +369,13 @@ function achieved(rows, rule, user) {
   let list;
   if (rule.scope === 'own') {
     list = rows.filter((r) => matchesCode(r.code, mine));
-  } else if (rule.scope === 'branch' || user.role === 'branch_manager') {
-    list = rows.filter((r) => (r.branch && branches.has(String(r.branch))) || matchesCode(r.code, mine));
+  } else if (user.role === 'branch_manager' && rule.scope === 'branch') {
+    list = rows.filter((r) => r.branch && branches.has(String(r.branch)));
+  } else if (user.role === 'supervisor' && rule.scope === 'supervised') {
+    list = rows.filter((r) => r.branch && branches.has(String(r.branch)));
   } else {
-    list = rows.filter((r) => (r.branch && branches.has(String(r.branch))) || matchesCode(r.code, mine));
+    // For regular officers/staff, commission is strictly for their own disbursed loans / collections
+    list = rows.filter((r) => matchesCode(r.code, mine));
   }
   return { count: list.reduce((s, r) => s + r.count, 0), amount: list.reduce((s, r) => s + r.amount, 0) };
 }
@@ -512,9 +514,10 @@ export async function generateEmployeeCommission(month, by) {
         stats.set(rule, st);
         if (r.amountPaise < 1) continue;
         const empCodeUpper = String(user.employeeCode).toUpperCase();
+        const effectiveScope = ['branch_manager', 'supervisor'].includes(user.role) ? rule.scope : 'own';
         entries.push({
           employee: user._id, employeeCode: empCodeUpper, employeeName: nameMap.get(empCodeUpper) || user.name || empCodeUpper, rank: user.rank, branches: user.branches,
-          commissionFor: rule.commissionFor, basis: rule.basis, unit: rule.unit, scope: rule.scope, frequency: rule.frequency,
+          commissionFor: rule.commissionFor, basis: rule.basis, unit: rule.unit, scope: effectiveScope, frequency: rule.frequency,
           month, periodFrom: p.from, periodTo: p.to, periodLabel: p.label,
           measure: r.measure, count: got.count, amountBasePaise: got.amount, amountPaise: r.amountPaise, capped: r.capped, breakdown: r.breakdown, generatedBy: by,
         });
