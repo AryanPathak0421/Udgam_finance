@@ -202,8 +202,15 @@ async function main() {
       kycKeys: [], kycDocs: [], guarantorHistory: [], blockHistory: [], isBlocked: false, isActive: true, isDeleted: false, ...stamp(joined),
     };
     if (gm) {
-      const g = addGroup(gm[2], gm[1], b);
-      if (g) g.members.push({ member: doc._id, addedAt: joined });
+      const gcodes = gm[2].split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
+      const gnames = gm[1].split(',').map((s) => s.trim()).filter(Boolean);
+      gcodes.forEach((c, idx) => {
+        const nm = gnames[idx] || gnames[0] || c;
+        const g = addGroup(c, nm, b);
+        if (g && !g.members.some((m) => String(m.member) === String(doc._id))) {
+          g.members.push({ member: doc._id, addedAt: joined });
+        }
+      });
     }
     memberByCode.set(code, doc);
     memberDocs.push(doc);
