@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useMemo } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { api } from '../../../api/client.js';
 import { useEmployeeApp } from '../EmployeeAppContext.jsx';
 import { compressImage } from '../../../utils/image.js';
@@ -488,6 +488,7 @@ function MobileOtpVerify({ mobile, mobileValid, verified, onVerified, onReset })
 export default function EmployeeNewMember() {
   const { empUser, t } = useEmployeeApp();
   const navigate = useNavigate();
+  const location = useLocation();
 
   // Active View Tab: 'new' (Registration Form) | 'recent' (Recent Members List)
   const [activeTab, setActiveTab] = useState('new');
@@ -510,6 +511,25 @@ export default function EmployeeNewMember() {
   const [submitting, setSubmitting] = useState(false);
   const [globalError, setGlobalError] = useState('');
   const [registrationSuccess, setRegistrationSuccess] = useState(null);
+  const [prospectInfo, setProspectInfo] = useState(null);
+
+  // Item 22: Pre-fill prospect data if navigated from Civil Check
+  useEffect(() => {
+    if (location.state?.prospect) {
+      const p = location.state.prospect;
+      setProspectInfo(p);
+      setForm((prev) => ({
+        ...prev,
+        name: prev.name || p.name || '',
+        mobile: prev.mobile || p.mobile || '',
+        pan: prev.pan || p.pan || '',
+        aadhaar: prev.aadhaar || p.aadhaar || '',
+        dob: prev.dob || p.dob || '',
+        gender: prev.gender || p.gender || 'female',
+        address: prev.address || p.address || '',
+      }));
+    }
+  }, [location.state]);
 
   // Draft auto-restore on mount (prevents loss on Android app refresh/background kill)
   useEffect(() => {
@@ -699,14 +719,35 @@ export default function EmployeeNewMember() {
     }
   };
 
-  // PAN Card duplicate check
-  const checkPan = async () => {
-    if (!/^[A-Z]{5}\d{4}[A-Z]$/.test(form.pan)) return;
+  // PAN Card duplicate check & Civil Prospect auto-assignment (Item 22)
+  const checkPan = async (overridePan) => {
+    const panToTest = (overridePan || form.pan || '').trim().toUpperCase();
+    if (!/^[A-Z]{5}\d{4}[A-Z]$/.test(panToTest)) return;
     try {
-      const r = await api.members.checkDuplicate('pan', form.pan);
+      const r = await api.members.checkDuplicate('pan', panToTest);
       setPanTaken(r.available ? '' : r.message);
     } catch {
       // server verifies again on submit
+    }
+
+    // Auto-assign prospect data checked during CIBIL / Credit check
+    try {
+      const pRes = await api.employeeApp.getProspectByPan(panToTest);
+      if (pRes?.found && pRes?.prospect) {
+        const p = pRes.prospect;
+        setProspectInfo(p);
+        setForm((prev) => ({
+          ...prev,
+          name: prev.name || p.name || '',
+          mobile: prev.mobile || p.mobile || '',
+          aadhaar: prev.aadhaar || p.aadhaar || '',
+          dob: prev.dob || p.dob || '',
+          gender: prev.gender || p.gender || 'female',
+          address: prev.address || p.address || '',
+        }));
+      }
+    } catch {
+      // ignore prospect fetch error
     }
   };
 
@@ -1056,6 +1097,36 @@ export default function EmployeeNewMember() {
           ) : (
             /* Main Registration Form */
             <form onSubmit={handleSubmit} noValidate style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {/* Item 22: Auto-Assigned Prospect Banner */}
+              {prospectInfo && (
+                <div
+                  style={{
+                    background: '#ecfdf5',
+                    border: '1px solid #10b981',
+                    borderRadius: 10,
+                    padding: '12px 16px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 10,
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: '0.88rem', fontWeight: 800, color: '#047857', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Icon name="check-circle" size={16} />
+                      <span>Auto-Assigned from CIBIL / Credit Prospect</span>
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: '#065f46', marginTop: 2 }}>
+                      Candidate: <strong>{prospectInfo.name}</strong> • PAN: {prospectInfo.pan}
+                      {prospectInfo.score ? ` • Score: ${prospectInfo.score} (${prospectInfo.bureau || 'CIBIL'})` : ''}
+                    </div>
+                  </div>
+                  <span style={{ fontSize: '0.72rem', background: '#059669', color: '#fff', padding: '3px 8px', borderRadius: 12, fontWeight: 700 }}>
+                    Auto-Filled
+                  </span>
+                </div>
+              )}
+
               {/* SECTION 1: BASIC DETAILS */}
               <div className="emp-card" style={{ padding: 18 }}>
                 <h3
@@ -1504,8 +1575,12 @@ export default function EmployeeNewMember() {
                       onChange={(e) => {
                         setPanTaken('');
                         setUpper('pan', 10)(e);
+                        const val = e.target.value.toUpperCase();
+                        if (/^[A-Z]{5}\d{4}[A-Z]$/.test(val)) {
+                          checkPan(val);
+                        }
                       }}
-                      onBlur={checkPan}
+                      onBlur={() => checkPan(form.pan)}
                       style={{ borderColor: errors.pan || panTaken ? '#ef4444' : undefined }}
                     />
                     {errors.pan || panTaken ? (

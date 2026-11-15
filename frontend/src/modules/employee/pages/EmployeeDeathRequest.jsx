@@ -28,12 +28,11 @@ export default function EmployeeDeathRequest() {
   // 1 Death certificate
   const [deathCertificate, setDeathCertificate] = useState('');
 
-  // In-app Live Camera state (prevents Android WebView / PWA crash on photo click - Point 22)
+  // In-app Live Camera state (Item 23: Staff House Visit strictly requires Live Camera capture, file upload disabled)
   const [showCamera, setShowCamera] = useState(false);
   const [facingMode, setFacingMode] = useState('environment');
   const [stream, setStream] = useState(null);
   const videoRef = useRef(null);
-  const hvpInputRef = useRef(null);
 
   const startLiveCamera = async (mode = facingMode) => {
     try {
@@ -47,8 +46,7 @@ export default function EmployeeDeathRequest() {
       setStream(s);
       setShowCamera(true);
     } catch {
-      // Fallback: If camera access fails, use safe file picker without forcing aggressive OS capture intent
-      hvpInputRef.current?.click();
+      alert('Camera access is required for Staff House Visit verification. File upload is not allowed.');
     }
   };
 
@@ -73,9 +71,8 @@ export default function EmployeeDeathRequest() {
       stopLiveCamera();
       setHouseVisitPhoto(b64);
     } catch {
-      alert('Capture failed. Please select photo.');
+      alert('Capture failed. Please try again.');
       stopLiveCamera();
-      hvpInputRef.current?.click();
     }
   };
 

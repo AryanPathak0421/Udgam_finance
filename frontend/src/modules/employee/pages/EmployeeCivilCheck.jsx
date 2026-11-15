@@ -464,15 +464,44 @@ export default function EmployeeCivilCheck() {
                 <p style={{ fontSize: '0.82rem', color: 'var(--emp-text-muted)', margin: '0 0 10px 0' }}>
                   This person is not yet added to your branch Member section.
                 </p>
-                <button
-                  type="button"
-                  className="emp-btn-primary"
-                  style={{ width: '100%', padding: '10px', fontSize: '0.9rem', fontWeight: 700 }}
-                  onClick={handleAddMember}
-                  disabled={addingMember}
-                >
-                  {addingMember ? 'Adding to Members...' : '➕ Add to Member Section Now'}
-                </button>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <button
+                    type="button"
+                    className="emp-btn-primary"
+                    style={{ width: '100%', padding: '10px', fontSize: '0.88rem', fontWeight: 700 }}
+                    onClick={handleAddMember}
+                    disabled={addingMember}
+                  >
+                    {addingMember ? 'Adding to Members...' : '➕ Quick Add to Member Section'}
+                  </button>
+                  <button
+                    type="button"
+                    className="emp-btn-primary"
+                    style={{ width: '100%', padding: '10px', fontSize: '0.85rem', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: '#047857' }}
+                    onClick={() =>
+                      navigate('/employee/members/new', {
+                        state: {
+                          prospect: {
+                            name,
+                            mobile,
+                            pan,
+                            aadhaar,
+                            dob,
+                            gender,
+                            address,
+                            score: result.score,
+                            band: result.band,
+                            bureau: result.bureau,
+                            reportNumber: result.reportNumber,
+                          },
+                        },
+                      })
+                    }
+                  >
+                    <Icon name="user-plus" size={16} />
+                    <span>Register Member with this Prospect Data (Auto-Fill) ➔</span>
+                  </button>
+                </div>
               </div>
             )}
           </div>

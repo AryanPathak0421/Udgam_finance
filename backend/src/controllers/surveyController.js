@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 import { CenterSurvey, SURVEY_STATUS } from '../models/CenterSurvey.js';
-import { CenterVisit } from '../modules/employee/employeeAppModel.js';
+import { CenterVisit, CgtVisit } from '../modules/employee/employeeAppModel.js';
 import { Branch } from '../models/Branch.js';
 import { generateCode } from '../services/codeSequence.js';
 import { asString, parseDateOnly, HttpError, startOfToday } from '../utils/http.js';
@@ -11,11 +11,40 @@ import { branchFilter, isAdmin } from './groupController.js';
 const invalid = (errors) => new HttpError(422, 'Please correct the highlighted fields', errors);
 const iso = (d) => (d ? new Date(d).toISOString().slice(0, 10) : null);
 
-const present = (s) => ({
-  id: s._id, surveyNo: s.surveyNo, branch: s.branch?._id ? { id: s.branch._id, code: s.branch.code, name: s.branch.name } : null, centerName: s.centerName, area: s.area || '', pincode: s.pincode || '', district: s.district || '',
-  surveyDate: iso(s.surveyDate), expectedMembers: s.expectedMembers || 0, meetingType: s.meetingType || '', leaderName: s.leaderName || '', leaderMobile: s.leaderMobile || '', remark: s.remark || '',
-  status: s.status, history: (s.statusHistory || []).map((h) => ({ status: h.status, remark: h.remark || '', by: h.byCode || '', at: h.at })), surveyedBy: s.surveyedByCode || '',
-});
+const present = (s, cgtMap = new Map(), cvMap = new Map()) => {
+  const normCenter = (s.centerName || '').trim().toLowerCase();
+  const cgt = cgtMap.get(normCenter) || null;
+  const cv = cvMap.get(normCenter) || null;
+
+  return {
+    id: s._id,
+    surveyNo: s.surveyNo,
+    branch: s.branch?._id ? { id: s.branch._id, code: s.branch.code, name: s.branch.name } : null,
+    centerName: s.centerName,
+    area: s.area || cv?.location?.address || '',
+    pincode: s.pincode || '',
+    district: s.district || '',
+    surveyDate: iso(s.surveyDate),
+    expectedMembers: s.expectedMembers || 0,
+    meetingType: s.meetingType || '',
+    leaderName: s.leaderName || '',
+    leaderMobile: s.leaderMobile || '',
+    remark: s.remark || '',
+    status: s.status,
+    history: (s.statusHistory || []).map((h) => ({ status: h.status, remark: h.remark || '', by: h.byCode || '', at: h.at })),
+    surveyedBy: s.surveyedByCode || '',
+    location: cv?.location || s.location || cgt?.day1?.location || cgt?.day2?.location || cgt?.day3?.location || null,
+    visitPhoto: cv?.image || s.image || null,
+    cgt: cgt
+      ? {
+          status: cgt.status,
+          day1: cgt.day1 ? { date: iso(cgt.day1.date), photo: cgt.day1.photo || null, location: cgt.day1.location || null, members: cgt.day1.members || [] } : null,
+          day2: cgt.day2 ? { date: iso(cgt.day2.date), photo: cgt.day2.photo || null, location: cgt.day2.location || null, members: cgt.day2.members || [] } : null,
+          day3: cgt.day3 ? { date: iso(cgt.day3.date), photo: cgt.day3.photo || null, location: cgt.day3.location || null, members: cgt.day3.members || [] } : null,
+        }
+      : null,
+  };
+};
 
 export async function listSurveys(req, res) {
   const filter = { isDeleted: false, ...branchFilter(req.user) };
@@ -57,6 +86,22 @@ export async function listSurveys(req, res) {
   }
 
   const visitRows = await CenterVisit.find(visitFilter).sort({ visitDate: -1, createdAt: -1 }).limit(1000).populate('branch', 'code name');
+  const cgtRows = await CgtVisit.find({}).sort({ updatedAt: -1 }).lean();
+
+  const cgtMap = new Map();
+  for (const c of cgtRows) {
+    if (c.centerName) {
+      cgtMap.set(c.centerName.trim().toLowerCase(), c);
+    }
+  }
+
+  const cvMap = new Map();
+  for (const cv of visitRows) {
+    if (cv.centerName) {
+      cvMap.set(cv.centerName.trim().toLowerCase(), cv);
+    }
+  }
+
   const existingNames = new Set(rows.map((r) => `${(r.centerName || '').trim().toLowerCase()}_${(r.surveyedByCode || '').toUpperCase()}`));
 
   for (const cv of visitRows) {
@@ -80,11 +125,42 @@ export async function listSurveys(req, res) {
         status: cv.status === 'done' ? 'surveyed' : cv.status || 'surveyed',
         statusHistory: [{ status: 'surveyed', remark: cv.notes || 'Recorded via Mobile App', byCode: cv.employeeCode || '', at: cv.visitDate || cv.createdAt }],
         surveyedByCode: cv.employeeCode || cv.employeeName || '',
+        location: cv.location,
+        image: cv.image,
       });
     }
   }
 
-  const items = rows.map(present).filter((s) => !q || [s.surveyNo, s.centerName, s.area, s.leaderName, s.district, s.surveyedBy].some((v) => String(v).toLowerCase().includes(q)));
+  // Also include any CGT centers that may have been created directly
+  for (const cgt of cgtRows) {
+    const key = `${(cgt.centerName || '').trim().toLowerCase()}_${(cgt.employeeCode || '').toUpperCase()}`;
+    if (!existingNames.has(key)) {
+      existingNames.add(key);
+      rows.push({
+        _id: cgt._id,
+        surveyNo: `CGT-${String(cgt._id).slice(-6).toUpperCase()}`,
+        branch: cgt.branch,
+        centerName: cgt.centerName,
+        area: cgt.day1?.location?.address || '',
+        pincode: '',
+        district: '',
+        surveyDate: cgt.day1?.date || cgt.createdAt,
+        expectedMembers: (cgt.day1?.members || []).length,
+        meetingType: 'daily',
+        leaderName: (cgt.day1?.members || [])[0] || '',
+        leaderMobile: '',
+        remark: `CGT Progress: ${cgt.status === 'completed' ? 'All 3 Days Completed' : 'In Progress'}`,
+        status: cgt.status === 'completed' ? 'formed' : 'under_review',
+        statusHistory: [{ status: cgt.status === 'completed' ? 'formed' : 'under_review', remark: 'CGT Training in Progress', byCode: cgt.employeeCode || '', at: cgt.createdAt }],
+        surveyedByCode: cgt.employeeCode || '',
+        location: cgt.day1?.location || cgt.day2?.location || cgt.day3?.location,
+      });
+    }
+  }
+
+  const items = rows
+    .map((s) => present(s, cgtMap, cvMap))
+    .filter((s) => !q || [s.surveyNo, s.centerName, s.area, s.leaderName, s.district, s.surveyedBy].some((v) => String(v).toLowerCase().includes(q)));
   const count = (st) => items.filter((s) => s.status === st).length;
   res.json({ items, summary: { surveys: items.length, expectedMembers: items.reduce((t, s) => t + s.expectedMembers, 0), ...Object.fromEntries(SURVEY_STATUS.map((st) => [st, count(st)])) } });
 }

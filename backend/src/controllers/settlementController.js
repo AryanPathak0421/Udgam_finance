@@ -99,7 +99,7 @@ export async function closeAllLoansForDeceasedMember({
       outstandingPaise = line.amountPaise || 0;
     }
 
-    const receiptNo = await generateCode('settlementReceipt');
+    const receiptNo = await generateCode('settlementReceipt').catch(() => `DTH-${Date.now().toString().slice(-8)}`);
     const autoSettlement = await LoanSettlement.create({
       kind: 'death',
       receiptNo,
@@ -503,16 +503,60 @@ export async function listSettlements(req, res) {
 }
 
 export async function approveDeathSettlement(req, res) {
-  if (!['super_admin', 'admin'].includes(req.user.role)) throw new HttpError(403, 'Only admin can approve death settlement');
+  if (!['super_admin', 'admin', 'branch_manager'].includes(req.user.role)) {
+    throw new HttpError(403, 'Only admin or branch manager can approve death settlement');
+  }
   const s = await LoanSettlement.findOne({ _id: req.params.id, status: 'pending', kind: 'death' }).select('+certificate +deathPhotos +houseVisitPhoto');
   if (!s) throw new HttpError(404, 'Pending death settlement request not found');
 
   const settledOn = await defaultWorkDate(s.branch, req.user);
-  await assertDayOpen(s.branch, settledOn, req.user);
+  try {
+    if (s.branch) await assertDayOpen(s.branch, settledOn, req.user);
+  } catch (dayErr) {
+    if (!['super_admin', 'admin'].includes(req.user.role)) throw dayErr;
+  }
+
+  // Item 23: Auto-link loanPayment if unlinked during app request sync
+  if (!s.loanPayment) {
+    const loan = await LoanPayment.findOne({
+      $or: [
+        ...(s.member ? [{ 'lines.member': s.member }] : []),
+        ...(s.memberCode ? [{ 'lines.code': new RegExp(`^${s.memberCode}$`, 'i') }] : []),
+      ],
+      status: 'paid',
+    }).sort({ createdAt: -1 });
+    if (loan) {
+      s.loanPayment = loan._id;
+      s.loanId = loan.loanId || loan.formId || s.loanId;
+      s.formId = loan.formId || loan.loanId || s.formId;
+      s.branch = s.branch || loan.branch?._id || loan.branch;
+      const line = (loan.lines || []).find(
+        (l) => (s.member && String(l.member) === String(s.member)) || (s.memberCode && String(l.code).toUpperCase() === String(s.memberCode).toUpperCase())
+      );
+      if (line) {
+        try {
+          const state = await borrowerState(loan, line, settledOn || new Date());
+          s.outstandingPaise = Number(state?.totals?.outstanding ?? line.amountPaise ?? s.outstandingPaise ?? 0);
+          s.waiverPaise = s.outstandingPaise;
+        } catch {
+          // ignore borrowerState error
+        }
+      }
+    }
+  }
 
   s.status = 'active';
   s.settledOn = settledOn;
-  await s.save();
+
+  try {
+    await s.save();
+  } catch (err) {
+    if (err.code === 11000) {
+      await LoanSettlement.updateOne({ _id: s._id }, { $set: { status: 'active', settledOn } });
+    } else {
+      throw err;
+    }
+  }
 
   // Also sync DeathRequest status to approved
   await DeathRequest.updateMany(
@@ -521,40 +565,49 @@ export async function approveDeathSettlement(req, res) {
   ).catch(() => {});
 
   // Close ALL other active loans of this member across the software
-  const siblingLoansClosed = await closeAllLoansForDeceasedMember({
-    memberId: s.member,
-    memberCode: s.memberCode,
-    settledOn,
-    deathDate: s.deathDate,
-    certificate: s.certificate,
-    deathPhotos: s.deathPhotos,
-    houseVisitPhoto: s.houseVisitPhoto,
-    sourceReceiptNo: s.receiptNo,
-    verifier: s.verifier,
-    user: req.user,
-    primaryLoanPaymentId: s.loanPayment,
-  });
+  let siblingLoansClosed = [];
+  try {
+    siblingLoansClosed = await closeAllLoansForDeceasedMember({
+      memberId: s.member,
+      memberCode: s.memberCode,
+      settledOn,
+      deathDate: s.deathDate,
+      certificate: s.certificate,
+      deathPhotos: s.deathPhotos,
+      houseVisitPhoto: s.houseVisitPhoto,
+      sourceReceiptNo: s.receiptNo,
+      verifier: s.verifier,
+      user: req.user,
+      primaryLoanPaymentId: s.loanPayment,
+    });
+  } catch (siblingErr) {
+    console.error('Error closing sibling loans on death approval:', siblingErr);
+  }
 
   let blocked = false;
   if (s.member) {
-    const m = await Member.findById(s.member).select('isBlocked');
-    if (m && !m.isBlocked) {
-      await Member.updateOne(
-        { _id: m._id },
-        {
-          $set: { isBlocked: true },
-          $push: {
-            blockHistory: {
-              action: 'block',
-              reason: `Death settlement approved ${s.receiptNo} (died on ${iso(s.deathDate)})`,
-              at: new Date(),
-              by: req.user._id,
-              byCode: req.user.employeeCode || '',
+    try {
+      const m = await Member.findById(s.member).select('isBlocked');
+      if (m && !m.isBlocked) {
+        await Member.updateOne(
+          { _id: m._id },
+          {
+            $set: { isBlocked: true },
+            $push: {
+              blockHistory: {
+                action: 'block',
+                reason: `Death settlement approved ${s.receiptNo} (died on ${iso(s.deathDate)})`,
+                at: new Date(),
+                by: req.user._id,
+                byCode: req.user.employeeCode || '',
+              },
             },
-          },
-        }
-      );
-      blocked = true;
+          }
+        );
+        blocked = true;
+      }
+    } catch (blockErr) {
+      console.error('Error blocking member on death approval:', blockErr);
     }
   }
 
@@ -563,14 +616,16 @@ export async function approveDeathSettlement(req, res) {
     entity: 'LoanSettlement',
     entityId: s._id,
     after: { receiptNo: s.receiptNo, loanId: s.loanId, member: s.memberCode, deathDate: iso(s.deathDate), blocked, otherLoansClosed: siblingLoansClosed.length },
-  });
+  }).catch(() => {});
 
-  notifyApprovers({
-    branch: s.branch,
-    title: 'Death settlement approved',
-    message: `Death settlement for Loan ${s.loanId} (${s.memberName || s.memberCode}) has been approved by Admin. ${siblingLoansClosed.length > 0 ? `All ${siblingLoansClosed.length + 1} active loans closed.` : 'Loan closed.'}`,
-    extraUsers: [s.createdBy],
-  });
+  try {
+    notifyApprovers({
+      branch: s.branch,
+      title: 'Death settlement approved',
+      message: `Death settlement for Loan ${s.loanId} (${s.memberName || s.memberCode}) has been approved by Admin. ${siblingLoansClosed.length > 0 ? `All ${siblingLoansClosed.length + 1} active loans closed.` : 'Loan closed.'}`,
+      extraUsers: [s.createdBy].filter(Boolean),
+    });
+  } catch {}
 
   res.json({
     message: `Death settlement approved — loan ${s.loanId} closed${siblingLoansClosed.length > 0 ? ` and ${siblingLoansClosed.length} other active loan(s) closed` : ''}`,

@@ -28,6 +28,7 @@ export default function EmployeeCenterVisits() {
   const [loadingCgt, setLoadingCgt] = useState(false);
   const [cgtModal, setCgtModal] = useState(null); // { centerName, day, date }
   const [cgtPhoto, setCgtPhoto] = useState('');
+  const [cgtMembers, setCgtMembers] = useState('');
   const [cgtSubmitting, setCgtSubmitting] = useState(false);
 
   // Auto detect GPS location on mount
@@ -149,9 +150,12 @@ export default function EmployeeCenterVisits() {
         day: cgtModal.day,
         photo: cgtPhoto,
         date: selDate,
+        location,
+        members: cgtMembers,
       });
       setCgtModal(null);
       setCgtPhoto('');
+      setCgtMembers('');
       fetchCgt();
     } catch (err) {
       alert(err.message || 'Failed to update CGT photo');
@@ -323,6 +327,8 @@ export default function EmployeeCenterVisits() {
                 setSelectedCenterDropdown(val);
                 if (val) {
                   setCgtModal({ centerName: val, day: 1, date: new Date().toISOString().slice(0, 10) });
+                  setCgtMembers('');
+                  setCgtPhoto('');
                 }
               }}
             >
@@ -369,11 +375,15 @@ export default function EmployeeCenterVisits() {
                         <button
                           key={d}
                           type="button"
-                          onClick={() => setCgtModal({
-                            centerName: c.centerName,
-                            day: d,
-                            date: dayData?.date ? new Date(dayData.date).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
-                          })}
+                          onClick={() => {
+                            setCgtModal({
+                              centerName: c.centerName,
+                              day: d,
+                              date: dayData?.date ? new Date(dayData.date).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
+                            });
+                            setCgtMembers((dayData?.members || []).join(', '));
+                            setCgtPhoto(dayData?.photo || '');
+                          }}
                           style={{
                             padding: '10px 6px',
                             borderRadius: 8,
@@ -414,6 +424,29 @@ export default function EmployeeCenterVisits() {
                 <p style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', margin: '0 0 14px 0' }}>
                   Select the visit date and capture live meeting photo via camera (Gallery disabled).
                 </p>
+
+                <div style={{ background: 'var(--emp-card-bg)', border: '1px solid var(--emp-border)', borderRadius: 8, padding: '8px 10px', marginBottom: 12 }}>
+                  <div style={{ fontSize: '0.74rem', color: 'var(--emp-text-muted)' }}>Auto GPS Coordinates (Saved to Software):</div>
+                  <div style={{ fontWeight: 700, fontSize: '0.82rem', color: 'var(--emp-primary)', marginTop: 2 }}>
+                    {locLoading ? 'Detecting coordinates...' : location?.address || 'GPS Location detected'}
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                    Meeting Attended Members (Multiple Members Fill-up)
+                  </label>
+                  <textarea
+                    className="emp-input"
+                    rows="2"
+                    placeholder="Enter member names separated by commas (e.g. Geeta Devi, Sunita Kumari, Anita Devi)"
+                    value={cgtMembers}
+                    onChange={(e) => setCgtMembers(e.target.value)}
+                  />
+                  <div style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
+                    Record all member names present in CGT Day {cgtModal.day} meeting.
+                  </div>
+                </div>
 
                 <div style={{ marginBottom: 12 }}>
                   <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>

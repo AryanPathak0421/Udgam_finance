@@ -70,6 +70,7 @@ import {
   getAttendanceTiming,
   checkCivilScore,
   addCivilCheckedMember,
+  getProspectByPan,
   getEmployeeNotifications,
   markEmployeeNotificationRead,
   submitDeathRequest,
@@ -193,9 +194,10 @@ router.patch('/tasks/:id', requireAuth, h(updateTaskStatus));
 // 29. Holidays
 router.get('/holidays', requireAuth, h(getHolidays));
 
-// 30. Civil Check & Auto Add Member (Point 20)
+// 30. Civil Check & Auto Add Member (Point 20 & Item 22)
 router.post('/civil-check', requireAuth, h(checkCivilScore));
 router.post('/civil-check/add-member', requireAuth, h(addCivilCheckedMember));
+router.get('/prospect-by-pan/:pan', requireAuth, h(getProspectByPan));
 
 // 31. Notifications & Broadcasts (Points 21, 23, 25)
 router.get('/notifications', requireAuth, h(getEmployeeNotifications));

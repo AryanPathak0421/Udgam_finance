@@ -110,26 +110,29 @@ export const CenterVisit = mongoose.model('CenterVisit', centerVisitSchema);
 // -----------------------------------------------------------------------------
 // CGT (CONTINUOUS GROUP TRAINING) VISIT
 // -----------------------------------------------------------------------------
+const cgtDaySchema = new mongoose.Schema(
+  {
+    date: Date,
+    photo: String,
+    byCode: String,
+    location: {
+      lat: Number,
+      lng: Number,
+      address: String,
+    },
+    members: [{ type: String, trim: true }],
+  },
+  { _id: false }
+);
+
 const cgtVisitSchema = new mongoose.Schema(
   {
     centerName: { type: String, required: true },
     branch: { type: mongoose.Schema.Types.ObjectId, ref: 'Branch' },
     employeeCode: { type: String, required: true },
-    day1: {
-      date: Date,
-      photo: String,
-      byCode: String,
-    },
-    day2: {
-      date: Date,
-      photo: String,
-      byCode: String,
-    },
-    day3: {
-      date: Date,
-      photo: String,
-      byCode: String,
-    },
+    day1: cgtDaySchema,
+    day2: cgtDaySchema,
+    day3: cgtDaySchema,
     status: { type: String, enum: ['in_progress', 'completed'], default: 'in_progress' },
   },
   { timestamps: true }
@@ -218,5 +221,34 @@ const deathRequestSchema = new mongoose.Schema(
 );
 
 export const DeathRequest = mongoose.model('DeathRequest', deathRequestSchema);
+
+// -----------------------------------------------------------------------------
+// CIVIL PROSPECT (Item 22: Credit check prospect record auto-assign to member)
+// -----------------------------------------------------------------------------
+const civilProspectSchema = new mongoose.Schema(
+  {
+    pan: { type: String, required: true, uppercase: true, trim: true, index: true },
+    name: { type: String, required: true, trim: true },
+    mobile: { type: String, trim: true },
+    aadhaar: { type: String, trim: true },
+    dob: { type: String },
+    gender: { type: String, default: 'female' },
+    address: { type: String, trim: true },
+    score: { type: Number },
+    band: { type: String },
+    bureau: { type: String, default: 'CIBIL' },
+    reportNumber: { type: String },
+    reportDate: { type: String },
+    branch: { type: mongoose.Schema.Types.ObjectId, ref: 'Branch' },
+    employeeCode: { type: String },
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  },
+  { timestamps: true }
+);
+
+civilProspectSchema.index({ pan: 1, createdAt: -1 });
+
+export const CivilProspect = mongoose.model('CivilProspect', civilProspectSchema);
+
 
 

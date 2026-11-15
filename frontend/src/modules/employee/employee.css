@@ -362,3 +362,79 @@
   }
 }
 
+/* Item 28: Notification & Broadcast Night / Dark Mode Contrast Fix */
+.emp-notif-card {
+  padding: 14px;
+  border-radius: 10px;
+  border: 1px solid var(--emp-border);
+  background-color: var(--emp-card-bg);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  color: var(--emp-text);
+}
+
+.emp-notif-card.unread {
+  border-color: #10b981;
+  background-color: #f0fdf4;
+}
+
+.emp-dark .emp-notif-card.unread {
+  border-color: #059669;
+  background-color: #064e3b;
+}
+
+.emp-notif-card .notif-title {
+  font-weight: 800;
+  font-size: 0.95rem;
+  color: var(--emp-text);
+}
+
+.emp-notif-card.unread .notif-title {
+  color: #065f46;
+}
+
+.emp-dark .emp-notif-card.unread .notif-title {
+  color: #a7f3d0;
+}
+
+.emp-notif-card .notif-msg {
+  font-size: 0.85rem;
+  color: var(--emp-text);
+  margin-top: 6px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.emp-notif-card.unread .notif-msg {
+  color: #064e3b;
+}
+
+.emp-dark .emp-notif-card.unread .notif-msg {
+  color: #d1fae5;
+}
+
+.emp-notif-broadcast-tag {
+  background: #e0e7ff;
+  color: #3730a3;
+  font-size: 0.65rem;
+  font-weight: 800;
+  padding: 3px 8px;
+  border-radius: 10px;
+}
+
+.emp-dark .emp-notif-broadcast-tag {
+  background: #312e81;
+  color: #c7d2fe;
+  border: 1px solid #4338ca;
+}
+
+.emp-notif-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 8px;
+  font-size: 0.72rem;
+  color: var(--emp-text-muted);
+}
+
+

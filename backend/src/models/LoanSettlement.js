@@ -41,7 +41,10 @@ const loanSettlementSchema = new mongoose.Schema(
 );
 
 loanSettlementSchema.index({ receiptNo: 1 }, { unique: true });
-loanSettlementSchema.index({ loanPayment: 1, memberCode: 1 }, { unique: true, partialFilterExpression: { status: 'active' } });
+loanSettlementSchema.index(
+  { loanPayment: 1, memberCode: 1 },
+  { unique: true, partialFilterExpression: { status: 'active', loanPayment: { $type: 'objectId' } } }
+);
 loanSettlementSchema.index({ kind: 1, branch: 1, settledOn: -1 });
 
 export const LoanSettlement = mongoose.model('LoanSettlement', loanSettlementSchema);

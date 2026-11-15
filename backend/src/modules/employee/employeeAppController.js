@@ -8,6 +8,7 @@ import {
   FirstMeetingAttendance,
   ProductSaleOrder,
   DeathRequest,
+  CivilProspect,
 } from './employeeAppModel.js';
 import { Employee, Department, Designation, Attendance, Salary } from '../../models/Hr.js';
 import { User } from '../../models/User.js';
@@ -1320,13 +1321,12 @@ export async function getStaffRecentMembers(req, res) {
   const branchIds = [...new Set(rawBranchIds.map((b) => String(b?.id || b?._id || b)))];
 
   const query = { isDeleted: { $ne: true } };
-  // Item 10C & 13 Fix: Strictly restrict members to employee's branch and members created by this staff
-  const staffOrBranch = [
-    { createdBy: req.user._id },
-    ...(codeRegex ? [{ employeeCode: codeRegex }] : []),
-    ...(branchIds.length > 0 ? [{ branch: { $in: branchIds } }] : []),
-  ];
-  query.$or = staffOrBranch;
+  // Item 24 Fix: Strictly isolate members by the employee's branch so other branches NEVER show up
+  if (branchIds.length > 0) {
+    query.branch = { $in: branchIds };
+  } else {
+    query.createdBy = req.user._id;
+  }
 
   const members = await Member.find(query)
     .sort({ createdAt: -1 })
@@ -4235,9 +4235,11 @@ export async function getNpaLoans(req, res) {
   const myAssignedGroups = await Group.find(groupQuery).select('code').lean();
   let myGroupCodes = myAssignedGroups.map((g) => g.code).filter(Boolean);
 
-  // Item 8 Fix: Strictly scope query by branchId so other branches' NPA loans NEVER leak to this staff
+  // Item 8 & 25 Fix: Strictly scope query by branchId, exclude already closed loans, and use lean projection for instant loading
   const query = {
     status: { $in: ['paid', 'npa'] },
+    isClosed: { $ne: true },
+    closed: { $ne: true },
     ...(bList.length ? { branch: { $in: bList } } : { branch: { $in: [] } }),
   };
 
@@ -4259,7 +4261,11 @@ export async function getNpaLoans(req, res) {
     query.$or = [{ employeeCode: scRegex }, { staffCode: scRegex }];
   }
 
-  const loans = await LoanPayment.find(query).populate('branch', 'name code').lean();
+  // Item 25 Fix: Field projection prevents fetching heavy unneeded fields and bloat
+  const loans = await LoanPayment.find(query)
+    .select('_id loanId formId receiptNo loanType kind branch lines schedule emiEndDate npa isNpa status totalAmountPaise employeeCode staffCode group')
+    .populate('branch', 'name code')
+    .lean();
 
   // Item 18 Fix: Pre-fetch staff names for accurate staff filtering in NPA
   const staffCodes = [...new Set(loans.map((l) => l.employeeCode || l.staffCode).filter(Boolean))];
@@ -4269,16 +4275,19 @@ export async function getNpaLoans(req, res) {
   const npaList = [];
   const today = new Date();
 
+  // Item 25 Fix: MongoDB aggregation for payments prevents memory overload and massive JSON transfer latency
   const allLoanIds = loans.map((l) => l._id);
-  const allPayments = allLoanIds.length ? await EmiPayment.find({
-    loanPayment: { $in: allLoanIds },
-    status: 'paid',
-  }).lean() : [];
-
   const paymentsByKey = new Map();
-  for (const p of allPayments) {
-    const k = `${String(p.loanPayment)}_${p.memberCode}`;
-    paymentsByKey.set(k, (paymentsByKey.get(k) || 0) + (p.amountPaise || 0));
+  if (allLoanIds.length > 0) {
+    const paymentsAgg = await EmiPayment.aggregate([
+      { $match: { loanPayment: { $in: allLoanIds }, status: 'paid' } },
+      { $group: { _id: { lp: '$loanPayment', mc: '$memberCode' }, total: { $sum: '$amountPaise' } } },
+    ]);
+    for (const p of paymentsAgg) {
+      if (p._id?.lp && p._id?.mc) {
+        paymentsByKey.set(`${String(p._id.lp)}_${p._id.mc}`, p.total || 0);
+      }
+    }
   }
 
   for (const l of loans) {
@@ -5368,7 +5377,7 @@ export async function listCgtVisits(req, res) {
 
 export async function updateCgtDayPhoto(req, res) {
   const code = req.user?.employeeCode;
-  const { centerName, day, photo, date = new Date() } = req.body || {};
+  const { centerName, day, photo, date = new Date(), location, members } = req.body || {};
   if (!centerName || !day || !photo) {
     throw new HttpError(400, 'Center name, CGT day (1, 2, or 3), and photo are required');
   }
@@ -5376,6 +5385,13 @@ export async function updateCgtDayPhoto(req, res) {
   const dayNum = Number(day);
   const targetDate = new Date(date);
   const targetDateOnly = targetDate.toISOString().slice(0, 10);
+
+  let parsedMembers = [];
+  if (Array.isArray(members)) {
+    parsedMembers = members.map((m) => String(m).trim()).filter(Boolean);
+  } else if (typeof members === 'string' && members.trim()) {
+    parsedMembers = members.split(',').map((m) => m.trim()).filter(Boolean);
+  }
 
   const emp = await Employee.findOne({ employeeCode: code });
   let visit = await CgtVisit.findOne({ centerName: new RegExp(`^${centerName}$`, 'i'), employeeCode: code });
@@ -5415,6 +5431,8 @@ export async function updateCgtDayPhoto(req, res) {
     date: targetDate,
     photo,
     byCode: code,
+    ...(location?.lat || location?.address ? { location } : {}),
+    members: parsedMembers,
   };
 
   if (visit.day1?.photo && visit.day2?.photo && visit.day3?.photo) {
@@ -5430,7 +5448,7 @@ export async function updateCgtDayPhoto(req, res) {
       const isComplete = visit.status === 'completed';
       srv.statusHistory.push({
         status: isComplete ? 'formed' : 'under_review',
-        remark: `CGT Day ${dayNum} completed on ${targetDateOnly} by ${code}`,
+        remark: `CGT Day ${dayNum} completed on ${targetDateOnly} by ${code}${parsedMembers.length ? ` (${parsedMembers.length} members attended: ${parsedMembers.slice(0, 3).join(', ')}${parsedMembers.length > 3 ? '...' : ''})` : ''}`,
         byCode: code,
         at: new Date(),
       });
@@ -5444,7 +5462,7 @@ export async function updateCgtDayPhoto(req, res) {
 
   res.json({
     success: true,
-    message: `CGT Day ${day} photo updated successfully for ${centerName}!`,
+    message: `CGT Day ${day} photo and attendance recorded successfully for ${centerName}!`,
     item: visit,
   });
 }
@@ -6030,10 +6048,42 @@ export async function checkCivilScore(req, res) {
     });
   }
 
+  const band = score >= 750 ? 'Excellent' : score >= 700 ? 'Good' : score >= 650 ? 'Fair' : 'Poor';
+
+  // Item 22: Save prospect record so entering PAN in New Member Registration automatically assigns this prospect data
+  const cleanPan = cleanStr(pan || memberDoc?.pan).toUpperCase();
+  if (cleanPan) {
+    try {
+      await CivilProspect.findOneAndUpdate(
+        { pan: cleanPan },
+        {
+          pan: cleanPan,
+          name: cleanStr(name) || memberDoc?.name || '',
+          mobile: cleanStr(mobile) || memberDoc?.mobile || '',
+          aadhaar: cleanStr(aadhaar).replace(/\D/g, '') || memberDoc?.aadhaar || '',
+          dob: dob || (memberDoc?.dob ? new Date(memberDoc.dob).toISOString().slice(0, 10) : ''),
+          gender: gender || memberDoc?.gender || 'female',
+          address: cleanStr(address) || memberDoc?.address || '',
+          score,
+          band,
+          bureau,
+          reportNumber,
+          reportDate: todayDateString(),
+          branch: branchId || memberDoc?.branch,
+          employeeCode: emp?.employeeCode || code || 'APP',
+          createdBy: req.user?._id,
+        },
+        { upsert: true, new: true }
+      );
+    } catch (pErr) {
+      console.warn('Failed to save CivilProspect:', pErr.message);
+    }
+  }
+
   res.json({
     success: true,
     score,
-    band: score >= 750 ? 'Excellent' : score >= 700 ? 'Good' : score >= 650 ? 'Fair' : 'Poor',
+    band,
     bureau,
     reportNumber,
     reportDate: todayDateString(),
@@ -6136,6 +6186,34 @@ export async function addCivilCheckedMember(req, res) {
       pan: member.pan,
       aadhaar: member.aadhaar,
       branch: member.branch,
+    },
+  });
+}
+
+// Item 22: Look up Civil Prospect by PAN card to auto-assign into New Member Registration
+export async function getProspectByPan(req, res) {
+  const pan = cleanStr(req.params.pan).toUpperCase();
+  if (!pan) throw new HttpError(400, 'PAN is required');
+  const prospect = await CivilProspect.findOne({ pan }).sort({ createdAt: -1 }).lean();
+  if (!prospect) {
+    return res.json({ success: false, found: false });
+  }
+  res.json({
+    success: true,
+    found: true,
+    prospect: {
+      pan: prospect.pan,
+      name: prospect.name,
+      mobile: prospect.mobile,
+      aadhaar: prospect.aadhaar,
+      dob: prospect.dob,
+      gender: prospect.gender,
+      address: prospect.address,
+      score: prospect.score,
+      band: prospect.band,
+      bureau: prospect.bureau,
+      reportNumber: prospect.reportNumber,
+      reportDate: prospect.reportDate,
     },
   });
 }

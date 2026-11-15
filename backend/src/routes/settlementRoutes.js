@@ -14,8 +14,8 @@ router.post('/settlements/death', requireAuth, requireRole(...SETTLE), h(settleD
 router.post('/settlements/guarantor-death', requireAuth, requireRole(...SETTLE), h(recordGuarantorDeath));
 router.get('/settlements/guarantor-deaths', requireAuth, requireRole(...READ), h(guarantorDeathList));
 router.get('/settlements/:id', requireAuth, requireRole(...READ), h(getSettlement));
-router.post('/settlements/:id/approve', requireAuth, requireRole('super_admin', 'admin'), h(approveDeathSettlement));
-router.post('/settlements/:id/reject', requireAuth, requireRole('super_admin', 'admin'), h(rejectDeathSettlement));
+router.post('/settlements/:id/approve', requireAuth, requireRole('super_admin', 'admin', 'branch_manager'), h(approveDeathSettlement));
+router.post('/settlements/:id/reject', requireAuth, requireRole('super_admin', 'admin', 'branch_manager'), h(rejectDeathSettlement));
 router.post('/settlements/:id/cancel', requireAuth, requireRole('super_admin', 'admin'), h(cancelSettlement));
 
 export default router;

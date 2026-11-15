@@ -624,6 +624,7 @@ export const api = {
     attendanceTiming: () => request('/employee/attendance/timing'),
     checkCivilScore: (data) => request('/employee/civil-check', { method: 'POST', body: data }),
     addCivilCheckedMember: (data) => request('/employee/civil-check/add-member', { method: 'POST', body: data }),
+    getProspectByPan: (pan) => request(`/employee/prospect-by-pan/${encodeURIComponent(pan)}`),
     notifications: () => request('/employee/notifications'),
     markNotificationRead: (id) => request('/employee/notifications/read', { method: 'POST', body: { id } }),
     submitDeathRequest: (data) => request('/employee/death-requests', { method: 'POST', body: data }),

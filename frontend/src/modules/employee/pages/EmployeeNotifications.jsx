@@ -120,23 +120,16 @@ export default function EmployeeNotifications() {
             {filtered.map((n) => (
               <div
                 key={n._id || n.id}
+                className={`emp-notif-card ${!n.read ? 'unread' : ''}`}
                 onClick={() => {
                   if (!n.read) handleMarkSingle(n._id || n.id);
                 }}
-                style={{
-                  padding: 12,
-                  borderRadius: 10,
-                  border: `1px solid ${n.read ? 'var(--emp-border)' : '#86efac'}`,
-                  background: n.read ? 'var(--emp-card-bg)' : '#f0fdf4',
-                  cursor: 'pointer',
-                  transition: 'all 0.15s ease',
-                }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div style={{ fontWeight: 800, fontSize: '0.9rem', color: 'var(--emp-text)' }}>{n.title}</div>
+                  <div className="notif-title">{n.title}</div>
                   <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                     {n.isBroadcast && (
-                      <span style={{ background: '#e0e7ff', color: '#3730a3', fontSize: '0.65rem', fontWeight: 800, padding: '2px 8px', borderRadius: 10 }}>
+                      <span className="emp-notif-broadcast-tag">
                         📢 BROADCAST
                       </span>
                     )}
@@ -147,12 +140,12 @@ export default function EmployeeNotifications() {
                 </div>
 
                 {n.message && (
-                  <div style={{ fontSize: '0.82rem', color: 'var(--emp-text)', marginTop: 6, lineHeight: 1.4, whiteSpace: 'pre-wrap' }}>
+                  <div className="notif-msg">
                     {n.message}
                   </div>
                 )}
 
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, fontSize: '0.72rem', color: 'var(--emp-text-muted)' }}>
+                <div className="emp-notif-meta">
                   <div>{n.createdAt ? new Date(n.createdAt).toLocaleString() : 'Recently'}</div>
                   {n.isBroadcast && n.audience && (
                     <div style={{ textTransform: 'capitalize' }}>Audience: {n.audience.replace(/_/g, ' ')}</div>
