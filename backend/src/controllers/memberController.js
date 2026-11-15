@@ -1451,7 +1451,54 @@ export async function synopsis(req, res) {
 // Employees (with staff IDs) that can be chosen on the forms for a branch.
 export async function employeeOptions(req, res) {
   const branch = mongoose.isValidObjectId(req.query.branch) ? req.query.branch : null;
-  if (!branch) return res.json({ items: [], me: await staffId(req.user) });
+  if (!branch) {
+    const branchFilter = isAdmin(req.user) ? {} : { branches: { $in: req.user.branches || [] } };
+    const empBranchFilter = isAdmin(req.user) ? {} : { $or: [{ branch: { $in: req.user.branches || [] } }, { supervisedBranches: { $in: req.user.branches || [] } }] };
+    const [users, emps] = await Promise.all([
+      User.find({
+        employeeCode: { $exists: true, $nin: await blockedCodes() },
+        ...branchFilter,
+        role: { $nin: ['supervisor', 'admin', 'super_admin'] },
+        $or: [{ isActive: true }, { legacyImport: true }],
+      }).select('name employeeCode role isActive branches').sort({ employeeCode: 1 }).lean(),
+      Employee.find({
+        isDeleted: false,
+        isBlocked: { $ne: true },
+        status: { $ne: 'left' },
+        isSupervisor: { $ne: true },
+        ...empBranchFilter,
+      }).populate('designation', 'name').select('name employeeCode designation status isSupervisor branch').sort({ employeeCode: 1 }).lean(),
+    ]);
+
+    const isSupervisorDesig = (e) => {
+      const dName = e.designation?.name || (typeof e.designation === 'string' ? e.designation : '');
+      return Boolean(e.isSupervisor || /supervisor/i.test(dName) || /supervisor/i.test(e.name || ''));
+    };
+
+    const map = new Map();
+    users.forEach((u) => {
+      map.set(String(u.employeeCode).toUpperCase(), {
+        code: u.employeeCode,
+        name: u.name,
+        role: u.role,
+        migrated: !u.isActive,
+      });
+    });
+    emps.forEach((e) => {
+      if (isSupervisorDesig(e)) return;
+      const k = String(e.employeeCode).toUpperCase();
+      if (!map.has(k)) {
+        map.set(k, {
+          code: e.employeeCode,
+          name: e.name,
+          role: 'field_officer',
+          migrated: false,
+        });
+      }
+    });
+    const items = [...map.values()].sort((a, b) => a.code.localeCompare(b.code));
+    return res.json({ items, me: await staffId(req.user) });
+  }
   if (!isAdmin(req.user) && !(req.user.branches || []).some((x) => String(x) === String(branch))) {
     throw new HttpError(403, 'You can only use branches assigned to you');
   }

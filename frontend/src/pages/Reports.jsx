@@ -1,8 +1,9 @@
-import { isValidElement, useCallback, useEffect, useState } from 'react';
+import { Fragment, isValidElement, useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client.js';
 import FormField from '../components/ui/FormField.jsx';
 import Modal from '../components/ui/Modal.jsx';
 import BankAccountSelect from '../components/BankAccountSelect.jsx';
+import CompanyQrModal from '../components/CompanyQrModal.jsx';
 import Pagination from '../components/ui/Pagination.jsx';
 import { EmptyState, ErrorState, PageHeader, Spinner } from '../components/ui/Feedback.jsx';
 import { useToast } from '../components/ui/Toast.jsx';
@@ -117,22 +118,22 @@ const REPORTS = {
   requisition: { title: 'Loan Requisition Report', description: 'Every loan requisition with its status, by the loan date.', range: true, status: ['pending', 'approved', 'rejected', 'cancelled'], from: monthStart },
   approval: { title: 'Loan Approval Report', description: 'Loans that were approved (pending disbursement) or rejected, by the date of the decision.', range: true, status: ['approved', 'rejected'], from: monthStart },
   disbursement: { title: 'Loan Disbursement Report', description: 'Loans paid out, by the payment date.', range: true, from: monthStart, staffFilter: true },
-  due: { title: 'Loan Due Report', description: 'Borrowers whose EMI falls due on the chosen date and is not paid yet.', asOf: true },
+  due: { title: 'Loan Due Report', description: 'Borrowers whose EMI falls due on the chosen date and is not paid yet.', asOf: true, staffFilter: true },
   overdue: { title: 'Loan Over Due Report', description: 'Borrowers with an EMI that was due before the chosen date and is still not paid, the oldest first.', asOf: true },
   outstanding: { title: 'Loan Outstanding Report', description: 'What every running borrower still has to pay as on the chosen date.', asOf: true },
-  'emi-collection': { title: 'Loan EMI Collection Report', description: 'EMI received, by the date it was paid.', range: true, from: today },
+  'emi-collection': { title: 'Loan EMI Collection Report', description: 'EMI received, by the date it was paid.', range: true, from: today, staffFilter: true },
   'member-joining': { title: 'Member Joining Report', description: 'Members who joined, by the joining date.', range: true, from: monthStart },
   npa: { title: 'NPA Report / Pay', description: 'Borrowers of a 120-day loan who still owe after the 121st day: the last installment is behind them and the loan is not paid. NPA payment takes the money received from the borrower.', asOf: true, npaPay: true, print: true, staffFilter: true },
-  'personal-collection-sheet': { title: 'Personal Loan Collection Sheet', description: 'Personal loan borrowers with an EMI to collect as on the date. Print it for the field.', asOf: true, print: true, sheet: true },
-  'msme-collection-sheet': { title: 'MSME / Business Loan Collection Sheet', description: 'MSME and business loan borrowers with an EMI to collect as on the date. Print it for the field.', asOf: true, print: true, sheet: true },
-  'group-collection-sheet': { title: 'Group Loan Collection Sheet', description: 'Group loans with an EMI to collect as on the date, group by group with the group leader, for the field. Print / PDF makes the sheet like the old software: every group with its members and a total.', asOf: true, print: true, sheet: true, group: true },
-  'collection-sheet': { title: 'Loan Collection Sheet (all loans)', description: 'The collection sheet of any kind of loan (all, or group, personal, business, MSME, product) with an EMI to collect as on the date. Print / PDF makes the sheet.', asOf: true, print: true, sheet: true, typeFilter: true },
+  'personal-collection-sheet': { title: 'Personal Loan Collection Sheet', description: 'Personal loan borrowers with an EMI to collect as on the date. Print it for the field.', asOf: true, print: true, sheet: true, staffFilter: true },
+  'msme-collection-sheet': { title: 'MSME / Business Loan Collection Sheet', description: 'MSME and business loan borrowers with an EMI to collect as on the date. Print it for the field.', asOf: true, print: true, sheet: true, staffFilter: true },
+  'group-collection-sheet': { title: 'Group Loan Collection Sheet', description: 'Group loans with an EMI to collect as on the date, group by group with the group leader, for the field. Print / PDF makes the sheet like the old software: every group with its members and a total.', asOf: true, print: true, sheet: true, group: true, staffFilter: true },
+  'collection-sheet': { title: 'Loan Collection Sheet (all loans)', description: 'The collection sheet of any kind of loan (all, or group, personal, business, MSME, product) with an EMI to collect as on the date. Print / PDF makes the sheet.', asOf: true, print: true, sheet: true, typeFilter: true, staffFilter: true },
   'write-off': { title: 'Write-off Report', description: 'Balance given up on loans: loan settlements with a waiver, by the settlement date. Auto settle and death settlement are not written off here (see their own lists). A loan that is 3 years past its last installment and still owes money (NPA) is written off by itself and shows here (Auto write-off) with what was still due.', range: true, status: ['loan', 'auto_npa'], statusLabel: KIND_LABEL, from: monthStart },
   'staff-npa': { title: 'Staff wise NPA Report', description: 'NPA borrowers and what is outstanding on them, for every staff member (the staff of the loan). Search a staff member and choose a branch to narrow it.', asOf: true, noCall: true, staffFilter: true },
   'staff-npa-payment': { title: 'Staff wise NPA Payment Report', description: 'What every staff member collected on NPA loans (NPA payment), by the date it was received.', range: true, from: monthStart, noCall: true, staffFilter: true },
   'staff-disbursement': { title: 'Staff wise Disbursement Report', description: 'Loans paid out for every staff member, by the payment date.', range: true, from: monthStart, noCall: true },
   'group-wise-collection': { title: 'Group wise Collection Report', description: 'What every group paid in the dates: the members who paid, the receipts, the amount, who collected it and when last. The CDS Report shows the demand against the collection.', range: true, from: today, noCall: true },
-  'group-collection': { title: 'CDS Report (Collection & Demand Statement)', description: 'For every group: the EMI that fell due in the period (demand), what was collected, shortage, advance and collection percentage (CDS format like the old software).', range: true, from: monthStart, noCall: true, print: true },
+  'group-collection': { title: 'CDS Report (Collection & Demand Statement)', description: 'For every group: the EMI that fell due in the period (demand), what was collected, shortage, advance and collection percentage (CDS format like the old software).', range: true, from: monthStart, noCall: true, print: true, typeFilter: true, staffFilter: true },
 };
 
 /** "Call done": the borrower of the row was called. Shows who called last and when. */
@@ -165,6 +166,8 @@ function NpaPaymentDialog({ row, onClose, onSaved }) {
   const [f, setF] = useState({ amount: String(row.outstanding), payMode: 'cash', bankAccount: '', reference: '', employee: '' });
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
+  const [showQr, setShowQr] = useState(false);
+
   async function save() {
     setBusy(true);
     setErrors({});
@@ -180,23 +183,49 @@ function NpaPaymentDialog({ row, onClose, onSaved }) {
     }
   }
   return (
-    <Modal open title="NPA payment" onClose={onClose} busy={busy}
-      footer={<><button className="btn" onClick={onClose} disabled={busy}>Close</button><button className="btn primary" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Receive'}</button></>}>
-      <p className="muted">Loan {row.loanId} · {row.memberCode} {row.memberName} · outstanding {inr(row.outstanding)}. The money goes to the earliest unpaid installments and shows as NPA receive in the Cashbook.</p>
-      <div className="form-grid">
-        <div className="span-2"><EmployeeSelect id="npastaff" label="Staff who gets the credit" required branch={row.branchId} value={f.employee} onChange={(v) => { setF((x) => ({ ...x, employee: v })); setErrors((x) => ({ ...x, employee: undefined })); }} error={errors.employee} /><div className="muted small">The recovery counts in this staff member's NPA recovery target and 10% of it is added to their salary slip.</div></div>
-        <FormField id="npaamt" label="Amount received (₹)" required error={errors.amount}>
-          <input id="npaamt" inputMode="decimal" value={f.amount} onChange={(e) => { setF((x) => ({ ...x, amount: e.target.value.replace(/[^\d.]/g, '') })); setErrors((x) => ({ ...x, amount: undefined })); }} />
-        </FormField>
-        <FormField id="npamode" label="Paid by" required error={errors.payMode}>
-          <select id="npamode" value={f.payMode} onChange={(e) => setF((x) => ({ ...x, payMode: e.target.value }))}>
-            {Object.entries(MODE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-          </select>
-        </FormField>
-        <BankAccountSelect id="npabank" mode={f.payMode} value={f.bankAccount} onChange={(v) => setF((x) => ({ ...x, bankAccount: v }))} error={errors.bankAccount} />
-        <FormField id="nparef" label="Reference no." hint="Optional"><input id="nparef" value={f.reference} maxLength={60} onChange={(e) => setF((x) => ({ ...x, reference: e.target.value }))} /></FormField>
-      </div>
-    </Modal>
+    <>
+      <Modal open title="NPA payment" onClose={onClose} busy={busy}
+        footer={
+          <>
+            <button type="button" className="btn secondary" onClick={() => setShowQr(true)}>
+              📱 Company QR Code
+            </button>
+            <button className="btn" onClick={onClose} disabled={busy}>Close</button>
+            <button className="btn primary" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Receive'}</button>
+          </>
+        }>
+        <p className="muted">Loan {row.loanId} · {row.memberCode} {row.memberName} · outstanding {inr(row.outstanding)}. The money goes to the earliest unpaid installments and shows as NPA receive in the Cashbook.</p>
+        <div className="form-grid">
+          <div className="span-2"><EmployeeSelect id="npastaff" label="Staff who gets the credit" required branch={row.branchId} value={f.employee} onChange={(v) => { setF((x) => ({ ...x, employee: v })); setErrors((x) => ({ ...x, employee: undefined })); }} error={errors.employee} /><div className="muted small">The recovery counts in this staff member's NPA recovery target and 10% of it is added to their salary slip.</div></div>
+          <FormField id="npaamt" label="Amount received (₹)" required error={errors.amount}>
+            <input id="npaamt" inputMode="decimal" value={f.amount} onChange={(e) => { setF((x) => ({ ...x, amount: e.target.value.replace(/[^\d.]/g, '') })); setErrors((x) => ({ ...x, amount: undefined })); }} />
+          </FormField>
+          <FormField id="npamode" label="Paid by" required error={errors.payMode}>
+            <select id="npamode" value={f.payMode} onChange={(e) => setF((x) => ({ ...x, payMode: e.target.value }))}>
+              {Object.entries(MODE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+          </FormField>
+          {f.payMode === 'upi' && (
+            <div className="span-2" style={{ padding: '8px 12px', background: '#f0fdf4', borderRadius: 6, border: '1px solid #bbf7d0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: '0.85rem', color: '#166534', fontWeight: 600 }}>Collect via Company Payment QR:</span>
+              <button type="button" className="btn sm primary" onClick={() => setShowQr(true)}>Show Company QR</button>
+            </div>
+          )}
+          <BankAccountSelect id="npabank" mode={f.payMode} value={f.bankAccount} onChange={(v) => setF((x) => ({ ...x, bankAccount: v }))} error={errors.bankAccount} />
+          <FormField id="nparef" label="Reference no." hint="Optional"><input id="nparef" value={f.reference} maxLength={60} onChange={(e) => setF((x) => ({ ...x, reference: e.target.value }))} /></FormField>
+        </div>
+      </Modal>
+      {showQr && (
+        <CompanyQrModal
+          open={showQr}
+          onClose={() => setShowQr(false)}
+          amount={f.amount || row.outstanding}
+          loanId={row.loanId}
+          memberName={row.memberName}
+          branch={row.branch}
+        />
+      )}
+    </>
   );
 }
 
@@ -302,7 +331,14 @@ function BranchSelect({ value, onChange }) {
   );
 }
 
-const SUMMARY_LABEL = { staff: 'Staff', groups: 'Groups', demand: 'Demand', collected: 'Collected', balance: 'Balance', writtenOff: 'Written off', borrowers: 'Borrowers', due: 'Due', outstanding: 'Outstanding', loanAmount: 'Loan amount', paid: 'Paid', receipts: 'Receipts', amount: 'Amount', loans: 'Loans', cash: 'Cash paid', requisitions: 'Requisitions', decided: 'Decided', approved: 'Approved', rejected: 'Rejected', members: 'Members' };
+const SUMMARY_LABEL = {
+  staff: 'Staff', groups: 'Groups', demand: 'Demand', collected: 'Collected', balance: 'Balance',
+  writtenOff: 'Written off', borrowers: 'Borrowers', due: 'Due', outstanding: 'Outstanding',
+  loanAmount: 'Loan amount', paid: 'Paid', receipts: 'Receipts', amount: 'Amount', loans: 'Loans',
+  cash: 'Cash paid', requisitions: 'Requisitions', decided: 'Decided', approved: 'Approved',
+  rejected: 'Rejected', members: 'Members',
+  online: 'Online Receive', offline: 'Offline Receive', npa: 'NPA Receive',
+};
 const COUNT_KEYS = ['staff', 'groups', 'borrowers', 'receipts', 'loans', 'requisitions', 'decided', 'approved', 'rejected', 'members'];
 
 export function ReportPage({ name }) {
@@ -333,7 +369,13 @@ export function ReportPage({ name }) {
   const [groupFilter, setGroupFilter] = useState('');
   const staffQ = useDebounce(staff, 350);
   const [staffList, setStaffList] = useState([]);
-  useEffect(() => { if ((cfg.sheet || cfg.staffFilter) && branch) api.members.employees(branch).then((r) => setStaffList(r.items)).catch(() => setStaffList([])); else setStaffList([]); }, [branch]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (cfg.sheet || cfg.staffFilter) {
+      api.members.employees(branch || undefined).then((r) => setStaffList(r.items || [])).catch(() => setStaffList([]));
+    } else {
+      setStaffList([]);
+    }
+  }, [branch, cfg.sheet, cfg.staffFilter]);
   const callDate = cfg.range ? to : date; // a call is marked for the date of the report
 
   const load = useCallback(async () => {
@@ -409,9 +451,28 @@ export function ReportPage({ name }) {
           <EmptyState title="Nothing to show" description="No record for these filters." />
         ) : (
           <>
-            <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', margin: '8px 0' }}>
-              {Object.entries(data.summary).map(([k, v]) => <span key={k}>{SUMMARY_LABEL[k] || k} <strong>{COUNT_KEYS.includes(k) ? v : inr(v)}</strong></span>)}
-            </div>
+            {data?.summary?.online !== undefined ? (
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', margin: '10px 0', alignItems: 'center' }}>
+                <span className="badge" style={{ background: '#e0f2fe', color: '#0369a1', padding: '6px 12px', fontSize: '0.88rem' }}>
+                  Online: <strong>{inr(data.summary.online)}</strong>
+                </span>
+                <span className="badge" style={{ background: '#fef3c7', color: '#b45309', padding: '6px 12px', fontSize: '0.88rem' }}>
+                  Offline: <strong>{inr(data.summary.offline)}</strong>
+                </span>
+                <span className="badge" style={{ background: '#fee2e2', color: '#b91c1c', padding: '6px 12px', fontSize: '0.88rem' }}>
+                  NPA: <strong>{inr(data.summary.npa)}</strong>
+                </span>
+                <span style={{ fontWeight: 800, fontSize: '1.1rem', color: '#334155' }}>=</span>
+                <span className="badge green" style={{ padding: '6px 14px', fontSize: '0.92rem' }}>
+                  Total: <strong>{inr(data.summary.amount)}</strong>
+                </span>
+                <span className="muted small" style={{ marginLeft: 6 }}>({data.summary.receipts} receipt{data.summary.receipts === 1 ? '' : 's'})</span>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', margin: '8px 0' }}>
+                {Object.entries(data.summary).map(([k, v]) => <span key={k}>{SUMMARY_LABEL[k] || k} <strong>{COUNT_KEYS.includes(k) ? v : inr(v)}</strong></span>)}
+              </div>
+            )}
             {data.truncated && <div className="notice">Showing the first {rows.length} of {data.total}. Narrow the dates or the branch to see the rest.</div>}
             <div className="table-wrap">
               <table className="data-table">

@@ -259,7 +259,7 @@ function ReportTab() {
 
 function PaidTab() {
   const [paidFrom, setPaidFrom] = useState(() => `${thisMonth()}-01`);
-  const [paidTo, setPaidTo] = useState(() => todayISO());
+  const [paidTo, setPaidTo] = useState(() => todayIso());
   const [search, setSearch] = useState('');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);

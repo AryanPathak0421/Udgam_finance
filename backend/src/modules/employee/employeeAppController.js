@@ -4717,7 +4717,11 @@ export async function recordCenterVisit(req, res) {
       ...(req.user?._id ? [{ user: req.user._id }] : []),
     ],
   });
-  const targetBranch = emp?.branch || req.user?.branch || (req.user?.branches && req.user.branches[0]);
+  let targetBranch = emp?.branch || req.user?.branch || (req.user?.branches && req.user.branches[0]);
+  if (!targetBranch) {
+    const firstBranch = await Branch.findOne({ isDeleted: false }).select('_id').lean();
+    targetBranch = firstBranch?._id;
+  }
   const { centerName, contactName, contactNumber, location, image, notes } = req.body || {};
 
   if (!centerName || !contactName || !contactNumber) {

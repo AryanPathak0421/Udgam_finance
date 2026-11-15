@@ -27,7 +27,8 @@ export async function listSurveys(req, res) {
   if (SURVEY_STATUS.includes(asString(req.query.status))) filter.status = asString(req.query.status);
   const from = parseDateOnly(asString(req.query.from));
   const to = parseDateOnly(asString(req.query.to));
-  if (from || to) filter.surveyDate = { ...(from ? { $gte: from } : {}), ...(to ? { $lte: to } : {}) };
+  const toEnd = to ? new Date(to.getTime() + 86400000 - 1) : null;
+  if (from || toEnd) filter.surveyDate = { ...(from ? { $gte: from } : {}), ...(toEnd ? { $lte: toEnd } : {}) };
 
   // Point 21 Fix: Filter by specific employee / surveyedBy so surveys do not bleed across employees
   const empCode = asString(req.query.employeeCode || req.query.surveyedBy);
@@ -46,8 +47,8 @@ export async function listSurveys(req, res) {
     const own = visitFilter.branch?.$in?.map(String);
     visitFilter.branch = own && !own.includes(wanted) ? { $in: [] } : new mongoose.Types.ObjectId(wanted);
   }
-  if (from || to) {
-    visitFilter.visitDate = { ...(from ? { $gte: from } : {}), ...(to ? { $lte: to } : {}) };
+  if (from || toEnd) {
+    visitFilter.visitDate = { ...(from ? { $gte: from } : {}), ...(toEnd ? { $lte: toEnd } : {}) };
   }
   if (empCode) {
     visitFilter.employeeCode = new RegExp(`^${empCode}$`, 'i');

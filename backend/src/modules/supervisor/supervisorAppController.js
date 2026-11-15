@@ -1841,7 +1841,11 @@ export async function recordSupervisorCenterVisit(req, res) {
       ...(req.user?._id ? [{ user: req.user._id }] : []),
     ],
   });
-  const targetBranch = emp?.branch || req.user?.branch || req.user?.branchId || (req.user?.branches && req.user.branches[0]);
+  let targetBranch = emp?.branch || req.user?.branch || req.user?.branchId || (req.user?.branches && req.user.branches[0]);
+  if (!targetBranch) {
+    const firstBranch = await Branch.findOne({ isDeleted: false }).select('_id').lean();
+    targetBranch = firstBranch?._id;
+  }
   const visit = await CenterVisit.create({
     employeeCode: code || emp?.employeeCode || 'SUP',
     employeeName: emp?.name || req.user?.name || 'Supervisor',

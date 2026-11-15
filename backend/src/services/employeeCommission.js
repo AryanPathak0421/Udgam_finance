@@ -345,21 +345,34 @@ async function loadRules(fyId) {
   return [...map.values()];
 }
 
-/** The rules that apply to an employee: those of the employee's rank, and the all-ranks rule for a type the rank has no rule for. */
+/** The rules that apply to an employee: rank-specific if available, otherwise general or first active rule for each type so old/unranked employees are never excluded. */
 function rulesFor(rules, user) {
   const rank = user.rank ? String(user.rank) : '';
-  const own = rules.filter((r) => rank && r.rank === rank);
-  const ownTypes = new Set(own.map((r) => r.commissionFor));
-  const general = rules.filter((r) => !r.rank && !ownTypes.has(r.commissionFor));
-  const combined = [...own, ...general];
-  if (combined.length) return combined;
-  // Fallback for staff or old/migrated employees without an explicit rank:
-  // Match the first active rule for each commission type so they are never excluded
-  const fallback = new Map();
+  const byType = new Map();
   for (const r of rules) {
-    if (!fallback.has(r.commissionFor)) fallback.set(r.commissionFor, r);
+    if (!byType.has(r.commissionFor)) byType.set(r.commissionFor, []);
+    byType.get(r.commissionFor).push(r);
   }
-  return [...fallback.values()];
+  const matched = [];
+  for (const [, typeRules] of byType.entries()) {
+    // 1. exact rank match
+    const rankRule = rank ? typeRules.find((r) => r.rank === rank) : null;
+    if (rankRule) {
+      matched.push(rankRule);
+      continue;
+    }
+    // 2. general rule (no rank specified)
+    const generalRule = typeRules.find((r) => !r.rank);
+    if (generalRule) {
+      matched.push(generalRule);
+      continue;
+    }
+    // 3. fallback to any active rule for this type (so unranked/old employees are never skipped)
+    if (typeRules[0]) {
+      matched.push(typeRules[0]);
+    }
+  }
+  return matched;
 }
 
 /** What an employee achieved for a rule: his own activity, or that of his branches (a supervisor, those he supervises). */
@@ -505,7 +518,8 @@ export async function generateEmployeeCommission(month, by) {
         }
       }
       for (const user of allStaff) {
-        if (!rulesFor(rules, user).includes(rule)) continue;
+        const userRules = rulesFor(rules, user);
+        if (!userRules.some((r) => r === rule || (r.commissionFor === rule.commissionFor && r.scope === rule.scope && r.basis === rule.basis && r.frequency === rule.frequency))) continue;
         const got = achieved(rows, rule, user);
         if (!got) continue;
         const r = payout(rule, got);
