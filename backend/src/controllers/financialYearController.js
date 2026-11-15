@@ -1,4 +1,6 @@
 import { FinancialYear } from '../models/FinancialYear.js';
+import { Voucher } from '../models/Voucher.js';
+import { Commission } from '../models/Commission.js';
 import { createValidator, parseDateOnly, HttpError } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
 
@@ -152,6 +154,24 @@ export async function deleteFinancialYear(req, res) {
   const fy = await FinancialYear.findById(req.params.id);
   if (!fy) throw new HttpError(404, 'Financial year not found');
   if (fy.isActive) throw new HttpError(409, 'The active financial year cannot be deleted. Activate another year first.');
+
+  // Prevent deleting old / historical financial years
+  const now = new Date();
+  if (fy.endDate && new Date(fy.endDate) < now) {
+    throw new HttpError(409, 'Old and historical financial years cannot be deleted. They must be preserved for audit, vouchers, and tax compliance.');
+  }
+
+  // Check if any vouchers exist for this financial year
+  const hasVouchers = await Voucher.exists({ financialYear: fy._id, isDeleted: false });
+  if (hasVouchers) {
+    throw new HttpError(409, 'Cannot delete financial year: Vouchers are recorded under this financial year.');
+  }
+
+  // Check if any commissions exist for this financial year
+  const hasCommissions = await Commission.exists({ financialYear: fy._id, isDeleted: false });
+  if (hasCommissions) {
+    throw new HttpError(409, 'Cannot delete financial year: Commission structures exist for this financial year.');
+  }
 
   await fy.deleteOne();
   await audit(req, { action: 'financialYear.delete', entity: 'FinancialYear', entityId: fy._id, before: fy });

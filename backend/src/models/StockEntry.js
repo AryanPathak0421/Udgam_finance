@@ -12,6 +12,7 @@ const stockEntrySchema = new mongoose.Schema(
     stockBefore: Number,
     stockAfter: Number,
     purchaseRatePaise: Number,
+    sellAmountPaise: Number, // sale price per unit at time of stock entry
     entryDate: { type: Date, required: true },
     supplier: String,
     billNo: String,

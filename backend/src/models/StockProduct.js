@@ -11,7 +11,7 @@ const stockProductSchema = new mongoose.Schema(
     variant: { type: String, trim: true, default: '' },
     name: { type: String, required: true, trim: true }, // brand + model + variant, kept for lists and loans
     branch: { type: mongoose.Schema.Types.ObjectId, ref: 'Branch' },
-    unitPricePaise: { type: Number, required: true, min: 100 }, // sale price
+    unitPricePaise: { type: Number, default: 0, min: 0 }, // sale price (set via Stock Entry)
     stockQty: { type: Number, required: true, min: 0, default: 0 },
     isActive: { type: Boolean, default: true },
     isDeleted: { type: Boolean, default: false },

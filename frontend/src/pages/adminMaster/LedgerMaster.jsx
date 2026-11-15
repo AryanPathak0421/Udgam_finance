@@ -179,7 +179,9 @@ export default function LedgerMaster() {
 
   const closeDialog = () => setDialog(null);
   const hasFilters = q || groupFilter || typeFilter || status;
-  const t = data.totals;
+  const t = data?.totals || { debit: 0, credit: 0, difference: 0 };
+  const diffVal = Number(t.difference) || 0;
+  const isDiff = diffVal > 0.001;
 
   return (
     <>
@@ -190,15 +192,78 @@ export default function LedgerMaster() {
       />
 
       <section className="stat-grid" style={{ marginBottom: 16 }}>
-        <div className="stat-card"><div><div className="stat-label">Opening debit (Dr)</div><div className="stat-value">{formatINR(t.debit)}</div></div></div>
-        <div className="stat-card"><div><div className="stat-label">Opening credit (Cr)</div><div className="stat-value">{formatINR(t.credit)}</div></div></div>
-        <div className="stat-card">
+        <div className="stat-card" style={{ borderLeft: '4px solid #059669' }}>
           <div>
-            <div className="stat-label">Difference</div>
-            <div className="stat-value">{formatINR(Math.abs(t.difference))} {t.difference === 0 ? '' : t.difference > 0 ? 'Dr' : 'Cr'}</div>
+            <div className="stat-label">Opening Debit (Dr)</div>
+            <div className="stat-value" style={{ color: '#059669' }}>{formatINR(t.debit)}</div>
+          </div>
+        </div>
+        <div className="stat-card" style={{ borderLeft: '4px solid #2563eb' }}>
+          <div>
+            <div className="stat-label">Opening Credit (Cr)</div>
+            <div className="stat-value" style={{ color: '#2563eb' }}>{formatINR(t.credit)}</div>
+          </div>
+        </div>
+        <div
+          className="stat-card"
+          style={{
+            borderLeft: `4px solid ${isDiff ? '#dc2626' : '#16a34a'}`,
+            background: isDiff ? '#fff5f5' : 'inherit',
+          }}
+        >
+          <div>
+            <div className="stat-label" style={{ color: isDiff ? '#b91c1c' : undefined, fontWeight: 700 }}>
+              Opening Difference {isDiff ? `(${t.diffSide || (t.debit >= t.credit ? 'Dr' : 'Cr')})` : ''}
+            </div>
+            <div className="stat-value" style={{ color: isDiff ? '#dc2626' : '#16a34a', fontWeight: 800 }}>
+              {formatINR(diffVal)} {isDiff ? (t.diffSide || (t.debit >= t.credit ? 'Dr' : 'Cr')) : '✓ Balanced'}
+            </div>
           </div>
         </div>
       </section>
+
+      {/* Difference Alert Banner */}
+      {isDiff ? (
+        <div
+          style={{
+            padding: '10px 14px',
+            background: '#fee2e2',
+            border: '1px solid #f87171',
+            borderRadius: 8,
+            color: '#991b1b',
+            marginBottom: 16,
+            fontSize: '0.86rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 8,
+          }}
+        >
+          <div>
+            <strong>⚠️ Opening Balance Difference:</strong> Total Debit is <strong>{formatINR(t.debit)}</strong> and Total Credit is <strong>{formatINR(t.credit)}</strong>.
+            Difference is <strong style={{ textDecoration: 'underline' }}>{formatINR(diffVal)} {t.diffSide || (t.debit >= t.credit ? 'Dr' : 'Cr')}</strong>.
+          </div>
+          <span style={{ fontSize: '0.78rem', background: '#dc2626', color: '#fff', padding: '2px 8px', borderRadius: 4, fontWeight: 700 }}>
+            Difference: {formatINR(diffVal)}
+          </span>
+        </div>
+      ) : (
+        <div
+          style={{
+            padding: '8px 14px',
+            background: '#ecfdf5',
+            border: '1px solid #6ee7b7',
+            borderRadius: 8,
+            color: '#065f46',
+            marginBottom: 16,
+            fontSize: '0.85rem',
+            fontWeight: 600,
+          }}
+        >
+          ✓ Opening balances are perfectly balanced: Total Dr ({formatINR(t.debit)}) = Total Cr ({formatINR(t.credit)}). Difference is ₹0.00.
+        </div>
+      )}
 
       <div className="panel">
         <div className="toolbar">
@@ -265,6 +330,19 @@ export default function LedgerMaster() {
                     </tr>
                   ))}
                 </tbody>
+                <tfoot>
+                  <tr style={{ background: 'var(--surface-sunken, #f8fafc)', fontWeight: 700, borderTop: '2px solid var(--border)' }}>
+                    <td colSpan={4}><strong>Total Opening Balance:</strong></td>
+                    <td className="num" style={{ whiteSpace: 'nowrap' }}>
+                      <div style={{ color: '#059669', fontSize: '0.82rem' }}>Total Dr: {formatINR(t.debit)}</div>
+                      <div style={{ color: '#2563eb', fontSize: '0.82rem' }}>Total Cr: {formatINR(t.credit)}</div>
+                      <div style={{ color: isDiff ? '#dc2626' : '#16a34a', fontWeight: 800, marginTop: 2, fontSize: '0.84rem' }}>
+                        Diff: {formatINR(diffVal)} {isDiff ? (t.diffSide || (t.debit >= t.credit ? 'Dr' : 'Cr')) : '(Balanced)'}
+                      </div>
+                    </td>
+                    <td colSpan={2} />
+                  </tr>
+                </tfoot>
               </table>
             </div>
             <Pagination page={data.page || page} totalPages={data.totalPages} total={data.total} limit={LIMIT} onPage={setPage} />

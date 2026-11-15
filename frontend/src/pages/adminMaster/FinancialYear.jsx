@@ -217,9 +217,11 @@ export default function FinancialYear() {
                         {!fy.isActive && (
                           <button className="btn sm" onClick={() => setDialog({ type: 'activate', item: fy })}>Set active</button>
                         )}
-                        {!fy.isActive && (
+                        {!fy.isActive && new Date(fy.endDate) >= new Date() ? (
                           <button className="btn sm danger-outline" onClick={() => setDialog({ type: 'delete', item: fy })}>Delete</button>
-                        )}
+                        ) : !fy.isActive ? (
+                          <span className="badge grey" style={{ fontSize: '0.72rem', opacity: 0.8 }} title="Historical Financial Years cannot be deleted">Locked</span>
+                        ) : null}
                       </div>
                     </td>
                   </tr>

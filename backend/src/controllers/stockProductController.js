@@ -65,13 +65,25 @@ function read(req, v) {
   text('model', 'Model', { required: true });
   text('variant', 'Variant', { max: 60 });
   out.name = [out.brand, out.model, out.variant].filter(Boolean).join(' ');
-  const price = toMinor(b.unitPrice);
-  if (price === null || price < 100 || price > MAX_PRICE_PAISE) v.add('unitPrice', 'Enter the sale price per unit (₹1 or more, up to 2 decimals)');
-  else out.unitPricePaise = price;
+
+  // Sale price & quantity are set/managed via Stock Entry; optional in Product Master
+  if (b.unitPrice !== undefined && b.unitPrice !== '') {
+    const price = toMinor(b.unitPrice);
+    if (price === null || price < 0 || price > MAX_PRICE_PAISE) v.add('unitPrice', 'Enter a valid sale price per unit');
+    else out.unitPricePaise = price;
+  } else {
+    out.unitPricePaise = 0;
+  }
+
   const qty = b.stockQty === '' || b.stockQty === undefined ? 0 : Number(b.stockQty);
   if (!Number.isInteger(qty) || qty < 0 || qty > 1_000_000) v.add('stockQty', 'Enter the quantity as a whole number (0 or more)');
   else out.stockQty = qty;
-  out.branch = readBranch(req, v);
+
+  if (b.isActive !== undefined) {
+    out.isActive = Boolean(b.isActive);
+  }
+
+  out.branch = b.branch ? readBranch(req, v) : null;
   return out;
 }
 

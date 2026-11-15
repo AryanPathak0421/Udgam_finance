@@ -17,15 +17,12 @@ const branchText = (b) => (b ? `${b.code} — ${b.name}` : 'Head office');
 function ProductForm({ item, options, onClose, onSaved }) {
   const toast = useToast();
   const isEdit = Boolean(item);
-  const single = !options.headOffice && options.branches.length === 1 ? options.branches[0].id : '';
   const [form, setForm] = useState({
     category: item?.category || '',
     brand: item?.brand || '',
     model: item?.model || '',
     variant: item?.variant || '',
-    unitPrice: item ? String(item.unitPrice) : '',
-    stockQty: item ? String(item.stockQty) : '0',
-    branch: item ? item.branch?.id || '' : single,
+    isActive: item ? Boolean(item.isActive) : true,
   });
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
@@ -41,14 +38,17 @@ function ProductForm({ item, options, onClose, onSaved }) {
     if (!form.category.trim()) found.category = 'Category is required';
     if (!form.brand.trim()) found.brand = 'Brand is required';
     if (!form.model.trim()) found.model = 'Model is required';
-    if (!/^\d{1,9}(\.\d{1,2})?$/.test(form.unitPrice) || Number(form.unitPrice) < 1) found.unitPrice = 'Enter the sale price per unit';
-    if (!/^\d+$/.test(form.stockQty)) found.stockQty = 'Enter the quantity as a whole number';
-    if (!options.headOffice && !form.branch) found.branch = 'Select the branch';
     setErrors(found);
     if (Object.keys(found).length) return;
     setSaving(true);
     try {
-      const payload = { ...form, category: form.category.trim(), brand: form.brand.trim(), model: form.model.trim(), variant: form.variant.trim() };
+      const payload = {
+        category: form.category.trim(),
+        brand: form.brand.trim(),
+        model: form.model.trim(),
+        variant: form.variant.trim(),
+        isActive: form.isActive,
+      };
       if (isEdit) await api.stockProducts.update(item.id, payload);
       else await api.stockProducts.create(payload);
       toast.success(isEdit ? 'Product updated' : 'Product added');
@@ -78,12 +78,6 @@ function ProductForm({ item, options, onClose, onSaved }) {
         <FormField id="code" label="Product code" hint="Generated automatically">
           <input id="code" value={item?.code || 'Auto'} disabled />
         </FormField>
-        <FormField id="branch" label="Branch" required={!options.headOffice} error={errors.branch} hint={options.headOffice ? 'Head office is the admin stock that branches order from' : undefined}>
-          <select id="branch" value={form.branch} onChange={set('branch')} disabled={!options.headOffice && options.branches.length === 1}>
-            {options.headOffice ? <option value="">Head office</option> : <option value="">Select branch</option>}
-            {options.branches.map((b) => <option key={b.id} value={b.id}>{b.code} — {b.name}</option>)}
-          </select>
-        </FormField>
         <FormField id="category" label="Product category" required error={errors.category} hint="e.g. Electronics, Furniture">
           <input id="category" list="stock-categories" value={form.category} onChange={set('category')} maxLength={60} autoFocus />
           <datalist id="stock-categories">{options.categories.map((c) => <option key={c} value={c} />)}</datalist>
@@ -97,11 +91,11 @@ function ProductForm({ item, options, onClose, onSaved }) {
         <FormField id="variant" label="Product variant" error={errors.variant} hint="Optional, e.g. 6GB / 128GB, Black">
           <input id="variant" value={form.variant} onChange={set('variant')} maxLength={60} />
         </FormField>
-        <FormField id="unitPrice" label="Product sale price (₹)" required error={errors.unitPrice}>
-          <input id="unitPrice" inputMode="decimal" value={form.unitPrice} onChange={(e) => { setForm((f) => ({ ...f, unitPrice: e.target.value.replace(/[^\d.]/g, '') })); setErrors((er) => ({ ...er, unitPrice: undefined })); }} />
-        </FormField>
-        <FormField id="stockQty" label="Quantity" required error={errors.stockQty}>
-          <input id="stockQty" inputMode="numeric" value={form.stockQty} onChange={(e) => { setForm((f) => ({ ...f, stockQty: e.target.value.replace(/\D/g, '') })); setErrors((er) => ({ ...er, stockQty: undefined })); }} />
+        <FormField id="status" label="Product status">
+          <select id="status" value={form.isActive ? 'active' : 'inactive'} onChange={(e) => setForm((f) => ({ ...f, isActive: e.target.value === 'active' }))}>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </select>
         </FormField>
       </form>
     </Modal>

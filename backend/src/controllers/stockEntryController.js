@@ -30,9 +30,23 @@ function placeFilter(req, field = 'branch') {
 }
 
 const present = (e) => ({
-  id: e._id, code: e.code, product: { id: e.product, code: e.productCode, name: e.productName }, place: branchLabel(e.branch), quantity: e.quantity, stockBefore: e.stockBefore, stockAfter: e.stockAfter,
-  purchaseRate: e.purchaseRatePaise ? rupees(e.purchaseRatePaise) : null, amount: e.purchaseRatePaise ? rupees(e.purchaseRatePaise * e.quantity) : null, entryDate: iso(e.entryDate), supplier: e.supplier || '', billNo: e.billNo || '', remark: e.remark || '',
-  status: e.status, cancelReason: e.cancelReason || '', by: e.byCode || '',
+  id: e._id,
+  code: e.code,
+  product: { id: e.product, code: e.productCode, name: e.productName },
+  place: branchLabel(e.branch),
+  quantity: e.quantity,
+  stockBefore: e.stockBefore,
+  stockAfter: e.stockAfter,
+  purchaseRate: e.purchaseRatePaise ? rupees(e.purchaseRatePaise) : null,
+  sellAmount: e.sellAmountPaise ? rupees(e.sellAmountPaise) : null,
+  amount: e.purchaseRatePaise ? rupees(e.purchaseRatePaise * e.quantity) : null,
+  entryDate: iso(e.entryDate),
+  supplier: e.supplier || '',
+  billNo: e.billNo || '',
+  remark: e.remark || '',
+  status: e.status,
+  cancelReason: e.cancelReason || '',
+  by: e.byCode || '',
 });
 
 export async function listEntries(req, res) {
@@ -49,34 +63,123 @@ export async function listEntries(req, res) {
 
 /** Products an entry can be made for (active ones of the user's places). */
 export async function entryProducts(req, res) {
-  const rows = await StockProduct.find({ isDeleted: false, isActive: true, ...scopeOf(req.user) }).sort({ name: 1 }).limit(3000).populate(POP).lean();
-  res.json({ items: rows.map((p) => ({ id: p._id, code: p.code, name: p.name, category: p.category, place: branchLabel(p.branch), stockQty: p.stockQty, unitPrice: rupees(p.unitPricePaise) })) });
+  const rows = await StockProduct.find({ isDeleted: false, isActive: true, ...scopeOf(req.user) })
+    .sort({ category: 1, brand: 1, model: 1 })
+    .limit(3000)
+    .populate(POP)
+    .lean();
+  res.json({
+    items: rows.map((p) => ({
+      id: p._id,
+      code: p.code,
+      name: p.name,
+      category: p.category || '',
+      brand: p.brand || '',
+      model: p.model || '',
+      variant: p.variant || '',
+      place: branchLabel(p.branch),
+      branch: p.branch?._id ? String(p.branch._id) : (p.branch ? String(p.branch) : null),
+      stockQty: p.stockQty || 0,
+      unitPrice: rupees(p.unitPricePaise),
+    })),
+  });
 }
 
 export async function createEntry(req, res) {
   const b = req.body || {};
   if (!oid(b.product)) throw invalid({ product: 'Select the product' });
-  const p = await StockProduct.findOne({ _id: b.product, isDeleted: false, ...scopeOf(req.user) }).populate(POP);
+
+  // Look up master product
+  let p = await StockProduct.findOne({ _id: b.product, isDeleted: false });
   if (!p) throw invalid({ product: 'Product not found' });
+
   const quantity = Number(b.quantity);
-  if (!Number.isInteger(quantity) || quantity < 1 || quantity > 100000) throw invalid({ quantity: 'Enter the number of units received (1 to 100000)' });
+  if (!Number.isInteger(quantity) || quantity < 1 || quantity > 100000) {
+    throw invalid({ quantity: 'Enter the number of units received (1 to 100000)' });
+  }
+
   const entryDate = b.entryDate ? parseDateOnly(asString(b.entryDate)) : startOfToday();
   if (!entryDate) throw invalid({ entryDate: 'Enter a valid date' });
   if (entryDate > startOfToday()) throw invalid({ entryDate: 'The date cannot be in the future' });
-  if (!isAdmin(req.user) && startOfToday().getTime() - entryDate.getTime() > 30 * 24 * 3600 * 1000) throw invalid({ entryDate: 'The date cannot be older than 30 days' });
+  if (!isAdmin(req.user) && startOfToday().getTime() - entryDate.getTime() > 30 * 24 * 3600 * 1000) {
+    throw invalid({ entryDate: 'The date cannot be older than 30 days' });
+  }
+
   let rate;
   if (asString(b.purchaseRate) !== '') {
     rate = toMinor(typeof b.purchaseRate === 'number' ? String(b.purchaseRate) : asString(b.purchaseRate));
-    if (rate === null || rate < 0) throw invalid({ purchaseRate: 'Enter the purchase rate per unit (₹, up to 2 decimals)' });
+    if (rate === null || rate < 0) throw invalid({ purchaseRate: 'Enter a valid purchase rate (₹, up to 2 decimals)' });
   }
-  // the units are added in one step, so two entries at the same time never lose one
-  const after = await StockProduct.findOneAndUpdate({ _id: p._id }, { $inc: { stockQty: quantity } }, { new: true });
+
+  let sellRate;
+  if (asString(b.sellAmount) !== '') {
+    sellRate = toMinor(typeof b.sellAmount === 'number' ? String(b.sellAmount) : asString(b.sellAmount));
+    if (sellRate === null || sellRate < 0) throw invalid({ sellAmount: 'Enter a valid sell amount / sale price (₹, up to 2 decimals)' });
+  }
+
+  // Branch handling: if a specific branch is specified, ensure product exists for that branch
+  const targetBranch = b.branch !== undefined && b.branch !== '' ? (b.branch === 'ho' ? null : b.branch) : (p.branch?._id || p.branch || null);
+  if (targetBranch && (!p.branch || String(p.branch._id || p.branch) !== String(targetBranch))) {
+    let branchProduct = await StockProduct.findOne({
+      branch: targetBranch,
+      category: p.category,
+      brand: p.brand,
+      model: p.model,
+      variant: p.variant || '',
+      isDeleted: false,
+    });
+    if (!branchProduct) {
+      branchProduct = await StockProduct.create({
+        code: await generateCode('stockProduct'),
+        category: p.category,
+        brand: p.brand,
+        model: p.model,
+        variant: p.variant || '',
+        name: p.name,
+        branch: targetBranch,
+        unitPricePaise: sellRate !== undefined ? sellRate : (p.unitPricePaise || 0),
+        stockQty: 0,
+        isActive: true,
+        createdBy: req.user._id,
+        updatedBy: req.user._id,
+      });
+    }
+    p = branchProduct;
+  }
+
+  // Update stock quantity and sell price (Sell amount)
+  const updateFields = { $inc: { stockQty: quantity } };
+  if (sellRate !== undefined) {
+    updateFields.$set = { unitPricePaise: sellRate };
+  }
+  const after = await StockProduct.findOneAndUpdate({ _id: p._id }, updateFields, { new: true });
+
   const e = await StockEntry.create({
-    code: await generateCode('stockEntry'), product: p._id, productCode: p.code, productName: p.name, branch: p.branch?._id || null, quantity, stockBefore: after.stockQty - quantity, stockAfter: after.stockQty, purchaseRatePaise: rate,
-    entryDate, supplier: asString(b.supplier).slice(0, 80), billNo: asString(b.billNo).slice(0, 40), remark: asString(b.remark).slice(0, 200), byCode: req.user.employeeCode || '', createdBy: req.user._id,
+    code: await generateCode('stockEntry'),
+    product: p._id,
+    productCode: p.code,
+    productName: p.name,
+    branch: p.branch?._id || p.branch || null,
+    quantity,
+    stockBefore: after.stockQty - quantity,
+    stockAfter: after.stockQty,
+    purchaseRatePaise: rate,
+    sellAmountPaise: sellRate !== undefined ? sellRate : (after.unitPricePaise || null),
+    entryDate,
+    supplier: asString(b.supplier).slice(0, 80),
+    billNo: asString(b.billNo).slice(0, 40),
+    remark: asString(b.remark).slice(0, 200),
+    byCode: req.user.employeeCode || '',
+    createdBy: req.user._id,
   });
+
   await e.populate(POP);
-  await audit(req, { action: 'stockEntry.create', entity: 'StockEntry', entityId: e._id, after: { code: e.code, product: p.code, quantity, stockAfter: after.stockQty } });
+  await audit(req, {
+    action: 'stockEntry.create',
+    entity: 'StockEntry',
+    entityId: e._id,
+    after: { code: e.code, product: p.code, quantity, stockAfter: after.stockQty },
+  });
   res.status(201).json({ item: present(e) });
 }
 

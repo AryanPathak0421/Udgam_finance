@@ -77,17 +77,44 @@ export async function listLedgers(req, res) {
   if (req.query.status === 'active') filter.isActive = true;
   if (req.query.status === 'inactive') filter.isActive = false;
 
+  const matchFilter = { isDeleted: false };
+  if (q) matchFilter.name = { $regex: escapeRegex(q), $options: 'i' };
+  if (mongoose.isValidObjectId(req.query.group)) {
+    const gIds = [req.query.group, ...tree.descendantIds(req.query.group)].filter((id) => mongoose.isValidObjectId(String(id)));
+    matchFilter.group = { $in: gIds.map((id) => new mongoose.Types.ObjectId(String(id))) };
+  }
+  if (BALANCE_TYPES.includes(req.query.type)) matchFilter.type = req.query.type;
+  if (req.query.status === 'active') matchFilter.isActive = true;
+  if (req.query.status === 'inactive') matchFilter.isActive = false;
+
   const [items, total, sums] = await Promise.all([
     Ledger.find(filter).sort({ name: 1 }).collation({ locale: 'en', strength: 2 }).skip(skip).limit(limit),
     Ledger.countDocuments(filter),
     Ledger.aggregate([
-      { $match: { ...filter, group: filter.group ? { $in: filter.group.$in.map((i) => new mongoose.Types.ObjectId(String(i))) } : { $exists: true } } },
-      { $group: { _id: '$type', paise: { $sum: '$openingAmountPaise' } } },
+      { $match: matchFilter },
+      {
+        $group: {
+          _id: '$type',
+          paise: {
+            $sum: {
+              $ifNull: [
+                '$openingAmountPaise',
+                { $multiply: [{ $ifNull: ['$openingAmount', 0] }, 100] },
+                0,
+              ],
+            },
+          },
+        },
+      },
     ]),
   ]);
 
-  const dr = sums.find((s) => s._id === 'debit')?.paise || 0;
-  const cr = sums.find((s) => s._id === 'credit')?.paise || 0;
+  const dr = (sums.find((s) => s._id === 'debit')?.paise || 0) / 100;
+  const cr = (sums.find((s) => s._id === 'credit')?.paise || 0) / 100;
+  const diff = Math.round((dr - cr) * 100) / 100;
+  const absDiff = Math.abs(diff);
+  const diffSide = absDiff < 0.001 ? 'Balanced' : diff > 0 ? 'Dr' : 'Cr';
+
   res.json({
     items: items.map((l) => present(l, tree)),
     page,
@@ -95,7 +122,14 @@ export async function listLedgers(req, res) {
     total,
     totalPages: Math.max(Math.ceil(total / limit), 1),
     // Totals over the whole filtered set (not just this page).
-    totals: { debit: dr / 100, credit: cr / 100, difference: (dr - cr) / 100 },
+    totals: {
+      debit: dr,
+      credit: cr,
+      difference: absDiff,
+      rawDifference: diff,
+      diffSide,
+      isBalanced: absDiff < 0.001,
+    },
   });
 }
 

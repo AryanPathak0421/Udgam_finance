@@ -44,19 +44,104 @@ export function StockEntry() {
   const list = useLoad(() => api.stockEntries.list({ branch: place, from, to, q }), [place, from, to, q]);
   const [adding, setAdding] = useState(false);
   const [products, setProducts] = useState([]);
+  const [branches, setBranches] = useState([]);
   const [f, setF] = useState({});
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
   const [cancelling, setCancelling] = useState(null);
   const [reason, setReason] = useState('');
   const [reasonError, setReasonError] = useState('');
-  const set = (k) => (e) => { setF((x) => ({ ...x, [k]: e.target.value })); setErrors((x) => ({ ...x, [k]: undefined })); };
+
+  useEffect(() => {
+    api.groups.branchOptions().then((r) => setBranches(r.items || [])).catch(() => {});
+  }, []);
+
+  const set = (k) => (e) => {
+    setF((x) => ({ ...x, [k]: e.target.value }));
+    setErrors((x) => ({ ...x, [k]: undefined }));
+  };
+
   async function openAdd() {
-    setF({ product: '', quantity: '', entryDate: today(), purchaseRate: '', supplier: '', billNo: '', remark: '' });
+    setF({
+      branch: place === 'ho' ? '' : place || '',
+      category: '',
+      model: '',
+      variant: '',
+      product: '',
+      quantity: '',
+      entryDate: today(),
+      purchaseRate: '',
+      sellAmount: '',
+      supplier: '',
+      billNo: '',
+      remark: '',
+    });
     setErrors({});
     setAdding(true);
-    try { setProducts((await api.stockEntries.products()).items); } catch (err) { toast.error(err.message); }
+    try {
+      const res = await api.stockEntries.products();
+      setProducts(res.items || []);
+    } catch (err) {
+      toast.error(err.message);
+    }
   }
+
+  // Dropdown lists derived from loaded products
+  const categories = [...new Set(products.map((p) => p.category).filter(Boolean))].sort();
+
+  const availableProductsByCategory = f.category
+    ? products.filter((p) => p.category === f.category)
+    : products;
+
+  const models = [...new Set(availableProductsByCategory.map((p) => p.model || p.name).filter(Boolean))].sort();
+
+  const availableVariants = availableProductsByCategory
+    .filter((p) => !f.model || (p.model || p.name) === f.model)
+    .map((p) => ({
+      id: p.id,
+      label: p.variant ? `${p.variant} (${p.code})` : `Standard / Base (${p.code})`,
+      variant: p.variant || '',
+      code: p.code,
+      name: p.name,
+      unitPrice: p.unitPrice,
+      stockQty: p.stockQty,
+    }));
+
+  const onCategoryChange = (e) => {
+    const cat = e.target.value;
+    setF((prev) => ({
+      ...prev,
+      category: cat,
+      model: '',
+      variant: '',
+      product: '',
+    }));
+  };
+
+  const onModelChange = (e) => {
+    const mod = e.target.value;
+    const matching = availableProductsByCategory.filter((p) => (p.model || p.name) === mod);
+    const autoProduct = matching.length === 1 ? matching[0] : null;
+    setF((prev) => ({
+      ...prev,
+      model: mod,
+      variant: autoProduct ? (autoProduct.variant || '') : '',
+      product: autoProduct ? autoProduct.id : '',
+      sellAmount: autoProduct && autoProduct.unitPrice > 0 ? String(autoProduct.unitPrice) : prev.sellAmount,
+    }));
+  };
+
+  const onVariantChange = (e) => {
+    const prodId = e.target.value;
+    const prod = products.find((p) => p.id === prodId);
+    setF((prev) => ({
+      ...prev,
+      product: prodId,
+      variant: prod ? (prod.variant || '') : '',
+      sellAmount: prod && prod.unitPrice > 0 ? String(prod.unitPrice) : prev.sellAmount,
+    }));
+  };
+
   async function save() {
     setBusy(true);
     setErrors({});
@@ -65,13 +150,30 @@ export function StockEntry() {
       toast.success(`${r.item.code}: ${r.item.quantity} unit${r.item.quantity === 1 ? '' : 's'} added — stock is now ${r.item.stockAfter}`);
       setAdding(false);
       list.load();
-    } catch (err) { setErrors(err.errors || {}); toast.error(err.message); } finally { setBusy(false); }
+    } catch (err) {
+      setErrors(err.errors || {});
+      toast.error(err.message);
+    } finally {
+      setBusy(false);
+    }
   }
+
   async function cancel() {
     setBusy(true);
     setReasonError('');
-    try { await api.stockEntries.cancel(cancelling.id, reason); toast.success('Entry cancelled, the units are taken out of the stock'); setCancelling(null); setReason(''); list.load(); } catch (err) { setReasonError(err.errors?.reason || err.message); } finally { setBusy(false); }
+    try {
+      await api.stockEntries.cancel(cancelling.id, reason);
+      toast.success('Entry cancelled, the units are taken out of the stock');
+      setCancelling(null);
+      setReason('');
+      list.load();
+    } catch (err) {
+      setReasonError(err.errors?.reason || err.message);
+    } finally {
+      setBusy(false);
+    }
   }
+
   const items = list.data?.items || [];
   const chosen = products.find((p) => p.id === f.product);
   return (
@@ -90,16 +192,52 @@ export function StockEntry() {
             <Summary items={[['Entries', list.data.summary.entries], ['Units received', list.data.summary.units], ['Bill amount', inr(list.data.summary.amount)]]} />
             <div className="table-wrap">
               <table className="data-table">
-                <thead><tr><th>Entry</th><th>Date</th><th>Product</th><th>Held at</th><th className="num">Quantity</th><th className="num">Stock before → after</th><th>Bill</th><th>Status</th>{isAdmin && <th />}</tr></thead>
+                <thead>
+                  <tr>
+                    <th>Entry</th>
+                    <th>Date</th>
+                    <th>Product</th>
+                    <th>Branch / Held at</th>
+                    <th className="num">Quantity</th>
+                    <th className="num">Purchase Amount</th>
+                    <th className="num">Sell Amount</th>
+                    <th>Supplier / Bill</th>
+                    <th>Status</th>
+                    {isAdmin && <th />}
+                  </tr>
+                </thead>
                 <tbody>
                   {items.map((e) => (
                     <tr key={e.id}>
-                      <td data-label="Entry"><strong>{e.code}</strong><div className="muted small">{e.by}</div></td><td data-label="Date">{dmy(e.entryDate)}</td>
-                      <td data-label="Product">{e.product.name}<div className="muted small">{e.product.code}</div></td><td data-label="Held at">{e.place}</td><td data-label="Quantity" className="num"><strong>{e.quantity}</strong></td>
-                      <td data-label="Stock" className="num">{e.stockBefore} → {e.stockAfter}</td>
-                      <td data-label="Bill">{e.supplier || '—'}{e.billNo && <div className="muted small">Bill {e.billNo}</div>}{e.amount !== null && <div className="muted small">{inr(e.purchaseRate)} × {e.quantity} = {inr(e.amount)}</div>}</td>
-                      <td data-label="Status"><span className={`badge ${e.status === 'active' ? 'green' : 'grey'}`}>{e.status === 'active' ? 'Received' : 'Cancelled'}</span>{e.cancelReason && <div className="muted small">{e.cancelReason}</div>}</td>
-                      {isAdmin && <td>{e.status === 'active' && <button className="btn sm danger-outline" onClick={() => { setCancelling(e); setReason(''); setReasonError(''); }}>Cancel</button>}</td>}
+                      <td data-label="Entry"><strong>{e.code}</strong><div className="muted small">{e.by}</div></td>
+                      <td data-label="Date">{dmy(e.entryDate)}</td>
+                      <td data-label="Product">
+                        <strong>{e.product.name}</strong>
+                        <div className="muted small">{e.product.code}</div>
+                      </td>
+                      <td data-label="Held at">{e.place}</td>
+                      <td data-label="Quantity" className="num"><strong>{e.quantity}</strong></td>
+                      <td data-label="Purchase Amount" className="num">{e.purchaseRate ? inr(e.purchaseRate) : '—'}</td>
+                      <td data-label="Sell Amount" className="num">{e.sellAmount ? inr(e.sellAmount) : '—'}</td>
+                      <td data-label="Bill">
+                        {e.supplier || '—'}
+                        {e.billNo && <div className="muted small">Bill: {e.billNo}</div>}
+                      </td>
+                      <td data-label="Status">
+                        <span className={`badge ${e.status === 'active' ? 'green' : 'grey'}`}>
+                          {e.status === 'active' ? 'Received' : 'Cancelled'}
+                        </span>
+                        {e.cancelReason && <div className="muted small">{e.cancelReason}</div>}
+                      </td>
+                      {isAdmin && (
+                        <td>
+                          {e.status === 'active' && (
+                            <button className="btn sm danger-outline" onClick={() => { setCancelling(e); setReason(''); setReasonError(''); }}>
+                              Cancel
+                            </button>
+                          )}
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -112,15 +250,80 @@ export function StockEntry() {
         <Modal open title="New product stock entry" onClose={() => setAdding(false)} busy={busy}
           footer={<><button className="btn" onClick={() => setAdding(false)} disabled={busy}>Close</button><button className="btn primary" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Add to stock'}</button></>}>
           <div className="form-grid">
-            <FormField id="sep" label="Product" required className="span-2" error={errors.product}>
-              <select id="sep" value={f.product} onChange={set('product')}><option value="">Select</option>{products.map((p) => <option key={p.id} value={p.id}>{p.code} — {p.name} · {p.place} · stock {p.stockQty}</option>)}</select>
+            {/* 1. Branch Select */}
+            <FormField id="se_branch" label="Branch" required error={errors.branch}>
+              <select id="se_branch" value={f.branch} onChange={set('branch')}>
+                <option value="">Head office (Main / Admin stock)</option>
+                {branches.map((b) => (
+                  <option key={b.id} value={b.id}>{b.code} — {b.name}</option>
+                ))}
+              </select>
             </FormField>
-            <FormField id="seq" label="Quantity received" required error={errors.quantity} hint={chosen ? `Now in stock: ${chosen.stockQty}` : undefined}><input id="seq" inputMode="numeric" value={f.quantity} onChange={(e) => { setF((x) => ({ ...x, quantity: e.target.value.replace(/\D/g, '').slice(0, 6) })); setErrors((x) => ({ ...x, quantity: undefined })); }} /></FormField>
-            <FormField id="sed" label="Date received" error={errors.entryDate}><input id="sed" type="date" max={today()} value={f.entryDate} onChange={set('entryDate')} /></FormField>
-            <FormField id="ser" label="Purchase rate per unit (₹)" hint="Optional" error={errors.purchaseRate}><input id="ser" inputMode="decimal" value={f.purchaseRate} onChange={(e) => { setF((x) => ({ ...x, purchaseRate: e.target.value.replace(/[^\d.]/g, '') })); setErrors((x) => ({ ...x, purchaseRate: undefined })); }} /></FormField>
-            <FormField id="ses" label="Supplier" error={errors.supplier}><input id="ses" value={f.supplier} maxLength={80} onChange={set('supplier')} /></FormField>
-            <FormField id="seb" label="Bill / challan no." error={errors.billNo}><input id="seb" value={f.billNo} maxLength={40} onChange={set('billNo')} /></FormField>
-            <FormField id="sek" label="Remark" className="span-2"><input id="sek" value={f.remark} maxLength={200} onChange={set('remark')} /></FormField>
+
+            {/* 2. Product Category - dropdown */}
+            <FormField id="se_cat" label="Product Category" required error={errors.category}>
+              <select id="se_cat" value={f.category} onChange={onCategoryChange}>
+                <option value="">Select Category</option>
+                {categories.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </FormField>
+
+            {/* 3. Model - dropdown */}
+            <FormField id="se_mod" label="Model" required error={errors.model}>
+              <select id="se_mod" value={f.model} onChange={onModelChange} disabled={!f.category && models.length === 0}>
+                <option value="">Select Model</option>
+                {models.map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+            </FormField>
+
+            {/* 4. Variant - dropdown */}
+            <FormField id="se_var" label="Variant" required error={errors.product}>
+              <select id="se_var" value={f.product} onChange={onVariantChange} disabled={availableVariants.length === 0}>
+                <option value="">Select Variant / Product</option>
+                {availableVariants.map((v) => (
+                  <option key={v.id} value={v.id}>{v.label}</option>
+                ))}
+              </select>
+            </FormField>
+
+            {/* 5. Date Receive */}
+            <FormField id="sed" label="Date Received" required error={errors.entryDate}>
+              <input id="sed" type="date" max={today()} value={f.entryDate} onChange={set('entryDate')} />
+            </FormField>
+
+            {/* 6. Quantity */}
+            <FormField id="seq" label="Quantity Received" required error={errors.quantity} hint={chosen ? `Current stock: ${chosen.stockQty}` : undefined}>
+              <input id="seq" inputMode="numeric" value={f.quantity} onChange={(e) => { setF((x) => ({ ...x, quantity: e.target.value.replace(/\D/g, '').slice(0, 6) })); setErrors((x) => ({ ...x, quantity: undefined })); }} />
+            </FormField>
+
+            {/* 7. Purchase Amount (Rate) */}
+            <FormField id="ser" label="Purchase Amount (₹)" hint="Cost per unit" error={errors.purchaseRate}>
+              <input id="ser" inputMode="decimal" value={f.purchaseRate} onChange={(e) => { setF((x) => ({ ...x, purchaseRate: e.target.value.replace(/[^\d.]/g, '') })); setErrors((x) => ({ ...x, purchaseRate: undefined })); }} />
+            </FormField>
+
+            {/* 8. Sell Amount (Sale Price) */}
+            <FormField id="sesell" label="Sell Amount (₹)" hint="Sale price for loans" error={errors.sellAmount}>
+              <input id="sesell" inputMode="decimal" value={f.sellAmount} onChange={(e) => { setF((x) => ({ ...x, sellAmount: e.target.value.replace(/[^\d.]/g, '') })); setErrors((x) => ({ ...x, sellAmount: undefined })); }} />
+            </FormField>
+
+            {/* 9. Supplier */}
+            <FormField id="ses" label="Supplier" error={errors.supplier}>
+              <input id="ses" value={f.supplier} maxLength={80} onChange={set('supplier')} placeholder="Supplier / Vendor name" />
+            </FormField>
+
+            {/* 10. Bill / Challan No. */}
+            <FormField id="seb" label="Bill / Challan No." error={errors.billNo}>
+              <input id="seb" value={f.billNo} maxLength={40} onChange={set('billNo')} placeholder="e.g. INV-1049" />
+            </FormField>
+
+            {/* 11. Remark */}
+            <FormField id="sek" label="Remark" className="span-2">
+              <input id="sek" value={f.remark} maxLength={200} onChange={set('remark')} placeholder="Optional note" />
+            </FormField>
           </div>
         </Modal>
       )}
