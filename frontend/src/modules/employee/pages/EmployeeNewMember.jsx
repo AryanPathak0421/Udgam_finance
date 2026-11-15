@@ -55,15 +55,17 @@ const EMPTY_FORM = {
   area: '',
   aadhaar: '',
   pan: '',
+  voterId: '',
   bankName: '',
   ifsc: '',
   accountNumber: '',
-  // 5 KYC Document Photos
+  // 6 KYC Document Photos
   memberPhoto: '',
   signaturePhoto: '',
   aadhaarPhoto: '',
   aadhaarBackPhoto: '',
   panPhoto: '',
+  voterPhoto: '',
 };
 
 // Reusable Document / Photo Upload Field with In-App Live Camera Modal (Point 5 fix: prevents WebView crash)
@@ -1480,6 +1482,22 @@ export default function EmployeeNewMember() {
                     )}
                   </div>
 
+                  {/* Voter ID */}
+                  <div>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>
+                      Voter ID Number <span style={{ color: '#64748b', fontSize: '0.75rem' }}>(Optional)</span>
+                    </label>
+                    <input
+                      className="emp-input"
+                      placeholder="ABC1234567"
+                      maxLength={20}
+                      value={form.voterId}
+                      onChange={setUpper('voterId', 20)}
+                      style={{ borderColor: errors.voterId ? '#ef4444' : undefined }}
+                    />
+                    {errors.voterId && <span style={{ fontSize: '0.72rem', color: '#ef4444' }}>{errors.voterId}</span>}
+                  </div>
+
                   {/* IFSC Code */}
                   <div>
                     <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>
@@ -1615,11 +1633,21 @@ export default function EmployeeNewMember() {
                   {/* PAN Photo */}
                   <EmpPhotoField
                     id="panPhoto"
-                    label="Member PAN Card Photo (O)"
+                    label="Member PAN Card Photo (Optional)"
                     required={false}
                     value={form.panPhoto}
                     error={errors.panPhoto}
                     onChange={setPhoto('panPhoto')}
+                  />
+
+                  {/* Voter ID Photo */}
+                  <EmpPhotoField
+                    id="voterPhoto"
+                    label="Member Voter ID Photo (Optional)"
+                    required={false}
+                    value={form.voterPhoto}
+                    error={errors.voterPhoto}
+                    onChange={setPhoto('voterPhoto')}
                   />
                 </div>
               </div>

@@ -68,8 +68,8 @@ export function verhoeff(num) {
 
 // ---- helpers ---------------------------------------------------------------------------------
 const MANAGERS = ['super_admin', 'admin', 'branch_manager'];
-const HISTORY_PHOTOS = ['photo', 'signature', 'aadhaarPhoto', 'aadhaarBackPhoto', 'panPhoto', 'jointPhoto'].map((f) => `+guarantorHistory.${f}`).join(' ');
-const PARTY_PHOTOS = ['guarantor', 'nominee'].flatMap((k) => ['photo', 'signature', 'aadhaarPhoto', 'aadhaarBackPhoto', 'panPhoto', 'jointPhoto'].map((f) => `+${k}.${f}`)).join(' ');
+const HISTORY_PHOTOS = ['photo', 'signature', 'aadhaarPhoto', 'aadhaarBackPhoto', 'panPhoto', 'voterPhoto', 'jointPhoto'].map((f) => `+guarantorHistory.${f}`).join(' ');
+const PARTY_PHOTOS = ['guarantor', 'nominee'].flatMap((k) => ['photo', 'signature', 'aadhaarPhoto', 'aadhaarBackPhoto', 'panPhoto', 'voterPhoto', 'jointPhoto'].map((f) => `+${k}.${f}`)).join(' ');
 const maskAadhaar = (a) => (a ? `XXXXXXXX${a.slice(-4)}` : '');
 const maskPan = (p) => (p ? `${p.slice(0, 2)}XXXXX${p.slice(-3)}` : '');
 const dateOnly = (d) => (d ? d.toISOString().slice(0, 10) : null);
@@ -122,6 +122,8 @@ const present = (m, user, { detail = false } = {}) => {
       aadhaarPhoto: m.aadhaarPhoto || null,
       aadhaarBackPhoto: m.aadhaarBackPhoto || null,
       panPhoto: m.panPhoto || null,
+      voterId: m.voterId || '',
+      voterPhoto: m.voterPhoto || null,
       memberPhoto: m.memberPhoto || null,
       signaturePhoto: m.signaturePhoto || null,
       guarantor: presentPerson(m.guarantor, full),
@@ -165,6 +167,8 @@ const presentPerson = (p, full) =>
         aadhaarPhoto: p.aadhaarPhoto || null,
         aadhaarBackPhoto: p.aadhaarBackPhoto || null,
         panPhoto: p.panPhoto || null,
+        voterId: p.voterId || '',
+        voterPhoto: p.voterPhoto || null,
         jointPhoto: p.jointPhoto || null,
         sameAsGuarantor: Boolean(p.sameAsGuarantor),
         employeeCode: p.employeeCode || '',
@@ -562,6 +566,7 @@ function readMemberFields(b, v) {
     const pc = checkPanFormat(d.pan, d.name);
     if (!pc.ok) v.add('pan', pc.message);
   }
+  d.voterId = asString(b.voterId).toUpperCase().slice(0, 20);
 
   d.bankName = asString(b.bankName);
   if (d.bankName.length < 2 || d.bankName.length > 80) v.add('bankName', 'Enter the bank name');
@@ -599,6 +604,7 @@ export async function createMember(req, res) {
   d.aadhaarBackPhoto = readImage(b.aadhaarBackPhoto, 'aadhaarBackPhoto', 'Aadhaar back photo', v, { required: true });
   d.signaturePhoto = readImage(b.signaturePhoto, 'signaturePhoto', 'Signature photo', v, { required: true });
   d.panPhoto = readImage(b.panPhoto, 'panPhoto', 'PAN photo', v, { required: Boolean(d.pan) });
+  d.voterPhoto = readImage(b.voterPhoto, 'voterPhoto', 'Voter photo', v, { required: false });
   v.throwIfAny();
 
   // A mobile number belongs to one member only.
@@ -670,7 +676,7 @@ export async function createMember(req, res) {
       accountVerifiedAt: acctCheck.status === 'verified' ? new Date() : undefined,
       employeeCode,
       ...(fromApp ? { joiningApproval: { source: 'app', status: 'pending' } } : {}),
-      kycKeys: ['memberPhoto', 'signaturePhoto', 'aadhaarPhoto', 'aadhaarBackPhoto', ...(d.panPhoto ? ['panPhoto'] : [])],
+      kycKeys: ['memberPhoto', 'signaturePhoto', 'aadhaarPhoto', 'aadhaarBackPhoto', ...(d.panPhoto ? ['panPhoto'] : []), ...(d.voterPhoto ? ['voterPhoto'] : [])],
       createdBy: req.user._id,
       updatedBy: req.user._id,
     });
@@ -761,7 +767,7 @@ export async function listMembers(req, res) {
 export async function getMember(req, res) {
   if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Member not found');
   const m = await Member.findOne({ _id: req.params.id, isDeleted: false, ...branchFilter(req.user) })
-    .select('+aadhaarPhoto +aadhaarBackPhoto +panPhoto +memberPhoto +signaturePhoto')
+    .select('+aadhaarPhoto +aadhaarBackPhoto +panPhoto +voterPhoto +memberPhoto +signaturePhoto')
     .select(PARTY_PHOTOS)
     .select(HISTORY_PHOTOS)
     .populate(POPULATE);
@@ -771,7 +777,7 @@ export async function getMember(req, res) {
 
 // ---- guarantor / nominee -----------------------------------------------------------------------
 // Both use the same fields. The phone number's OTP verification is optional.
-const PARTY_FIELDS = ['photo', 'signature', 'aadhaarPhoto', 'aadhaarBackPhoto', 'panPhoto', 'jointPhoto'];
+const PARTY_FIELDS = ['photo', 'signature', 'aadhaarPhoto', 'aadhaarBackPhoto', 'panPhoto', 'voterPhoto', 'jointPhoto'];
 
 async function loadMemberFor(req, { photos = false } = {}) {
   if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Member not found');
@@ -808,6 +814,7 @@ async function readPerson(req, kind, m, existing) {
   d.aadhaarPhoto = readImage(b.aadhaarPhoto, 'aadhaarPhoto', 'Aadhaar front photo', v, { required: true });
   d.aadhaarBackPhoto = readImage(b.aadhaarBackPhoto, 'aadhaarBackPhoto', 'Aadhaar back photo', v, { required: true });
   d.panPhoto = readImage(b.panPhoto, 'panPhoto', 'PAN photo', v, { required: Boolean(d.pan) });
+  d.voterPhoto = readImage(b.voterPhoto, 'voterPhoto', 'Voter photo', v, { required: false });
   d.jointPhoto = readImage(b.jointPhoto, 'jointPhoto', 'Joint photo', v, { required: false });
   v.throwIfAny();
 
@@ -1001,12 +1008,14 @@ export const KYC_DOCS = [
   { key: 'aadhaarPhoto', who: 'Member', label: 'Aadhaar front' },
   { key: 'aadhaarBackPhoto', who: 'Member', label: 'Aadhaar back' },
   { key: 'panPhoto', who: 'Member', label: 'PAN' },
+  { key: 'voterPhoto', who: 'Member', label: 'Voter ID' },
   ...['guarantor', 'nominee'].flatMap((k) => [
     { key: `${k}.photo`, who: cap(k), label: 'Photo' },
     { key: `${k}.signature`, who: cap(k), label: 'Signature' },
     { key: `${k}.aadhaarPhoto`, who: cap(k), label: 'Aadhaar front' },
     { key: `${k}.aadhaarBackPhoto`, who: cap(k), label: 'Aadhaar back' },
     { key: `${k}.panPhoto`, who: cap(k), label: 'PAN' },
+    { key: `${k}.voterPhoto`, who: cap(k), label: 'Voter ID' },
     { key: `${k}.jointPhoto`, who: cap(k), label: 'Joint photo with member' },
   ]),
 ];
@@ -1060,7 +1069,7 @@ const kycSummary = (m, keys) => {
     ? keys
     : (Array.isArray(m.kycKeys) && m.kycKeys.length)
       ? m.kycKeys
-      : ['memberPhoto', 'signaturePhoto', 'aadhaarPhoto', 'aadhaarBackPhoto', ...(m.panPhoto ? ['panPhoto'] : [])];
+      : ['memberPhoto', 'signaturePhoto', 'aadhaarPhoto', 'aadhaarBackPhoto', ...(m.panPhoto ? ['panPhoto'] : []), ...(m.voterPhoto ? ['voterPhoto'] : [])];
   const docs = docStates(m, effectiveKeys);
   const count = (st) => docs.filter((d) => d.status === st).length;
   const parties = {
@@ -1094,7 +1103,7 @@ const kycSummary = (m, keys) => {
   };
 };
 
-const KYC_PROJECTION = '+aadhaarPhoto +aadhaarBackPhoto +panPhoto +memberPhoto +signaturePhoto';
+const KYC_PROJECTION = '+aadhaarPhoto +aadhaarBackPhoto +panPhoto +voterPhoto +memberPhoto +signaturePhoto';
 
 /** Date-wise queue of members whose documents need approval. */
 export async function listKyc(req, res) {
@@ -1526,6 +1535,7 @@ const MEMBER_PHOTOS = [
   ['aadhaarPhoto', 'Aadhaar front photo', 'aadhaarPhoto'],
   ['aadhaarBackPhoto', 'Aadhaar back photo', 'aadhaarBackPhoto'],
   ['panPhoto', 'PAN photo', 'panPhoto'],
+  ['voterPhoto', 'Voter photo', 'voterPhoto'],
 ];
 
 /**

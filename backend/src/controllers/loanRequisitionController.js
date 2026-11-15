@@ -5,6 +5,7 @@ import { LoanScheme } from '../models/LoanScheme.js';
 import { Member } from '../models/Member.js';
 import { Group } from '../models/Group.js';
 import { User } from '../models/User.js';
+import { Employee } from '../models/Hr.js';
 import { generateCode } from '../services/codeSequence.js';
 import { MODES, calculateLoan } from '../services/loanCalculator.js';
 import { evaluateLoan } from './loanCalculatorController.js';
@@ -95,7 +96,7 @@ export async function stockProducts(req, res) {
     isDeleted: false,
     isActive: true,
     stockQty: { $gt: 0 },
-    $or: [{ branch: branchObjId }, { branch: req.query.branch }, { branch: null }, { branch: { $exists: false } }],
+    $or: [{ branch: branchObjId }, { branch: String(req.query.branch) }],
   }).sort({ name: 1 });
   res.json({ items: items.map((p) => ({ id: p._id, code: p.code, name: p.name, category: p.category || '', unitPrice: p.unitPricePaise / 100, stockQty: p.stockQty })) });
 }

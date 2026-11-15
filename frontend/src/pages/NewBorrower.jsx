@@ -34,8 +34,8 @@ const minDob = () => {
 
 const EMPTY = {
   branch: '', name: '', dob: '', gender: '', mobile: '', email: '', husbandName: '', occupation: '', education: '',
-  address: '', pincode: '', state: '', district: '', area: '', aadhaar: '', pan: '', bankName: '', ifsc: '', accountNumber: '',
-  memberPhoto: '', aadhaarPhoto: '', aadhaarBackPhoto: '', panPhoto: '', signaturePhoto: '', employeeCode: '',
+  address: '', pincode: '', state: '', district: '', area: '', aadhaar: '', pan: '', voterId: '', bankName: '', ifsc: '', accountNumber: '',
+  memberPhoto: '', aadhaarPhoto: '', aadhaarBackPhoto: '', panPhoto: '', voterPhoto: '', signaturePhoto: '', employeeCode: '',
 };
 
 // A value (mobile / PAN) that must be confirmed with an OTP before the form can be saved.
@@ -218,6 +218,7 @@ export function BorrowerForm({ branches, options, onCancel, onSaved, member = nu
           area: member.area || '',
           aadhaar: member.aadhaar,
           pan: member.pan || '',
+          voterId: member.voterId || '',
           bankName: member.bankName,
           ifsc: member.ifsc,
           accountNumber: member.accountNumber,
@@ -225,6 +226,7 @@ export function BorrowerForm({ branches, options, onCancel, onSaved, member = nu
           aadhaarPhoto: member.aadhaarPhoto || '',
           aadhaarBackPhoto: member.aadhaarBackPhoto || '',
           panPhoto: member.panPhoto || '',
+          voterPhoto: member.voterPhoto || '',
           signaturePhoto: member.signaturePhoto || '',
         }
       : { ...EMPTY, branch: branches.length === 1 ? branches[0].id : '' }
@@ -530,6 +532,9 @@ export function BorrowerForm({ branches, options, onCancel, onSaved, member = nu
             hint={form.pan && panValid && form.pan[3] === 'P' ? '✓ PAN format is valid' : 'Optional. Format: ABCDE1234F (individual PAN)'}>
             <input id="pan" value={form.pan} onChange={setUpper('pan', 10)} maxLength={10} />
           </FormField>
+          <FormField id="voterId" label="Voter ID number" error={errors.voterId} hint="Optional. Format: ABC1234567">
+            <input id="voterId" value={form.voterId} onChange={setUpper('voterId', 20)} maxLength={20} />
+          </FormField>
           <FormField id="bankName" label="Bank name" required error={errors.bankName}>
             <input id="bankName" value={form.bankName} onChange={set('bankName')} maxLength={80} />
           </FormField>
@@ -554,7 +559,8 @@ export function BorrowerForm({ branches, options, onCancel, onSaved, member = nu
           <PhotoField id="signaturePhoto" label="Signature photo" required value={form.signaturePhoto} error={errors.signaturePhoto} onChange={setPhoto('signaturePhoto')} />
           <PhotoField id="aadhaarPhoto" label="Aadhaar front photo" required value={form.aadhaarPhoto} error={errors.aadhaarPhoto} onChange={setPhoto('aadhaarPhoto')} />
           <PhotoField id="aadhaarBackPhoto" label="Aadhaar back photo" required={!isEdit} value={form.aadhaarBackPhoto} error={errors.aadhaarBackPhoto} onChange={setPhoto('aadhaarBackPhoto')} />
-          <PhotoField id="panPhoto" label="PAN photo" required={Boolean(form.pan)} value={form.panPhoto} error={errors.panPhoto} onChange={setPhoto('panPhoto')} />
+          <PhotoField id="panPhoto" label="PAN card photo" required={Boolean(form.pan)} value={form.panPhoto} error={errors.panPhoto} onChange={setPhoto('panPhoto')} />
+          <PhotoField id="voterPhoto" label="Voter ID photo (optional)" value={form.voterPhoto} error={errors.voterPhoto} onChange={setPhoto('voterPhoto')} />
         </div>
       </div>
 
@@ -598,6 +604,7 @@ function MemberDetail({ id, onClose }) {
               ['Mobile', `${m.mobile}${m.mobileVerified ? ' ✓' : ''}`], ['Email', m.email], ['Husband name', m.husbandName],
               ['Occupation', m.occupation], ['Education', m.education], ['Address', `${m.address}, ${m.district}, ${m.state} - ${m.pincode}`],
               ['Aadhaar', m.aadhaar], ['PAN', m.pan ? `${m.pan}${m.panVerified ? ' ✓' : ''}` : ''],
+              ['Voter ID', m.voterId || '—'],
               ['Bank', `${m.bankName} (${m.ifsc})`], ['Account number', m.accountNumber],
               ['Employee ID', m.employeeCode],
               ['Guarantor', m.guarantor ? `${m.guarantor.name} (${m.guarantor.mobile})` : 'Not added'],
@@ -605,7 +612,7 @@ function MemberDetail({ id, onClose }) {
             ]}
           />
           <div className="stamp-view sign-row" style={{ marginTop: 16 }}>
-            {[['Member photo', m.memberPhoto], ['Signature', m.signaturePhoto], ['Aadhaar front', m.aadhaarPhoto], ['Aadhaar back', m.aadhaarBackPhoto], ['PAN', m.panPhoto]].map(([l, src]) => (
+            {[['Member photo', m.memberPhoto], ['Signature', m.signaturePhoto], ['Aadhaar front', m.aadhaarPhoto], ['Aadhaar back', m.aadhaarBackPhoto], ['PAN', m.panPhoto], ['Voter ID', m.voterPhoto]].map(([l, src]) => (
               <div key={l}>
                 <div className="detail-label">{l}</div>
                 {src ? <img src={src} alt={l} className="stamp-img" /> : <span className="muted">Not uploaded</span>}

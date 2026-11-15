@@ -25,6 +25,8 @@ const personSchema = new mongoose.Schema(
     aadhaarPhoto: { type: String, required: neededInPerson, select: false }, // the front of the Aadhaar card
     aadhaarBackPhoto: { type: String, select: false }, // the back of the Aadhaar card
     panPhoto: { type: String, select: false },
+    voterId: { type: String, uppercase: true, trim: true },
+    voterPhoto: { type: String, select: false },
     employeeCode: { type: String },
     savedAt: { type: Date, default: Date.now },
     savedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
@@ -55,6 +57,8 @@ const historySchema = new mongoose.Schema(
     aadhaarPhoto: { type: String, select: false },
     aadhaarBackPhoto: { type: String, select: false },
     panPhoto: { type: String, select: false },
+    voterId: { type: String, uppercase: true, trim: true },
+    voterPhoto: { type: String, select: false },
     employeeCode: String,
     savedAt: Date,
     savedBy: mongoose.Schema.Types.ObjectId,
@@ -140,6 +144,8 @@ const memberSchema = new mongoose.Schema(
     aadhaarPhoto: { type: String, required: needed, select: false }, // the front of the Aadhaar card (older members have this one only)
     aadhaarBackPhoto: { type: String, select: false }, // the back of the Aadhaar card
     panPhoto: { type: String, select: false },
+    voterId: { type: String, uppercase: true, trim: true },
+    voterPhoto: { type: String, select: false },
     memberPhoto: { type: String, required: needed, select: false },
     signaturePhoto: { type: String, required: needed, select: false },
     // Staff ID of the user who registered the member.

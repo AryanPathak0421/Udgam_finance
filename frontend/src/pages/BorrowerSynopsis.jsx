@@ -40,10 +40,31 @@ function Photos({ items }) {
   );
 }
 
-function Person({ p }) {
+function Person({ p, oldPhone }) {
   return (
     <>
-      <DetailList items={[['Name', p.name], ['Phone', p.mobile ? `${p.mobile}${p.mobileVerified ? ' ✓' : ''}` : ''], ['Aadhaar', p.aadhaar], ['PAN', p.pan ? `${p.pan}${p.panVerified ? ' ✓ verified' : ''}` : ''], ['Employee ID', p.employeeCode], ...(p.sameAsGuarantor ? [['Note', 'Same person as the guarantor']] : [])]} />
+      <DetailList
+        items={[
+          ['Name', p.name],
+          [
+            'Phone',
+            p.mobile ? (
+              <span>
+                <strong>{p.mobile}</strong>{p.mobileVerified ? ' ✓' : ''}
+                {oldPhone ? (
+                  <span style={{ marginLeft: 10, color: '#dc2626', fontWeight: 600, fontSize: '0.88rem' }}>
+                    (Old: <del>{oldPhone}</del>)
+                  </span>
+                ) : null}
+              </span>
+            ) : '',
+          ],
+          ['Aadhaar', p.aadhaar],
+          ['PAN', p.pan ? `${p.pan}${p.panVerified ? ' ✓ verified' : ''}` : ''],
+          ['Employee ID', p.employeeCode],
+          ...(p.sameAsGuarantor ? [['Note', 'Same person as the guarantor']] : []),
+        ]}
+      />
       <div style={{ marginTop: 10 }}>
         <Photos items={[['Photo', p.photo], ['Signature', p.signature], ['Aadhaar front', p.aadhaarPhoto], ['Aadhaar back', p.aadhaarBackPhoto], ['PAN', p.panPhoto], ['Joint photo with member', p.jointPhoto]]} />
       </div>
@@ -308,6 +329,12 @@ export default function BorrowerSynopsis() {
   const inr = (n) => (n === null || n === undefined ? '—' : `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
   const KIND = { personal: 'Personal', group: 'Group', business: 'Business / MSME', product: 'Product' };
 
+  const memberPhoneChanges = (data.phoneHistory || m.phoneHistory || []).filter((h) => h.targetType === 'member');
+  const latestOldMemberPhone = memberPhoneChanges.length > 0 ? memberPhoneChanges[memberPhoneChanges.length - 1].oldNumber : '';
+
+  const guarantorPhoneChanges = (data.phoneHistory || m.phoneHistory || []).filter((h) => h.targetType === 'guarantor');
+  const latestOldGuarantorPhone = guarantorPhoneChanges.length > 0 ? guarantorPhoneChanges[guarantorPhoneChanges.length - 1].oldNumber : '';
+
   async function startEdit() {
     try {
       const [b, o] = await Promise.all([api.groups.branchOptions(), api.members.options()]);
@@ -399,7 +426,20 @@ export default function BorrowerSynopsis() {
       <Section title="Contact & address">
         <DetailList
           items={[
-            ['Mobile', `${m.mobile}${m.mobileVerified ? ' ✓ verified' : ''}`], ['Email', m.email],
+            [
+              'Mobile',
+              (
+                <span>
+                  <strong>{m.mobile || '—'}</strong>{m.mobileVerified ? ' ✓ verified' : ''}
+                  {latestOldMemberPhone ? (
+                    <span style={{ marginLeft: 10, color: '#dc2626', fontWeight: 600, fontSize: '0.88rem' }}>
+                      (Old Number: <del>{latestOldMemberPhone}</del>)
+                    </span>
+                  ) : null}
+                </span>
+              ),
+            ],
+            ['Email', m.email],
             ['Address', m.address], ['Area / post office', m.area], ['District / State', `${m.district}, ${m.state}`], ['Pincode', m.pincode],
           ]}
         />
@@ -579,7 +619,7 @@ export default function BorrowerSynopsis() {
       </Section>
 
       <Section title="Guarantor">
-        {m.guarantor ? <Person p={m.guarantor} /> : <span className="muted">No guarantor added yet</span>}
+        {m.guarantor ? <Person p={m.guarantor} oldPhone={latestOldGuarantorPhone} /> : <span className="muted">No guarantor added yet</span>}
       </Section>
 
       {m.guarantorHistory?.length > 0 && (

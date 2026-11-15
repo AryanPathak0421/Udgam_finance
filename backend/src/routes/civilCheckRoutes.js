@@ -16,6 +16,7 @@ router.post('/civil-checks/bureau/send-otp', requireAuth, requireRole(...CREATE)
 router.post('/civil-checks/bureau/verify-otp', requireAuth, requireRole(...CREATE), otpLimiter, h(verifyChallenge));
 router.post('/civil-checks/bureau/fetch', requireAuth, requireRole(...CREATE), otpLimiter, h(bureauFetch));
 router.get('/civil-checks/settings', requireAuth, requireRole(...READ), h(getSettings));
+router.get('/civil-checks/fee', requireAuth, requireRole(...READ), h(getSettings));
 router.put('/civil-checks/settings', requireAuth, requireRole('super_admin', 'admin'), h(saveSettings));
 router.get('/civil-checks/member/:memberId', requireAuth, requireRole(...READ), h(memberChecks));
 router.post('/civil-checks', requireAuth, requireRole(...CREATE), h(addCheck));

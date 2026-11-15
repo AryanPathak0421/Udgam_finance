@@ -332,6 +332,7 @@ export const api = {
     member: (memberId) => request(`/civil-checks/member/${memberId}`),
     add: (data) => request('/civil-checks', { method: 'POST', body: data }),
     settings: () => request('/civil-checks/settings'),
+    fee: () => request('/civil-checks/settings'),
     bureauSendOtp: (member) => request('/civil-checks/bureau/send-otp', { method: 'POST', body: { member } }),
     bureauVerifyOtp: (challengeId, otp) => request('/civil-checks/bureau/verify-otp', { method: 'POST', body: { challengeId, otp } }),
     bureauFetch: (member, challengeId) => request('/civil-checks/bureau/fetch', { method: 'POST', body: { member, challengeId } }),

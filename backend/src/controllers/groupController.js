@@ -80,8 +80,25 @@ export async function listGroups(req, res) {
     Group.find(filter).populate(POPULATE).sort({ code: 1 }).skip(skip).limit(limit),
     Group.countDocuments(filter),
   ]);
+  const presented = [];
+  for (const g of items) {
+    if (g.code && g.code.includes(',')) {
+      const codes = g.code.split(',').map((c) => c.trim()).filter(Boolean);
+      const names = (g.name || '').split(',').map((n) => n.trim());
+      codes.forEach((c, idx) => {
+        presented.push({
+          ...present(g, req.user),
+          id: `${g._id}_${idx}`,
+          code: c,
+          name: names[idx] || names[0] || g.name,
+        });
+      });
+    } else {
+      presented.push(present(g, req.user));
+    }
+  }
   res.json({
-    items: await withEmployeeNames(items.map((g) => present(g, req.user))),
+    items: await withEmployeeNames(presented),
     page,
     limit,
     total,

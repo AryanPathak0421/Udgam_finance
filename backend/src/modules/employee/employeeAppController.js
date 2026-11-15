@@ -1174,6 +1174,7 @@ export async function registerMember(req, res) {
   try {
     const kycKeys = ['memberPhoto', 'signaturePhoto', 'aadhaarPhoto', 'aadhaarBackPhoto'];
     if (b.panPhoto) kycKeys.push('panPhoto');
+    if (b.voterPhoto) kycKeys.push('voterPhoto');
     if (b.guarantorName && b.guarantorPhoto) kycKeys.push('guarantor.photo');
 
     const member = await Member.create({
@@ -1197,6 +1198,7 @@ export async function registerMember(req, res) {
       area: cleanStr(b.area) || '',
       aadhaar: aadhaarClean || `${Date.now()}`.slice(-12),
       pan: cleanStr(b.pan),
+      voterId: cleanStr(b.voterId).toUpperCase(),
       bankName: cleanStr(b.bankName) || 'State Bank of India',
       ifsc: cleanStr(b.ifsc).toUpperCase() || 'SBIN0000001',
       accountNumber: cleanStr(b.accountNumber) || '10000000000',
@@ -1205,6 +1207,7 @@ export async function registerMember(req, res) {
       aadhaarPhoto: b.aadhaarPhoto || defaultPhoto,
       aadhaarBackPhoto: b.aadhaarBackPhoto || b.aadhaarPhoto || defaultPhoto,
       panPhoto: b.panPhoto || '',
+      voterPhoto: b.voterPhoto || '',
       kycKeys,
       guarantor: b.guarantorName ? {
         name: cleanStr(b.guarantorName),

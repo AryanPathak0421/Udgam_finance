@@ -283,6 +283,21 @@ export default function Groups() {
   const close = () => setDialog(null);
   const hasFilters = q || branch || status;
 
+  // Point 6 fix: separate merged group rows (e.g. G0000030,G0000461 or G0000015, G0000178) into distinct rows
+  const displayGroups = (data.items || []).flatMap((g) => {
+    if (g.code && g.code.includes(',')) {
+      const codes = g.code.split(',').map((c) => c.trim()).filter(Boolean);
+      const names = (g.name || '').split(',').map((n) => n.trim());
+      return codes.map((c, idx) => ({
+        ...g,
+        id: `${g.id || g._id}_${idx}`,
+        code: c,
+        name: names[idx] || names[0] || g.name,
+      }));
+    }
+    return [g];
+  });
+
   return (
     <>
       <PageHeader
@@ -333,7 +348,7 @@ export default function Groups() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.items.map((g) => (
+                  {displayGroups.map((g) => (
                     <tr key={g.id}>
                       <td data-label="Code"><strong>{g.code}</strong></td>
                       <td data-label="Group">{g.name}</td>
