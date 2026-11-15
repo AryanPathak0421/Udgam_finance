@@ -275,7 +275,7 @@ function EntryForm({ kind, cfg, defaultBranch, branches, ledgers, isAdmin, onClo
             </select>
           </FormField>
         )}
-        {cfg.bank ? <BankAccountSelect id="abank" mode="bank" value={f.bankAccount} onChange={(v) => setF((x) => ({ ...x, bankAccount: v }))} error={errors.bankAccount} /> : cfg.mode && <BankAccountSelect id="abank" mode={f.mode} value={f.bankAccount} onChange={(v) => setF((x) => ({ ...x, bankAccount: v }))} error={errors.bankAccount} />}
+        {cfg.bank ? <BankAccountSelect id="abank" mode="bank" branch={f.branch} value={f.bankAccount} onChange={(v) => setF((x) => ({ ...x, bankAccount: v }))} error={errors.bankAccount} /> : cfg.mode && <BankAccountSelect id="abank" mode={f.mode} branch={f.branch} value={f.bankAccount} onChange={(v) => setF((x) => ({ ...x, bankAccount: v }))} error={errors.bankAccount} />}
         <FormField id="aremark" label="Narration" className="span-2" hint="Optional: the person, the slip or cheque number"><input id="aremark" value={f.remark} maxLength={200} onChange={set('remark')} /></FormField>
         <BillField id="abill" label="Bill upload (optional)" hint="Optional: Upload photo or PDF of the bill / deposit slip / voucher (up to 800 KB)" value={f.bill} name={f.billName} error={errors.bill} onChange={(v, n) => { setF((x) => ({ ...x, bill: v, billName: n })); setErrors((x) => ({ ...x, bill: undefined })); }} />
       </div>
@@ -296,10 +296,11 @@ export default function AccountEntries({ kind }) {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   useEffect(() => {
+    if (kind === 'branch_transfer') return;
     workDateOf(branch && branch !== 'ho' ? branch : undefined).then((d) => {
       if (d) { setFrom(d); setTo(d); }
     }).catch(() => {});
-  }, [branch]);
+  }, [branch, kind]);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -367,6 +368,7 @@ export default function AccountEntries({ kind }) {
           )}
           <label className="small muted" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>From <input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} aria-label="From date" /></label>
           <label className="small muted" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>To <input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} aria-label="To date" /></label>
+          {(from || to) && <button className="btn sm" type="button" onClick={() => { setFrom(''); setTo(''); }}>Clear dates</button>}
           <button className="btn" onClick={load} disabled={loading}>{loading ? 'Refreshing…' : 'Refresh'}</button>
           <button className="btn primary" onClick={() => setAdding(true)}>{cfg.button}</button>
         </div>

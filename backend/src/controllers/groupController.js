@@ -4,6 +4,7 @@ import { Group } from '../models/Group.js';
 import { Branch } from '../models/Branch.js';
 import { Member } from '../models/Member.js';
 import { User } from '../models/User.js';
+import { Employee } from '../models/Hr.js';
 import { MEETING_TYPES } from '../models/Group.js';
 import { GroupDisbursement } from '../models/GroupDisbursement.js';
 import { GroupLeaderCommission } from '../models/GroupLeaderCommission.js';

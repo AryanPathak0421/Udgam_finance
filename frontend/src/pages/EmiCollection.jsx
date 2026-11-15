@@ -1,4 +1,5 @@
 import BankAccountSelect from '../components/BankAccountSelect.jsx';
+import CompanyQrModal from '../components/CompanyQrModal.jsx';
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client.js';
 import { staffLabel } from '../utils/staffLabel.js';
@@ -166,6 +167,7 @@ export function SingleLoanEmi() {
   const [bankAccount, setBankAccount] = useState('');
   const [busy, setBusy] = useState('');
   const [receipt, setReceipt] = useState(null);
+  const [qrModal, setQrModal] = useState(null);
   const rows = c.data?.items || [];
 
   async function pay(r) {
@@ -202,6 +204,16 @@ export function SingleLoanEmi() {
             </select>
           </label>
           <BankAccountSelect id="sbank" mode={payMode} value={bankAccount} onChange={setBankAccount} />
+          {payMode === 'upi' && (
+            <button
+              type="button"
+              className="btn sm"
+              style={{ background: '#059669', color: '#fff', border: 'none' }}
+              onClick={() => setQrModal({ amount: c.data?.totalDue || 500, loanId: 'SINGLE-EMI', memberName: 'Udgam Borrower' })}
+            >
+              Company QR Code
+            </button>
+          )}
           {c.data && <span className="muted small">{c.data.total} borrower{c.data.total === 1 ? '' : 's'} with EMI due · total due {inr(c.data.totalDue)}</span>}
         </div>
         {c.loading && !c.data ? <Spinner label="Loading…" /> : c.error ? <ErrorState message={c.error} onRetry={c.load} /> : rows.length === 0 ? (
@@ -231,7 +243,27 @@ export function SingleLoanEmi() {
                         <div className="muted small">due {inr(r.dueAmount)}</div>
                       </td>
                       <td data-label="Actions" className="actions-col">
-                        {canCollect ? <button className="btn sm primary" disabled={busy === key(r)} onClick={() => pay(r)}>{busy === key(r) ? 'Paying…' : 'Pay'}</button> : <span className="muted">View only</span>}
+                        <div className="row-actions">
+                          {canCollect && (
+                            <button
+                              type="button"
+                              className="btn sm"
+                              style={{ background: '#059669', color: '#fff', border: 'none', padding: '3px 8px' }}
+                              title="Show Company UPI QR Code"
+                              onClick={() =>
+                                setQrModal({
+                                  amount: amounts[key(r)] ?? String(r.dueAmount),
+                                  loanId: r.loanId || r.formId,
+                                  memberName: `${r.code} - ${r.name}`,
+                                  branch: r.branch?.id || r.branch,
+                                })
+                              }
+                            >
+                              QR
+                            </button>
+                          )}
+                          {canCollect ? <button className="btn sm primary" disabled={busy === key(r)} onClick={() => pay(r)}>{busy === key(r) ? 'Paying…' : 'Pay'}</button> : <span className="muted">View only</span>}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -243,6 +275,16 @@ export function SingleLoanEmi() {
         )}
       </div>
       {receipt && <ReceiptDialog payment={receipt} onClose={() => setReceipt(null)} />}
+      {qrModal && (
+        <CompanyQrModal
+          open={Boolean(qrModal)}
+          onClose={() => setQrModal(null)}
+          amount={qrModal.amount}
+          loanId={qrModal.loanId}
+          memberName={qrModal.memberName}
+          branch={qrModal.branch}
+        />
+      )}
     </>
   );
 }

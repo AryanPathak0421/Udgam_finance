@@ -11,6 +11,8 @@ import { MODES, calculateLoan } from '../services/loanCalculator.js';
 import { LoanScheme } from '../models/LoanScheme.js';
 import { Group } from '../models/Group.js';
 import { EmiPayment } from '../models/EmiPayment.js';
+import { User } from '../models/User.js';
+import { Employee } from '../models/Hr.js';
 import { asString, escapeRegex, parseDateOnly, parsePaging, HttpError, startOfToday } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
 import { notifyApprovers } from '../services/notify.js';

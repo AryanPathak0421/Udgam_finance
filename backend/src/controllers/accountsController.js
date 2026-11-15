@@ -169,16 +169,30 @@ export async function listEntries(req, res) {
   } else {
     filter.kind = kind;
   }
-  if (kind === 'branch_transfer') filter.side = 'payment'; // one row per transfer
   const wanted = asString(req.query.branch);
   const mine = (req.user.branches || []).map((x) => new mongoose.Types.ObjectId(String(x)));
-  if (wanted === 'ho') {
-    if (!admin) throw new HttpError(403, 'Only the admin can see head office');
-    filter.branch = null;
-  } else if (mongoose.isValidObjectId(wanted)) {
-    if (!admin && !mine.some((x) => String(x) === wanted)) throw new HttpError(403, 'You can only see your own branches');
-    filter.branch = wanted;
-  } else if (!admin) filter.branch = { $in: mine };
+
+  if (kind === 'branch_transfer') {
+    filter.side = 'payment'; // one row per transfer
+    if (wanted === 'ho') {
+      if (!admin) throw new HttpError(403, 'Only the admin can see head office');
+      filter.$or = [{ branch: null }, { counterBranch: null }];
+    } else if (mongoose.isValidObjectId(wanted)) {
+      if (!admin && !mine.some((x) => String(x) === wanted)) throw new HttpError(403, 'You can only see your own branches');
+      const wId = new mongoose.Types.ObjectId(wanted);
+      filter.$or = [{ branch: wId }, { counterBranch: wId }];
+    } else if (!admin) {
+      filter.$or = [{ branch: { $in: mine } }, { counterBranch: { $in: mine } }];
+    }
+  } else {
+    if (wanted === 'ho') {
+      if (!admin) throw new HttpError(403, 'Only the admin can see head office');
+      filter.branch = null;
+    } else if (mongoose.isValidObjectId(wanted)) {
+      if (!admin && !mine.some((x) => String(x) === wanted)) throw new HttpError(403, 'You can only see your own branches');
+      filter.branch = wanted;
+    } else if (!admin) filter.branch = { $in: mine };
+  }
   const from = parseDateOnly(asString(req.query.from));
   const to = parseDateOnly(asString(req.query.to));
   if (from || to) filter.date = { ...(from ? { $gte: from } : {}), ...(to ? { $lte: to } : {}) };

@@ -8,23 +8,18 @@ let cache = null; // the account list is the same for everyone, fetched once
  * Account detail: appears when the payment mode is Bank transfer, to pick the company bank account the money went to.
  * Nothing is shown for the other modes (or when the company has no bank account set up yet).
  */
-export default function BankAccountSelect({ id = 'bankacc', mode, value, onChange, error }) {
-  const [accounts, setAccounts] = useState(cache || []);
-  const [loading, setLoading] = useState(!cache);
+export default function BankAccountSelect({ id = 'bankacc', mode, branch, value, onChange, error }) {
+  const [accounts, setAccounts] = useState([]);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (mode !== 'bank') return undefined;
-    if (cache && cache.length > 0) {
-      setAccounts(cache);
-      setLoading(false);
-      return undefined;
-    }
     let live = true;
     setLoading(true);
-    api.bankAccountOptions()
+    const branchParam = branch && branch !== 'ho' ? branch : undefined;
+    api.bankAccountOptions(branchParam ? { branch: branchParam } : undefined)
       .then((r) => {
         const list = r.accounts || [];
-        cache = list;
         if (live) {
           setAccounts(list);
           setLoading(false);
@@ -34,9 +29,16 @@ export default function BankAccountSelect({ id = 'bankacc', mode, value, onChang
         if (live) setLoading(false);
       });
     return () => { live = false; };
-  }, [mode]);
+  }, [mode, branch]);
 
-  // a single account is chosen for the user
+  // If currently selected account is not in the newly filtered branch accounts list, reset it
+  useEffect(() => {
+    if (mode === 'bank' && value && accounts.length > 0 && !accounts.some((a) => String(a.id) === String(value))) {
+      onChange(accounts.length === 1 ? String(accounts[0].id) : '');
+    }
+  }, [mode, value, accounts, onChange]);
+
+  // a single account is chosen for the user automatically
   useEffect(() => {
     if (mode === 'bank' && !value && accounts.length === 1) {
       onChange(String(accounts[0].id));

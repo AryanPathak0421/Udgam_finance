@@ -3,6 +3,8 @@ import { LoanPayment } from '../models/LoanPayment.js';
 import { EmiPayment } from '../models/EmiPayment.js';
 import { User } from '../models/User.js';
 import { Member } from '../models/Member.js';
+import { Company } from '../models/Company.js';
+import { BankAccount } from '../models/BankAccount.js';
 import { LoanSettlement } from '../models/LoanSettlement.js';
 import { DayClose } from '../models/DayClose.js';
 import { readBankAccount } from '../services/bankAccountPick.js';
@@ -627,4 +629,32 @@ export async function cancelEmiPayment(req, res) {
   await e.save();
   await audit(req, { action: 'emi.cancel', entity: 'EmiPayment', entityId: e._id, after: { receiptNo: e.receiptNo, reason } });
   res.json({ message: 'EMI payment cancelled' });
+}
+
+export async function getCompanyQr(req, res) {
+  const { amount = 0, loanId = '', memberName = '', branch = '' } = req.query;
+  const company = await Company.findOne().lean();
+  let bankFilter = { isActive: true, isDeleted: false };
+  if (mongoose.isValidObjectId(branch)) {
+    bankFilter.$or = [{ branches: branch }, { branches: { $size: 0 } }, { branches: { $exists: false } }];
+  }
+  const bank = (await BankAccount.findOne(bankFilter).lean()) || (await BankAccount.findOne({ isActive: true, isDeleted: false }).lean());
+
+  const companyName = company?.name || 'Udgam Microfinance';
+  const upiId = bank?.accountNumber ? `${bank.accountNumber}@bank` : 'udgamfinance@upi';
+
+  const upiString = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(companyName)}&am=${amount}&cu=INR&tn=${encodeURIComponent(`Loan ${loanId} EMI - ${memberName}`.trim())}`;
+  const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(upiString)}`;
+
+  res.json({
+    companyName,
+    upiId,
+    amount: Number(amount),
+    loanId,
+    memberName,
+    bankName: bank?.bankName || '',
+    accountNumber: bank?.accountNumber || '',
+    upiString,
+    qrImageUrl,
+  });
 }

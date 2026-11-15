@@ -327,7 +327,7 @@ export const api = {
     dayBook: (params) => request(`/accounts/day-book${qs(params)}`),
     productBranchDue: () => request('/accounts/product-branch-due'),
   },
-  bankAccountOptions: () => request('/bank-account-options'),
+  bankAccountOptions: (params) => request(`/bank-account-options${qs(params)}`),
   civilChecks: {
     member: (memberId) => request(`/civil-checks/member/${memberId}`),
     add: (data) => request('/civil-checks', { method: 'POST', body: data }),
@@ -369,6 +369,7 @@ export const api = {
     collect: (data) => request('/emi/collect', { method: 'POST', body: data }),
     payments: (params) => request(`/emi/payments${qs(params)}`),
     cancel: (id, reason) => request(`/emi/payments/${id}/cancel`, { method: 'POST', body: { reason } }),
+    companyQr: (params) => request(`/emi/company-qr${qs(params)}`),
   },
   loanPayments: {
     prepare: (id, params) => request(`/loan-payments/prepare/${id}${qs(params)}`),

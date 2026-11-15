@@ -881,7 +881,7 @@ function History({ kind, reloadKey, onCancelled }) {
                             <button className="btn sm primary" title="Download / Print NOC" onClick={() => { if (!printNoc(s)) toast.error('Allow pop-ups to print'); }}>NOC</button>
                           </>
                         )}
-                        {isAdmin && s.status === 'active' && !s.auto && <button className="btn sm danger-outline" onClick={() => { setCancelling(s); setReason(''); setReasonError(''); }}>Cancel</button>}
+                        {isAdmin && s.status === 'active' && <button className="btn sm danger-outline" onClick={() => { setCancelling(s); setReason(''); setReasonError(''); }}>Cancel</button>}
                       </div>
                     </td>
                   </tr>

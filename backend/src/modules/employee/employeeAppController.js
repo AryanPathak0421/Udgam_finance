@@ -5700,14 +5700,14 @@ export async function submitDeathRequest(req, res) {
       if (line) {
         try {
           const state = await borrowerState(loan, line, new Date());
-          outstandingPaise = toMinor(state.outstanding || 0);
+          outstandingPaise = Number(state?.totals?.outstanding ?? line.amountPaise ?? 0);
         } catch {
           outstandingPaise = line.amountPaise || 0;
         }
       }
     }
 
-    const dthReceiptNo = `DTH-${Date.now().toString().slice(-8)}`;
+    const dthReceiptNo = await generateCode('settlementReceipt').catch(() => `DTH-${Date.now().toString().slice(-8)}`);
     loanSettlementDoc = await LoanSettlement.create({
       kind: 'death',
       receiptNo: dthReceiptNo,
@@ -5761,12 +5761,12 @@ export async function submitDeathRequest(req, res) {
       if (line) {
         try {
           const state = await borrowerState(loan, line, new Date());
-          outstandingPaise = toMinor(state.outstanding || 0);
+          outstandingPaise = Number(state?.totals?.outstanding ?? line.amountPaise ?? 0);
         } catch {
           outstandingPaise = line.amountPaise || 0;
         }
       }
-      const dthReceiptNo = `GDTH-${Date.now().toString().slice(-8)}`;
+      const dthReceiptNo = await generateCode('settlementReceipt').catch(() => `GDTH-${Date.now().toString().slice(-8)}`);
       loanSettlementDoc = await LoanSettlement.create({
         kind: 'death',
         receiptNo: dthReceiptNo,

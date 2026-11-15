@@ -597,15 +597,40 @@ export async function getPhotos(req, res) {
   const branch = asString(req.query.branch);
   const date = asString(req.query.date) || todayDateString();
   const query = { date };
-  if (branch === 'ho') query.branch = null;
-  else if (mongoose.isValidObjectId(branch)) query.branch = branch;
-  else if (!isAdmin(req.user) && (req.user.branches || []).length) query.branch = req.user.branches[0];
-  const photo = await CashbookPhoto.findOne(query).lean();
+  if (branch === 'ho') {
+    query.branch = null;
+  } else if (mongoose.isValidObjectId(branch)) {
+    query.branch = branch;
+  } else if (!isAdmin(req.user) && (req.user.branches || []).length) {
+    query.branch = req.user.branches[0];
+  }
+
+  let photo = null;
+  let allPhotos = [];
+  if (isAdmin(req.user) && !branch) {
+    // When Admin has not filtered by a single branch, load all uploaded branch photos for this date
+    allPhotos = await CashbookPhoto.find({ date }).populate('branch', 'code name').sort({ updatedAt: -1 }).lean();
+    photo = allPhotos[0] || null;
+  } else {
+    photo = await CashbookPhoto.findOne(query).populate('branch', 'code name').lean();
+  }
+
+  const isLocked = !isAdmin(req.user) && Boolean(photo?.receivePhoto || photo?.paymentPhoto);
+
   res.json({
     receivePhoto: photo?.receivePhoto || '',
     paymentPhoto: photo?.paymentPhoto || '',
     uploadedBy: photo?.uploadedByCode || '',
+    branch: photo?.branch ? { id: photo.branch._id, code: photo.branch.code, name: photo.branch.name } : null,
     updatedAt: photo?.updatedAt || null,
+    locked: isLocked,
+    allPhotos: allPhotos.map((p) => ({
+      branch: p.branch ? { id: p.branch._id, code: p.branch.code, name: p.branch.name } : { code: 'HO', name: 'Head office' },
+      receivePhoto: p.receivePhoto,
+      paymentPhoto: p.paymentPhoto,
+      uploadedBy: p.uploadedByCode || '',
+      updatedAt: p.updatedAt,
+    })),
   });
 }
 
@@ -614,17 +639,27 @@ export async function savePhotos(req, res) {
   const branch = asString(b.branch);
   const date = asString(b.date);
   if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw invalid({ date: 'Valid date is required' });
-  const filter = { date };
+
   let branchId = null;
   if (branch === 'ho') {
     if (!isAdmin(req.user)) throw new HttpError(403, 'Admin only');
-    filter.branch = null;
+    branchId = null;
   } else if (mongoose.isValidObjectId(branch)) {
-    filter.branch = branch;
     branchId = branch;
-  } else {
-    filter.branch = null;
+  } else if (!isAdmin(req.user) && (req.user.branches || []).length) {
+    branchId = req.user.branches[0];
+  } else if (isAdmin(req.user)) {
+    branchId = null;
   }
+
+  const filter = { date, branch: branchId };
+
+  // Point 24: Non-admin branches cannot edit photos after uploading once
+  const existing = await CashbookPhoto.findOne(filter);
+  if (!isAdmin(req.user) && existing && (existing.receivePhoto || existing.paymentPhoto)) {
+    throw new HttpError(403, 'Cashbook photos for this date have already been submitted. Branches cannot edit photos once uploaded; please contact Admin for any changes.');
+  }
+
   const photo = await CashbookPhoto.findOneAndUpdate(
     filter,
     {
@@ -643,6 +678,7 @@ export async function savePhotos(req, res) {
     message: 'Cashbook photos saved successfully',
     receivePhoto: photo.receivePhoto,
     paymentPhoto: photo.paymentPhoto,
+    locked: !isAdmin(req.user) && Boolean(photo.receivePhoto || photo.paymentPhoto),
   });
 }
 

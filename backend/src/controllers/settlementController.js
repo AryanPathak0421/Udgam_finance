@@ -421,6 +421,66 @@ export async function listSettlements(req, res) {
   const status = ['active', 'cancelled', 'pending', 'rejected'].includes(statusParam)
     ? statusParam
     : (statusParam === 'all' ? { $in: ['active', 'cancelled', 'pending', 'rejected'] } : 'active');
+
+  // Auto-sync any pending DeathRequests that haven't been mirrored into LoanSettlement
+  if (req.query.kind === 'death') {
+    try {
+      const pendingReqs = await DeathRequest.find({ status: 'pending' }).lean();
+      for (const dReq of pendingReqs) {
+        const exists = await LoanSettlement.exists({
+          $or: [
+            { receiptNo: dReq.receiptNo },
+            { memberCode: dReq.memberCode, status: 'pending', kind: 'death' },
+          ],
+        });
+        if (!exists) {
+          const loan = await LoanPayment.findOne({
+            $or: [{ 'lines.member': dReq.member }, { 'lines.code': dReq.memberCode }],
+            status: 'paid',
+          }).populate('group branch').sort({ createdAt: -1 });
+
+          let outstandingPaise = 0;
+          if (loan) {
+            const line = (loan.lines || []).find((l) => String(l.member) === String(dReq.member) || l.code === dReq.memberCode);
+            if (line) {
+              try {
+                const state = await borrowerState(loan, line, new Date());
+                outstandingPaise = Number(state?.totals?.outstanding ?? line.amountPaise ?? 0);
+              } catch {
+                outstandingPaise = line.amountPaise || 0;
+              }
+            }
+          }
+          await LoanSettlement.create({
+            kind: 'death',
+            receiptNo: dReq.receiptNo || (await generateCode('settlementReceipt').catch(() => `DTH-${Date.now().toString().slice(-8)}`)),
+            loanPayment: loan?._id,
+            loanId: loan?.loanId || loan?.formId || dReq.memberCode,
+            formId: loan?.formId || loan?.loanId || dReq.memberCode,
+            branch: dReq.branch || loan?.branch?._id || loan?.branch,
+            member: dReq.member,
+            memberCode: dReq.memberCode,
+            memberName: dReq.memberName,
+            group: loan?.group?.code ? `${loan.group.code} — ${loan.group.name}` : '',
+            outstandingPaise,
+            amountPaise: 0,
+            waiverPaise: outstandingPaise,
+            settledOn: dReq.requestDate || new Date(),
+            deathDate: dReq.deathDate,
+            certificate: dReq.deathCertificate,
+            deathPhotos: dReq.deathPhotos || [],
+            houseVisitPhoto: dReq.houseVisitPhoto || '',
+            remark: `[Staff App Death Request] ${dReq.deathReason || ''}`,
+            verifier: { code: dReq.employeeCode || 'APP', name: 'Staff' },
+            status: 'pending',
+          }).catch((err) => console.error('Auto-sync LoanSettlement failed:', err.message));
+        }
+      }
+    } catch (e) {
+      console.error('Error checking pending DeathRequests:', e.message);
+    }
+  }
+
   const filter = { ...branchFilter(req.user), kind: req.query.kind === 'death' ? 'death' : req.query.kind === 'auto' ? 'auto' : req.query.kind === 'manual' ? 'loan' : { $in: ['loan', 'auto'] }, status };
   if (mongoose.isValidObjectId(req.query.branch)) filter.branch = req.query.branch;
   const from = parseDateOnly(asString(req.query.from));
@@ -453,6 +513,12 @@ export async function approveDeathSettlement(req, res) {
   s.status = 'active';
   s.settledOn = settledOn;
   await s.save();
+
+  // Also sync DeathRequest status to approved
+  await DeathRequest.updateMany(
+    { $or: [{ receiptNo: s.receiptNo }, { memberCode: s.memberCode, status: 'pending' }] },
+    { $set: { status: 'approved' } }
+  ).catch(() => {});
 
   // Close ALL other active loans of this member across the software
   const siblingLoansClosed = await closeAllLoansForDeceasedMember({
@@ -526,6 +592,12 @@ export async function rejectDeathSettlement(req, res) {
   s.cancelledAt = new Date();
   await s.save();
 
+  // Also sync DeathRequest status to rejected
+  await DeathRequest.updateMany(
+    { $or: [{ receiptNo: s.receiptNo }, { memberCode: s.memberCode, status: 'pending' }] },
+    { $set: { status: 'rejected' } }
+  ).catch(() => {});
+
   await audit(req, {
     action: 'settlement.deathReject',
     entity: 'LoanSettlement',
@@ -571,7 +643,9 @@ export async function cancelSettlement(req, res) {
   if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Settlement not found');
   const s = await LoanSettlement.findOne({ _id: req.params.id, status: 'active' });
   if (!s) throw new HttpError(404, 'Settlement not found');
-  if (s.kind === 'auto') throw new HttpError(409, 'An automatic settlement (every installment paid) cannot be cancelled');
+  if (s.kind === 'auto' && !['super_admin', 'admin'].includes(req.user?.role)) {
+    throw new HttpError(403, 'Only Admin can cancel an automatic settlement');
+  }
   const reason = asString(req.body?.reason);
   if (reason.length < 3 || reason.length > 200) throw invalid({ reason: 'Enter the reason (3–200 characters)' });
   s.status = 'cancelled';

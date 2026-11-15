@@ -5,10 +5,30 @@ import { HttpError, asString } from '../utils/http.js';
 const last4 = (n) => String(n || '').slice(-4);
 export const accountLabel = (a) => `${a.bankName} — ${a.accountHolderName} (A/c ••••${last4(a.accountNumber)})`;
 
-/** The bank accounts a payment can go to (active ones). */
-export async function bankAccountOptions() {
-  const rows = await BankAccount.find({ isDeleted: false, isActive: true }).select('accountHolderName accountNumber bankName ifsc').sort({ bankName: 1, accountHolderName: 1 }).lean();
-  return rows.map((a) => ({ id: a._id, label: accountLabel(a), bankName: a.bankName, accountHolderName: a.accountHolderName, accountNumber: a.accountNumber, ifsc: a.ifsc || '' }));
+/** The bank accounts a payment can go to (active ones, filtered by branch if specified). */
+export async function bankAccountOptions(branch) {
+  const filter = { isDeleted: false, isActive: true };
+  if (branch && branch !== 'ho' && mongoose.isValidObjectId(branch)) {
+    filter.$or = [
+      { branches: branch },
+      { branches: { $size: 0 } },
+      { branches: { $exists: false } },
+      { branches: null },
+    ];
+  }
+  const rows = await BankAccount.find(filter)
+    .select('accountHolderName accountNumber bankName ifsc branches')
+    .sort({ bankName: 1, accountHolderName: 1 })
+    .lean();
+  return rows.map((a) => ({
+    id: a._id,
+    label: accountLabel(a),
+    bankName: a.bankName,
+    accountHolderName: a.accountHolderName,
+    accountNumber: a.accountNumber,
+    ifsc: a.ifsc || '',
+    branches: a.branches || [],
+  }));
 }
 
 /**

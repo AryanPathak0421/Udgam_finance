@@ -1,12 +1,13 @@
 import { Router } from 'express';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler as h } from '../utils/http.js';
-import { searchLoans, loanDetail, payEmi, collectEmi, collectionList, listEmiPayments, getEmiPayment, cancelEmiPayment } from '../controllers/emiController.js';
+import { searchLoans, loanDetail, payEmi, collectEmi, collectionList, listEmiPayments, getEmiPayment, cancelEmiPayment, getCompanyQr } from '../controllers/emiController.js';
 
 const router = Router();
 const COLLECT = ['super_admin', 'admin', 'branch_manager', 'accountant', 'collection_officer', 'field_officer']; // who takes EMI payments
 const READ = [...COLLECT, 'loan_officer', 'viewer'];
 
+router.get('/emi/company-qr', requireAuth, requireRole(...READ), h(getCompanyQr));
 router.get('/emi/search', requireAuth, requireRole(...READ), h(searchLoans));
 router.get('/emi/loans/:id', requireAuth, requireRole(...READ), h(loanDetail));
 router.get('/emi/collection', requireAuth, requireRole(...READ), h(collectionList));

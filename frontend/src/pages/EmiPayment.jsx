@@ -1,4 +1,5 @@
 import BankAccountSelect from '../components/BankAccountSelect.jsx';
+import CompanyQrModal from '../components/CompanyQrModal.jsx';
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -70,13 +71,16 @@ function LoanView({ id, advance, canCollect, onBack }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [member, setMember] = useState('');
+  const [payType, setPayType] = useState('count'); // 'count' | 'amount'
   const [count, setCount] = useState('1');
+  const [customAmount, setCustomAmount] = useState('');
   const [payMode, setPayMode] = useState('cash');
   const [bankAccount, setBankAccount] = useState('');
   const [reference, setReference] = useState('');
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
   const [receipt, setReceipt] = useState(null);
+  const [qrModal, setQrModal] = useState(null);
 
   const load = useCallback(() => api.emi.loan(id).then((d) => { setData(d); setMember((m) => m || String(d.borrowers[0]?.member || '')); setError(''); }).catch((e) => setError(e.message)), [id]);
   useEffect(() => {
@@ -90,11 +94,14 @@ function LoanView({ id, advance, canCollect, onBack }) {
   const pool = advance ? leftRows : dueRows;
   const n = Math.min(Math.max(Number(count) || 0, 0), pool.length);
   const chosen = pool.slice(0, n);
-  const amount = chosen.reduce((s, x) => s + x.remaining, 0);
+  const countAmount = chosen.reduce((s, x) => s + x.remaining, 0);
+  const effectiveAmount = payType === 'amount' ? (Number(customAmount) || 0) : countAmount;
+
   // Whole due amount by default for a regular EMI.
   useEffect(() => {
     if (!b) return;
     setCount(advance ? '1' : String(Math.max(dueRows.length, 1)));
+    setCustomAmount(advance ? String(b.next?.amount || b.emi || '') : String(b.dueAmount || b.emi || ''));
     setErrors({});
   }, [member, data, advance]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -108,7 +115,26 @@ function LoanView({ id, advance, canCollect, onBack }) {
     setBusy(true);
     setErrors({});
     try {
-      const r = await api.emi.pay({ loan: id, member: b.member, type: advance ? 'advance' : 'regular', count: Number(count), payMode, reference, bankAccount: payMode === 'bank' ? bankAccount : undefined });
+      const payload = {
+        loan: id,
+        member: b.member,
+        type: advance ? 'advance' : 'regular',
+        payMode,
+        reference,
+        bankAccount: payMode === 'bank' ? bankAccount : undefined,
+      };
+      if (payType === 'amount') {
+        const amt = Number(customAmount);
+        if (!amt || amt < 1) {
+          setBusy(false);
+          setErrors({ amount: 'Enter a valid amount (₹1 or more)' });
+          return;
+        }
+        payload.amount = amt;
+      } else {
+        payload.count = Number(count);
+      }
+      const r = await api.emi.pay(payload);
       toast.success(advance ? `Advance EMI received — receipt ${r.payment.receiptNo}. Installment${r.payment.installments.length === 1 ? '' : 's'} ${r.payment.installments.join(', ')} ${r.payment.installments.length === 1 ? 'is' : 'are'} marked paid and will not be asked for again on the due date.` : `EMI received — receipt ${r.payment.receiptNo}`);
       setReceipt(r.payment);
       await load();
@@ -174,10 +200,84 @@ function LoanView({ id, advance, canCollect, onBack }) {
           <div className="notice">No installment is due now. To pay ahead, use Advance EMI Payment.</div>
         ) : (
           <>
+            {/* Payment Type Selection (Installments vs Amount-wise) */}
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
+              <span className="small muted" style={{ fontWeight: 600 }}>Payment Method:</span>
+              <button
+                type="button"
+                className={`btn sm ${payType === 'count' ? 'primary' : ''}`}
+                onClick={() => setPayType('count')}
+              >
+                Installment-wise
+              </button>
+              <button
+                type="button"
+                className={`btn sm ${payType === 'amount' ? 'primary' : ''}`}
+                onClick={() => setPayType('amount')}
+              >
+                Amount-wise / Custom Amount
+              </button>
+
+              {/* Quick option buttons (Point 19: Paid Option) */}
+              <div style={{ display: 'flex', gap: 6, marginLeft: 'auto', flexWrap: 'wrap' }}>
+                {!advance && b.dueAmount > 0 && (
+                  <button
+                    type="button"
+                    className="btn sm"
+                    style={{ borderColor: '#059669', color: '#059669' }}
+                    onClick={() => {
+                      setPayType('amount');
+                      setCustomAmount(String(b.dueAmount));
+                    }}
+                  >
+                    Pay Full Due ({inr(b.dueAmount)})
+                  </button>
+                )}
+                {advance && b.outstanding > 0 && (
+                  <button
+                    type="button"
+                    className="btn sm"
+                    style={{ borderColor: '#059669', color: '#059669' }}
+                    onClick={() => {
+                      setPayType('amount');
+                      setCustomAmount(String(b.outstanding));
+                    }}
+                  >
+                    Pay Full Outstanding ({inr(b.outstanding)})
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="btn sm"
+                  onClick={() => {
+                    setPayType('amount');
+                    setCustomAmount(String(b.emi));
+                  }}
+                >
+                  1 EMI ({inr(b.emi)})
+                </button>
+              </div>
+            </div>
+
             <div className="form-grid">
-              <FormField id="ecount" label={advance ? 'Installments to pay in advance' : 'Due installments to pay'} required error={errors.count} hint={`1 to ${pool.length}`}>
-                <input id="ecount" inputMode="numeric" value={count} onChange={(e) => { setCount(e.target.value.replace(/\D/g, '').slice(0, 4)); setErrors((x) => ({ ...x, count: undefined })); }} />
-              </FormField>
+              {payType === 'count' ? (
+                <FormField id="ecount" label={advance ? 'Installments to pay in advance' : 'Due installments to pay'} required error={errors.count} hint={`1 to ${pool.length}`}>
+                  <input id="ecount" inputMode="numeric" value={count} onChange={(e) => { setCount(e.target.value.replace(/\D/g, '').slice(0, 4)); setErrors((x) => ({ ...x, count: undefined })); }} />
+                </FormField>
+              ) : (
+                <FormField id="eamount" label="Amount to pay (₹)" required error={errors.amount} hint={`Outstanding: ${inr(b.outstanding)} · Next EMI: ${inr(b.emi)}`}>
+                  <input
+                    id="eamount"
+                    inputMode="decimal"
+                    value={customAmount}
+                    placeholder="Enter amount in ₹"
+                    onChange={(e) => {
+                      setCustomAmount(e.target.value.replace(/[^\d.]/g, ''));
+                      setErrors((x) => ({ ...x, amount: undefined }));
+                    }}
+                  />
+                </FormField>
+              )}
               <FormField id="emode" label="Paid by" required error={errors.payMode}>
                 <select id="emode" value={payMode} onChange={(e) => setPayMode(e.target.value)}>
                   {PAY_CHOICES.map(([k, v]) => <option key={k} value={k}>{v}</option>)}
@@ -188,22 +288,66 @@ function LoanView({ id, advance, canCollect, onBack }) {
                 <input id="eref" value={reference} maxLength={60} onChange={(e) => setReference(e.target.value)} />
               </FormField>
             </div>
-            {chosen.length > 0 && (
+
+            {payType === 'count' && chosen.length > 0 && (
               <div className="notice" style={{ margin: '10px 0' }}>
                 {advance ? 'Advance EMI' : 'EMI'}: installments {chosen[0].no}{chosen.length > 1 ? ` to ${chosen[chosen.length - 1].no}` : ''} ({dmy(chosen[0].dueDate)}{chosen.length > 1 ? ` → ${dmy(chosen[chosen.length - 1].dueDate)}` : ''})
-                {' '}· {chosen.length} installment{chosen.length === 1 ? '' : 's'} = <strong>{inr(amount)}</strong>
+                {' '}· {chosen.length} installment{chosen.length === 1 ? '' : 's'} = <strong>{inr(countAmount)}</strong>
               </div>
             )}
+
+            {payType === 'amount' && effectiveAmount > 0 && (
+              <div className="notice" style={{ margin: '10px 0', borderColor: '#059669', background: '#f0fdf4' }}>
+                Amount-wise collection: <strong>{inr(effectiveAmount)}</strong> will be credited to {advance ? 'upcoming' : 'due'} installments in chronological order.
+              </div>
+            )}
+
             {isSunday && (
               <div className="notice danger" style={{ margin: '10px 0' }}>
                 <strong>Sunday Weekly Off:</strong> EMI collections and loan requisition posting are strictly blocked on Sundays &amp; Company Holidays.
               </div>
             )}
             {errors.general && <div className="field-error" role="alert">{errors.general}</div>}
-            <button className="btn primary" disabled={busy || !chosen.length || isSunday} onClick={pay}>{busy ? 'Saving…' : isSunday ? 'Blocked on Sundays' : `Receive ${inr(amount)}${advance ? ' (advance)' : ''}`}</button>
+
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 12 }}>
+              <button
+                className="btn primary"
+                disabled={busy || effectiveAmount <= 0 || isSunday}
+                onClick={pay}
+              >
+                {busy ? 'Saving…' : isSunday ? 'Blocked on Sundays' : `Receive ${inr(effectiveAmount)}${advance ? ' (advance)' : ''}`}
+              </button>
+
+              <button
+                type="button"
+                className="btn"
+                style={{ background: '#059669', color: '#fff', border: 'none' }}
+                onClick={() =>
+                  setQrModal({
+                    amount: effectiveAmount > 0 ? effectiveAmount : b.emi,
+                    loanId: loan.loanId || loan.formId,
+                    memberName: `${b.code} - ${b.name}`,
+                    branch: loan.branch,
+                  })
+                }
+              >
+                Company QR Code
+              </button>
+            </div>
           </>
         )}
       </div>
+
+      {qrModal && (
+        <CompanyQrModal
+          open={Boolean(qrModal)}
+          onClose={() => setQrModal(null)}
+          amount={qrModal.amount}
+          loanId={qrModal.loanId}
+          memberName={qrModal.memberName}
+          branch={qrModal.branch}
+        />
+      )}
 
       <div className="panel" style={{ padding: 16 }}>
         <h3 className="section-title">Installments of {b.code}</h3>
