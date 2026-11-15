@@ -23,7 +23,6 @@ export default function EmployeeAttendance() {
   const [stream, setStream] = useState(null);
   const [cameraBusy, setCameraBusy] = useState(false);
   const videoRef = useRef(null);
-  const fileInputRef = useRef(null);
 
   const startLiveCamera = async (mode = facingMode) => {
     setCameraBusy(true);
@@ -38,8 +37,7 @@ export default function EmployeeAttendance() {
       setStream(s);
       setShowCamera(true);
     } catch {
-      // Fallback: If camera stream fails or permission denied, open safe file picker
-      fileInputRef.current?.click();
+      alert('Camera access is required. Live camera capture is mandatory for First Meeting attendance. Gallery uploads are strictly prohibited.');
     } finally {
       setCameraBusy(false);
     }
@@ -66,9 +64,8 @@ export default function EmployeeAttendance() {
       stopLiveCamera();
       setPhoto(b64);
     } catch {
-      alert('Capture failed. Please use file selection.');
+      alert('Live capture failed. Please retry with live camera.');
       stopLiveCamera();
-      fileInputRef.current?.click();
     }
   };
 
@@ -438,7 +435,7 @@ export default function EmployeeAttendance() {
                       </div>
                     </div>
                     <div>
-                      <span className={`emp-badge ${d.status === 'present' ? 'emp-badge-success' : d.status === 'absent' ? 'emp-badge-danger' : 'emp-badge-warning'}`}>
+                      <span className={`emp-badge ${d.status === 'present' ? 'emp-badge-success' : d.status === 'absent' ? 'emp-badge-danger' : d.status === 'leave' ? 'emp-badge-warning' : 'emp-badge-info'}`}>
                         {d.status?.toUpperCase()}
                       </span>
                     </div>

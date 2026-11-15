@@ -4622,8 +4622,12 @@ export async function getBorrowerSavings(req, res) {
       date: w.createdAt,
       kind: w.kind,
       amount: w.amountPaise / 100,
+      interest: (w.interestPaise || 0) / 100,
       status: w.status,
-      remark: w.remark,
+      remark: w.remark || '',
+      rejectReason: w.rejectReason || '',
+      decidedAt: w.decidedAt,
+      decidedByCode: w.decidedByCode,
     })),
   });
 }
@@ -4739,14 +4743,22 @@ export async function getEmployeeReports(req, res) {
     };
   }
 
-  const staffOrBranch = [
-    ...(codeRegex ? [{ employeeCode: codeRegex }, { staffCode: codeRegex }] : []),
-    ...(branchId ? [{ branch: branchId }] : []),
-  ];
+  // Item 16 Fix: Strictly isolate report metrics to this employee when employeeCode is available
+  // Do NOT include { branch: branchId } in an $or array, as it matches everyone in the branch!
+  const staffFilter = codeRegex
+    ? {
+        $or: [
+          { employeeCode: codeRegex },
+          { staffCode: codeRegex },
+          { createdByCode: codeRegex },
+          ...(emp?._id ? [{ createdBy: emp._id }] : []),
+        ],
+      }
+    : (branchId ? { branch: branchId } : {});
 
   const disbursements = await LoanPayment.find({
     status: 'paid',
-    $or: staffOrBranch,
+    ...staffFilter,
     ...dateFilter,
   }).sort({ paidOn: -1 }).limit(100).lean();
 
@@ -4754,16 +4766,32 @@ export async function getEmployeeReports(req, res) {
 
   const requisitions = await LoanRequisition.find({
     isDeleted: false,
-    $or: staffOrBranch,
+    ...staffFilter,
     ...dateFilter,
   }).sort({ createdAt: -1 }).limit(100).lean();
 
   const approvals = requisitions.filter((r) => r.status === 'approved');
 
+  // Item 16: New Members registered / added by this employee
+  const memberStaffFilter = codeRegex
+    ? {
+        $or: [
+          { employeeCode: codeRegex },
+          ...(emp?._id ? [{ createdBy: emp._id }, { savedBy: emp._id }] : []),
+        ],
+      }
+    : (branchId ? { branch: branchId } : {});
+
+  const newMembers = await Member.find({
+    isDeleted: false,
+    ...memberStaffFilter,
+    ...dateFilter,
+  }).sort({ createdAt: -1 }).limit(100).lean();
+
   const npaPayments = await EmiPayment.find({
     npa: true,
     status: 'paid',
-    $or: staffOrBranch,
+    ...staffFilter,
     ...dateFilter,
   }).sort({ paidOn: -1 }).limit(100).lean();
 
@@ -4772,14 +4800,14 @@ export async function getEmployeeReports(req, res) {
   const totalNpaCommission = Math.round(totalNpaRecovered * 0.10 * 100) / 100;
 
   const centerSurveys = await CenterVisit.find({
-    $or: staffOrBranch,
+    ...staffFilter,
     ...dateFilter,
   }).sort({ visitDate: -1 }).limit(100).lean();
 
   // Point 16 & Item 11 Fix: Separate Actual Completed Product Sales from Pending Bookings
   // Target must show ACTUAL PRODUCT SELL, not product bookings!
   const productSales = await ProductSaleOrder.find({
-    $or: staffOrBranch,
+    ...staffFilter,
     ...dateFilter,
   }).sort({ createdAt: -1 }).limit(100).lean();
 
@@ -4808,7 +4836,17 @@ export async function getEmployeeReports(req, res) {
       productSalesCount: actualProductSales.length, // Actual completed sales count
       pendingBookingsCount: pendingProductBookings.length,
       pendingBookingsAmount: totalBookingsAmount,
+      newMembersCount: newMembers.length, // Item 16: New Member Add report count
     },
+    newMembers: newMembers.map((m) => ({
+      id: m._id,
+      code: m.code,
+      name: m.name,
+      mobile: m.mobile,
+      fatherName: m.fatherName || m.husbandName || '',
+      village: m.presentAddress?.village || m.presentAddress?.city || '',
+      date: m.createdAt ? new Date(m.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : 'N/A',
+    })),
     disbursements: disbursements.map((d) => ({
       loanId: d.loanId || d.receiptNo,
       borrower: d.lines?.[0]?.name,
@@ -5074,30 +5112,138 @@ export async function getAttendanceHistory(req, res) {
   const codeRegex = code ? new RegExp(`^${code}$`, 'i') : null;
 
   const monthStr = cleanStr(req.query.month) || new Date().toISOString().slice(0, 7);
-  const startMonth = new Date(`${monthStr}-01T00:00:00.000Z`);
-  const endMonth = new Date(startMonth.getFullYear(), startMonth.getMonth() + 1, 0, 23, 59, 59, 999);
+  const [yearNum, monthNum] = monthStr.split('-').map(Number);
+  const startMonth = new Date(Date.UTC(yearNum, monthNum - 1, 1, 0, 0, 0, 0));
+  const endMonth = new Date(Date.UTC(yearNum, monthNum, 0, 23, 59, 59, 999));
+  const daysInMonth = endMonth.getUTCDate();
 
-  const records = await Attendance.find({
-    employee: emp._id,
-    date: { $gte: startMonth, $lte: endMonth },
-  }).sort({ date: 1 }).lean();
+  const now = new Date();
+  const currentMonthStr = now.toISOString().slice(0, 7);
+  const isCurrentMonth = monthStr === currentMonthStr;
+  const isFutureMonth = monthStr > currentMonthStr;
+  const maxDay = isFutureMonth ? 0 : (isCurrentMonth ? now.getDate() : daysInMonth);
 
-  const meetingPhotos = await FirstMeetingAttendance.find({
-    $or: [
-      ...(codeRegex ? [{ employeeCode: codeRegex }] : []),
-      ...(emp?._id ? [{ employee: emp._id }] : []),
-    ],
-    date: { $gte: startMonth, $lte: endMonth },
-  }).lean();
+  const [records, leaves, holidays, meetingPhotos] = await Promise.all([
+    Attendance.find({
+      employee: emp._id,
+      date: { $gte: startMonth, $lte: endMonth },
+    }).lean(),
+    Leave.find({
+      employee: emp._id,
+      status: 'approved',
+      from: { $lte: endMonth },
+      to: { $gte: startMonth },
+    }).lean(),
+    Holiday.find({
+      date: { $gte: startMonth, $lte: endMonth },
+      isDeleted: { $ne: true },
+      isActive: { $ne: false },
+      $or: [{ branch: null }, ...(emp.branch ? [{ branch: emp.branch }] : [])],
+    }).lean(),
+    FirstMeetingAttendance.find({
+      $or: [
+        ...(codeRegex ? [{ employeeCode: codeRegex }] : []),
+        ...(emp?._id ? [{ employee: emp._id }] : []),
+      ],
+      date: { $gte: startMonth, $lte: endMonth },
+    }).lean(),
+  ]);
 
   const photoMap = new Map();
   meetingPhotos.forEach((p) => {
     photoMap.set(new Date(p.date).toISOString().slice(0, 10), p.photo);
   });
 
-  const presentCount = records.filter((r) => r.status === 'present').length;
-  const absentCount = records.filter((r) => r.status === 'absent').length;
-  const leaveCount = records.filter((r) => r.status === 'leave').length;
+  const recordMap = new Map();
+  records.forEach((r) => {
+    recordMap.set(new Date(r.date).toISOString().slice(0, 10), r);
+  });
+
+  const holidayMap = new Map();
+  holidays.forEach((h) => {
+    holidayMap.set(new Date(h.date).toISOString().slice(0, 10), h.name);
+  });
+
+  const allDays = [];
+  let presentCount = 0;
+  let absentCount = 0;
+  let leaveCount = 0;
+
+  for (let d = maxDay; d >= 1; d--) {
+    const dStr = `${monthStr}-${String(d).padStart(2, '0')}`;
+    const dateObj = new Date(`${dStr}T12:00:00.000Z`);
+    const dayOfWeek = dateObj.getUTCDay(); // 0 is Sunday
+
+    const rec = recordMap.get(dStr);
+    if (rec) {
+      allDays.push({
+        date: dStr,
+        status: rec.status,
+        photo: photoMap.get(dStr) || null,
+        firstActivity: rec.firstActivity,
+        remark: rec.remark || (rec.status === 'present' ? 'Present' : rec.status),
+      });
+      if (rec.status === 'present') presentCount += 1;
+      else if (rec.status === 'half_day') presentCount += 0.5;
+      else if (rec.status === 'leave') leaveCount += 1;
+      else if (rec.status === 'absent') absentCount += 1;
+      continue;
+    }
+
+    // Check if falls in an approved leave
+    const matchingLeave = leaves.find((l) => {
+      const fromStr = new Date(l.from).toISOString().slice(0, 10);
+      const toStr = new Date(l.to).toISOString().slice(0, 10);
+      return dStr >= fromStr && dStr <= toStr;
+    });
+
+    if (matchingLeave) {
+      leaveCount += 1;
+      allDays.push({
+        date: dStr,
+        status: 'leave',
+        photo: null,
+        firstActivity: null,
+        remark: `${matchingLeave.type?.toUpperCase()} Leave: ${matchingLeave.reason || 'Approved leave'}`,
+      });
+      continue;
+    }
+
+    // Check if company holiday
+    const holidayName = holidayMap.get(dStr);
+    if (holidayName) {
+      allDays.push({
+        date: dStr,
+        status: 'holiday',
+        photo: null,
+        firstActivity: null,
+        remark: `Holiday: ${holidayName}`,
+      });
+      continue;
+    }
+
+    // Check if Sunday
+    if (dayOfWeek === 0) {
+      allDays.push({
+        date: dStr,
+        status: 'holiday',
+        photo: null,
+        firstActivity: null,
+        remark: 'Weekly Off (Sunday)',
+      });
+      continue;
+    }
+
+    // Working day in the past or today with no punch and no leave -> Absent
+    absentCount += 1;
+    allDays.push({
+      date: dStr,
+      status: 'absent',
+      photo: null,
+      firstActivity: null,
+      remark: 'Absent (No punch recorded)',
+    });
+  }
 
   res.json({
     month: monthStr,
@@ -5105,18 +5251,9 @@ export async function getAttendanceHistory(req, res) {
       present: presentCount,
       absent: absentCount,
       leave: leaveCount,
-      totalMarked: records.length,
+      totalMarked: allDays.length,
     },
-    days: records.map((r) => {
-      const dStr = new Date(r.date).toISOString().slice(0, 10);
-      return {
-        date: dStr,
-        status: r.status,
-        photo: photoMap.get(dStr) || null,
-        firstActivity: r.firstActivity,
-        remark: r.remark,
-      };
-    }),
+    days: allDays,
   });
 }
 
@@ -5575,7 +5712,32 @@ export async function getBranchStockProducts(req, res) {
 export async function sellStockProduct(req, res) {
   const code = req.user?.employeeCode;
   const emp = await Employee.findOne({ employeeCode: code });
-  const { memberCode, productCode, quantity = 1, payMode = 'upi' } = req.body || {};
+  const {
+    sellType = 'company_member',
+    memberCode,
+    customerName,
+    customerMobile,
+    customerAddress,
+    productCode,
+    quantity = 1,
+    payMode = 'upi',
+    utrNumber = '',
+  } = req.body || {};
+
+  const isDirect = sellType === 'direct_customer';
+  let finalMemberCode = 'DIRECT';
+  let finalMemberName = customerName?.trim() || 'Direct Customer';
+
+  if (!isDirect) {
+    if (!memberCode?.trim()) throw new HttpError(400, 'Member code is required for Company Member Sell');
+    const member = await Member.findOne({ code: new RegExp(`^${memberCode.trim()}$`, 'i'), isDeleted: false });
+    if (!member) throw new HttpError(404, `Member with code "${memberCode}" not found`);
+    finalMemberCode = member.code;
+    finalMemberName = member.name;
+  } else {
+    if (!customerName?.trim()) throw new HttpError(400, 'Customer name is required for Direct Customer Sell');
+    if (!customerMobile?.trim()) throw new HttpError(400, 'Customer mobile number is required for Direct Customer Sell');
+  }
 
   const bookQty = Math.max(1, parseInt(quantity, 10) || 1);
   if (!['qr', 'upi', 'upi_qr'].includes(String(payMode || '').toLowerCase())) {
@@ -5606,7 +5768,6 @@ export async function sellStockProduct(req, res) {
     throw new HttpError(400, `Insufficient stock for "${product.name}". Available: ${product.stockQty} pcs, Requested: ${bookQty} pcs.`);
   }
 
-  const member = await Member.findOne({ code: memberCode });
   const unitPrice = (product.unitPricePaise || 0) / 100;
   const totalAmount = unitPrice * bookQty;
 
@@ -5620,14 +5781,18 @@ export async function sellStockProduct(req, res) {
     employeeCode: code,
     employeeName: emp?.name || code,
     branch: emp?.branch,
-    memberCode,
-    memberName: member?.name || 'Customer',
+    sellType: isDirect ? 'direct_customer' : 'company_member',
+    memberCode: finalMemberCode,
+    memberName: finalMemberName,
+    customerMobile: customerMobile?.trim() || '',
+    customerAddress: customerAddress?.trim() || '',
     productCode: product.code,
     productName: product.name,
     quantity: bookQty,
     unitPrice,
     totalAmount,
     payMode: 'upi',
+    utrNumber: utrNumber?.trim() || '',
     status: 'pending',
   });
 
@@ -5635,7 +5800,8 @@ export async function sellStockProduct(req, res) {
     success: true,
     receiptNo,
     totalAmount,
-    message: `Product "${product.name}" (Qty: ${bookQty}) booked successfully (Booking ID: ${receiptNo}) via QR Payment. Remaining stock: ${product.stockQty} pcs.`,
+    memberName: finalMemberName,
+    message: `Product "${product.name}" (Qty: ${bookQty}) booked successfully (Booking ID: ${receiptNo}) for ${finalMemberName} via QR Payment. Remaining stock: ${product.stockQty} pcs.`,
     item: saleDoc,
   });
 }

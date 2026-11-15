@@ -233,6 +233,101 @@ export default function EmployeeBorrowerSavings() {
             )}
           </div>
 
+          {/* Previous Withdrawal History & Status */}
+          <div className="emp-card">
+            <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: '0 0 10px 0', color: 'var(--emp-text)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Previous Withdrawal History</span>
+              <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text-muted)' }}>
+                {data.withdrawals?.length || 0} Request{data.withdrawals?.length === 1 ? '' : 's'}
+              </span>
+            </h3>
+
+            {(!data.withdrawals || data.withdrawals.length === 0) ? (
+              <div style={{ textAlign: 'center', padding: '16px 10px', color: 'var(--emp-text-muted)', fontSize: '0.82rem', background: '#f8fafc', borderRadius: 8 }}>
+                No previous withdrawal requests found for this member.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {data.withdrawals.map((w, idx) => {
+                  const isApproved = w.status === 'approved';
+                  const isRejected = w.status === 'rejected';
+                  const isPending = w.status === 'pending';
+                  const statusBg = isApproved ? '#dcfce7' : isRejected ? '#fee2e2' : '#fef3c7';
+                  const statusColor = isApproved ? '#166534' : isRejected ? '#991b1b' : '#92400e';
+                  const statusBorder = isApproved ? '#86efac' : isRejected ? '#fca5a5' : '#fcd34d';
+
+                  return (
+                    <div
+                      key={w.id || idx}
+                      style={{
+                        background: '#fff',
+                        border: `1px solid ${statusBorder}`,
+                        borderRadius: 8,
+                        padding: '12px 14px',
+                        fontSize: '0.82rem',
+                        boxShadow: '0 1px 2px rgba(0,0,0,0.03)'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                        <div>
+                          <div style={{ fontWeight: 800, fontSize: '0.95rem', color: 'var(--emp-text)' }}>
+                            ₹{Number(w.amount || 0).toLocaleString('en-IN')}
+                            {w.interest > 0 && (
+                              <span style={{ fontSize: '0.75rem', color: '#1d4ed8', fontWeight: 600, marginLeft: 6 }}>
+                                (+₹{w.interest} interest)
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
+                            Receipt: <strong>{w.receiptNo || 'N/A'}</strong> • Type: <strong style={{ textTransform: 'capitalize' }}>{w.kind === 'adjust' ? 'Adjust against EMI' : 'Cash Return'}</strong>
+                          </div>
+                        </div>
+                        <span
+                          style={{
+                            background: statusBg,
+                            color: statusColor,
+                            border: `1px solid ${statusBorder}`,
+                            padding: '3px 8px',
+                            borderRadius: 12,
+                            fontSize: '0.72rem',
+                            fontWeight: 700,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.5px'
+                          }}
+                        >
+                          {w.status || 'Pending'}
+                        </span>
+                      </div>
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--emp-text-muted)', marginTop: 6, paddingTop: 6, borderTop: '1px dashed #e2e8f0' }}>
+                        <span>
+                          Requested: <strong>{w.date ? new Date(w.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A'}</strong>
+                        </span>
+                        {w.decidedAt && (
+                          <span>
+                            Decided: <strong>{new Date(w.decidedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</strong>
+                          </span>
+                        )}
+                      </div>
+
+                      {w.remark && (
+                        <div style={{ fontSize: '0.75rem', color: 'var(--emp-text)', marginTop: 4 }}>
+                          <span style={{ color: 'var(--emp-text-muted)' }}>Staff Note:</span> {w.remark}
+                        </div>
+                      )}
+
+                      {isRejected && w.rejectReason && (
+                        <div style={{ fontSize: '0.75rem', color: '#991b1b', marginTop: 4, background: '#fef2f2', padding: '4px 8px', borderRadius: 4 }}>
+                          <strong>Rejection Reason:</strong> {w.rejectReason}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           {/* Deposit Breakdown */}
           {data.deposits && data.deposits.length > 0 && (
             <div className="emp-card">

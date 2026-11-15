@@ -75,6 +75,17 @@ export default function EmployeeReports() {
           </div>
         </div>
 
+        {/* Item 16: New Members Added KPI Card */}
+        <div className="emp-card" style={{ margin: 0, padding: 12, background: 'linear-gradient(135deg, #0284c7, #0ea5e9)', color: '#fff' }}>
+          <div style={{ fontSize: '0.72rem', opacity: 0.9 }}>New Members Added</div>
+          <div style={{ fontSize: '1.25rem', fontWeight: 800, marginTop: 2 }}>
+            {summary.newMembersCount || 0}
+          </div>
+          <div style={{ fontSize: '0.7rem', opacity: 0.85, marginTop: 2 }}>
+            Registered by Staff
+          </div>
+        </div>
+
         <div className="emp-card" style={{ margin: 0, padding: 12, border: '1px solid var(--emp-border)' }}>
           <div style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)' }}>Requisitions</div>
           <div style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--emp-text)', marginTop: 2 }}>
@@ -116,6 +127,7 @@ export default function EmployeeReports() {
       <div style={{ display: 'flex', overflowX: 'auto', gap: 6, marginBottom: 12, paddingBottom: 4 }}>
         {[
           { id: 'disbursements', label: 'Disbursements' },
+          { id: 'members', label: 'New Members Added' },
           { id: 'productSales', label: 'Product Sell Requests' },
           { id: 'surveys', label: 'New Center Surveys' },
           { id: 'requisitions', label: 'Requisitions' },
@@ -168,6 +180,46 @@ export default function EmployeeReports() {
                     <div style={{ textAlign: 'right' }}>
                       <div style={{ fontWeight: 800, color: 'var(--emp-primary)' }}>₹{d.amount.toLocaleString('en-IN')}</div>
                       <span className="emp-badge emp-badge-success" style={{ fontSize: '0.68rem' }}>Disbursed</span>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )
+          )}
+
+          {/* Item 16: Tab New Members Added */}
+          {tab === 'members' && (
+            reportData.newMembers?.length === 0 ? (
+              <div className="emp-card" style={{ textAlign: 'center', padding: '24px', color: 'var(--emp-text-muted)' }}>
+                No new members registered under your code for this period.
+              </div>
+            ) : (
+              reportData.newMembers.map((m) => (
+                <div key={m.id || m.code} className="emp-card" style={{ margin: 0, padding: 12, border: '1px solid var(--emp-border)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: '0.95rem', color: 'var(--emp-text)' }}>{m.name}</div>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
+                        Code: <strong>{m.code}</strong> • Mobile: <strong>{m.mobile || 'N/A'}</strong>
+                      </div>
+                      {m.fatherName && (
+                        <div style={{ fontSize: '0.74rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
+                          Guardian / Spouse: {m.fatherName}
+                        </div>
+                      )}
+                      {m.village && (
+                        <div style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)', marginTop: 1 }}>
+                          Location: {m.village}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <span className="emp-badge emp-badge-success" style={{ fontSize: '0.68rem' }}>
+                        Registered
+                      </span>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)', marginTop: 4 }}>
+                        {m.date}
+                      </div>
                     </div>
                   </div>
                 </div>

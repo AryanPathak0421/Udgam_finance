@@ -218,15 +218,15 @@ export default function EmployeeHrServices() {
                 <div style={{ background: '#eff6ff', border: '1px solid #3b82f6', padding: 10, borderRadius: 8 }}>
                   <div style={{ fontSize: '0.72rem', color: '#1e40af' }}>Earned Leave (EL)</div>
                   <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#1e40af' }}>
-                    {leaveData.balances.elBalance} <span style={{ fontSize: '0.75rem', fontWeight: 500 }}>/ {leaveData.balances.elTotal || 12}</span>
+                    {leaveData.balances.elBalance} <span style={{ fontSize: '0.75rem', fontWeight: 500 }}>Available (out of {leaveData.balances.elTotal || 12}/yr)</span>
                   </div>
-                  <div style={{ fontSize: '0.68rem', color: '#1e40af', marginTop: 2 }}>
-                    Opening: {leaveData.balances.elOpening || 0} • Accrued this FY: {leaveData.balances.elEarned || 0} • Taken: {leaveData.balances.elUsed || 0}
+                  <div style={{ fontSize: '0.72rem', color: '#1e40af', marginTop: 4, background: '#dbeafe', padding: '6px 8px', borderRadius: 6 }}>
+                    <strong>Balance Formula:</strong> Opening ({leaveData.balances.elOpening || 0}) + Accrued ({leaveData.balances.elEarned || 0}) <strong style={{ color: '#b91c1c' }}>− Taken ({leaveData.balances.elUsed || 0})</strong> = <strong style={{ color: '#15803d' }}>{leaveData.balances.elBalance} Available</strong>
                   </div>
                 </div>
               </div>
               <div style={{ marginTop: 8, fontSize: '0.72rem', color: 'var(--emp-text-muted)', background: '#f8fafc', padding: '6px 8px', borderRadius: 6 }}>
-                💡 <strong>EL Rule:</strong> 1 EL per month, 12 EL per Financial Year (April to March). Accrued balance accumulates monthly (e.g. if April, May, June are due/unused, up to 4 EL can be taken in July).
+                💡 <strong>EL Rule:</strong> 1 EL per month, 12 EL per Financial Year (April to March). Accrued balance accumulates monthly and any leaves taken are deducted (−).
               </div>
             </div>
           )}
@@ -416,13 +416,18 @@ export default function EmployeeHrServices() {
             <h3 style={{ fontSize: '1.05rem', fontWeight: 800, margin: '0 0 10px 0' }}>Request Branch Transfer</h3>
             <form onSubmit={handleSubmitTransfer} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div>
-                <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: 2 }}>Preferred Target Branch *</label>
+                <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: 2 }}>
+                  Your Nearest Branches (Udgam Recommended Branches) *
+                </label>
                 <select className="emp-input" value={transferForm.targetBranchId} onChange={(e) => setTransferForm({ ...transferForm, targetBranchId: e.target.value })} required>
-                  <option value="">Select Branch</option>
+                  <option value="">Select Nearest Branch (Udgam Recommended)</option>
                   {branches.map((b) => (
                     <option key={b.id || b._id} value={b.id || b._id}>{b.name} ({b.city || 'Branch'})</option>
                   ))}
                 </select>
+                <div style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)', marginTop: 3 }}>
+                  Select the nearest branch to your home / preferred location from Udgam recommended branches.
+                </div>
               </div>
 
               <div>

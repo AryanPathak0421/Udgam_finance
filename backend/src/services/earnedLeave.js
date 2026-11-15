@@ -45,6 +45,7 @@ async function takenBy(ids) {
   const rows = await Leave.find({
     employee: { $in: ids },
     status: { $in: ['pending', 'approved'] },
+    type: 'earned',
   }).select('employee from days type').lean();
   const by = new Map();
   rows.forEach((l) => { const k = String(l.employee); if (!by.has(k)) by.set(k, []); by.get(k).push(l); });
