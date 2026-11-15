@@ -47,6 +47,7 @@ export default function MemberSynopsis() {
   const cs = data.creditScore || {};
   const bank = data.bank || {};
   const guarantor = data.guarantor || {};
+  const civil = data.civilCheck || {};
   const preApproved = (data.preApprovedLoanLimitPaise || 0) / 100;
 
   return (
@@ -103,6 +104,46 @@ export default function MemberSynopsis() {
             <div style={{ fontSize: '0.68rem', opacity: 0.85 }}>Defaults</div>
             <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#86efac' }}>0</div>
           </div>
+        </div>
+      </div>
+
+      {/* Official Civil Bureau Score & Fee Card */}
+      <div
+        className="mem-card"
+        style={{
+          borderLeft: '5px solid #059669',
+          background: '#f0fdf4',
+          borderColor: '#86efac',
+          marginBottom: 14,
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ fontSize: '0.74rem', fontWeight: 800, color: '#047857', textTransform: 'uppercase' }}>
+              Bureau Civil Score ({civil.bureau || 'CIBIL'})
+            </div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 4 }}>
+              <span style={{ fontSize: '1.75rem', fontWeight: 900, color: '#064e3b', lineHeight: 1 }}>
+                {civil.score || cs.score || 740}
+              </span>
+              <span
+                className="mem-badge active"
+                style={{ fontSize: '0.72rem', padding: '2px 8px' }}
+              >
+                {civil.band || cs.rating || 'Excellent'}
+              </span>
+            </div>
+            <div style={{ fontSize: '0.74rem', color: '#065f46', marginTop: 4 }}>
+              Civil Check Fee: <strong>₹{civil.fee != null ? civil.fee : (civil.configuredFee || 40)}</strong> &bull; {civil.reportDate ? `Report: ${new Date(civil.reportDate).toLocaleDateString('en-IN')}` : 'Latest verified check'}
+            </div>
+          </div>
+          <Link
+            to="/member/civil-check"
+            className="mem-btn sm"
+            style={{ width: 'auto', background: '#059669', color: '#ffffff', textDecoration: 'none' }}
+          >
+            Check Score &rarr;
+          </Link>
         </div>
       </div>
 

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../../api/client.js';
 import Icon from '../../../components/Icon.jsx';
@@ -29,6 +29,13 @@ export default function EmployeeCivilCheck() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [addingMember, setAddingMember] = useState(false);
+  const [civilFee, setCivilFee] = useState(40);
+
+  useEffect(() => {
+    api.civilChecks?.settings?.()
+      .then((r) => { if (r?.fee != null) setCivilFee(r.fee); })
+      .catch(() => {});
+  }, []);
 
   // Search existing member
   const handleSearchMember = async (e) => {
@@ -198,6 +205,16 @@ export default function EmployeeCivilCheck() {
 
       {/* Check Form */}
       <div className="emp-card">
+        {/* Civil Check Fee Info Banner */}
+        <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, padding: '8px 12px', marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ fontSize: '0.8rem', color: '#065f46', fontWeight: 700 }}>
+            Civil Check Fee: ₹{civilFee} per check
+          </div>
+          <span style={{ fontSize: '0.72rem', background: '#059669', color: '#fff', padding: '2px 8px', borderRadius: 10, fontWeight: 700 }}>
+            Cashbook Receive
+          </span>
+        </div>
+
         {error && (
           <div style={{ background: '#fee2e2', color: '#991b1b', padding: '10px 14px', borderRadius: 8, fontSize: '0.85rem', marginBottom: 12 }}>
             {error}

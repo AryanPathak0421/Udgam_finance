@@ -14,6 +14,7 @@ export default function MemberApplyLoan() {
 
   const [requisitions, setRequisitions] = useState([]);
   const [loadingReqs, setLoadingReqs] = useState(false);
+  const [civilFee, setCivilFee] = useState(40);
 
   const PRESETS = [10000, 25000, 40000, 50000, 75000, 100000];
 
@@ -26,6 +27,7 @@ export default function MemberApplyLoan() {
     try {
       const res = await api.memberApp.requisitions();
       setRequisitions(res.requisitions || []);
+      if (res.civilFee != null) setCivilFee(res.civilFee);
     } catch (err) {
       // non-fatal
     } finally {
@@ -105,6 +107,60 @@ export default function MemberApplyLoan() {
             <span>{success}</span>
           </div>
         )}
+
+        {/* Civil Check Fee Card */}
+        <div
+          style={{
+            background: 'linear-gradient(135deg, #f0fdf4, #dcfce7)',
+            border: '1px solid #86efac',
+            borderRadius: 12,
+            padding: '12px 14px',
+            marginBottom: 16,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 10,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 10,
+                background: '#059669',
+                color: '#fff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }}
+            >
+              <Icon name="shield" size={20} />
+            </div>
+            <div>
+              <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#065f46' }}>
+                Civil Check Fee: ₹{civilFee}
+              </div>
+              <div style={{ fontSize: '0.74rem', color: '#047857' }}>
+                Credit bureau civil check fee applied automatically with this loan request.
+              </div>
+            </div>
+          </div>
+          <span
+            style={{
+              fontSize: '0.75rem',
+              fontWeight: 800,
+              background: '#059669',
+              color: '#ffffff',
+              padding: '4px 10px',
+              borderRadius: 20,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            ₹{civilFee} Applied
+          </span>
+        </div>
 
         <form onSubmit={handleSubmit}>
           {/* Loan Type */}
@@ -221,7 +277,7 @@ export default function MemberApplyLoan() {
                       Requisition #{r.requisitionNo || r.code || 'REQ'}
                     </div>
                     <div style={{ fontSize: '0.72rem', color: 'var(--mem-text-muted)' }}>
-                      ₹{((r.requestedAmountPaise || 0) / 100).toLocaleString('en-IN')} &bull; Applied: {new Date(r.createdAt).toLocaleDateString('en-IN')}
+                      ₹{((r.appliedAmountPaise || r.requestedAmountPaise || 0) / 100).toLocaleString('en-IN')} &bull; Civil Fee: ₹{r.civilFee != null ? r.civilFee : civilFee} &bull; {new Date(r.date || r.createdAt).toLocaleDateString('en-IN')}
                     </div>
                   </div>
                   <div style={{ textAlign: 'right' }}>

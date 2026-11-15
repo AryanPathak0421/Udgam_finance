@@ -5399,7 +5399,7 @@ export async function checkCivilScore(req, res) {
   }
 
   let civilCheckRecord = null;
-  const currentCivilFeePaise = (await civilFeePaise()) || 10000;
+  const currentCivilFeePaise = await civilFeePaise();
   if (memberDoc) {
     civilCheckRecord = await CivilCheck.create({
       member: memberDoc._id,
@@ -5494,7 +5494,7 @@ export async function addCivilCheckedMember(req, res) {
   });
 
   if (score) {
-    const defaultCivilFeePaise = (await civilFeePaise()) || 10000;
+    const defaultCivilFeePaise = await civilFeePaise();
     await CivilCheck.create({
       member: member._id,
       branch: branchId,

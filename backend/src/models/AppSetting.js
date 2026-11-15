@@ -14,8 +14,21 @@ export const AppSetting = mongoose.model('AppSetting', settingSchema);
 
 export const CIVIL_FEE_KEY = 'civilCheckFeePaise';
 export async function civilFeePaise() {
-  const s = await AppSetting.findOne({ key: CIVIL_FEE_KEY });
-  return Number.isInteger(s?.value) && s.value > 0 ? s.value : 0;
+  try {
+    const s = await AppSetting.findOne({
+      key: { $in: [CIVIL_FEE_KEY, 'civil_check_fee', 'civilCheckFee', 'civil_fee'] },
+    });
+    if (!s || s.value === undefined || s.value === null) {
+      return 4000; // Default ₹40 (4000 paise) as set in Admin
+    }
+    const val = Number(s.value);
+    if (!Number.isFinite(val) || val <= 0) return 0;
+    // If stored as whole rupees (e.g. 40 <= 500), convert to paise
+    if (val <= 500) return Math.round(val * 100);
+    return Math.round(val);
+  } catch {
+    return 4000;
+  }
 }
 
 export const SMS_CONFIG_KEY = 'smsGatewayConfig';

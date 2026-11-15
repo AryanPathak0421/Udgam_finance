@@ -479,6 +479,13 @@ export default function MemberHome() {
           </div>
           <span>Passbook</span>
         </Link>
+
+        <Link to="/member/civil-check" className="mem-quick-item">
+          <div className="mem-quick-icon" style={{ background: '#f0fdf4', color: '#059669' }}>
+            <Icon name="shield" size={20} />
+          </div>
+          <span>Civil Score</span>
+        </Link>
       </div>
 
       {/* Recent Payments Section */}

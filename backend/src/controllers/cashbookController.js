@@ -440,7 +440,7 @@ export async function cashbookData(req, query) {
     // the fee of every civil check (the amount the admin set on the Civil Check page), received in cash
     if (!mode || mode === 'cash') {
       const civil = await CivilCheck.find({ ...scope, isDeleted: false, ...stampRange('createdAt', before) }).populate('member', 'code name').limit(20000);
-      const configuredFee = (await civilFeePaise()) || 10000;
+      const configuredFee = await civilFeePaise();
       civil.forEach((c) => {
         const fee = (c.feePaise && c.feePaise > 0) ? c.feePaise : configuredFee;
         if (fee > 0) {

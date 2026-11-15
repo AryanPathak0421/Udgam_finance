@@ -19,6 +19,7 @@ import MemberSynopsis from './pages/MemberSynopsis.jsx';
 import MemberHolidays from './pages/MemberHolidays.jsx';
 import MemberPassbook from './pages/MemberPassbook.jsx';
 import MemberApplyLoan from './pages/MemberApplyLoan.jsx';
+import MemberCivilCheck from './pages/MemberCivilCheck.jsx';
 import MemberProfile from './pages/MemberProfile.jsx';
 
 import './member.css';
@@ -134,6 +135,10 @@ function MemberAppRoutes() {
             <Route
               path="apply-loan"
               element={memUser ? <MemberApplyLoan /> : <Navigate to="/member/login" replace />}
+            />
+            <Route
+              path="civil-check"
+              element={memUser ? <MemberCivilCheck /> : <Navigate to="/member/login" replace />}
             />
             <Route
               path="profile"

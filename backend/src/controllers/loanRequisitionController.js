@@ -195,7 +195,7 @@ async function runningSchemes(memberIds) {
 async function civilSnapshot(memberId) {
   const c = await CivilCheck.findOne({ member: memberId, isDeleted: false }).sort({ reportDate: -1, createdAt: -1 });
   if (!c) return null;
-  const configuredFee = (await civilFeePaise()) || 10000;
+  const configuredFee = await civilFeePaise();
   const feePaise = (c.feePaise && c.feePaise > 0) ? c.feePaise : configuredFee;
   return {
     score: c.score,

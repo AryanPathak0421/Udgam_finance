@@ -27,6 +27,8 @@ import {
   getMemberHolidays,
   getMemberKycReport,
   reuploadMemberKycDoc,
+  getMemberCivilCheck,
+  runMemberCivilCheck,
 } from './memberAppController.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-key-udgam-2026';
@@ -94,6 +96,8 @@ router.post('/auth/forgot-mpin/reset', h(forgotMemberMpinVerify));
 router.get('/profile', requireMemberAuth, h(getMemberProfile));
 router.get('/dashboard', requireMemberAuth, h(getMemberDashboard));
 router.get('/synopsis', requireMemberAuth, h(getMemberSynopsis));
+router.get('/civil-check', requireMemberAuth, h(getMemberCivilCheck));
+router.post('/civil-check', requireMemberAuth, h(runMemberCivilCheck));
 
 // 3. Loans & Deep Tracking & NOC
 router.get('/loans', requireMemberAuth, h(getMemberLoans));
