@@ -31,15 +31,67 @@ function computeLocalLoan(amt, annualRate, termNum, repayMode, type, scheme) {
     }
   }
 
-  // Point 14: Derive deductions strictly from selected Scheme parameters
-  const procPercent = scheme?.processingFeeBp != null ? (scheme.processingFeeBp / 100) : (scheme?.processingFeePercent ?? 2);
-  const processingFee = scheme?.processingFeePaise ? Math.round(scheme.processingFeePaise / 100) : Math.round((amount * procPercent) / 100);
+  // Point 14 Fix: Calculate deductions strictly according to scheme rules
+  let processingFee = 0;
+  let procDesc = '2%';
+  let procPercent = 2;
+  let insurance = 0;
+  let insDesc = '1.5%';
+  let insPercent = 1.5;
+  let security = 0;
+  let secDesc = '5%';
+  let secPercent = 5;
+  let securityType = scheme?.securityType || 'none';
 
-  const insPercent = scheme?.insuranceBp != null ? (scheme.insuranceBp / 100) : (scheme?.insurancePercent ?? 1.5);
-  const insurance = scheme?.insurancePaise ? Math.round(scheme.insurancePaise / 100) : Math.round((amount * insPercent) / 100);
-
-  const secPercent = scheme?.securityDepositBp != null ? (scheme.securityDepositBp / 100) : (scheme?.securityDepositPercent ?? 5);
-  const security = scheme?.securityDepositPaise ? Math.round(scheme.securityDepositPaise / 100) : Math.round((amount * secPercent) / 100);
+  if (scheme) {
+    // 1. Processing fee
+    if (scheme.processingFee) {
+      if (scheme.processingFee.type === 'fixed') {
+        processingFee = Math.round((scheme.processingFee.value || 0) / 100);
+        procDesc = `Fixed ₹${processingFee.toLocaleString('en-IN')}`;
+        procPercent = amount > 0 ? Math.round((processingFee / amount) * 1000) / 10 : 0;
+      } else {
+        const bp = scheme.processingFee.value || 0;
+        procPercent = bp / 100;
+        processingFee = Math.round((amount * bp) / 10000);
+        procDesc = `${procPercent}%`;
+      }
+    }
+    // 2. Insurance / Cost
+    if (scheme.cost) {
+      if (scheme.cost.type === 'fixed') {
+        insurance = Math.round((scheme.cost.value || 0) / 100);
+        insDesc = `Fixed ₹${insurance.toLocaleString('en-IN')}`;
+        insPercent = amount > 0 ? Math.round((insurance / amount) * 1000) / 10 : 0;
+      } else {
+        const bp = scheme.cost.value || 0;
+        insPercent = bp / 100;
+        insurance = Math.round((amount * bp) / 10000);
+        insDesc = `${insPercent}%`;
+      }
+    }
+    // 3. Security deposit
+    if (securityType !== 'none') {
+      if (scheme.securityDeposit?.type === 'fixed') {
+        security = Math.round((scheme.securityDeposit.value || 0) / 100);
+        secDesc = `Fixed ₹${security.toLocaleString('en-IN')}`;
+        secPercent = amount > 0 ? Math.round((security / amount) * 1000) / 10 : 0;
+      } else {
+        const bp = scheme.securityDeposit?.value ?? scheme.securityBp ?? 0;
+        secPercent = bp / 100;
+        security = Math.round((amount * bp) / 10000);
+        secDesc = `${secPercent}%`;
+      }
+    } else {
+      security = 0;
+      secDesc = 'None (0%)';
+      secPercent = 0;
+    }
+  } else {
+    processingFee = Math.round(amount * 0.02);
+    insurance = Math.round(amount * 0.015);
+    security = Math.round(amount * 0.05);
+  }
 
   const totalDeductions = processingFee + insurance + security;
   const netDisbursed = Math.max(0, amount - totalDeductions);
@@ -51,14 +103,19 @@ function computeLocalLoan(amt, annualRate, termNum, repayMode, type, scheme) {
     installment: emi,
     totalInterest,
     totalPayable,
+    procDesc,
     procPercent,
     processingFee,
+    insDesc,
     insPercent,
     insurance,
+    secDesc,
     secPercent,
     security,
+    securityType,
     totalDeductions,
     netDisbursed,
+    schemeName: scheme?.name || '',
   };
 }
 
@@ -136,6 +193,7 @@ export default function EmployeeLoanCalculator() {
           term: Number(term),
           mode,
           calculationType,
+          schemeId: selectedSchemeId || undefined,
         });
         if (res && res.totalPayable) {
           setResult({ ...localRes, ...res });
@@ -302,24 +360,33 @@ export default function EmployeeLoanCalculator() {
       {/* Deductions & Net Disbursal */}
       {result && (
         <div className="emp-card">
-          <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: '0 0 12px 0', color: 'var(--emp-text)' }}>
-            Disbursement & Deduction Breakdown
-          </h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, color: 'var(--emp-text)' }}>
+              Disbursement &amp; Deduction Breakdown
+            </h3>
+            {result.schemeName && (
+              <span style={{ fontSize: '0.72rem', fontWeight: 700, background: 'var(--emp-primary-soft, #eef2ff)', color: 'var(--emp-primary)', padding: '2px 8px', borderRadius: 6 }}>
+                {result.schemeName}
+              </span>
+            )}
+          </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: '0.85rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span style={{ color: 'var(--emp-text-muted)' }}>Sanctioned Principal:</span>
               <span style={{ fontWeight: 600 }}>₹{Number(amount).toLocaleString('en-IN')}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', color: '#dc2626' }}>
-              <span>- Processing Fee ({result.procPercent || 2}%):</span>
+              <span>- Processing Fee ({result.procDesc || `${result.procPercent || 2}%`}):</span>
               <span style={{ fontWeight: 600 }}>-₹{Number(result.processingFee || 0).toLocaleString('en-IN')}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', color: '#dc2626' }}>
-              <span>- Insurance / Verification ({result.insPercent || 1.5}%):</span>
+              <span>- Insurance / Cost ({result.insDesc || `${result.insPercent || 1.5}%`}):</span>
               <span style={{ fontWeight: 600 }}>-₹{Number(result.insurance || 0).toLocaleString('en-IN')}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', color: '#dc2626' }}>
-              <span>- Security Deposit Amount ({result.secPercent || 5}%):</span>
+              <span>
+                - Security Deposit ({result.secDesc || `${result.secPercent || 5}%`}{result.securityType && result.securityType !== 'none' ? ` · ${result.securityType}` : ''}):
+              </span>
               <span style={{ fontWeight: 700, fontSize: '0.92rem' }}>-₹{Number(result.security || 0).toLocaleString('en-IN')}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', color: '#b91c1c', borderTop: '1px dashed #fca5a5', paddingTop: 6, fontWeight: 700 }}>

@@ -1,17 +1,18 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { api } from '../../../api/client.js';
 import { useEmployeeApp } from '../EmployeeAppContext.jsx';
 import Icon from '../../../components/Icon.jsx';
 import { downloadMemberPdf } from '../../../utils/memberPdf.js';
+import { compressImage } from '../../../utils/image.js';
 
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : '');
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-IN') : '—');
 const fmtTime = (d) => (d ? new Date(d).toLocaleString('en-IN') : '—');
 const inr = (n) => (n === null || n === undefined ? '—' : `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 
-const TONE = { pending: '#d97706', approved: '#059669', rejected: '#dc2626' };
-const BG_TONE = { pending: '#fef3c7', approved: '#dcfce7', rejected: '#fee2e2' };
-const LABEL = { pending: 'Pending', approved: 'Approved', rejected: 'Rejected' };
+const TONE = { pending: '#d97706', approved: '#059669', verified: '#059669', rejected: '#dc2626', missing: '#ea580c', incomplete: '#ea580c' };
+const BG_TONE = { pending: '#fef3c7', approved: '#dcfce7', verified: '#dcfce7', rejected: '#fee2e2', missing: '#ffedd5', incomplete: '#ffedd5' };
+const LABEL = { pending: 'Pending', approved: 'Approved', verified: 'Approved', rejected: 'Rejected', missing: 'Incomplete / Missing', incomplete: 'Incomplete' };
 
 function Section({ title, count, children, defaultOpen = true }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -151,26 +152,45 @@ export default function EmployeeMemberSynopsis() {
     }
   };
 
+  const [completeModal, setCompleteModal] = useState(false);
+  const [completeOptions, setCompleteOptions] = useState(null);
+  const [completeLoading, setCompleteLoading] = useState(false);
+
+  const handleOpenComplete = async () => {
+    setCompleteLoading(true);
+    try {
+      const opts = await api.members.options();
+      setCompleteOptions(opts);
+      setCompleteModal(true);
+    } catch (err) {
+      alert(err.message || 'Failed to load options for completing details');
+    } finally {
+      setCompleteLoading(false);
+    }
+  };
+
   const handleSendPhoneOtp = async () => {
-    if (!/^\d{10}$/.test(newPhone.trim())) {
+    const cleanNum = newPhone.trim().replace(/\D/g, '').slice(-10);
+    if (!/^\d{10}$/.test(cleanNum)) {
       alert('Enter a valid 10-digit mobile number');
       return;
     }
     const currentPhone = phoneTarget === 'member' ? m?.mobile : m?.guarantor?.mobile;
-    if (currentPhone && currentPhone === newPhone.trim()) {
+    if (currentPhone && currentPhone.replace(/\D/g, '').slice(-10) === cleanNum) {
       alert('New mobile number cannot be the same as current number');
       return;
     }
     setPhoneSending(true);
     try {
-      const res = await api.employee.sendPhoneChangeOtp(m.id || m._id, {
+      const res = await api.members.sendPhoneUpdateOtp(m.id || m._id, {
         targetType: phoneTarget,
-        newMobile: newPhone.trim(),
+        newNumber: cleanNum,
       });
       setPhoneChallengeId(res.challengeId);
       setPhoneOtpSent(true);
       setPhoneCountdown(60);
       if (res.devOtp) setPhoneDevOtp(res.devOtp);
+      alert(`OTP sent successfully to +91 ${cleanNum}`);
     } catch (err) {
       alert(err.message || 'Failed to send OTP');
     } finally {
@@ -183,20 +203,22 @@ export default function EmployeeMemberSynopsis() {
       alert('Please send and verify OTP first');
       return;
     }
-    if (!/^\d{6}$/.test(phoneOtp.trim())) {
+    const otpClean = phoneOtp.trim();
+    if (!/^\d{6}$/.test(otpClean)) {
       alert('Enter the 6-digit OTP');
       return;
     }
     setPhoneSubmitting(true);
     try {
-      const res = await api.employee.verifyPhoneChange(m.id || m._id, {
+      const cleanNum = newPhone.trim().replace(/\D/g, '').slice(-10);
+      const res = await api.members.requestPhoneUpdate(m.id || m._id, {
         targetType: phoneTarget,
-        newMobile: newPhone.trim(),
+        newNumber: cleanNum,
         reason: phoneReason.trim(),
         challengeId: phoneChallengeId,
-        otp: phoneOtp.trim(),
+        otp: otpClean,
       });
-      alert(res.message || 'Phone update request submitted to Admin KYC');
+      alert(res.message || 'Phone update request submitted to Admin KYC for approval');
       setPhoneModal(false);
       const updated = await api.employeeApp.memberSynopsis(m.code || query);
       setData(updated);
@@ -316,12 +338,12 @@ export default function EmployeeMemberSynopsis() {
             </div>
 
             {/* Quick Actions */}
-            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+            <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
               <button
                 type="button"
                 className="emp-btn-primary"
                 onClick={() => downloadMemberPdf(m)}
-                style={{ flex: 1, padding: '8px 12px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                style={{ flex: 1, minWidth: 140, padding: '8px 12px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
               >
                 <Icon name="download" size={14} />
                 <span>Download Member PDF</span>
@@ -336,13 +358,46 @@ export default function EmployeeMemberSynopsis() {
                   setNewPhone('');
                   setPhoneReason('');
                 }}
-                style={{ flex: 1, padding: '8px 12px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: '#f1f5f9' }}
+                style={{ flex: 1, minWidth: 120, padding: '8px 12px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: '#f1f5f9' }}
               >
                 <Icon name="phone" size={14} />
                 <span>Update Mobile</span>
               </button>
+              {m.missingDetails?.length > 0 && (
+                <button
+                  type="button"
+                  className="emp-btn-primary"
+                  onClick={handleOpenComplete}
+                  disabled={completeLoading}
+                  style={{ flex: 1, minWidth: 160, padding: '8px 12px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: '#d97706', borderColor: '#b45309' }}
+                >
+                  <Icon name="edit" size={14} />
+                  <span>{completeLoading ? 'Loading…' : `Complete Details (${m.missingDetails.length})`}</span>
+                </button>
+              )}
             </div>
           </div>
+
+          {/* Missing Details Banner for Old Members (Item 11 Fix) */}
+          {m.missingDetails?.length > 0 && (
+            <div style={{ background: '#fffbeb', border: '1.5px solid #f59e0b', color: '#92400e', padding: '10px 14px', borderRadius: 8, fontSize: '0.82rem', marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <div>
+                <strong>Incomplete Profile (Old Member):</strong> {m.missingDetails.map((d) => d.label).join(', ')}
+                <div style={{ fontSize: '0.72rem', color: '#b45309', marginTop: 2 }}>
+                  Member details must be completed before applying for new loans.
+                </div>
+              </div>
+              <button
+                type="button"
+                className="emp-btn-primary"
+                onClick={handleOpenComplete}
+                disabled={completeLoading}
+                style={{ background: '#d97706', fontSize: '0.75rem', padding: '6px 14px', whiteSpace: 'nowrap' }}
+              >
+                Complete Details Now
+              </button>
+            </div>
+          )}
 
           {data.pendingPhoneRequest && (
             <div style={{ background: '#fffbeb', border: '1px solid #fef3c7', color: '#92400e', padding: '10px 14px', borderRadius: 8, fontSize: '0.82rem', marginBottom: 12 }}>
@@ -824,8 +879,383 @@ export default function EmployeeMemberSynopsis() {
               </div>
             </div>
           )}
+
+          {/* Complete Member Details Modal for Old / Incomplete Members (Item 11 Fix) */}
+          {completeModal && (
+            <EmpCompleteDetailsModal
+              member={m}
+              options={completeOptions}
+              onClose={() => setCompleteModal(false)}
+              onSaved={async () => {
+                setCompleteModal(false);
+                const updated = await api.employeeApp.memberSynopsis(m.code || query);
+                setData(updated);
+              }}
+            />
+          )}
         </>
       )}
+    </div>
+  );
+}
+
+function EmpCompleteDetailsModal({ member, options, onClose, onSaved }) {
+  const missing = new Set((member.missingDetails || []).map((d) => d.key));
+  const [form, setForm] = useState({
+    mobile: member.mobile || '',
+    husbandName: '',
+    occupation: '',
+    education: '',
+    address: '',
+    pincode: '',
+    state: member.state || '',
+    district: '',
+    aadhaar: '',
+    bankName: '',
+    ifsc: '',
+    accountNumber: '',
+    memberPhoto: '',
+    signaturePhoto: '',
+    aadhaarPhoto: '',
+    aadhaarBackPhoto: '',
+    panPhoto: '',
+  });
+
+  const [challengeId, setChallengeId] = useState('');
+  const [districts, setDistricts] = useState([]);
+  const [otp, setOtp] = useState('');
+  const [otpSent, setOtpSent] = useState(false);
+  const [devOtp, setDevOtp] = useState('');
+  const [sendingOtp, setSendingOtp] = useState(false);
+  const [verifyingOtp, setVerifyingOtp] = useState(false);
+  const [otpVerified, setOtpVerified] = useState(Boolean(member.mobileVerified));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!form.state) return;
+    api.members.districts(form.state).then((r) => setDistricts(r.cities || [])).catch(() => setDistricts([]));
+  }, [form.state]);
+
+  const handleSendOtp = async () => {
+    const cleanNum = form.mobile.trim().replace(/\D/g, '').slice(-10);
+    if (!/^\d{10}$/.test(cleanNum)) {
+      alert('Enter a valid 10-digit mobile number');
+      return;
+    }
+    setSendingOtp(true);
+    setError('');
+    try {
+      const res = await api.members.sendOtp({ mobile: cleanNum, purpose: 'mobile' });
+      setChallengeId(res.challengeId);
+      setOtpSent(true);
+      if (res.devOtp) setDevOtp(res.devOtp);
+      alert(`OTP sent to +91 ${cleanNum}`);
+    } catch (err) {
+      setError(err.message || 'Failed to send OTP');
+    } finally {
+      setSendingOtp(false);
+    }
+  };
+
+  const handleVerifyOtp = async () => {
+    if (!challengeId) {
+      alert('Send OTP first');
+      return;
+    }
+    if (!otp.trim()) {
+      alert('Enter OTP');
+      return;
+    }
+    setVerifyingOtp(true);
+    setError('');
+    try {
+      const cleanNum = form.mobile.trim().replace(/\D/g, '').slice(-10);
+      await api.members.verifyOtp({ challengeId, otp: otp.trim(), mobile: cleanNum, purpose: 'mobile' });
+      setOtpVerified(true);
+      alert('Mobile verified successfully!');
+    } catch (err) {
+      setError(err.message || 'Invalid OTP');
+    } finally {
+      setVerifyingOtp(false);
+    }
+  };
+
+  const handlePhotoUpload = async (key, file) => {
+    if (!file) return;
+    try {
+      const base64 = await compressImage(file, { maxWidth: 1000, maxHeight: 1000, quality: 0.8 });
+      setForm((f) => ({ ...f, [key]: base64 }));
+    } catch (err) {
+      alert('Failed to compress photo: ' + err.message);
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    const body = {};
+    Object.entries(form).forEach(([k, v]) => {
+      if (missing.has(k) && String(v).trim() !== '') body[k] = v;
+    });
+    if (missing.has('district') && form.state && body.district) body.state = form.state;
+    if (missing.has('mobile') && body.mobile) {
+      if (!challengeId) {
+        setError('Verify the mobile number with an OTP first');
+        return;
+      }
+      body.mobileChallengeId = challengeId;
+    }
+    if (!Object.keys(body).length) {
+      setError('Fill in at least one of the missing details to save');
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await api.members.complete(member.id || member._id, body);
+      alert(`Saved: ${res.filled?.length || Object.keys(body).length} details updated successfully!`);
+      onSaved();
+    } catch (err) {
+      setError(err.message || 'Failed to save member details');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 14 }}>
+      <div style={{ background: '#fff', borderRadius: 12, maxWidth: 520, width: '100%', maxHeight: '90vh', overflowY: 'auto', padding: 18, boxShadow: '0 20px 25px -5px rgba(0,0,0,0.2)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, borderBottom: '1px solid var(--emp-border)', paddingBottom: 10 }}>
+          <h3 style={{ fontSize: '1.05rem', fontWeight: 800, margin: 0, color: 'var(--emp-text)' }}>
+            Complete Details — {member.name} ({member.code})
+          </h3>
+          <button type="button" onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '1.2rem', cursor: 'pointer', color: '#64748b' }}>✕</button>
+        </div>
+
+        <div style={{ background: '#fffbeb', border: '1px solid #fef3c7', color: '#92400e', padding: '8px 12px', borderRadius: 6, fontSize: '0.78rem', marginBottom: 12 }}>
+          Fill in missing old-system details. You can save now and complete the rest later. Once saved, details are locked and can only be altered by admin.
+        </div>
+
+        {error && (
+          <div style={{ background: '#fee2e2', color: '#991b1b', padding: '8px 12px', borderRadius: 6, fontSize: '0.78rem', marginBottom: 12 }}>
+            {error}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {missing.has('mobile') && (
+            <div style={{ border: '1px solid var(--emp-border)', borderRadius: 8, padding: 10, background: '#f8fafc' }}>
+              <label style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>
+                Mobile Number (OTP Required) *
+              </label>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <input
+                  type="text"
+                  maxLength={10}
+                  className="emp-input"
+                  placeholder="10-digit mobile"
+                  value={form.mobile}
+                  onChange={(e) => setForm((f) => ({ ...f, mobile: e.target.value.replace(/\D/g, '') }))}
+                  disabled={otpVerified}
+                  style={{ flex: 1 }}
+                />
+                {!otpVerified ? (
+                  <button
+                    type="button"
+                    className="emp-btn-primary"
+                    onClick={handleSendOtp}
+                    disabled={sendingOtp || form.mobile.length !== 10}
+                    style={{ fontSize: '0.75rem', padding: '6px 12px', whiteSpace: 'nowrap' }}
+                  >
+                    {sendingOtp ? 'Sending…' : otpSent ? 'Resend OTP' : 'Send OTP'}
+                  </button>
+                ) : (
+                  <span style={{ color: '#16a34a', fontWeight: 700, fontSize: '0.8rem', display: 'flex', alignItems: 'center' }}>✓ Verified</span>
+                )}
+              </div>
+              {devOtp && !otpVerified && (
+                <div style={{ fontSize: '0.7rem', color: '#059669', marginTop: 2 }}>Dev OTP: {devOtp} (or 123456)</div>
+              )}
+              {otpSent && !otpVerified && (
+                <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                  <input
+                    type="text"
+                    maxLength={6}
+                    className="emp-input"
+                    placeholder="Enter 6-digit OTP"
+                    value={otp}
+                    onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
+                    style={{ flex: 1 }}
+                  />
+                  <button
+                    type="button"
+                    className="emp-btn-primary"
+                    onClick={handleVerifyOtp}
+                    disabled={verifyingOtp || otp.length < 4}
+                    style={{ fontSize: '0.75rem', padding: '6px 12px', background: '#059669' }}
+                  >
+                    {verifyingOtp ? 'Verifying…' : 'Verify'}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {missing.has('husbandName') && (
+            <div>
+              <label style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>Husband Name *</label>
+              <input type="text" className="emp-input" value={form.husbandName} onChange={(e) => setForm((f) => ({ ...f, husbandName: e.target.value }))} placeholder="Enter husband name" />
+            </div>
+          )}
+
+          {missing.has('occupation') && (
+            <div>
+              <label style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>Occupation *</label>
+              <select className="emp-input" value={form.occupation} onChange={(e) => setForm((f) => ({ ...f, occupation: e.target.value }))}>
+                <option value="">-- Select Occupation --</option>
+                {(options?.occupations || ['Agriculture', 'Dairy', 'Daily Wage Labor', 'Self Employed / Business', 'Housewife', 'Private Service', 'Tailoring']).map((o) => (
+                  <option key={o} value={o}>{o}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {missing.has('education') && (
+            <div>
+              <label style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>Education *</label>
+              <select className="emp-input" value={form.education} onChange={(e) => setForm((f) => ({ ...f, education: e.target.value }))}>
+                <option value="">-- Select Education --</option>
+                {(options?.educations || ['Illiterate', 'Primary (1-5)', 'Middle (6-8)', 'Secondary (10th)', 'Higher Secondary (12th)', 'Graduate', 'Post Graduate']).map((ed) => (
+                  <option key={ed} value={ed}>{ed}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {missing.has('address') && (
+            <div>
+              <label style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>Address *</label>
+              <input type="text" className="emp-input" value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} placeholder="Full address (village/mohalla)" />
+            </div>
+          )}
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            {missing.has('pincode') && (
+              <div>
+                <label style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>Pincode *</label>
+                <input type="text" maxLength={6} className="emp-input" value={form.pincode} onChange={(e) => setForm((f) => ({ ...f, pincode: e.target.value.replace(/\D/g, '') }))} placeholder="6-digit pincode" />
+              </div>
+            )}
+            {missing.has('aadhaar') && (
+              <div>
+                <label style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>Aadhaar Number *</label>
+                <input type="text" maxLength={12} className="emp-input" value={form.aadhaar} onChange={(e) => setForm((f) => ({ ...f, aadhaar: e.target.value.replace(/\D/g, '') }))} placeholder="12-digit Aadhaar" />
+              </div>
+            )}
+          </div>
+
+          {missing.has('district') && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div>
+                <label style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>State *</label>
+                <select className="emp-input" value={form.state} onChange={(e) => setForm((f) => ({ ...f, state: e.target.value, district: '' }))}>
+                  <option value="">-- State --</option>
+                  {(options?.states || ['Bihar', 'Uttar Pradesh', 'Jharkhand', 'West Bengal']).map((st) => (
+                    <option key={st} value={st}>{st}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>District *</label>
+                <select className="emp-input" value={form.district} onChange={(e) => setForm((f) => ({ ...f, district: e.target.value }))}>
+                  <option value="">-- District --</option>
+                  {districts.map((d) => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
+
+          {/* Bank Details */}
+          {(missing.has('bankName') || missing.has('ifsc') || missing.has('accountNumber')) && (
+            <div style={{ border: '1px solid var(--emp-border)', borderRadius: 8, padding: 10, background: '#f8fafc' }}>
+              <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--emp-text)', marginBottom: 6 }}>Bank Account Details</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                {missing.has('bankName') && (
+                  <div>
+                    <label style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)' }}>Bank Name</label>
+                    <input type="text" className="emp-input" value={form.bankName} onChange={(e) => setForm((f) => ({ ...f, bankName: e.target.value }))} placeholder="e.g. State Bank of India" />
+                  </div>
+                )}
+                {missing.has('ifsc') && (
+                  <div>
+                    <label style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)' }}>IFSC Code</label>
+                    <input type="text" maxLength={11} className="emp-input" value={form.ifsc} onChange={(e) => setForm((f) => ({ ...f, ifsc: e.target.value.toUpperCase() }))} placeholder="SBIN0001234" />
+                  </div>
+                )}
+              </div>
+              {missing.has('accountNumber') && (
+                <div style={{ marginTop: 6 }}>
+                  <label style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)' }}>Account Number</label>
+                  <input type="text" className="emp-input" value={form.accountNumber} onChange={(e) => setForm((f) => ({ ...f, accountNumber: e.target.value.replace(/\D/g, '') }))} placeholder="Bank account number" />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Photos */}
+          {['memberPhoto', 'signaturePhoto', 'aadhaarPhoto', 'aadhaarBackPhoto', 'panPhoto'].some((k) => missing.has(k)) && (
+            <div style={{ border: '1px solid var(--emp-border)', borderRadius: 8, padding: 10 }}>
+              <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--emp-text)', marginBottom: 6 }}>Upload Required Photos</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                {missing.has('memberPhoto') && (
+                  <div>
+                    <label style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)' }}>Member Photo</label>
+                    <input type="file" accept="image/*" onChange={(e) => handlePhotoUpload('memberPhoto', e.target.files?.[0])} style={{ fontSize: '0.72rem', width: '100%' }} />
+                    {form.memberPhoto && <span style={{ color: '#16a34a', fontSize: '0.7rem' }}>✓ Attached</span>}
+                  </div>
+                )}
+                {missing.has('signaturePhoto') && (
+                  <div>
+                    <label style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)' }}>Signature</label>
+                    <input type="file" accept="image/*" onChange={(e) => handlePhotoUpload('signaturePhoto', e.target.files?.[0])} style={{ fontSize: '0.72rem', width: '100%' }} />
+                    {form.signaturePhoto && <span style={{ color: '#16a34a', fontSize: '0.7rem' }}>✓ Attached</span>}
+                  </div>
+                )}
+                {missing.has('aadhaarPhoto') && (
+                  <div>
+                    <label style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)' }}>Aadhaar Front</label>
+                    <input type="file" accept="image/*" onChange={(e) => handlePhotoUpload('aadhaarPhoto', e.target.files?.[0])} style={{ fontSize: '0.72rem', width: '100%' }} />
+                    {form.aadhaarPhoto && <span style={{ color: '#16a34a', fontSize: '0.7rem' }}>✓ Attached</span>}
+                  </div>
+                )}
+                {missing.has('aadhaarBackPhoto') && (
+                  <div>
+                    <label style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)' }}>Aadhaar Back</label>
+                    <input type="file" accept="image/*" onChange={(e) => handlePhotoUpload('aadhaarBackPhoto', e.target.files?.[0])} style={{ fontSize: '0.72rem', width: '100%' }} />
+                    {form.aadhaarBackPhoto && <span style={{ color: '#16a34a', fontSize: '0.7rem' }}>✓ Attached</span>}
+                  </div>
+                )}
+                {missing.has('panPhoto') && (
+                  <div>
+                    <label style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)' }}>PAN Photo</label>
+                    <input type="file" accept="image/*" onChange={(e) => handlePhotoUpload('panPhoto', e.target.files?.[0])} style={{ fontSize: '0.72rem', width: '100%' }} />
+                    {form.panPhoto && <span style={{ color: '#16a34a', fontSize: '0.7rem' }}>✓ Attached</span>}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+            <button type="button" className="emp-btn-secondary" onClick={onClose} style={{ flex: 1 }}>Cancel</button>
+            <button type="submit" className="emp-btn-primary" disabled={busy} style={{ flex: 2, background: '#d97706', borderColor: '#b45309' }}>
+              {busy ? 'Saving Details…' : 'Save Completed Details'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

@@ -263,19 +263,35 @@ export const KYC_DOC_LABELS = {
   'nominee.aadhaarBackPhoto': 'Nominee Aadhaar Back',
 };
 
-export function getUnverifiedKycDocs(m) {
+export function getUnverifiedKycDocs(m, kind = '') {
   if (!m) return [];
   const baseKeys = ['memberPhoto', 'signaturePhoto', 'aadhaarPhoto', 'aadhaarBackPhoto'];
-  if (m.pan || (m.kycKeys || []).includes('panPhoto')) {
-    baseKeys.push('panPhoto');
+
+  const hasMemberPan = Boolean(m.pan || (m.kycKeys || []).includes('panPhoto') || m.panPhoto);
+  const hasGuarantorPan = Boolean(m.guarantor?.pan || (m.kycKeys || []).includes('guarantor.panPhoto') || m.guarantor?.panPhoto);
+
+  if (kind === 'group') {
+    // Note 7 Item 12: In group loan, if either member OR guarantor has uploaded PAN, PAN requirement is satisfied!
+    const docState = new Map((m.kycDocs || []).map((d) => [d.key, d.status]));
+    const memberPanApproved = docState.get('panPhoto') === 'approved';
+    const guarantorPanApproved = docState.get('guarantor.panPhoto') === 'approved';
+
+    if (!memberPanApproved && !guarantorPanApproved) {
+      if (hasMemberPan) baseKeys.push('panPhoto');
+      else if (hasGuarantorPan) baseKeys.push('guarantor.panPhoto');
+    }
+  } else {
+    if (hasMemberPan) {
+      baseKeys.push('panPhoto');
+    }
+    if ((m.kycKeys || []).includes('guarantor.panPhoto')) {
+      baseKeys.push('guarantor.panPhoto');
+    }
   }
 
   // Point 14: Mandatory Guarantor KYC documents for Requisition
   if (m.guarantor?.name || (m.kycKeys || []).some((k) => k.startsWith('guarantor.'))) {
     baseKeys.push('guarantor.photo', 'guarantor.signature', 'guarantor.aadhaarPhoto', 'guarantor.aadhaarBackPhoto', 'guarantor.jointPhoto');
-  }
-  if ((m.kycKeys || []).includes('guarantor.panPhoto')) {
-    baseKeys.push('guarantor.panPhoto');
   }
 
   const allKeys = [...new Set([...baseKeys, ...(m.kycKeys || [])])].filter(
@@ -508,7 +524,7 @@ export async function groupDetail(req, res) {
         isBlocked: Boolean(m.isBlocked),
         // why this member cannot be given a loan yet (documents, guarantor, nominee)
         issues: notReady(m),
-        unverifiedDocs: getUnverifiedKycDocs(m),
+        unverifiedDocs: getUnverifiedKycDocs(m, 'group'),
         // shown with the member's loan on the group form
         guarantorName: m.guarantor?.name || '',
         guarantor: m.guarantor ? {

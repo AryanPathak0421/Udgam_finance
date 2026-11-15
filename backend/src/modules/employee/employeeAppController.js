@@ -42,6 +42,7 @@ import { borrowerState } from '../../controllers/emiController.js';
 import { isEmployeeSupervisor } from '../supervisor/supervisorAppController.js';
 import { asString, parseDateOnly, HttpError, startOfToday, todayDateString } from '../../utils/http.js';
 import { audit } from '../../utils/audit.js';
+import { missingDetails } from '../../utils/memberDetails.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-key-udgam-2026';
 const COOKIE_NAME = process.env.COOKIE_NAME || 'udgam_token';
@@ -1983,6 +1984,15 @@ export async function getEmployeeLoanSchemes(req, res) {
             }
       ),
       calculationType: s.calculationType || 'flat',
+      emiType: s.emiType || 'equal',
+      processingFee: s.processingFee,
+      cost: s.cost,
+      securityDeposit: s.securityDeposit,
+      securityType: s.securityType || 'none',
+      securityBp: s.securityBp || 0,
+      installmentRounding: s.installmentRounding ?? 1,
+      minCivilScore: s.minCivilScore || 0,
+      civilRequired: Boolean(s.civilRequired),
     })),
   });
 }
@@ -2339,15 +2349,38 @@ export async function getMemberSynopsis(req, res) {
   });
 
   const approvedKycCount = uploadedKycDocs.filter((d) => d.status === 'approved').length;
+
+  // Item 13 Fix: KYC status must accurately reflect incomplete/missing documents.
+  // Mandatory documents: memberPhoto, signaturePhoto, aadhaarPhoto, aadhaarBackPhoto.
+  const hasMemberPhoto = Boolean(m.photo || m.memberPhoto);
+  const hasSignature = Boolean(m.signature || m.signaturePhoto);
+  const hasAadhaarFront = Boolean(m.aadhaarPhoto);
+  const hasAadhaarBack = Boolean(m.aadhaarBackPhoto);
+
+  const missingMandatoryDocs = [];
+  if (!hasMemberPhoto) missingMandatoryDocs.push('Member Photo');
+  if (!hasSignature) missingMandatoryDocs.push('Signature');
+  if (!hasAadhaarFront) missingMandatoryDocs.push('Aadhaar Front');
+  if (!hasAadhaarBack) missingMandatoryDocs.push('Aadhaar Back');
+
+  const isKycMissing = missingMandatoryDocs.length > 0 || uploadedKycDocs.length === 0;
   const isKycRejected = Boolean(m.kycRejected || uploadedKycDocs.some((d) => d.status === 'rejected'));
-  const isKycPending = Boolean(!isKycRejected && (m.kycPending || uploadedKycDocs.some((d) => d.status === 'pending')));
-  const isKycApproved = Boolean(!isKycRejected && !isKycPending);
-  const kycStatus = isKycRejected ? 'rejected' : isKycPending ? 'pending' : 'approved';
+  const isKycPending = Boolean(!isKycRejected && !isKycMissing && (m.kycPending || uploadedKycDocs.some((d) => d.status === 'pending')));
+  const isKycApproved = Boolean(
+    !isKycRejected &&
+    !isKycMissing &&
+    !isKycPending &&
+    approvedKycCount >= 4 &&
+    (m.isKycApproved || m.joiningApproval?.status === 'approved' || m.kycVerified)
+  );
+  const kycStatus = isKycRejected ? 'rejected' : isKycMissing ? 'missing' : isKycPending ? 'pending' : isKycApproved ? 'approved' : 'pending';
 
   const kyc = {
     status: kycStatus,
     approved: approvedKycCount,
     total: uploadedKycDocs.length,
+    missingMandatoryDocs,
+    isMissing: isKycMissing,
     documents: uploadedKycDocs,
   };
 
@@ -2445,6 +2478,9 @@ export async function getMemberSynopsis(req, res) {
     nominee: m.nominee || null,
     totalBorrowed,
     loansCount: detailedLoans.length,
+    legacyImport: Boolean(m.legacyImport),
+    missingDetails: missingDetails(m).map(({ key, label }) => ({ key, label })),
+    hasMissingDetails: missingDetails(m).length > 0,
   };
 
   const pendingPhoneRequest = await PhoneUpdateRequest.findOne({ member: m._id, status: 'pending' }).lean();
@@ -2483,16 +2519,102 @@ export async function calculateLoanEmi(req, res) {
   const rateAnnual = Number(req.body?.annualRate ?? req.body?.interestRate) || 24;
   const term = Number(req.body?.term) || 52;
   const mode = req.body?.mode || 'weekly';
+  const calculationType = req.body?.calculationType || 'flat';
+
+  let scheme = null;
+  const schemeId = req.body?.schemeId || req.body?.scheme;
+  if (schemeId && mongoose.isValidObjectId(String(schemeId))) {
+    scheme = await LoanScheme.findOne({ _id: schemeId, isDeleted: false }).lean();
+  }
 
   const freqPerYear = mode === 'daily' ? 365 : mode === 'weekly' ? 52 : 12;
-  const totalInterest = Math.round((amount * rateAnnual * (term / freqPerYear)) / 100);
-  const totalPayable = amount + totalInterest;
-  const installment = Math.round(totalPayable / term);
+  let totalInterest = 0;
+  let installment = 0;
+  let totalPayable = 0;
 
-  const processingFee = Math.round(amount * 0.02);
-  const insurance = Math.round(amount * 0.015);
-  const securityPercent = 5;
-  const security = Math.round(amount * (securityPercent / 100));
+  if (calculationType === 'flat') {
+    totalInterest = Math.round((amount * rateAnnual * (term / freqPerYear)) / 100);
+    totalPayable = amount + totalInterest;
+    installment = Math.round(totalPayable / term);
+  } else {
+    // Reducing balance formula
+    const r = rateAnnual / (freqPerYear * 100);
+    if (r === 0) {
+      installment = Math.round(amount / term);
+      totalPayable = amount;
+      totalInterest = 0;
+    } else {
+      installment = Math.round((amount * r * Math.pow(1 + r, term)) / (Math.pow(1 + r, term) - 1));
+      totalPayable = installment * term;
+      totalInterest = Math.max(0, totalPayable - amount);
+    }
+  }
+
+  // Point 14: Scheme-based Deductions Breakdown
+  let processingFee = 0;
+  let procDesc = '2%';
+  let procPercent = 2;
+  let insurance = 0;
+  let insDesc = '1.5%';
+  let insPercent = 1.5;
+  let security = 0;
+  let secDesc = '5%';
+  let secPercent = 5;
+  let securityType = 'none';
+
+  if (scheme) {
+    // 1. Processing Fee
+    if (scheme.processingFee) {
+      if (scheme.processingFee.type === 'fixed') {
+        processingFee = Math.round((scheme.processingFee.value || 0) / 100);
+        procDesc = `Fixed ₹${processingFee.toLocaleString('en-IN')}`;
+        procPercent = amount > 0 ? Math.round((processingFee / amount) * 1000) / 10 : 0;
+      } else {
+        const bp = scheme.processingFee.value || 0;
+        procPercent = bp / 100;
+        processingFee = Math.round((amount * bp) / 10000);
+        procDesc = `${procPercent}%`;
+      }
+    }
+    // 2. Insurance / Cost
+    if (scheme.cost) {
+      if (scheme.cost.type === 'fixed') {
+        insurance = Math.round((scheme.cost.value || 0) / 100);
+        insDesc = `Fixed ₹${insurance.toLocaleString('en-IN')}`;
+        insPercent = amount > 0 ? Math.round((insurance / amount) * 1000) / 10 : 0;
+      } else {
+        const bp = scheme.cost.value || 0;
+        insPercent = bp / 100;
+        insurance = Math.round((amount * bp) / 10000);
+        insDesc = `${insPercent}%`;
+      }
+    }
+    // 3. Security Deposit
+    securityType = scheme.securityType || 'none';
+    if (securityType !== 'none') {
+      if (scheme.securityDeposit?.type === 'fixed') {
+        security = Math.round((scheme.securityDeposit.value || 0) / 100);
+        secDesc = `Fixed ₹${security.toLocaleString('en-IN')}`;
+        secPercent = amount > 0 ? Math.round((security / amount) * 1000) / 10 : 0;
+      } else {
+        const bp = scheme.securityDeposit?.value ?? scheme.securityBp ?? 0;
+        secPercent = bp / 100;
+        security = Math.round((amount * bp) / 10000);
+        secDesc = `${secPercent}%`;
+      }
+    } else {
+      security = 0;
+      secDesc = 'None (0%)';
+      secPercent = 0;
+    }
+  } else {
+    processingFee = Math.round(amount * 0.02);
+    insurance = Math.round(amount * 0.015);
+    security = Math.round(amount * 0.05);
+  }
+
+  const totalDeductions = processingFee + insurance + security;
+  const netDisbursed = Math.max(0, amount - totalDeductions);
 
   res.json({
     amount,
@@ -2503,14 +2625,24 @@ export async function calculateLoanEmi(req, res) {
     totalPayable,
     term,
     mode,
+    calculationType,
     processingFee,
+    procDesc,
+    procPercent,
     insurance,
+    insDesc,
+    insPercent,
     security,
+    secDesc,
+    secPercent,
     securityAmount: security,
-    securityPercent,
+    securityPercent: secPercent,
+    securityType,
     securityFormatted: `₹${security.toLocaleString('en-IN')}`,
-    totalDeductions: processingFee + insurance + security,
-    netDisbursed: Math.max(0, amount - (processingFee + insurance + security)),
+    totalDeductions,
+    netDisbursed,
+    schemeName: scheme?.name || '',
+    schemeCode: scheme?.code || '',
   });
 }
 
