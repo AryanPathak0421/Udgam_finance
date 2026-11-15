@@ -3183,20 +3183,31 @@ export async function getEmiGroups(req, res) {
     let membersCount = 0;
     let dueCount = 0;
 
+    // Sort loans newest first and deduplicate by member code so multiple loan records in group (e.g. G0000048) never produce duplicate members / inflated actualCollection
+    groupLoans.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    const seenMemberCodes = new Set();
+
     for (const l of groupLoans) {
-      const loanCollectedToday = collectionsByLoanId.get(String(l._id)) || 0;
-      totalCollectedToday += loanCollectedToday / 100;
+      if (l.isSettled || l.status === 'settled' || settledKeySet.has(String(l._id))) continue;
 
       for (const line of (l.lines || [])) {
+        const codeKey = line.code ? String(line.code).toUpperCase().trim() : (line.member ? String(line.member) : '');
+        if (codeKey && seenMemberCodes.has(codeKey)) continue;
+
         const isLineSettled = line.isSettled || settledKeySet.has(`${String(l._id)}_${line.code}`) || settledKeySet.has(`${l.loanId}_${line.code}`);
         if (isLineSettled) continue;
 
         const stats = paymentsByKey.get(`${String(l._id)}_${line.code}`) || { totalPaise: 0, todayPaise: 0 };
         const totalScheduledPaise = (l.schedule || []).reduce((s, x) => s + (x.installmentPaise || 0), 0) + (line.extraEmiPaise || 0) * (l.schedule?.length || 0);
+        const totalLoanPaise = line.amountPaise || l.totalAmountPaise || 0;
         if (totalScheduledPaise > 0 && stats.totalPaise >= totalScheduledPaise) continue; // finished loan
+        if (totalLoanPaise > 0 && stats.totalPaise >= totalLoanPaise) continue;
+
+        if (codeKey) seenMemberCodes.add(codeKey);
 
         const emiPaise = (l.schedule?.[0]?.installmentPaise || 0) + (line.extraEmiPaise || 0);
         totalActualEmiPaise += emiPaise;
+        totalCollectedToday += (stats.todayPaise || 0) / 100;
         membersCount++;
 
         // Strict endDay comparison so installments due on dateStr are included (Point 2 fix)
@@ -3344,7 +3355,7 @@ export async function getGroupEmiMembers(req, res) {
     if (l.isSettled || l.status === 'settled' || settledKeySet.has(String(l._id))) continue;
 
     for (const line of (l.lines || [])) {
-      const codeKey = line.code ? String(line.code).toUpperCase() : '';
+      const codeKey = line.code ? String(line.code).toUpperCase().trim() : (line.member ? String(line.member) : '');
       if (codeKey && seenMemberCodes.has(codeKey)) continue;
 
       const isLineSettled = line.isSettled || settledKeySet.has(`${String(l._id)}_${line.code}`) || settledKeySet.has(`${l.loanId}_${line.code}`);

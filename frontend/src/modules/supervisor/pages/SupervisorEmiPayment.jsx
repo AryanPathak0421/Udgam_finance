@@ -70,7 +70,8 @@ export default function SupervisorEmiPayment() {
       const initial = {};
       list.forEach((m) => {
         const key = getMemberKey(m);
-        initial[key] = m.emiAmount || m.suggestedAmount || 0;
+        const isPaidToday = Boolean(m.isAdvancePaid || m.alreadyPaidToday || ((m.todayPaidAmount || 0) >= (m.emiAmount || 0)));
+        initial[key] = isPaidToday ? '' : (m.emiAmount || m.suggestedAmount || 0);
       });
       setCollections(initial);
     } catch (err) {
@@ -313,7 +314,8 @@ export default function SupervisorEmiPayment() {
                   const reset = {};
                   members.forEach((m) => {
                     const key = getMemberKey(m);
-                    reset[key] = m.emiAmount || m.suggestedAmount || 0;
+                    const isPaidToday = Boolean(m.isAdvancePaid || m.alreadyPaidToday || ((m.todayPaidAmount || 0) >= (m.emiAmount || 0)));
+                    reset[key] = isPaidToday ? '' : (m.emiAmount || m.suggestedAmount || 0);
                   });
                   setCollections(reset);
                 }}

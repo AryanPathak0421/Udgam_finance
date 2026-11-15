@@ -120,30 +120,35 @@ export default function EmployeeEmiPayment() {
       const members = Array.from(memberMap.values());
       setGroupMembers(members);
 
-      // Whole group collection summary
-      const actualCol = res.actualCollection ?? members.reduce((s, m) => s + (m.emiAmount || 0), 0);
-      const colToday = res.totalCollectedToday ?? members.reduce((s, m) => s + (m.todayPaidAmount || 0), 0);
+      // Whole group collection summary: strictly compute from deduplicated members list so totals ALWAYS match!
+      const actualCol = members.reduce((s, m) => s + (m.emiAmount || 0), 0);
+      const colToday = members.reduce((s, m) => s + (m.todayPaidAmount || 0), 0);
+      const totalDue = members.reduce((s, m) => s + (m.totalDue || m.emiAmount || 0), 0);
+      const pendingDue = members.reduce((s, m) => s + (m.dueAmount || 0), 0);
       setActiveGroup((prev) => ({
         ...prev,
         ...group,
         actualCollection: actualCol,
-        totalDueAmount: res.totalDueAmount ?? actualCol,
+        totalDueAmount: totalDue,
         totalCollectedToday: colToday,
-        pendingDue: res.pendingDue ?? Math.max(0, actualCol - colToday),
+        pendingDue: pendingDue,
       }));
 
-      // Pre-fill collection map: 100% of members pre-filled with regular EMI to match Actual Collection
+      // Pre-fill collection map: Only select UNPAID members! Do NOT select members who already paid today!
       const initialMap = {};
       members.forEach((m) => {
         const k = getLoanKey(m);
+        const isPaidToday = Boolean(m.isAdvancePaid || m.alreadyPaidToday || ((m.todayPaidAmount || 0) >= (m.emiAmount || 0)));
         const defaultEmi = m.emiAmount || m.suggestedAmount || 0;
         initialMap[k] = {
-          selected: true,
-          amount: defaultEmi,
+          selected: !isPaidToday,
+          amount: isPaidToday ? 0 : defaultEmi,
+          defaultAmount: defaultEmi,
           loanPaymentId: m.loanPaymentId,
           memberId: m.memberId,
           memberCode: m.memberCode,
           isAdvancePaid: Boolean(m.isAdvancePaid),
+          alreadyPaidToday: Boolean(m.alreadyPaidToday),
         };
       });
       setCollectionMap(initialMap);
@@ -166,16 +171,18 @@ export default function EmployeeEmiPayment() {
       const initialMap = {};
       items.forEach((item) => {
         const k = getLoanKey(item);
-        const isFullyPaid = item.isAdvancePaid || (item.todayPaidAmount >= item.totalDue && item.dueAmount <= 0);
-        const canCollect = !isFullyPaid && (item.dueAmount > 0 || !item.alreadyPaidToday);
+        const isPaidToday = Boolean(item.isAdvancePaid || item.alreadyPaidToday || ((item.todayPaidAmount || 0) >= (item.emiAmount || 0)));
+        const canCollect = !isPaidToday && (item.dueAmount > 0 || !item.alreadyPaidToday);
         const defaultEmi = item.emiAmount || item.suggestedAmount || 0;
         initialMap[k] = {
           selected: canCollect,
-          amount: defaultEmi,
+          amount: canCollect ? defaultEmi : 0,
+          defaultAmount: defaultEmi,
           loanPaymentId: item.loanPaymentId,
           memberId: item.memberId,
           memberCode: item.memberCode,
-          isAdvancePaid: item.isAdvancePaid,
+          isAdvancePaid: Boolean(item.isAdvancePaid),
+          alreadyPaidToday: Boolean(item.alreadyPaidToday),
         };
       });
       setCollectionMap(initialMap);
@@ -200,11 +207,15 @@ export default function EmployeeEmiPayment() {
     setCollectionMap((prev) => {
       const current = prev[key] || {};
       if (current.isAdvancePaid) return prev;
+      const nextSelected = !current.selected;
       return {
         ...prev,
         [key]: {
           ...current,
-          selected: !current.selected,
+          selected: nextSelected,
+          amount: nextSelected
+            ? (Number(current.amount) > 0 ? current.amount : (current.defaultAmount || 0))
+            : 0,
         },
       };
     });
@@ -221,17 +232,21 @@ export default function EmployeeEmiPayment() {
     }));
   };
 
-  // Toggle Select All
+  // Toggle Select All (only selects/deselects unpaid members!)
   const handleSelectAll = (checked, list) => {
     setCollectionMap((prev) => {
       const next = { ...prev };
       list.forEach((m) => {
         const k = getLoanKey(m);
-        const isFullyPaid = m.isAdvancePaid || (m.todayPaidAmount >= m.totalDue && m.dueAmount <= 0);
-        if (!isFullyPaid) {
+        const isPaidToday = Boolean(m.isAdvancePaid || m.alreadyPaidToday || ((m.todayPaidAmount || 0) >= (m.emiAmount || 0)));
+        if (!isPaidToday) {
+          const current = next[k] || {};
           next[k] = {
-            ...next[k],
+            ...current,
             selected: checked,
+            amount: checked
+              ? (Number(current.amount) > 0 ? current.amount : (current.defaultAmount || m.emiAmount || 0))
+              : 0,
           };
         }
       });
@@ -725,17 +740,23 @@ export default function EmployeeEmiPayment() {
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 4px' }}>
-                <label style={{ fontSize: '0.82rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={
-                      filteredGroupMembers.length > 0 &&
-                      filteredGroupMembers.filter((m) => !m.isAdvancePaid).every((m) => collectionMap[getLoanKey(m)]?.selected)
-                    }
-                    onChange={(e) => handleSelectAll(e.target.checked, filteredGroupMembers)}
-                  />
-                  Select All Unpaid
-                </label>
+                {(() => {
+                  const unpaidMembers = filteredGroupMembers.filter(
+                    (m) => !m.isAdvancePaid && !m.alreadyPaidToday && ((m.todayPaidAmount || 0) < (m.emiAmount || 0))
+                  );
+                  const isAllUnpaidChecked = unpaidMembers.length > 0 && unpaidMembers.every((m) => collectionMap[getLoanKey(m)]?.selected);
+                  return (
+                    <label style={{ fontSize: '0.82rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6, cursor: unpaidMembers.length > 0 ? 'pointer' : 'default' }}>
+                      <input
+                        type="checkbox"
+                        checked={isAllUnpaidChecked}
+                        disabled={unpaidMembers.length === 0}
+                        onChange={(e) => handleSelectAll(e.target.checked, filteredGroupMembers)}
+                      />
+                      Select All Unpaid {unpaidMembers.length < filteredGroupMembers.length ? `(${unpaidMembers.length} Unpaid)` : `(${filteredGroupMembers.length} Members)`}
+                    </label>
+                  );
+                })()}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <button
                     type="button"
@@ -745,13 +766,17 @@ export default function EmployeeEmiPayment() {
                       const reset = {};
                       groupMembers.forEach((m) => {
                         const k = getLoanKey(m);
+                        const isPaidToday = Boolean(m.isAdvancePaid || m.alreadyPaidToday || ((m.todayPaidAmount || 0) >= (m.emiAmount || 0)));
+                        const defaultEmi = m.emiAmount || m.suggestedAmount || 0;
                         reset[k] = {
-                          selected: true,
-                          amount: m.emiAmount || m.suggestedAmount || 0,
+                          selected: !isPaidToday,
+                          amount: isPaidToday ? 0 : defaultEmi,
+                          defaultAmount: defaultEmi,
                           loanPaymentId: m.loanPaymentId,
                           memberId: m.memberId,
                           memberCode: m.memberCode,
                           isAdvancePaid: Boolean(m.isAdvancePaid),
+                          alreadyPaidToday: Boolean(m.alreadyPaidToday),
                         };
                       });
                       setCollectionMap(reset);
