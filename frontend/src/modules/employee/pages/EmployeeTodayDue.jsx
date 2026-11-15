@@ -109,6 +109,10 @@ export default function EmployeeTodayDue() {
   });
 
   const handleOpenCollect = (item) => {
+    if (item.isPendingApproval) {
+      alert(`EMI collection of ₹${item.pendingApprovalAmount || item.dueAmount} for ${item.memberName} is already submitted and pending system approval.`);
+      return;
+    }
     setCollectModal(item);
     setCollectAmount(item.dueAmount || item.installmentAmount || '');
     setPaymentMode('cash');
@@ -345,7 +349,13 @@ export default function EmployeeTodayDue() {
                       <span style={{ color: '#16a34a', fontWeight: 700 }}> • Collect: ₹{Number(d.collectedAmount).toLocaleString('en-IN')}</span>
                     )}
                   </div>
-                  {d.dueAmount > 0 ? (
+                  {d.isPendingApproval ? (
+                    <div style={{ marginTop: 6 }}>
+                      <span style={{ fontSize: '0.72rem', padding: '3px 8px', background: '#ffedd5', color: '#c2410c', borderRadius: 4, fontWeight: 700 }}>
+                        ⏳ Approval Pending (₹{Number(d.pendingApprovalAmount || d.dueAmount).toLocaleString('en-IN')})
+                      </span>
+                    </div>
+                  ) : d.dueAmount > 0 ? (
                     <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', marginTop: 6 }}>
                       <button
                         type="button"

@@ -258,7 +258,18 @@ export async function getEmployeeContext(req) {
   const resolvedCode = (emp?.employeeCode || code || '').trim().toUpperCase();
   const branchId = emp?.branch?._id || emp?.branch || (user?.branches || [])[0] || null;
 
-  return { emp, code: resolvedCode, branchId, user };
+  let branchIds = [];
+  if (branchId) branchIds.push(String(branchId));
+  if (emp?.branch) branchIds.push(String(emp.branch._id || emp.branch));
+  if (Array.isArray(emp?.supervisedBranches)) {
+    for (const b of emp.supervisedBranches) if (b) branchIds.push(String(b._id || b));
+  }
+  if (Array.isArray(user?.branches)) {
+    for (const b of user.branches) if (b) branchIds.push(String(b._id || b));
+  }
+  branchIds = [...new Set(branchIds.filter(Boolean))];
+
+  return { emp, code: resolvedCode, branchId, branchIds, user };
 }
 
 // -----------------------------------------------------------------------------
@@ -556,24 +567,50 @@ export async function getDashboard(req, res) {
   const today = startOfToday();
   const todayEnd = new Date(today.getTime() + 24 * 60 * 60 * 1000 - 1);
 
-  // Collections by this employee today
-  const todayCollections = await EmiPayment.aggregate([
-    {
-      $match: {
-        status: 'paid',
-        paidOn: { $gte: today, $lte: todayEnd },
-        $or: [
-          ...(codeRegex ? [{ employeeCode: codeRegex }, { staffCode: codeRegex }] : []),
-          ...(req.user?._id ? [{ collectedBy: req.user._id }] : []),
-          ...(emp?._id ? [{ collectedBy: emp._id }] : []),
-        ],
-      },
-    },
-    { $group: { _id: null, amountPaise: { $sum: '$amountPaise' }, count: { $sum: 1 } } },
-  ]);
+  // Point 5 Fix: Collections by this employee today
+  // Include both approved EmiPayment and today's AppEmiCollection (pending + approved from app), deduplicated
+  const todayEmiPayments = await EmiPayment.find({
+    status: 'paid',
+    paidOn: { $gte: today, $lte: todayEnd },
+    $or: [
+      ...(codeRegex ? [{ employeeCode: codeRegex }, { staffCode: codeRegex }] : []),
+      ...(req.user?._id ? [{ collectedBy: req.user._id }] : []),
+      ...(emp?._id ? [{ collectedBy: emp._id }] : []),
+    ],
+  }).select('amountPaise receiptNo loanPayment memberCode').lean();
 
-  const todayCollected = (todayCollections[0]?.amountPaise || 0) / 100;
-  const todayReceiptsCount = todayCollections[0]?.count || 0;
+  const todayAppCollections = await AppEmiCollection.find({
+    collectedOn: { $gte: today, $lte: todayEnd },
+    status: { $in: ['pending', 'approved'] },
+    $or: [
+      ...(codeRegex ? [{ collectedByCode: codeRegex }] : []),
+      ...(req.user?._id ? [{ collectedBy: req.user._id }] : []),
+      ...(emp?._id ? [{ collectedBy: emp._id }] : []),
+    ],
+  }).select('amountPaise receiptNo loanPayment memberCode status').lean();
+
+  const seenReceipts = new Set();
+  const seenLoanMember = new Set();
+  let totalCollectedPaise = 0;
+  let receiptsCount = 0;
+
+  for (const ac of todayAppCollections) {
+    if (ac.receiptNo) seenReceipts.add(ac.receiptNo);
+    seenLoanMember.add(`${String(ac.loanPayment)}_${String(ac.memberCode || '').trim().toUpperCase()}`);
+    totalCollectedPaise += (ac.amountPaise || 0);
+    receiptsCount += 1;
+  }
+
+  for (const ep of todayEmiPayments) {
+    if (ep.receiptNo && seenReceipts.has(ep.receiptNo)) continue;
+    const lmKey = `${String(ep.loanPayment)}_${String(ep.memberCode || '').trim().toUpperCase()}`;
+    if (seenLoanMember.has(lmKey)) continue;
+    totalCollectedPaise += (ep.amountPaise || 0);
+    receiptsCount += 1;
+  }
+
+  const todayCollected = totalCollectedPaise / 100;
+  const todayReceiptsCount = receiptsCount;
 
   // Active loans handled by this employee (including assigned groups and branch loans)
   const myAssignedGroups = await Group.find({
@@ -800,21 +837,26 @@ export async function getCollectionHistory(req, res) {
 }
 
 export async function getTodayDueList(req, res) {
-  const { emp, code, branchId } = await getEmployeeContext(req);
+  const { emp, code, branchId, branchIds } = await getEmployeeContext(req);
   const codeRegex = code ? new RegExp(`^${code}$`, 'i') : null;
+  const bList = branchIds?.length ? branchIds : (branchId ? [branchId] : []);
   const dateStr = asString(req.query.date) || todayDateString();
   const categoryFilter = cleanStr(req.query.category).toLowerCase();
   const startDay = new Date(`${dateStr}T00:00:00.000Z`);
   const asOf = new Date(`${dateStr}T23:59:59.999Z`);
 
-  const myGroups = await Group.find({
+  const groupQuery = {
     isDeleted: { $ne: true },
     $or: [
       ...(codeRegex ? [{ employeeCode: codeRegex }, { staffCode: codeRegex }] : []),
       ...(emp?._id ? [{ employee: emp._id }, { staffId: emp._id }] : []),
-      ...(branchId ? [{ branch: branchId }] : []),
     ],
-  }).select('code name meetingType collectionDay dayOfWeek').lean();
+  };
+  // Point 4: Strict branch isolation
+  if (bList.length) {
+    groupQuery.branch = { $in: bList };
+  }
+  const myGroups = await Group.find(groupQuery).select('code name meetingType collectionDay dayOfWeek').lean();
   const myGroupCodes = myGroups.map((g) => g.code).filter(Boolean);
 
   const loanQuery = {
@@ -822,9 +864,12 @@ export async function getTodayDueList(req, res) {
     $or: [
       ...(codeRegex ? [{ employeeCode: codeRegex }, { staffCode: codeRegex }] : []),
       ...(myGroupCodes.length ? [{ 'group.code': { $in: myGroupCodes } }] : []),
-      ...(branchId ? [{ branch: branchId }] : []),
     ],
   };
+  // Point 4: Strict branch isolation - never show loans from other branches
+  if (bList.length) {
+    loanQuery.branch = { $in: bList };
+  }
 
   const loans = await LoanPayment.find(loanQuery)
     .select('_id loanId formId mode modeLabel group lines schedule loanType isSettled status totalAmountPaise branch')
@@ -862,6 +907,7 @@ export async function getTodayDueList(req, res) {
   }).select('loanPayment memberCode amountPaise receiptNo collectedOn').lean() : [];
 
   const paymentsByKey = new Map();
+  const pendingByLoanMember = new Map();
   for (const p of allPastPayments) {
     const k = `${String(p.loanPayment)}_${p.memberCode}`;
     const cur = paymentsByKey.get(k) || { totalPaise: 0, todayPaise: 0 };
@@ -872,8 +918,9 @@ export async function getTodayDueList(req, res) {
     paymentsByKey.set(k, cur);
   }
   for (const ac of appCollections) {
-    if (ac.receiptNo && allPastReceipts.has(ac.receiptNo)) continue;
     const k = `${String(ac.loanPayment)}_${ac.memberCode}`;
+    pendingByLoanMember.set(k, (pendingByLoanMember.get(k) || 0) + (ac.amountPaise || 0));
+    if (ac.receiptNo && allPastReceipts.has(ac.receiptNo)) continue;
     const cur = paymentsByKey.get(k) || { totalPaise: 0, todayPaise: 0 };
     cur.totalPaise += (ac.amountPaise || 0);
     if (ac.collectedOn >= startDay && ac.collectedOn <= asOf) {
@@ -971,6 +1018,8 @@ export async function getTodayDueList(req, res) {
       // If loan doesn't meet today and dues are zero, skip
       if (!meetsToday && duesPaise <= 0) return;
 
+      const pendingPaise = pendingByLoanMember.get(`${String(l._id)}_${line.code}`) || 0;
+
       dues.push({
         loanPaymentId: l._id,
         loanId: l.loanId || l.formId,
@@ -986,6 +1035,8 @@ export async function getTodayDueList(req, res) {
         dueAmount: remainingDue,
         isFullyPaid: collectedAmount >= fullEmi && duesPaise === 0,
         isPartiallyPaid: collectedAmount > 0 && remainingDue > 0,
+        isPendingApproval: pendingPaise > 0,
+        pendingApprovalAmount: pendingPaise / 100,
         dueDate: latest.dueDate ? new Date(latest.dueDate).toISOString().slice(0, 10) : dateStr,
         mode: l.modeLabel || l.mode || 'Weekly',
       });
@@ -1838,6 +1889,17 @@ export async function collectTodayDue(req, res) {
 
   const line = (loan.lines || []).find((l) => l.code === memberCode) || loan.lines?.[0];
   if (!line) throw new HttpError(404, 'Borrower line not found in loan');
+
+  // Point 1: Block collection if already pending approval in system
+  const existingPending = await AppEmiCollection.findOne({
+    loanPayment: loan._id,
+    memberCode: line.code,
+    status: 'pending',
+  }).lean();
+
+  if (existingPending) {
+    throw new HttpError(400, `EMI for member ${line.name} (${line.code}) has already been submitted and is pending approval in system. It cannot be collected again until approved.`);
+  }
 
   const receiptNo = await generateCode('emiReceipt').catch(() => `DUE${Date.now().toString().slice(-8)}`);
 
@@ -2877,6 +2939,12 @@ export async function trackLoanHistory(req, res) {
   const isAutoSettled = Boolean(settlement);
   const isClosed = isAutoSettled || balancePaise <= 0 || loan.status === 'closed';
 
+  // Check if loan has any collection pending system approval (Point 1 & 6)
+  const pendingAppCollection = await AppEmiCollection.findOne({
+    loanPayment: loan._id,
+    status: 'pending',
+  }).lean();
+
   const scheduleWithStatus = (loan.schedule || []).map((s) => {
     const isPaid = totalCollectedPaise >= (s.installmentPaise || 0) * s.no;
     const isOverdue = !isPaid && s.dueDate && new Date(s.dueDate) < new Date();
@@ -2906,6 +2974,8 @@ export async function trackLoanHistory(req, res) {
       status: isClosed ? 'closed' : 'active',
       isSettled: isAutoSettled || balancePaise <= 0,
       settlementKind: settlement?.kind || (balancePaise <= 0 ? 'fully_paid' : ''),
+      isPendingApproval: Boolean(pendingAppCollection),
+      pendingApprovalAmount: pendingAppCollection ? (pendingAppCollection.amountPaise / 100) : 0,
       scheduleCount: loan.schedule?.length || 0,
     },
     schedule: scheduleWithStatus,
@@ -2975,9 +3045,12 @@ export async function getEmiGroups(req, res) {
       $or: [
         ...(codeRegex ? [{ employeeCode: codeRegex }, { staffCode: codeRegex }] : []),
         ...(emp?._id ? [{ employee: emp._id }, { staffId: emp._id }] : []),
-        ...(branchId ? [{ branch: branchId }] : []),
       ],
     };
+    // Point 4: Strictly isolate groups to employee branch
+    if (branchIds.length > 0) {
+      staffGroupQuery.branch = { $in: branchIds };
+    }
     myAssignedGroups = await Group.find(staffGroupQuery).select('code name meetingType dayOfWeek collectionDay branch center').lean();
   }
 
@@ -3015,6 +3088,10 @@ export async function getEmiGroups(req, res) {
     status: 'paid',
     'group.code': { $in: myGroupCodes },
   };
+  // Point 4: Strictly filter group loans by branch
+  if (branchIds.length > 0) {
+    loanQuery.branch = { $in: branchIds };
+  }
 
   let allLoans = await LoanPayment.find(loanQuery).lean();
 
@@ -3234,8 +3311,9 @@ export async function getEmiGroups(req, res) {
     // Remaining due includes old due (Point 2 fix)
     const pendingDue = totalPendingDuePaise > 0 ? (totalPendingDuePaise / 100) : Math.max(0, actualCollection - totalCollectedToday);
     const progress = actualCollection > 0 ? Math.min(100, Math.round((totalCollectedToday / actualCollection) * 100)) : 0;
-    // Fixed completion logic: Only 100% completed if collection was actually done today and no dues remain (Point 2 fix)
-    const isCompleted = totalCollectedToday > 0 && totalCollectedToday >= actualCollection && dueCount === 0;
+    // Point 3 Fix: A group is ONLY completed if scheduled for targetDate, collection was actually performed (> 0), covers expected collection, and no pending dues.
+    // When looking at next day, totalCollectedToday is 0 so isCompleted is strictly false!
+    const isCompleted = Boolean(isScheduled && totalCollectedToday > 0 && totalCollectedToday >= actualCollection && dueCount === 0);
 
     groups.push({
       _id: groupDoc?._id || code,
@@ -3279,7 +3357,11 @@ export async function getGroupEmiMembers(req, res) {
 
   const escapedCode = targetCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const escapedName = targetName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const loans = await LoanPayment.find({
+
+  const { branchId, branchIds } = await getEmployeeContext(req).catch(() => ({}));
+  const bList = branchIds?.length ? branchIds : (branchId ? [branchId] : []);
+
+  const loansQuery = {
     status: 'paid',
     $or: [
       { 'group.code': new RegExp(`^${escapedCode}$`, 'i') },
@@ -3288,7 +3370,13 @@ export async function getGroupEmiMembers(req, res) {
       { group: groupCode },
       ...(mongoose.isValidObjectId(groupCode) ? [{ _id: groupCode }] : []),
     ],
-  }).populate('lines.member').lean();
+  };
+  // Point 4: Strictly isolate loans to employee branch
+  if (bList.length) {
+    loansQuery.branch = { $in: bList };
+  }
+
+  const loans = await LoanPayment.find(loansQuery).populate('lines.member').lean();
 
   if (!loans.length) throw new HttpError(404, `No loans found for group ${groupCode}`);
 
@@ -3326,6 +3414,18 @@ export async function getGroupEmiMembers(req, res) {
     status: 'pending',
     collectedOn: { $gte: startDay, $lte: endDay },
   }).select('loanPayment memberCode amountPaise receiptNo').lean() : [];
+
+  // Point 1: Track ALL pending collections across dates so member is blocked from second save
+  const allPendingCollections = allLoanIds.length ? await AppEmiCollection.find({
+    loanPayment: { $in: allLoanIds },
+    status: 'pending',
+  }).select('loanPayment memberCode amountPaise receiptNo').lean() : [];
+
+  const pendingByKey = new Map();
+  for (const pc of allPendingCollections) {
+    const k = `${String(pc.loanPayment)}_${String(pc.memberCode || '').trim().toUpperCase()}`;
+    pendingByKey.set(k, (pendingByKey.get(k) || 0) + (pc.amountPaise || 0));
+  }
 
   const paymentsByKey = new Map();
   for (const p of allPastPayments) {
@@ -3389,6 +3489,7 @@ export async function getGroupEmiMembers(req, res) {
       const alreadyPaidToday = todayPaidPaise > 0;
       const isFullyPaidToday = todayPaidPaise >= emiPaise && duesPaise === 0;
       const memberPendingDue = duesPaise > 0 ? (duesPaise / 100) : (alreadyPaidToday ? 0 : emiPaise / 100);
+      const pendingPaise = pendingByKey.get(`${String(l._id)}_${String(line.code || '').trim().toUpperCase()}`) || 0;
 
       members.push({
         loanPaymentId: l._id,
@@ -3408,6 +3509,8 @@ export async function getGroupEmiMembers(req, res) {
         isAdvancePaid,
         alreadyPaidToday,
         isFullyPaid: isFullyPaidToday,
+        isPendingApproval: pendingPaise > 0,
+        pendingApprovalAmount: pendingPaise / 100,
         balanceAmount: Math.max(0, totalLoanPaise - totalPaidPaise) / 100,
       });
     }
@@ -3464,6 +3567,7 @@ export async function collectBulkEmi(req, res) {
     throw new HttpError(400, `Cannot post collection for today. Earlier collection from ${dStr} is still pending approval. Please get previous day's collection approved first.`);
   }
 
+  const seenInBatch = new Set();
   for (const it of inputList) {
     try {
       const amount = Number(it.amount);
@@ -3485,7 +3589,57 @@ export async function collectBulkEmi(req, res) {
       const line = (p.lines || []).find((l) => (it.memberCode && l.code === it.memberCode) || (it.memberId && String(l.member) === String(it.memberId))) || p.lines?.[0];
       if (!line) throw new Error('Borrower not found in loan');
 
+      // Point 2: Prevent duplicate items within the same batch payload
+      const dedupeKey = `${String(p._id)}_${String(line.code || '').trim().toUpperCase()}`;
+      if (seenInBatch.has(dedupeKey)) {
+        results.push({
+          memberCode: line.code,
+          memberName: line.name,
+          status: 'error',
+          message: `Duplicate item for member ${line.name} in current batch skipped`,
+        });
+        continue;
+      }
+      seenInBatch.add(dedupeKey);
+
+      // Point 1: Block collection if already pending system approval across Group, Personal, MSME, Product loans
+      const existingPending = await AppEmiCollection.findOne({
+        loanPayment: p._id,
+        memberCode: line.code,
+        status: 'pending',
+      }).lean();
+
+      if (existingPending) {
+        results.push({
+          memberCode: line.code,
+          memberName: line.name,
+          status: 'error',
+          message: `EMI for member ${line.name} (${line.code}) has already been submitted and is pending approval in system. It cannot be collected again until approved.`,
+        });
+        continue;
+      }
+
+      // Point 2: Rapid double-tap idempotency guard (within 5 seconds)
+      const recentDuplicate = await AppEmiCollection.findOne({
+        loanPayment: p._id,
+        memberCode: line.code,
+        amountPaise: Math.round(amount * 100),
+        createdAt: { $gte: new Date(Date.now() - 5000) },
+      }).lean();
+
+      if (recentDuplicate) {
+        results.push({
+          memberCode: line.code,
+          memberName: line.name,
+          receiptNo: recentDuplicate.receiptNo || String(recentDuplicate._id),
+          amount,
+          status: 'success',
+        });
+        continue;
+      }
+
       // Point 37: Record in AppEmiCollection with status 'pending' awaiting manager/admin collection approval
+      const receiptNo = await generateCode('emiReceipt').catch(() => `APP${Date.now().toString().slice(-8)}`);
       const pendingColl = await AppEmiCollection.create({
         loanPayment: p._id,
         loanId: p.loanId || p.formId,
@@ -3501,12 +3655,13 @@ export async function collectBulkEmi(req, res) {
         collectedBy: req.user._id,
         collectedByCode: staffCode,
         status: 'pending',
+        receiptNo,
       });
 
       results.push({
         memberCode: line.code,
         memberName: line.name,
-        receiptNo: String(pendingColl._id),
+        receiptNo: receiptNo || String(pendingColl._id),
         amount,
         status: 'success',
       });
@@ -3535,11 +3690,19 @@ export async function collectBulkEmi(req, res) {
 // 15. INDIVIDUAL LOAN EMI COLLECTION (PERSONAL, BUSINESS/MSME, PRODUCT)
 // -----------------------------------------------------------------------------
 export async function getIndividualLoans(req, res) {
-  const { emp, code: staffCode, branchId } = await getEmployeeContext(req);
+  const { emp, code: staffCode, branchId, branchIds } = await getEmployeeContext(req);
   const codeRegex = staffCode ? new RegExp(`^${staffCode}$`, 'i') : null;
+  const bList = branchIds?.length ? branchIds : (branchId ? [branchId] : []);
   const loanType = cleanStr(req.query.loanType || 'personal').toLowerCase();
   const mode = cleanStr(req.query.mode || 'all').toLowerCase();
   const dateStr = cleanStr(req.query.date) || todayDateString();
+
+  const isSupervisorUser = Boolean(
+    req.user?.isSupervisor ||
+    ['supervisor', 'branch_manager', 'area_manager', 'admin', 'super_admin'].includes(req.user?.role) ||
+    (Array.isArray(emp?.supervisedBranches) && emp.supervisedBranches.length > 0) ||
+    emp?.isSupervisor
+  );
 
   const targetDate = new Date(`${dateStr}T12:00:00.000Z`);
   const jsDay = targetDate.getDay(); // 0..6
@@ -3555,15 +3718,23 @@ export async function getIndividualLoans(req, res) {
       { loanType: typeFilter },
       { kind: typeFilter },
     ],
-    $and: [
+  };
+
+  // Point 4: Strictly isolate loans by branch - loans from other branches must never show
+  if (bList.length) {
+    query.branch = { $in: bList };
+  }
+
+  if (!isSupervisorUser && codeRegex) {
+    query.$and = [
       {
         $or: [
-          ...(codeRegex ? [{ employeeCode: codeRegex }, { staffCode: codeRegex }] : []),
-          ...(branchId ? [{ branch: branchId }] : []),
+          { employeeCode: codeRegex },
+          { staffCode: codeRegex },
         ],
       },
-    ],
-  };
+    ];
+  }
 
   let loans = await LoanPayment.find(query).populate('lines.member').lean();
 
@@ -3629,6 +3800,18 @@ export async function getIndividualLoans(req, res) {
     status: 'paid',
   }).lean() : [];
 
+  // Point 1: Query pending collections across loans to block duplicate saving before approval
+  const allPendingCollections = allLoanIds.length ? await AppEmiCollection.find({
+    loanPayment: { $in: allLoanIds },
+    status: 'pending',
+  }).select('loanPayment memberCode amountPaise receiptNo').lean() : [];
+
+  const pendingByKey = new Map();
+  for (const pc of allPendingCollections) {
+    const k = `${String(pc.loanPayment)}_${String(pc.memberCode || '').trim().toUpperCase()}`;
+    pendingByKey.set(k, (pendingByKey.get(k) || 0) + (pc.amountPaise || 0));
+  }
+
   const paymentsByKey = new Map();
   for (const p of allPastPayments) {
     const k = `${String(p.loanPayment)}_${p.memberCode}`;
@@ -3667,6 +3850,7 @@ export async function getIndividualLoans(req, res) {
       const isAdvancePaid = advancePaise >= emiPaise;
       const alreadyPaidToday = todayPaidPaise > 0;
       const isCompleted = alreadyPaidToday || isAdvancePaid;
+      const pendingPaise = pendingByKey.get(`${String(l._id)}_${String(line.code || '').trim().toUpperCase()}`) || 0;
 
       items.push({
         loanPaymentId: l._id,
@@ -3686,6 +3870,8 @@ export async function getIndividualLoans(req, res) {
         isAdvancePaid,
         alreadyPaidToday,
         isCompleted,
+        isPendingApproval: pendingPaise > 0,
+        pendingApprovalAmount: pendingPaise / 100,
         balanceAmount: Math.max(0, totalLoanPaise - totalPaidPaise) / 100,
       });
     }
@@ -3714,6 +3900,17 @@ export async function advancePayment(req, res) {
 
   const line = (loan.lines || []).find((l) => (memberCode && l.code === memberCode)) || loan.lines?.[0];
   if (!line) throw new HttpError(404, 'Borrower line not found in this loan');
+
+  // Point 1 & Point 6: Block if an EMI or Advance collection is already pending system approval
+  const existingPending = await AppEmiCollection.findOne({
+    loanPayment: loan._id,
+    memberCode: line.code,
+    status: 'pending',
+  }).lean();
+
+  if (existingPending) {
+    throw new HttpError(400, `An EMI / Advance collection for member ${line.name} (${line.code}) has already been submitted (Receipt: ${existingPending.receiptNo || existingPending._id}) and is pending system approval. A second collection cannot be saved until approved.`);
+  }
 
   const payAmountPaise = Math.round(payAmount * 100);
 

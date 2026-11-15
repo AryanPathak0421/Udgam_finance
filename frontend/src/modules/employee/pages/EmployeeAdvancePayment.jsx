@@ -33,7 +33,10 @@ export default function EmployeeAdvancePayment() {
       const res = await api.employeeApp.trackLoan(loanQuery.trim());
       setLoanData(res);
       const isSettledOrZero = res.loan?.isSettled || Number(res.loan?.balance || 0) <= 0 || res.loan?.status === 'closed';
-      if (isSettledOrZero) {
+      if (res.loan?.isPendingApproval) {
+        setError(`Notice: Loan ${res.loan?.loanId} has an EMI / Advance collection of ₹${Number(res.loan?.pendingApprovalAmount || 0).toLocaleString('en-IN')} pending system approval. A second collection cannot be saved until approved.`);
+        setAdvanceAmount('');
+      } else if (isSettledOrZero) {
         setError(`Notice: Loan ${res.loan?.loanId} is Auto-Settled / Fully Paid (Balance ₹0). Advance payment is disabled for this loan.`);
         setAdvanceAmount('');
       } else if (res.loan?.scheduleCount > 0 && res.schedule?.[0]?.installmentAmount) {
@@ -81,6 +84,11 @@ export default function EmployeeAdvancePayment() {
     }
     // Immediate synchronous lock to prevent multiple rapid taps
     if (!loanData || isSubmittingRef.current || submitting) return;
+
+    if (loanData.loan?.isPendingApproval) {
+      setError('A collection for this loan is currently pending system approval. A second collection cannot be submitted until approved.');
+      return;
+    }
 
     const remainingBal = Number(loanData.loan?.balance || 0);
     if (remainingBal <= 0) {
@@ -221,8 +229,18 @@ export default function EmployeeAdvancePayment() {
             </div>
           </div>
 
-          {/* Advance Deposit Form or Auto-Settled Notice */}
-          {loanData.loan?.isSettled || Number(loanData.loan?.balance || 0) <= 0 || loanData.loan?.status === 'closed' ? (
+          {/* Advance Deposit Form, Pending Approval Notice, or Auto-Settled Notice */}
+          {loanData.loan?.isPendingApproval ? (
+            <div className="emp-card" style={{ background: '#fff7ed', border: '1px solid #ea580c', padding: '18px 16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#c2410c', fontWeight: 800, fontSize: '1.05rem' }}>
+                <Icon name="clock" size={24} style={{ color: '#ea580c' }} />
+                <span>Approval Pending in System</span>
+              </div>
+              <p style={{ margin: '8px 0 0 0', fontSize: '0.85rem', color: '#9a3412', lineHeight: 1.5 }}>
+                An EMI / Advance collection of <strong>₹{Number(loanData.loan?.pendingApprovalAmount || 0).toLocaleString('en-IN')}</strong> for this member has already been submitted and is currently pending approval in the system. Another advance collection cannot be accepted until approved.
+              </p>
+            </div>
+          ) : loanData.loan?.isSettled || Number(loanData.loan?.balance || 0) <= 0 || loanData.loan?.status === 'closed' ? (
             <div className="emp-card" style={{ background: '#fef3c7', border: '2px solid #f59e0b', padding: '18px 16px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#92400e', fontWeight: 800, fontSize: '1.05rem' }}>
                 <Icon name="shieldcheck" size={24} style={{ color: '#d97706' }} />
@@ -346,7 +364,7 @@ export default function EmployeeAdvancePayment() {
                 type="submit"
                 className="emp-btn-primary"
                 style={{ padding: '14px', fontSize: '1rem', fontWeight: 800, marginTop: 4 }}
-                disabled={submitting || !advanceAmount || Number(advanceAmount) <= 0 || Number(advanceAmount) > Number(loanData.loan?.balance || 0)}
+                disabled={submitting || Boolean(loanData.loan?.isPendingApproval) || !advanceAmount || Number(advanceAmount) <= 0 || Number(advanceAmount) > Number(loanData.loan?.balance || 0)}
               >
                 {submitting ? 'Crediting Advance... Please wait' : `Confirm & Credit Advance (₹${Number(advanceAmount || 0).toLocaleString('en-IN')})`}
               </button>

@@ -134,21 +134,24 @@ export default function EmployeeEmiPayment() {
         pendingDue: pendingDue,
       }));
 
-      // Pre-fill collection map: Only select UNPAID members! Do NOT select members who already paid today!
+      // Pre-fill collection map: Only select UNPAID and NOT PENDING members!
       const initialMap = {};
       members.forEach((m) => {
         const k = getLoanKey(m);
         const isPaidToday = Boolean(m.isAdvancePaid || m.alreadyPaidToday || ((m.todayPaidAmount || 0) >= (m.emiAmount || 0)));
+        const isPending = Boolean(m.isPendingApproval);
+        const canCollect = !isPaidToday && !isPending && !m.isAdvancePaid;
         const defaultEmi = m.emiAmount || m.suggestedAmount || 0;
         initialMap[k] = {
-          selected: !isPaidToday,
-          amount: isPaidToday ? 0 : defaultEmi,
+          selected: canCollect,
+          amount: canCollect ? defaultEmi : 0,
           defaultAmount: defaultEmi,
           loanPaymentId: m.loanPaymentId,
           memberId: m.memberId,
           memberCode: m.memberCode,
           isAdvancePaid: Boolean(m.isAdvancePaid),
           alreadyPaidToday: Boolean(m.alreadyPaidToday),
+          isPendingApproval: isPending,
         };
       });
       setCollectionMap(initialMap);
@@ -172,7 +175,8 @@ export default function EmployeeEmiPayment() {
       items.forEach((item) => {
         const k = getLoanKey(item);
         const isPaidToday = Boolean(item.isAdvancePaid || item.alreadyPaidToday || ((item.todayPaidAmount || 0) >= (item.emiAmount || 0)));
-        const canCollect = !isPaidToday && (item.dueAmount > 0 || !item.alreadyPaidToday);
+        const isPending = Boolean(item.isPendingApproval);
+        const canCollect = !isPaidToday && !isPending && !item.isAdvancePaid && (item.dueAmount > 0 || !item.alreadyPaidToday);
         const defaultEmi = item.emiAmount || item.suggestedAmount || 0;
         initialMap[k] = {
           selected: canCollect,
@@ -183,6 +187,7 @@ export default function EmployeeEmiPayment() {
           memberCode: item.memberCode,
           isAdvancePaid: Boolean(item.isAdvancePaid),
           alreadyPaidToday: Boolean(item.alreadyPaidToday),
+          isPendingApproval: isPending,
         };
       });
       setCollectionMap(initialMap);
@@ -206,7 +211,7 @@ export default function EmployeeEmiPayment() {
   const toggleSelect = (key) => {
     setCollectionMap((prev) => {
       const current = prev[key] || {};
-      if (current.isAdvancePaid) return prev;
+      if (current.isAdvancePaid || current.isPendingApproval) return prev;
       const nextSelected = !current.selected;
       return {
         ...prev,
@@ -232,14 +237,15 @@ export default function EmployeeEmiPayment() {
     }));
   };
 
-  // Toggle Select All (only selects/deselects unpaid members!)
+  // Toggle Select All (only selects/deselects unpaid and non-pending members!)
   const handleSelectAll = (checked, list) => {
     setCollectionMap((prev) => {
       const next = { ...prev };
       list.forEach((m) => {
         const k = getLoanKey(m);
         const isPaidToday = Boolean(m.isAdvancePaid || m.alreadyPaidToday || ((m.todayPaidAmount || 0) >= (m.emiAmount || 0)));
-        if (!isPaidToday) {
+        const isPending = Boolean(m.isPendingApproval);
+        if (!isPaidToday && !isPending && !m.isAdvancePaid) {
           const current = next[k] || {};
           next[k] = {
             ...current,
@@ -254,13 +260,14 @@ export default function EmployeeEmiPayment() {
     });
   };
 
-  // Calculate live total collection (strictly for selected UNPAID members)
+  // Calculate live total collection (strictly for selected UNPAID & NON-PENDING members)
   const totalSelectedCollection = Object.entries(collectionMap)
     .filter(([k, v]) => {
       if (!v?.selected) return false;
       const m = groupMembers.find((gm) => getLoanKey(gm) === k) || individualLoans.find((il) => getLoanKey(il) === k);
       const isPaidToday = m ? Boolean(m.isAdvancePaid || m.alreadyPaidToday || ((m.todayPaidAmount || 0) >= (m.emiAmount || 0))) : false;
-      return !isPaidToday;
+      const isPending = m ? Boolean(m.isPendingApproval) : false;
+      return !isPaidToday && !isPending && !m?.isAdvancePaid;
     })
     .reduce((sum, [, v]) => sum + (Number(v.amount) || 0), 0);
 
@@ -298,7 +305,8 @@ export default function EmployeeEmiPayment() {
         if (!v?.selected || !(Number(v.amount) > 0)) return false;
         const m = groupMembers.find((gm) => getLoanKey(gm) === k) || individualLoans.find((il) => getLoanKey(il) === k);
         const isPaidToday = m ? Boolean(m.isAdvancePaid || m.alreadyPaidToday || ((m.todayPaidAmount || 0) >= (m.emiAmount || 0))) : false;
-        return !isPaidToday;
+        const isPending = m ? Boolean(m.isPendingApproval) : false;
+        return !isPaidToday && !isPending && !(m?.isAdvancePaid);
       })
       .map(([, v]) => ({
         loanPaymentId: v.loanPaymentId,
@@ -309,7 +317,7 @@ export default function EmployeeEmiPayment() {
       }));
 
     if (!itemsToPay.length) {
-      setMessage({ text: 'Please select at least one member with amount to collect', type: 'error' });
+      setMessage({ text: 'Please select at least one member with amount to collect (already paid or approval pending members cannot be selected)', type: 'error' });
       return;
     }
 
@@ -322,12 +330,16 @@ export default function EmployeeEmiPayment() {
         payMode,
       });
 
+      // Point 2 Fix: Immediately clear collectionMap so double submissions cannot occur
+      setCollectionMap({});
+
+      const failMsg = res.failedCount > 0 ? ` (${res.failedCount} skipped/failed)` : '';
       setMessage({
-        text: `✓ Successfully collected ₹${res.totalCollected.toLocaleString('en-IN')} from ${res.collectedCount} member(s)!`,
-        type: 'success',
+        text: `✓ Successfully saved EMI collection for ${res.collectedCount} member(s) (₹${(res.totalCollected || 0).toLocaleString('en-IN')})!${failMsg}`,
+        type: res.collectedCount > 0 ? 'success' : 'error',
       });
 
-      // Refresh list to update 100% green status without resetting active group (Item 3 fix)
+      // Refresh list to update status without resetting active group
       if (loanType === 'group') {
         setTimeout(() => {
           fetchGroups(true);
@@ -533,7 +545,7 @@ export default function EmployeeEmiPayment() {
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {filteredGroups.map((g) => {
-                const is100Percent = (g.isCompleted || g.collectionProgressPercent >= 100) && (g.totalCollectedToday > 0);
+                const is100Percent = Boolean(g.isScheduled && (g.isCompleted || g.collectionProgressPercent >= 100) && (g.totalCollectedToday > 0));
 
                 return (
                   <div
@@ -683,8 +695,8 @@ export default function EmployeeEmiPayment() {
           <div
             className="emp-card"
             style={{
-              background: activeGroup.isCompleted ? '#f0fdf4' : 'var(--emp-card-bg)',
-              border: activeGroup.isCompleted ? '2px solid #16a34a' : '1px solid var(--emp-border)',
+              background: (activeGroup.isScheduled && activeGroup.isCompleted && (activeGroup.totalCollectedToday > 0)) ? '#f0fdf4' : 'var(--emp-card-bg)',
+              border: (activeGroup.isScheduled && activeGroup.isCompleted && (activeGroup.totalCollectedToday > 0)) ? '2px solid #16a34a' : '1px solid var(--emp-border)',
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -807,7 +819,9 @@ export default function EmployeeEmiPayment() {
                 const k = getLoanKey(m);
                 const itemState = collectionMap[k] || { selected: false, amount: m.emiAmount };
                 const isAdvance = m.isAdvancePaid;
-                const isPaidToday = Boolean(m.isAdvancePaid || m.alreadyPaidToday || ((m.todayPaidAmount || 0) >= (m.emiAmount || 0)));
+                const isPending = Boolean(m.isPendingApproval);
+                const isCollectedToday = Boolean(m.todayPaidAmount > 0 || (m.alreadyPaidToday && m.todayPaidAmount > 0));
+                const isPaidToday = isAdvance || isCollectedToday || isPending;
 
                 return (
                   <div
@@ -816,24 +830,24 @@ export default function EmployeeEmiPayment() {
                     style={{
                       margin: 0,
                       padding: 12,
-                      opacity: isAdvance || isPaidToday ? 0.75 : 1,
-                      background: isAdvance ? '#fefce8' : isPaidToday ? '#f0fdf4' : itemState.selected ? 'rgba(37, 99, 235, 0.04)' : 'var(--emp-card-bg)',
-                      border: isAdvance ? '1px dashed #ca8a04' : isPaidToday ? '1px solid #86efac' : itemState.selected ? '1px solid var(--emp-primary)' : '1px solid var(--emp-border)',
+                      opacity: isAdvance || isPaidToday || isPending ? 0.85 : 1,
+                      background: isAdvance ? '#fefce8' : isPending ? '#fff7ed' : isCollectedToday ? '#f0fdf4' : itemState.selected ? 'rgba(37, 99, 235, 0.04)' : 'var(--emp-card-bg)',
+                      border: isAdvance ? '1px dashed #ca8a04' : isPending ? '1px solid #ea580c' : isCollectedToday ? '1px solid #86efac' : itemState.selected ? '1px solid var(--emp-primary)' : '1px solid var(--emp-border)',
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
                       <input
                         type="checkbox"
-                        checked={Boolean(itemState.selected && !isPaidToday)}
-                        disabled={isAdvance || isPaidToday}
+                        checked={Boolean(itemState.selected && !isPaidToday && !isPending && !isAdvance)}
+                        disabled={isAdvance || isPaidToday || isPending}
                         onChange={() => toggleSelect(k)}
-                        style={{ marginTop: 4, width: 18, height: 18, cursor: (isAdvance || isPaidToday) ? 'not-allowed' : 'pointer' }}
+                        style={{ marginTop: 4, width: 18, height: 18, cursor: (isAdvance || isPaidToday || isPending) ? 'not-allowed' : 'pointer' }}
                       />
 
                       <div style={{ flex: 1 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                           <div>
-                            <div style={{ fontWeight: 700, fontSize: '0.92rem', color: 'var(--emp-text)' }}>
+                            <div style={{ fontWeight: 700, fontSize: '0.92rem', color: isPending ? '#c2410c' : isCollectedToday ? '#15803d' : 'var(--emp-text)' }}>
                               {m.memberName}
                             </div>
                             <div style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)', marginTop: 1 }}>
@@ -864,9 +878,17 @@ export default function EmployeeEmiPayment() {
                               <span className="emp-badge emp-badge-warning" style={{ fontSize: '0.72rem' }}>
                                 Advance ₹{m.advanceAmount}
                               </span>
-                            ) : m.dueAmount <= 0 || m.alreadyPaidToday ? (
+                            ) : isPending ? (
+                              <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#c2410c', background: '#ffedd5', padding: '2px 8px', borderRadius: 6 }}>
+                                ⏳ Approval Pending ₹{m.pendingApprovalAmount || m.emiAmount}
+                              </span>
+                            ) : isCollectedToday ? (
                               <span className="emp-badge emp-badge-success" style={{ fontSize: '0.72rem' }}>
-                                Paid
+                                ✓ Paid
+                              </span>
+                            ) : m.dueAmount <= 0 ? (
+                              <span className="emp-badge emp-badge-secondary" style={{ fontSize: '0.72rem' }}>
+                                Up to date
                               </span>
                             ) : m.oldDue > 0 ? (
                               <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#dc2626', background: '#fee2e2', padding: '2px 8px', borderRadius: 6 }}>
@@ -888,7 +910,7 @@ export default function EmployeeEmiPayment() {
                             <input
                               type="number"
                               className="emp-input"
-                              disabled={isAdvance || isPaidToday || !itemState.selected}
+                              disabled={isAdvance || isPaidToday || isPending || !itemState.selected}
                               value={itemState.amount}
                               onChange={(e) => handleAmountChange(k, e.target.value)}
                               style={{
@@ -1013,7 +1035,10 @@ export default function EmployeeEmiPayment() {
                 const k = getLoanKey(item);
                 const itemState = collectionMap[k] || { selected: false, amount: item.emiAmount };
                 const isAdvance = item.isAdvancePaid;
-                const isCompleted = item.isCompleted || item.alreadyPaidToday;
+                const isPending = Boolean(item.isPendingApproval);
+                const isCollectedToday = Boolean(item.todayPaidAmount > 0 || (item.alreadyPaidToday && item.todayPaidAmount > 0));
+                const isCompleted = item.isCompleted || isCollectedToday;
+                const isDisabled = isAdvance || isCompleted || isPending;
 
                 return (
                   <div
@@ -1022,25 +1047,25 @@ export default function EmployeeEmiPayment() {
                     style={{
                       margin: 0,
                       padding: 12,
-                      opacity: isAdvance ? 0.75 : 1,
-                      background: isCompleted ? '#dcfce7' : isAdvance ? '#fefce8' : itemState.selected ? 'rgba(37, 99, 235, 0.04)' : 'var(--emp-card-bg)',
-                      border: isCompleted ? '2px solid #16a34a' : isAdvance ? '1px dashed #ca8a04' : itemState.selected ? '1px solid var(--emp-primary)' : '1px solid var(--emp-border)',
+                      opacity: isDisabled ? 0.85 : 1,
+                      background: isPending ? '#fff7ed' : isCompleted ? '#dcfce7' : isAdvance ? '#fefce8' : itemState.selected ? 'rgba(37, 99, 235, 0.04)' : 'var(--emp-card-bg)',
+                      border: isPending ? '1px solid #ea580c' : isCompleted ? '2px solid #16a34a' : isAdvance ? '1px dashed #ca8a04' : itemState.selected ? '1px solid var(--emp-primary)' : '1px solid var(--emp-border)',
                       borderRadius: 12,
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
                       <input
                         type="checkbox"
-                        checked={Boolean(itemState.selected && !isCompleted && !isAdvance)}
-                        disabled={isAdvance || isCompleted}
+                        checked={Boolean(itemState.selected && !isCompleted && !isAdvance && !isPending)}
+                        disabled={isDisabled}
                         onChange={() => toggleSelect(k)}
-                        style={{ marginTop: 4, width: 18, height: 18, cursor: (isAdvance || isCompleted) ? 'not-allowed' : 'pointer' }}
+                        style={{ marginTop: 4, width: 18, height: 18, cursor: isDisabled ? 'not-allowed' : 'pointer' }}
                       />
 
                       <div style={{ flex: 1 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                           <div>
-                            <div style={{ fontWeight: 700, fontSize: '0.92rem', color: isCompleted ? '#15803d' : 'var(--emp-text)' }}>
+                            <div style={{ fontWeight: 700, fontSize: '0.92rem', color: isPending ? '#c2410c' : isCompleted ? '#15803d' : 'var(--emp-text)' }}>
                               {item.memberName}
                             </div>
                             <div style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)', marginTop: 1 }}>
@@ -1067,21 +1092,25 @@ export default function EmployeeEmiPayment() {
                           </div>
 
                           <div>
-                            {isCompleted ? (
-                              <span style={{ background: '#16a34a', color: '#fff', padding: '2px 8px', borderRadius: 6, fontSize: '0.72rem', fontWeight: 800 }}>
-                                ✓ 100% Paid
-                              </span>
-                            ) : isAdvance ? (
+                            {isAdvance ? (
                               <span className="emp-badge emp-badge-warning" style={{ fontSize: '0.72rem' }}>
                                 Advance ₹{item.advanceAmount}
+                              </span>
+                            ) : isPending ? (
+                              <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#c2410c', background: '#ffedd5', padding: '2px 8px', borderRadius: 6 }}>
+                                ⏳ Approval Pending ₹{item.pendingApprovalAmount || item.emiAmount}
+                              </span>
+                            ) : isCollectedToday ? (
+                              <span style={{ background: '#16a34a', color: '#fff', padding: '2px 8px', borderRadius: 6, fontSize: '0.72rem', fontWeight: 800 }}>
+                                ✓ 100% Paid
                               </span>
                             ) : item.dueAmount > 0 ? (
                               <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#dc2626', background: '#fee2e2', padding: '2px 8px', borderRadius: 6 }}>
                                 Due ₹{item.dueAmount}
                               </span>
                             ) : (
-                              <span className="emp-badge emp-badge-success" style={{ fontSize: '0.72rem' }}>
-                                Paid
+                              <span className="emp-badge emp-badge-secondary" style={{ fontSize: '0.72rem' }}>
+                                Up to date
                               </span>
                             )}
                           </div>
@@ -1095,7 +1124,7 @@ export default function EmployeeEmiPayment() {
                             <input
                               type="number"
                               className="emp-input"
-                              disabled={isAdvance || isCompleted || !itemState.selected}
+                              disabled={isDisabled || !itemState.selected}
                               value={itemState.amount}
                               onChange={(e) => handleAmountChange(k, e.target.value)}
                               style={{
