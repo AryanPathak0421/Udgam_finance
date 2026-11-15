@@ -4231,6 +4231,19 @@ export async function recoverNpaLoan(req, res) {
     || loan?.lines?.[0]
     || { code: memberCode || settlementDoc?.memberCode || 'N/A', name: settlementDoc?.memberName || 'Borrower' };
 
+  // Point 1: Block recovery if an NPA recovery / EMI is already pending system approval
+  if (loan?._id && line.code) {
+    const existingPending = await AppEmiCollection.findOne({
+      loanPayment: loan._id,
+      memberCode: line.code,
+      status: 'pending',
+    }).lean();
+
+    if (existingPending) {
+      throw new HttpError(400, `NPA recovery for member ${line.name} (${line.code}) has already been submitted and is pending system approval. It cannot be collected again until approved.`);
+    }
+  }
+
   const receiptNo = await generateCode('emiReceipt').catch(() => `NPA${Date.now().toString().slice(-8)}`);
   const modeClean = ['cash', 'bank', 'upi', 'cheque'].includes(payMode.toLowerCase()) ? payMode.toLowerCase() : 'cash';
 
