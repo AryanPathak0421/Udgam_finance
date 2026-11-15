@@ -7,6 +7,7 @@ import { LoanSettlement } from '../models/LoanSettlement.js';
 import { LoanPayment } from '../models/LoanPayment.js';
 import { SecurityWithdrawal } from '../models/SecurityWithdrawal.js';
 import { ProductPayment } from '../models/ProductPayment.js';
+import { ProductSaleOrder } from '../modules/employee/employeeAppModel.js';
 import { CashEntry, ENTRY_CATEGORIES, ENTRY_MODES } from '../models/CashEntry.js';
 import { CashbookPhoto } from '../models/CashbookPhoto.js';
 import { Branch } from '../models/Branch.js';
@@ -64,6 +65,7 @@ const RECEIVE = [
   { key: 'voucher_receive', label: 'Voucher entry' },
   { key: 'civil_fee', label: 'Civil check fee' },
   { key: 'product_received', label: 'Product payment received from branches (head office)', optional: true },
+  { key: 'product_booking', label: 'Product booking receive' },
 ];
 const PAYMENT = [
   { key: 'daily_disbursement', label: 'Group daily disbursement' },
@@ -151,6 +153,7 @@ async function fastOpening(scope, head, from, mode = '') {
     [paySum],
     [gotSum],
     [civilSum],
+    [productBookingSum],
     entrySums,
   ] = await Promise.all([
     EmiPayment.aggregate([
@@ -215,6 +218,11 @@ async function fastOpening(scope, head, from, mode = '') {
           { $group: { _id: null, total: { $sum: '$feePaise' } } },
         ])
       : Promise.resolve([]),
+    // Point 38: Product booking receive in opening balance
+    ProductSaleOrder.aggregate([
+      { $match: { ...scope, status: 'approved', isDeleted: false, ...modeFilter('payMode'), approvedAt: { $lt: from } } },
+      { $group: { _id: null, total: { $sum: { $ifNull: ['$totalAmountPaise', { $multiply: ['$totalAmount', 100] }] } } } },
+    ]),
     CashEntry.aggregate([
       { $match: { isDeleted: false, ...entryScope, ...modeFilter('mode'), date: { $lt: from } } },
       { $group: { _id: '$side', total: { $sum: '$amountPaise' } } },
@@ -226,7 +234,7 @@ async function fastOpening(scope, head, from, mode = '') {
 
   const totalReceive = (emiSum?.total || 0) + (settleSum?.total || 0)
     + (loanSum?.totalProcessing || 0) + (loanSum?.totalLegal || 0) + (loanSum?.totalInsurance || 0) + (loanSum?.totalSecurity || 0) + (loanSum?.totalGoods || 0)
-    + (gotSum?.total || 0) + (civilSum?.total || 0) + entryRec;
+    + (gotSum?.total || 0) + (civilSum?.total || 0) + (productBookingSum?.total || 0) + entryRec;
 
   const totalPayment = (loanSum?.totalPaid || 0)
     + (oldSecSum?.total || 0) + (newSecSum?.total || 0)
@@ -448,6 +456,30 @@ export async function cashbookData(req, query) {
         }
       });
     }
+
+    // Point 38: Approved product bookings appear on Cashbook Receive side
+    const pbRange = stampRange('approvedAt', before);
+    const productBookings = await ProductSaleOrder.find({
+      ...scope,
+      status: 'approved',
+      isDeleted: false,
+      ...modeFilter('payMode'),
+      ...pbRange,
+    }).limit(20000).lean();
+
+    productBookings.forEach((pb) => {
+      const amtPaise = pb.totalAmountPaise || Math.round((pb.totalAmount || 0) * 100);
+      if (amtPaise > 0) {
+        add('receive', 'product_booking', {
+          date: iso(pb.approvedAt || pb.createdAt),
+          particulars: `Product booking — ${pb.productName || pb.productCode || 'Product'} (${pb.memberCode || ''} ${pb.memberName || ''})`.trim(),
+          ref: pb.receiptNo || '',
+          mode: pb.payMode || 'cash',
+          amount: amtPaise,
+          branchId: pb.branch,
+        });
+      }
+    });
 
     // entries typed in by hand
     const entries = await CashEntry.find({ isDeleted: false, ...entryScope, ...modeFilter('mode'), ...range('date', before) }).limit(20000);

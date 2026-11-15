@@ -254,10 +254,15 @@ export default function EmployeeEmiPayment() {
     });
   };
 
-  // Calculate live total collection
-  const totalSelectedCollection = Object.values(collectionMap)
-    .filter((v) => v.selected)
-    .reduce((sum, v) => sum + (Number(v.amount) || 0), 0);
+  // Calculate live total collection (strictly for selected UNPAID members)
+  const totalSelectedCollection = Object.entries(collectionMap)
+    .filter(([k, v]) => {
+      if (!v?.selected) return false;
+      const m = groupMembers.find((gm) => getLoanKey(gm) === k) || individualLoans.find((il) => getLoanKey(il) === k);
+      const isPaidToday = m ? Boolean(m.isAdvancePaid || m.alreadyPaidToday || ((m.todayPaidAmount || 0) >= (m.emiAmount || 0))) : false;
+      return !isPaidToday;
+    })
+    .reduce((sum, [, v]) => sum + (Number(v.amount) || 0), 0);
 
   // Open Dynamic Company QR Modal
   const handleOpenQr = async () => {
@@ -288,9 +293,14 @@ export default function EmployeeEmiPayment() {
       setMessage({ text: 'EMI collections and Loan Requisitions are blocked on Sundays (Weekly Off).', type: 'error' });
       return;
     }
-    const itemsToPay = Object.values(collectionMap)
-      .filter((v) => v.selected && Number(v.amount) > 0)
-      .map((v) => ({
+    const itemsToPay = Object.entries(collectionMap)
+      .filter(([k, v]) => {
+        if (!v?.selected || !(Number(v.amount) > 0)) return false;
+        const m = groupMembers.find((gm) => getLoanKey(gm) === k) || individualLoans.find((il) => getLoanKey(il) === k);
+        const isPaidToday = m ? Boolean(m.isAdvancePaid || m.alreadyPaidToday || ((m.todayPaidAmount || 0) >= (m.emiAmount || 0))) : false;
+        return !isPaidToday;
+      })
+      .map(([, v]) => ({
         loanPaymentId: v.loanPaymentId,
         memberCode: v.memberCode,
         memberId: v.memberId,
@@ -720,10 +730,15 @@ export default function EmployeeEmiPayment() {
                 </div>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: '0.7rem', color: '#b91c1c', fontWeight: 600 }}>Remaining Due:</div>
+                <div style={{ fontSize: '0.7rem', color: '#b91c1c', fontWeight: 600 }}>Remaining Due Today:</div>
                 <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#dc2626' }}>
-                  ₹{Number(activeGroup.pendingDue ?? Math.max(0, (activeGroup.actualCollection || activeGroup.totalDueAmount || 0) - (activeGroup.totalCollectedToday || 0))).toLocaleString('en-IN')}
+                  ₹{Number(Math.max(0, (activeGroup.actualCollection || 0) - (activeGroup.totalCollectedToday || 0))).toLocaleString('en-IN')}
                 </div>
+                {activeGroup.pendingDue > 0 && activeGroup.pendingDue !== Math.max(0, (activeGroup.actualCollection || 0) - (activeGroup.totalCollectedToday || 0)) && (
+                  <div style={{ fontSize: '0.66rem', color: '#64748b', marginTop: 1 }}>
+                    Overdue: ₹{Number(activeGroup.pendingDue).toLocaleString('en-IN')}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -792,6 +807,7 @@ export default function EmployeeEmiPayment() {
                 const k = getLoanKey(m);
                 const itemState = collectionMap[k] || { selected: false, amount: m.emiAmount };
                 const isAdvance = m.isAdvancePaid;
+                const isPaidToday = Boolean(m.isAdvancePaid || m.alreadyPaidToday || ((m.todayPaidAmount || 0) >= (m.emiAmount || 0)));
 
                 return (
                   <div
@@ -800,18 +816,18 @@ export default function EmployeeEmiPayment() {
                     style={{
                       margin: 0,
                       padding: 12,
-                      opacity: isAdvance ? 0.75 : 1,
-                      background: isAdvance ? '#fefce8' : itemState.selected ? 'rgba(37, 99, 235, 0.04)' : 'var(--emp-card-bg)',
-                      border: isAdvance ? '1px dashed #ca8a04' : itemState.selected ? '1px solid var(--emp-primary)' : '1px solid var(--emp-border)',
+                      opacity: isAdvance || isPaidToday ? 0.75 : 1,
+                      background: isAdvance ? '#fefce8' : isPaidToday ? '#f0fdf4' : itemState.selected ? 'rgba(37, 99, 235, 0.04)' : 'var(--emp-card-bg)',
+                      border: isAdvance ? '1px dashed #ca8a04' : isPaidToday ? '1px solid #86efac' : itemState.selected ? '1px solid var(--emp-primary)' : '1px solid var(--emp-border)',
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
                       <input
                         type="checkbox"
-                        checked={itemState.selected}
-                        disabled={isAdvance}
+                        checked={Boolean(itemState.selected && !isPaidToday)}
+                        disabled={isAdvance || isPaidToday}
                         onChange={() => toggleSelect(k)}
-                        style={{ marginTop: 4, width: 18, height: 18, cursor: isAdvance ? 'not-allowed' : 'pointer' }}
+                        style={{ marginTop: 4, width: 18, height: 18, cursor: (isAdvance || isPaidToday) ? 'not-allowed' : 'pointer' }}
                       />
 
                       <div style={{ flex: 1 }}>
@@ -872,7 +888,7 @@ export default function EmployeeEmiPayment() {
                             <input
                               type="number"
                               className="emp-input"
-                              disabled={isAdvance || !itemState.selected}
+                              disabled={isAdvance || isPaidToday || !itemState.selected}
                               value={itemState.amount}
                               onChange={(e) => handleAmountChange(k, e.target.value)}
                               style={{
@@ -1015,10 +1031,10 @@ export default function EmployeeEmiPayment() {
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
                       <input
                         type="checkbox"
-                        checked={itemState.selected}
+                        checked={Boolean(itemState.selected && !isCompleted && !isAdvance)}
                         disabled={isAdvance || isCompleted}
                         onChange={() => toggleSelect(k)}
-                        style={{ marginTop: 4, width: 18, height: 18, cursor: isAdvance ? 'not-allowed' : 'pointer' }}
+                        style={{ marginTop: 4, width: 18, height: 18, cursor: (isAdvance || isCompleted) ? 'not-allowed' : 'pointer' }}
                       />
 
                       <div style={{ flex: 1 }}>

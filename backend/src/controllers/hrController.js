@@ -13,7 +13,7 @@ import { asString, parseDateOnly, HttpError, startOfToday, todayDateString } fro
 import { toMinor } from '../utils/money.js';
 import { lookupPincode } from '../services/lookup.js';
 import crypto from 'crypto';
-import { Leave, SupervisorVisit } from '../models/HrExtra.js';
+import { Leave, SupervisorVisit, Resignation } from '../models/HrExtra.js';
 import { offDaysFor, isOff, nextWorking } from '../services/holidays.js';
 import { notifyEmployee } from '../services/hrNotify.js';
 import { ensureEmployees } from '../services/employeeSync.js';
@@ -853,9 +853,29 @@ export async function setEmployeeStatus(req, res) {
   const left = req.body?.status === 'left';
   e.status = left ? 'left' : 'active';
   e.leftOn = left ? parseDateOnly(asString(req.body?.leftOn)) || startOfToday() : undefined;
+
+  // Point 35: Re-Join unblocks employee, reactivates login and archives resignation
+  if (!left) {
+    e.isBlocked = false;
+    e.blockReason = undefined;
+    if (e.user) {
+      await User.updateOne({ _id: e.user }, { $set: { isBlocked: false, isActive: true } });
+    }
+    await Resignation.updateMany(
+      { employee: e._id, status: { $in: ['pending', 'approved'] } },
+      { $set: { status: 'rejected', rejectReason: 'Employee rejoined company' } }
+    );
+  } else {
+    e.isBlocked = true;
+    e.blockReason = req.body?.reason || 'Marked as left / notice period completed';
+    if (e.user) {
+      await User.updateOne({ _id: e.user }, { $set: { isBlocked: true, isActive: false } });
+    }
+  }
+
   await e.save();
-  await audit(req, { action: 'employee.status', entity: 'Employee', entityId: e._id, after: { status: e.status } });
-  res.json({ status: e.status, leftOn: iso(e.leftOn) });
+  await audit(req, { action: left ? 'employee.left' : 'employee.rejoin', entity: 'Employee', entityId: e._id, after: { status: e.status, isBlocked: e.isBlocked } });
+  res.json({ status: e.status, leftOn: iso(e.leftOn), isBlocked: e.isBlocked });
 }
 
 /** Creates an HR record for every staff login (User Master) that has none: name, mobile and branch are taken over; department, designation and salary are filled in afterwards. */

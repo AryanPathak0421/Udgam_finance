@@ -283,17 +283,79 @@ const pendingBadge = (p, unit) => (p.pending > 0 ? <span className="badge danger
 function TargetForm({ onClose, onSaved }) {
   const toast = useToast();
   const [ranks, setRanks] = useState([]);
-  const [f, setF] = useState({ fromDate: today(), toDate: today(), rank: '', newMember: '', d6: '', newGroup: '', productSell: '', npaRecovery: '', remark: '' });
+  const [employees, setEmployees] = useState([]);
+  const [showOldEmp, setShowOldEmp] = useState(true);
+  const [targetType, setTargetType] = useState('rank'); // 'rank' | 'custom'
+  const [f, setF] = useState({ fromDate: today(), toDate: today(), rank: '', employees: [], newMember: '', d6: '', newGroup: '', productSell: '', npaRecovery: '', remark: '' });
   const sv = useSaver(toast, onSaved);
-  useEffect(() => { api.hr.targetOptions().then((r) => setRanks(r.ranks)).catch(() => {}); }, []);
+  useEffect(() => {
+    api.hr.targetOptions().then((r) => {
+      setRanks(r.ranks || []);
+      setEmployees(r.employees || []);
+    }).catch(() => {});
+  }, []);
   const set = (k) => (e) => { setF((x) => ({ ...x, [k]: e.target.value })); sv.setErrors((x) => ({ ...x, [k]: undefined })); };
   const whole = (k) => (e) => { setF((x) => ({ ...x, [k]: e.target.value.replace(/\D/g, '').slice(0, 6) })); sv.setErrors((x) => ({ ...x, [k]: undefined })); };
+  const toggleEmployee = (empId) => {
+    setF((prev) => {
+      const cur = prev.employees || [];
+      const next = cur.includes(empId) ? cur.filter((x) => x !== empId) : [...cur, empId];
+      return { ...prev, employees: next };
+    });
+    sv.setErrors((x) => ({ ...x, rank: undefined }));
+  };
+
+  const filteredEmployees = employees.filter((e) => showOldEmp || e.status === 'active');
+
   return (
     <FormModal title="Give a target task" onClose={onClose} busy={sv.busy} onSave={() => sv.run(() => api.hr.createTargetTask(f), (r) => `Task given to ${r.item.employees.length} employee${r.item.employees.length === 1 ? '' : 's'}`)}>
       <div className="form-grid">
         <FormField id="ttf" label="From date" required error={sv.errors.fromDate}><input id="ttf" type="date" value={f.fromDate} onChange={set('fromDate')} /></FormField>
         <FormField id="ttt" label="To date" required error={sv.errors.toDate}><input id="ttt" type="date" min={f.fromDate} value={f.toDate} onChange={set('toDate')} /></FormField>
-        <FormField id="ttr" label="Rank" required className="span-2" error={sv.errors.rank} hint="Every working employee of this rank (in your branches) gets the task"><select id="ttr" value={f.rank} onChange={set('rank')}><option value="">Select rank</option>{ranks.map((r) => <option key={r.id} value={r.id}>{r.code} — {r.name}</option>)}</select></FormField>
+
+        <div className="span-2" style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 4 }}>
+          <label style={{ fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+            <input type="radio" name="targetType" checked={targetType === 'rank'} onChange={() => { setTargetType('rank'); setF((x) => ({ ...x, employees: [] })); }} />
+            Assign by Rank
+          </label>
+          <label style={{ fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+            <input type="radio" name="targetType" checked={targetType === 'custom'} onChange={() => { setTargetType('custom'); setF((x) => ({ ...x, rank: '' })); }} />
+            Select Specific / Old Employees
+          </label>
+        </div>
+
+        {targetType === 'rank' ? (
+          <FormField id="ttr" label="Rank" required className="span-2" error={sv.errors.rank} hint="Every working employee of this rank (in your branches) gets the task">
+            <select id="ttr" value={f.rank} onChange={set('rank')}>
+              <option value="">Select rank</option>
+              {ranks.map((r) => <option key={r.id} value={r.id}>{r.code} — {r.name}</option>)}
+            </select>
+          </FormField>
+        ) : (
+          <div className="span-2" style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 10, background: 'var(--subtle)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <strong style={{ fontSize: '0.85rem' }}>Select Employees ({f.employees?.length || 0} selected)</strong>
+              <label style={{ fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+                <input type="checkbox" checked={showOldEmp} onChange={(e) => setShowOldEmp(e.target.checked)} />
+                Show past / left employees
+              </label>
+            </div>
+            <div style={{ maxHeight: 180, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {filteredEmployees.map((e) => {
+                const isSelected = (f.employees || []).includes(e.id);
+                return (
+                  <label key={e.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.82rem', padding: '3px 6px', borderRadius: 4, background: isSelected ? 'rgba(37,99,235,0.08)' : 'transparent', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={isSelected} onChange={() => toggleEmployee(e.id)} />
+                    <strong>{e.code}</strong> {e.name} {e.branch && <span className="muted small">({e.branch})</span>}
+                    {e.status !== 'active' && <span className="badge amber small" style={{ marginLeft: 'auto' }}>{e.status}</span>}
+                  </label>
+                );
+              })}
+            </div>
+            {sv.errors.rank && <div className="error small" style={{ marginTop: 4 }}>{sv.errors.rank}</div>}
+          </div>
+        )}
+
         <FormField id="ttm" label="New member — target" error={sv.errors.newMember}><input id="ttm" inputMode="numeric" value={f.newMember} onChange={whole('newMember')} /></FormField>
         <FormField id="ttd" label="D6 (disbursement) — target" error={sv.errors.d6} hint="Counted from the loans paid out under the employee code"><input id="ttd" inputMode="numeric" value={f.d6} onChange={whole('d6')} /></FormField>
         <FormField id="ttg" label="New group — target" error={sv.errors.newGroup}><input id="ttg" inputMode="numeric" value={f.newGroup} onChange={whole('newGroup')} /></FormField>
@@ -665,7 +727,29 @@ export function LeaveApply() {
         <div className="form-grid">
           <EmployeePick id="lvemp" value={f.employee} onChange={(v) => setF((x) => ({ ...x, employee: v }))} error={sv.errors.employee} onBranch={setBranch} />
           <FormField id="lvt" label="Kind of leave" error={sv.errors.type}><input id="lvt" value="Earned leave (EL)" readOnly /></FormField>
-          {bal && <p className="span-2" style={{ margin: 0 }}><strong>EL {bal.financialYear}:</strong> carried {bal.opening} + earned {bal.earned} − taken {bal.used} = <strong>{bal.available} available</strong>{!bal.joiningKnown && <span className="muted small"> (joining date not set: counted from the start of this financial year)</span>}</p>}
+          {(() => {
+            if (!bal) return null;
+            let reqDays = 0;
+            if (f.from && f.to) {
+              const d1 = new Date(`${f.from}T00:00:00`);
+              const d2 = new Date(`${f.to}T00:00:00`);
+              if (d2 >= d1) {
+                for (let d = d1.getTime(); d <= d2.getTime(); d += 86400000) {
+                  if (new Date(d).getDay() !== 0) reqDays += 1;
+                }
+              }
+            }
+            const rem = (bal.available || 0) - reqDays;
+            return (
+              <div className="span-2" style={{ background: rem < 0 ? '#fee2e2' : '#f0fdf4', border: `1px solid ${rem < 0 ? '#ef4444' : '#86efac'}`, borderRadius: 8, padding: '8px 12px', margin: '4px 0' }}>
+                <div><strong>EL {bal.financialYear}:</strong> Carried {bal.opening} + Earned {bal.earned} − Taken {bal.used} = <strong>{bal.available} Available</strong></div>
+                <div style={{ marginTop: 4, fontSize: '0.84rem', color: rem < 0 ? '#b91c1c' : '#15803d', fontWeight: 700 }}>
+                  Applying: {reqDays} day{reqDays === 1 ? '' : 's'} (excluding Sundays) | Remaining after deduction: {bal.available} − {reqDays} = {rem} day{rem === 1 ? '' : 's'}
+                </div>
+                {rem < 0 && <div style={{ fontSize: '0.78rem', color: '#b91c1c', marginTop: 2 }}>⚠️ Insufficient EL balance! You cannot apply for more days than your available balance.</div>}
+              </div>
+            );
+          })()}
           <FormField id="lvf" label="From" required error={sv.errors.from}><input id="lvf" type="date" value={f.from} onChange={set('from')} /></FormField>
           <FormField id="lvto" label="To" required error={sv.errors.to}><input id="lvto" type="date" min={f.from} value={f.to} onChange={set('to')} /></FormField>
           <FormField id="lvr" label="Reason" required className="span-2" error={sv.errors.reason}><input id="lvr" value={f.reason} maxLength={300} onChange={set('reason')} /></FormField>
@@ -845,7 +929,28 @@ export function Resignations() {
                     <td data-label="Status"><Badge s={r.status} />{r.rejectReason && <div className="muted small">{r.rejectReason}</div>}{r.decidedBy && <div className="muted small">{r.decidedBy}</div>}</td>
                     <td>
                       {r.status === 'pending' && <div style={{ display: 'flex', gap: 6 }}><button className="btn sm primary" disabled={busy === r.id} onClick={() => { setApproving(r); setNotice(r.lastWorkingDate || today()); setNoticeError(''); }}>Approve</button><button className="btn sm danger-outline" onClick={() => setRejecting(r)}>Reject</button></div>}
-                      {r.status === 'approved' && <button className="btn sm" title="Print Relieving Letter" onClick={() => printRelieving(r)}>Relieving Letter</button>}
+                      {r.status === 'approved' && (
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button className="btn sm" title="Print Relieving Letter" onClick={() => printRelieving(r)}>Relieving Letter</button>
+                          <button
+                            type="button"
+                            className="btn sm"
+                            style={{ background: '#16a34a', color: '#fff' }}
+                            title="Re-Join Employee (Notice Period Complete)"
+                            onClick={async () => {
+                              try {
+                                await api.hr.setEmployeeStatus(r.employee?.id || r.employee, { status: 'active' });
+                                toast.success(`${r.employeeCode} rejoined successfully! Employee login reactivated.`);
+                                list.load();
+                              } catch (err) {
+                                toast.error(err.message || 'Failed to rejoin employee');
+                              }
+                            }}
+                          >
+                            Re-Join
+                          </button>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -918,6 +1023,20 @@ export function Letters() {
       ? { title: 'Joining Letter', paragraphs: [`Dear ${e.name},`, `This is to confirm that you joined ${co} on ${fmtDate(e.joiningDate) || 'the date of joining'} as ${post}, at the ${e.branch?.name || ''} branch. Your employee code is ${e.employeeCode}.${salary}`, 'You are expected to follow the rules and policies of the company and to report to your branch manager. We wish you a successful career with us.'] }
       : { title: 'Appointment Letter', paragraphs: [`Dear ${e.name},`, `We are pleased to appoint you as ${post} of ${co}, at the ${e.branch?.name || ''} branch, with effect from ${fmtDate(e.joiningDate) || 'the date of joining'}. Your employee code is ${e.employeeCode}.${salary}`, 'Your appointment is subject to the rules and policies of the company and to the satisfactory verification of your documents. Please sign and return a copy of this letter as your acceptance.'] };
   }
+  const [sendingEmail, setSendingEmail] = useState(false);
+  async function sendEmail() {
+    if (!e) return;
+    setSendingEmail(true);
+    try {
+      const res = await api.hr.sendJoiningLetter(e.id);
+      toast.success(res.message || 'Joining letter sent to email successfully!');
+    } catch (err) {
+      toast.error(err.message || 'Failed to send joining letter to email');
+    } finally {
+      setSendingEmail(false);
+    }
+  }
+
   function print() {
     const c = compose();
     const ok = printLetter({ company, title: c.title, paragraphs: c.paragraphs, to: { name: e.name, code: e.employeeCode, address: e.address }, ref: `${kind === 'joining' ? 'JL' : 'AL'}/${e.employeeCode}`, date: fmtDate(today()) });
@@ -941,7 +1060,12 @@ export function Letters() {
             {compose().paragraphs.map((p, i) => <p key={i} style={{ margin: '8px 0' }}>{p}</p>)}
           </div>
         )}
-        <button className="btn primary" onClick={print} disabled={!e}>Print the letter</button>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button className="btn primary" onClick={print} disabled={!e}>Print the letter</button>
+          <button className="btn" onClick={sendEmail} disabled={!e || sendingEmail} style={{ background: '#0284c7', color: '#fff' }}>
+            {sendingEmail ? 'Sending...' : 'Send to Email'}
+          </button>
+        </div>
       </div>
     </>
   );
@@ -961,13 +1085,46 @@ export function PromotionTransfer() {
   const list = useLoad(() => api.hr.changes({ kind }), [kind]);
   const [adding, setAdding] = useState(false);
   const [branchTransferring, setBranchTransferring] = useState(false);
+  const [approvingTransfer, setApprovingTransfer] = useState(null);
+  const [rejectingTransfer, setRejectingTransfer] = useState(null);
+  const [newTargetBranch, setNewTargetBranch] = useState('');
   const [f, setF] = useState({});
   const [opts, setOpts] = useState({ departments: [], designations: [] });
   const [branches, setBranches] = useState([]);
   const [company, setCompany] = useState(null);
-  const sv = useSaver(toast, () => { setAdding(false); list.load(); });
+  const sv = useSaver(toast, () => { setAdding(false); setApprovingTransfer(null); setRejectingTransfer(null); list.load(); });
   useEffect(() => { api.hr.options().then(setOpts).catch(() => {}); api.groups.branchOptions().then((r) => setBranches(r.items)).catch(() => {}); api.hr.letterhead().then((r) => setCompany(r.company)).catch(() => {}); }, []);
   const set = (k) => (e) => { setF((x) => ({ ...x, [k]: e.target.value })); sv.setErrors((x) => ({ ...x, [k]: undefined })); };
+
+  async function handleApproveTransfer() {
+    if (!approvingTransfer) return;
+    try {
+      await api.hr.decideChange(approvingTransfer.id, {
+        status: 'approved',
+        toBranch: newTargetBranch || approvingTransfer.toBranchId,
+      });
+      toast.success(`Transfer approved! Employee moved to new branch successfully.`);
+      setApprovingTransfer(null);
+      list.load();
+    } catch (err) {
+      toast.error(err.message || 'Failed to approve transfer');
+    }
+  }
+
+  async function handleRejectTransfer(reason) {
+    if (!rejectingTransfer) return;
+    try {
+      await api.hr.decideChange(rejectingTransfer.id, {
+        status: 'rejected',
+        reason,
+      });
+      toast.success('Transfer request rejected');
+      setRejectingTransfer(null);
+      list.load();
+    } catch (err) {
+      toast.error(err.message || 'Failed to reject transfer');
+    }
+  }
   function letter(c) {
     const promo = c.kind === 'promotion';
     const relieving = c.kind === 'relieving';
@@ -1017,14 +1174,46 @@ export function PromotionTransfer() {
         <Body list={list} empty="No promotion or transfer yet.">{() => (<>
           <div className="table-wrap">
             <table className="data-table">
-              <thead><tr><th>Letter</th><th>Employee</th><th>Kind</th><th>Change</th><th>From</th><th /></tr></thead>
+              <thead><tr><th>Letter</th><th>Employee</th><th>Kind</th><th>Change</th><th>From</th><th>Status</th><th /></tr></thead>
               <tbody>
                 {items.map((c) => (
                   <tr key={c.id}>
                     <td data-label="Letter"><strong>{c.letterNo}</strong></td><td data-label="Employee">{c.employeeCode} {c.employeeName}</td><td data-label="Kind"><span className={`badge ${c.kind === 'promotion' ? 'green' : c.kind === 'relieving' ? 'amber' : 'grey'}`}>{cap(c.kind)}</span></td>
                     <td data-label="Change">{c.kind === 'promotion' ? <>{c.fromDesignation || '—'} → <strong>{c.toDesignation}</strong>{c.toSalary !== c.fromSalary && <div className="muted small">{inr(c.fromSalary)} → {inr(c.toSalary)}</div>}{c.salaryLines?.length > 0 && <div className="muted small">{c.salaryLines.map((l) => `${l.label} ${inr(l.amount)}`).join(' · ')}</div>}</> : c.kind === 'relieving' ? <>Relieved from <strong>{c.fromDesignation || 'Post'}</strong> ({c.fromBranch})</> : <>{c.fromBranch} → <strong>{c.toBranch}</strong></>}</td>
                     <td data-label="From">{dmy(c.effectiveDate)}<div className="muted small">by {c.by}</div></td>
-                    <td><button className="btn sm" onClick={() => letter(c)}>Letter</button></td>
+                    <td data-label="Status">
+                      <span className={`badge ${c.status === 'approved' ? 'green' : c.status === 'rejected' ? 'danger' : 'amber'}`}>
+                        {cap(c.status || 'approved')}
+                      </span>
+                      {c.rejectReason && <div className="muted small">{c.rejectReason}</div>}
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        {c.status === 'pending' ? (
+                          <>
+                            <button
+                              type="button"
+                              className="btn sm primary"
+                              onClick={() => {
+                                setApprovingTransfer(c);
+                                setNewTargetBranch(c.toBranchId || '');
+                              }}
+                            >
+                              Edit Branch &amp; Approve
+                            </button>
+                            <button
+                              type="button"
+                              className="btn sm danger-outline"
+                              onClick={() => setRejectingTransfer(c)}
+                            >
+                              Reject
+                            </button>
+                          </>
+                        ) : (
+                          <button className="btn sm" onClick={() => letter(c)}>Letter</button>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -1033,6 +1222,38 @@ export function PromotionTransfer() {
         </>)}</Body>
       </div>
       {branchTransferring && <SupervisorBranchTransfer onClose={() => setBranchTransferring(false)} onDone={() => { setBranchTransferring(false); list.load(); }} />}
+      {approvingTransfer && (
+        <FormModal
+          title={`Approve Transfer — ${approvingTransfer.employeeName}`}
+          onClose={() => setApprovingTransfer(null)}
+          onSave={handleApproveTransfer}
+          saveLabel="Approve & Update Branch"
+        >
+          <p className="muted small" style={{ marginBottom: 12 }}>
+            Approve branch transfer for <strong>{approvingTransfer.employeeName}</strong> ({approvingTransfer.employeeCode}). You can change the target branch below before approving.
+          </p>
+          <FormField id="aptrbr" label="Target Branch (Editable)" required hint="Select target branch to transfer employee">
+            <select id="aptrbr" value={newTargetBranch} onChange={(e) => setNewTargetBranch(e.target.value)}>
+              <option value="">Select Branch</option>
+              {branches.map((b) => <option key={b.id} value={b.id}>{b.code} — {b.name}</option>)}
+            </select>
+          </FormField>
+          {approvingTransfer.remark && (
+            <div style={{ marginTop: 8, fontSize: '0.85rem' }}>
+              <strong>Employee Reason:</strong> {approvingTransfer.remark}
+            </div>
+          )}
+        </FormModal>
+      )}
+      {rejectingTransfer && (
+        <ReasonModal
+          title={`Reject Transfer Request`}
+          subject={`${rejectingTransfer.employeeCode} ${rejectingTransfer.employeeName}`}
+          confirm="Reject Request"
+          onClose={() => setRejectingTransfer(null)}
+          onSend={handleRejectTransfer}
+        />
+      )}
       {adding && (
         <FormModal title="New promotion / transfer" onClose={() => setAdding(false)} busy={sv.busy} onSave={() => sv.run(() => api.hr.createChange(f), (r) => `${cap(r.item.kind)} done — letter ${r.item.letterNo}`)}>
           <div className="form-grid">
@@ -1115,8 +1336,16 @@ export function EmployeeList() {
                     <td data-label="Status">{e.isBlocked ? <><span className="badge danger">Blocked</span><div className="muted small">{e.blockReason}</div></> : <span className={`badge ${e.status === 'active' ? 'green' : 'grey'}`}>{e.status === 'active' ? 'Working' : `Left ${dmy(e.leftOn)}`}</span>}</td>
                     <td>
                       <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                        {e.status === 'left' ? (
-                          <button type="button" className="btn sm primary" onClick={() => toggleStatus(e)}>Rejoin</button>
+                        {e.status === 'left' || (e.isBlocked && String(e.blockReason || '').toLowerCase().includes('reliev')) || (e.isBlocked && String(e.blockReason || '').toLowerCase().includes('notice')) ? (
+                          <button
+                            type="button"
+                            className="btn sm"
+                            style={{ background: '#16a34a', color: '#fff', fontWeight: 700 }}
+                            title="Re-Join left or relieved employee"
+                            onClick={() => toggleStatus(e)}
+                          >
+                            Re-Join
+                          </button>
                         ) : (
                           <button type="button" className="btn sm" onClick={() => toggleStatus(e)}>Mark Left</button>
                         )}

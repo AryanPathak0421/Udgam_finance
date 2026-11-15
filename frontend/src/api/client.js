@@ -275,6 +275,8 @@ export const api = {
     decideResignation: (id, data) => request(`/hr/resignations/${id}/decide`, { method: 'POST', body: data }),
     changes: (params) => request(`/hr/changes${qs(params)}`),
     createChange: (data) => request('/hr/changes', { method: 'POST', body: data }),
+    decideChange: (id, data) => request(`/hr/changes/${id}/decide`, { method: 'POST', body: data }),
+    sendJoiningLetter: (id) => request(`/hr/employees/${id}/send-joining-letter`, { method: 'POST' }),
     letterhead: () => request('/hr/letterhead'),
     blockEmployee: (id, data) => request(`/hr/employees/${id}/block`, { method: 'POST', body: data }),
   },

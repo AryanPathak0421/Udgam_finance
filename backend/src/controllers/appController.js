@@ -118,13 +118,33 @@ export async function listAppUsers(req, res) {
   }).populate('branch', 'code name').lean();
   const empMap = new Map(empList.map((e) => [(e.employeeCode || '').toUpperCase(), e]));
 
-  // Auto-heal: Ensure active app users have active User accounts so old employees do not display as locked / login stopped
+  // Auto-heal: Ensure active app users have active User accounts and populated names so old employees do not display as locked / login stopped or missing name
   for (const a of rows) {
     const u = users.get(String(a.user));
     const emp = empMap.get((a.employeeCode || '').toUpperCase());
-    if (a.isActive && u && u.isActive === false && (!emp || !emp.isBlocked)) {
-      await User.updateOne({ _id: u._id }, { $set: { isActive: true } });
-      u.isActive = true;
+    const resolvedName = a.name || u?.name || emp?.name || a.employeeCode;
+
+    // Fix missing name on AppUser or User
+    if (!a.name && resolvedName) {
+      a.name = resolvedName;
+      await AppUser.updateOne({ _id: a._id }, { $set: { name: resolvedName } }).catch(() => {});
+    }
+    if (u && !u.name && resolvedName) {
+      u.name = resolvedName;
+      await User.updateOne({ _id: u._id }, { $set: { name: resolvedName } }).catch(() => {});
+    }
+
+    // Fix login stopped for non-blocked employees: ensure both AppUser and User are active
+    const isEmpBlocked = Boolean(emp?.isBlocked);
+    if (!isEmpBlocked) {
+      if (!a.isActive) {
+        a.isActive = true;
+        await AppUser.updateOne({ _id: a._id }, { $set: { isActive: true } }).catch(() => {});
+      }
+      if (u && u.isActive === false) {
+        await User.updateOne({ _id: u._id }, { $set: { isActive: true } }).catch(() => {});
+        u.isActive = true;
+      }
     }
   }
 
@@ -132,6 +152,7 @@ export async function listAppUsers(req, res) {
     items: rows.map((a) => {
       const u = users.get(String(a.user));
       const emp = empMap.get((a.employeeCode || '').toUpperCase());
+      const resolvedName = a.name || u?.name || emp?.name || a.employeeCode;
       const rawBranches = u?.branches?.length ? u.branches : (emp?.branch ? [emp.branch] : []);
       const branches = rawBranches.map((b) =>
         b._id ? { id: b._id, code: b.code, name: b.name } : { id: b, code: emp?.branch?.code || '—', name: emp?.branch?.name || '' }
@@ -139,7 +160,7 @@ export async function listAppUsers(req, res) {
       return {
         id: a._id,
         employeeCode: a.employeeCode,
-        name: a.name || u?.name || emp?.name || '',
+        name: resolvedName,
         email: u?.email || emp?.email || '',
         role: u?.role || emp?.designation || 'field_officer',
         mobile: u?.mobile || emp?.mobile || '',
@@ -192,18 +213,27 @@ export async function staffOptions(_req, res) {
     const code = (u.employeeCode || '').toUpperCase();
     if (code && (takenCodes.has(code) || blocked.includes(code))) continue;
 
-    const emp = (code ? employeeByCode.get(code) : null) || employeeByUserId.get(String(u._id));
+    const emp = (code ? employeeByCode.get(code) : null)
+      || employeeByUserId.get(String(u._id))
+      || (u.email ? employees.find((e) => e.email && e.email.toLowerCase() === u.email.toLowerCase()) : null)
+      || (u.mobile ? employees.find((e) => e.mobile === u.mobile) : null);
     const finalCode = code || emp?.employeeCode || `EMP${String(u._id).slice(-4).toUpperCase()}`;
+    const finalName = u.name || emp?.name || finalCode;
 
     if (takenCodes.has(finalCode) || seenCodes.has(finalCode)) continue;
     seenCodes.add(finalCode);
     seenIds.add(String(u._id));
 
+    // If User was missing name or employeeCode, backfill it
+    if ((!u.name && finalName) || (!u.employeeCode && finalCode)) {
+      await User.updateOne({ _id: u._id }, { $set: { name: finalName, employeeCode: finalCode } }).catch(() => {});
+    }
+
     const branches = u.branches && u.branches.length ? u.branches : (emp?.branch ? [emp.branch] : []);
     staffItems.push({
       id: u._id,
       employeeCode: finalCode,
-      name: u.name || emp?.name,
+      name: finalName,
       role: u.role || 'field_officer',
       branches: branches.map((b) => b.code || b).join(', '),
       branchCode: branches.map((b) => b.code || b).join(', '),
@@ -480,7 +510,8 @@ export async function listEmiApprovals(req, res) {
   }
 
   const q = asString(req.query.q).toLowerCase();
-  const rows = await AppEmiCollection.find(filter).sort({ createdAt: -1 }).limit(1000).populate('branch', 'code name').lean();
+  // Point 37: Sort date-wise ascending (oldest collected first) so manager/admin approves sequentially
+  const rows = await AppEmiCollection.find(filter).sort({ collectedOn: 1, createdAt: 1 }).limit(1000).populate('branch', 'code name').lean();
 
   const collectorCodes = [...new Set(rows.map((r) => r.collectedByCode).filter(Boolean))];
   const collectorUserIds = [...new Set(rows.map((r) => r.collectedBy).filter(Boolean))];
@@ -538,6 +569,26 @@ async function loadEmiRequest(req) {
 /** Approved: the EMI is received now, as if the collector had entered it (the receipt carries the collector's employee code). */
 export async function approveEmi(req, res) {
   const c = await loadEmiRequest(req);
+
+  // Point 37: Enforce strict date-wise approval sequence per branch
+  // Older dates' pending collections must be approved first before approving subsequent dates
+  if (c.collectedOn && c.branch) {
+    const cDayStart = new Date(c.collectedOn);
+    cDayStart.setHours(0, 0, 0, 0);
+    const earlierPending = await AppEmiCollection.findOne({
+      branch: c.branch,
+      status: 'pending',
+      collectedOn: { $lt: cDayStart },
+      _id: { $ne: c._id },
+    }).sort({ collectedOn: 1 }).lean();
+
+    if (earlierPending) {
+      const dStr = new Date(earlierPending.collectedOn).toLocaleDateString('en-IN');
+      const currStr = new Date(c.collectedOn).toLocaleDateString('en-IN');
+      throw new HttpError(400, `Date-wise approval required: Pending collection from ${dStr} must be approved first before approving collection from ${currStr}.`);
+    }
+  }
+
   let collector = c.collectedBy ? await User.findById(c.collectedBy) : null;
   if (!collector && c.collectedByCode) {
     collector = await User.findOne({ employeeCode: c.collectedByCode });
@@ -560,6 +611,13 @@ export async function approveEmi(req, res) {
         ...(mongoose.isValidObjectId(c.loanId) ? [{ _id: c.loanId }] : []),
       ],
     }).populate('lines.member branch').catch(() => null);
+  }
+  // Fallback loan lookup by memberCode
+  if (!p && c.memberCode) {
+    p = await LoanPayment.findOne({
+      'lines.code': c.memberCode,
+      status: 'paid',
+    }).populate('lines.member branch').sort({ createdAt: -1 }).catch(() => null);
   }
 
   const line = p?.lines?.find((l) => (
@@ -589,7 +647,7 @@ export async function approveEmi(req, res) {
   if (!doc && p) {
     try {
       doc = await receive(
-        { user: collector, ip: req.ip, headers: req.headers },
+        { user: req.user, ip: req.ip, headers: req.headers },
         p,
         line,
         {
@@ -606,7 +664,7 @@ export async function approveEmi(req, res) {
     } catch {
       try {
         doc = await receive(
-          { user: collector, ip: req.ip, headers: req.headers },
+          { user: req.user, ip: req.ip, headers: req.headers },
           p,
           line,
           {
@@ -623,6 +681,10 @@ export async function approveEmi(req, res) {
       } catch {
         // Fallback: If loan is closed or regular receive fails, create EmiPayment directly so collection is recorded
         const receiptNo = await generateCode('emiReceipt').catch(() => `REC${Date.now().toString().slice(-8)}`);
+        const validMemberId = mongoose.isValidObjectId(line.member?._id || line.member)
+          ? (line.member?._id || line.member)
+          : (mongoose.isValidObjectId(c.member) ? c.member : undefined);
+
         doc = await EmiPayment.create({
           receiptNo,
           loanPayment: p._id,
@@ -630,7 +692,7 @@ export async function approveEmi(req, res) {
           formId: p.formId,
           branch: p.branch?._id || p.branch || c.branch,
           type: c.type || 'regular',
-          member: line.member?._id || line.member || c.member,
+          member: validMemberId,
           memberCode: line.code || c.memberCode,
           memberName: line.name || c.memberName,
           group: p.group?.code ? `${p.group.code} — ${p.group.name}` : (c.group || ''),
@@ -644,6 +706,40 @@ export async function approveEmi(req, res) {
           status: 'paid',
         });
       }
+    }
+  }
+
+  // Final fallback if loan document p wasn't found in database
+  if (!doc) {
+    const receiptNo = await generateCode('emiReceipt').catch(() => `REC${Date.now().toString().slice(-8)}`);
+    const validMemberId = mongoose.isValidObjectId(c.member) ? c.member : undefined;
+    const validLoanPaymentId = mongoose.isValidObjectId(c.loanPayment) ? c.loanPayment : undefined;
+    const validBranchId = mongoose.isValidObjectId(c.branch) ? c.branch : undefined;
+
+    if (validLoanPaymentId && validBranchId) {
+      doc = await EmiPayment.create({
+        receiptNo,
+        loanPayment: validLoanPaymentId,
+        loanId: c.loanId || 'N/A',
+        formId: c.loanId || 'N/A',
+        branch: validBranchId,
+        type: c.type || 'regular',
+        member: validMemberId,
+        memberCode: c.memberCode,
+        memberName: c.memberName,
+        group: c.group || '',
+        amountPaise: c.amountPaise,
+        paidOn: c.collectedOn || new Date(),
+        payMode: c.payMode || 'cash',
+        reference: c.reference || '',
+        employeeCode: c.collectedByCode || collector?.employeeCode || '',
+        createdBy: req.user._id,
+        createdByCode: req.user.employeeCode || '',
+        status: 'paid',
+      }).catch((err) => {
+        console.warn('Fallback EmiPayment create failed:', err.message);
+        return null;
+      });
     }
   }
 

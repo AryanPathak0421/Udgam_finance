@@ -310,14 +310,30 @@ const REPORTS = {
   async approval(req) {
     const q = asString(req.query.q).toLowerCase();
     const status = ['approved', 'rejected'].includes(asString(req.query.status)) ? asString(req.query.status) : '';
-    const reqs = await LoanRequisition.find({ isDeleted: false, status: status || { $in: ['approved', 'rejected'] }, ...branchScope(req), ...dateRange(req, 'decidedAt') }).sort({ decidedAt: -1 }).limit(20000)
+
+    // Point 39: Exclude loans that are already disbursed from Loan Approval Report
+    const paidDisbursements = await LoanPayment.find({ status: 'paid' }).select('requisition formId loanId').lean();
+    const disbursedReqIds = new Set(paidDisbursements.map((p) => String(p.requisition)).filter(Boolean));
+    const disbursedFormIds = new Set(paidDisbursements.map((p) => String(p.formId)).filter(Boolean));
+
+    const reqs = await LoanRequisition.find({
+      isDeleted: false,
+      status: status || { $in: ['approved', 'rejected'] },
+      disbursedAt: { $in: [null, undefined] },
+      ...branchScope(req),
+      ...dateRange(req, 'decidedAt'),
+    }).sort({ decidedAt: -1 }).limit(20000)
       .select('kind formId branch borrower groupInfo memberCount amountPaise totalAmountPaise requestedAmountPaise schemeName requestedSchemeName status decidedAt decidedByCode decidedBy rejectReason disbursedAt')
       .populate('branch', 'code')
       .populate('decidedBy', 'employeeCode name username')
       .lean();
-    const codes = [...new Set(reqs.map((r) => r.decidedByCode || r.decidedBy?.employeeCode).filter(Boolean))];
+
+    // Filter out any that were already disbursed in LoanPayment
+    const undisbursedReqs = reqs.filter((r) => !disbursedReqIds.has(String(r._id)) && !disbursedFormIds.has(String(r.formId)));
+
+    const codes = [...new Set(undisbursedReqs.map((r) => r.decidedByCode || r.decidedBy?.employeeCode).filter(Boolean))];
     const names = await staffNames(codes);
-    const rows = reqs.filter((r) => {
+    const rows = undisbursedReqs.filter((r) => {
       const code = String(r.decidedByCode || r.decidedBy?.employeeCode || '').trim();
       const sName = names.get(code.toUpperCase()) || names.get(String(r.decidedBy?._id || '')) || r.decidedBy?.name || r.decidedBy?.username || '';
       return matches(q, r.formId, r.borrower?.code, r.borrower?.name, r.groupInfo?.name, r.groupInfo?.code, r.decidedByCode, code, sName);

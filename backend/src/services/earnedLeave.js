@@ -40,13 +40,12 @@ export function balanceOf(emp, taken, asOf = new Date()) {
   return { financialYear: fyLabel(fy), opening, earned, used, available: Math.max(opening + earned - used, 0), perYear: 12, joiningKnown: Boolean(emp.joiningDate || emp.createdAt) };
 }
 
-/** EL that is applied for or approved (not rejected) of the employees. */
+/** EL and leaves that are applied for or approved (not rejected) of the employees. */
 async function takenBy(ids) {
   const rows = await Leave.find({
     employee: { $in: ids },
-    type: { $in: ['earned', 'Earned', 'EL', 'el'] },
     status: { $in: ['pending', 'approved'] },
-  }).select('employee from days').lean();
+  }).select('employee from days type').lean();
   const by = new Map();
   rows.forEach((l) => { const k = String(l.employee); if (!by.has(k)) by.set(k, []); by.get(k).push(l); });
   return by;

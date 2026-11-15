@@ -211,6 +211,10 @@ const changeSchema = new mongoose.Schema(
     toSalaryPaise: Number,
     salaryLines: [{ _id: false, key: String, label: String, amountPaise: Number }], // the salary boxes of a promotion (basic, HRA, ...) with their new amounts
     remark: String,
+    status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'approved' },
+    rejectReason: String,
+    decidedByCode: String,
+    decidedAt: Date,
     byCode: String,
   },
   { timestamps: true }

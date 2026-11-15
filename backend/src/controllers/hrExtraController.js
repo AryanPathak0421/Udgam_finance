@@ -11,6 +11,7 @@ import { elBalance, elBalances } from '../services/earnedLeave.js';
 import { notifyEmployee } from '../services/hrNotify.js';
 import { notifyApprovers } from '../services/notify.js';
 import { EARN_FIXED, fixedOf } from '../services/salaryLines.js';
+import { sendMail } from '../services/mailer.js';
 import { AppUser } from '../models/AppUser.js';
 import { Branch } from '../models/Branch.js';
 import { Company } from '../models/Company.js';
@@ -627,12 +628,33 @@ export async function decideResignation(req, res) {
 
 // ---- Promotion and transfer, with the letter -------------------------------------------------------------------------------
 
-const presentChange = (c) => ({ id: c._id, letterNo: c.letterNo, kind: c.kind, employeeCode: c.employeeCode, employeeName: c.employeeName, effectiveDate: iso(c.effectiveDate), fromDesignation: c.fromDesignation || '', toDesignation: c.toDesignation || '', fromBranch: c.fromBranchName || '', toBranch: c.toBranchName || '', fromSalary: rupees(c.fromSalaryPaise), toSalary: rupees(c.toSalaryPaise), salaryLines: (c.salaryLines || []).map((l) => ({ key: l.key, label: l.label, amount: rupees(l.amountPaise) })), remark: c.remark || '', by: c.byCode || '' });
+const presentChange = (c) => ({
+  id: c._id,
+  letterNo: c.letterNo,
+  kind: c.kind,
+  employeeCode: c.employeeCode,
+  employeeName: c.employeeName,
+  effectiveDate: iso(c.effectiveDate),
+  fromDesignation: c.fromDesignation || '',
+  toDesignation: c.toDesignation || '',
+  fromBranch: c.fromBranchName || '',
+  toBranch: c.toBranchName || '',
+  fromBranchId: c.fromBranch?._id || c.fromBranch,
+  toBranchId: c.toBranch?._id || c.toBranch,
+  fromSalary: rupees(c.fromSalaryPaise),
+  toSalary: rupees(c.toSalaryPaise),
+  salaryLines: (c.salaryLines || []).map((l) => ({ key: l.key, label: l.label, amount: rupees(l.amountPaise) })),
+  remark: c.remark || '',
+  by: c.byCode || '',
+  status: c.status || 'approved',
+  rejectReason: c.rejectReason || '',
+});
 
 export async function listChanges(req, res) {
   const emps = await Employee.find({ isDeleted: false, ...branchFilter(req.user) }).select('_id').lean();
   const filter = { employee: { $in: emps.map((e) => e._id) }, ...dateRange(req, 'effectiveDate') };
   if (['promotion', 'transfer', 'relieving'].includes(asString(req.query.kind))) filter.kind = req.query.kind;
+  if (['pending', 'approved', 'rejected'].includes(asString(req.query.status))) filter.status = req.query.status;
   const rows = await EmployeeChange.find(filter).sort({ effectiveDate: -1, createdAt: -1 }).limit(500).lean();
   res.json({ items: rows.map(presentChange) });
 }
@@ -724,8 +746,160 @@ export async function createChange(req, res) {
     message: `${e.name} (${e.employeeCode}) — ${kind === 'promotion' ? `promoted to ${doc.toDesignation}` : kind === 'relieving' ? 'relieving letter issued' : `transferred to ${doc.toBranchName}`}`,
     extraUsers: [req.user._id],
   });
+  // Point 33 & 34: Send formal email notification
+  if (e.email) {
+    const subject = kind === 'promotion' ? `Promotion Letter — ${c.letterNo}` : kind === 'relieving' ? `Relieving Letter — ${c.letterNo}` : `Branch Transfer Letter — ${c.letterNo}`;
+    sendMail({
+      to: e.email,
+      subject,
+      html: `
+        <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+          <h2>${subject}</h2>
+          <p>Dear <strong>${e.name}</strong> (${e.employeeCode}),</p>
+          <p>${kind === 'promotion'
+            ? `We are pleased to inform you that you have been promoted to <strong>${doc.toDesignation}</strong> with effect from ${iso(effectiveDate)}.`
+            : kind === 'relieving'
+            ? `This is to certify that you have been relieved from your duties with effect from ${iso(effectiveDate)}.`
+            : `You have been transferred to branch <strong>${doc.toBranchName}</strong> with effect from ${iso(effectiveDate)}.`
+          }</p>
+          ${remark ? `<p><strong>Remarks:</strong> ${remark}</p>` : ''}
+          <hr/>
+          <p style="font-size: 0.8rem; color: #777;">Udgam Micro Finance</p>
+        </div>
+      `,
+    }).catch((err) => console.warn(`Failed to send email for ${kind}:`, err.message));
+  }
+
   await audit(req, { action: `employee.${kind}`, entity: 'Employee', entityId: e._id, after: { letterNo: c.letterNo, from: doc.fromDesignation || doc.fromBranchName, to: doc.toDesignation || doc.toBranchName } });
   res.status(201).json({ item: presentChange(c) });
+}
+
+/** Point 33: Decide (Approve / Edit Branch / Reject) an employee transfer or promotion request */
+export async function decideChange(req, res) {
+  if (!oid(req.params.id)) throw new HttpError(404, 'Request not found');
+  const c = await EmployeeChange.findById(req.params.id);
+  if (!c) throw new HttpError(404, 'Request not found');
+  if (c.status !== 'pending') throw new HttpError(409, `This request is already ${c.status}`);
+
+  const status = asString(req.body?.status);
+  if (!['approved', 'rejected'].includes(status)) throw invalid({ status: 'Choose approve or reject' });
+
+  const e = await Employee.findById(c.employee);
+  if (!e) throw new HttpError(404, 'Employee record not found');
+
+  if (status === 'rejected') {
+    c.status = 'rejected';
+    c.rejectReason = asString(req.body?.reason).slice(0, 300) || 'Rejected by administration';
+    c.decidedByCode = req.user.employeeCode || '';
+    c.decidedAt = new Date();
+    await c.save();
+
+    if (e.email) {
+      sendMail({
+        to: e.email,
+        subject: `Transfer Request Rejected — ${c.letterNo}`,
+        html: `<p>Dear <strong>${e.name}</strong>,</p><p>Your transfer request (${c.letterNo}) has been rejected.</p><p>Reason: ${c.rejectReason}</p>`,
+      }).catch(() => {});
+    }
+    return res.json({ item: presentChange(c) });
+  }
+
+  // If approved, allow changing target branch (Point 33: edit branch on transfer request)
+  let targetBranchId = c.toBranch;
+  if (req.body?.toBranch && oid(asString(req.body.toBranch))) {
+    targetBranchId = new mongoose.Types.ObjectId(asString(req.body.toBranch));
+  }
+  const nb = await Branch.findById(targetBranchId).select('code name').lean();
+  if (!nb) throw invalid({ toBranch: 'Target branch not found' });
+
+  c.toBranch = targetBranchId;
+  c.toBranchName = `${nb.code} — ${nb.name}`;
+  c.status = 'approved';
+  c.decidedByCode = req.user.employeeCode || '';
+  c.decidedAt = new Date();
+  await c.save();
+
+  // Point 33: After transfer approval, employee's branch MUST be updated
+  await Employee.updateOne({ _id: e._id }, { $set: { branch: targetBranchId } });
+  if (e.user) {
+    await User.updateOne(
+      { _id: e.user },
+      { $set: { branch: targetBranchId, branches: [targetBranchId] } }
+    );
+  }
+
+  // Send approval email to employee
+  if (e.email) {
+    sendMail({
+      to: e.email,
+      subject: `Branch Transfer Approved — ${c.letterNo}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+          <h2>Transfer Approved</h2>
+          <p>Dear <strong>${e.name}</strong> (${e.employeeCode}),</p>
+          <p>Your transfer to branch <strong>${c.toBranchName}</strong> has been approved with effect from ${iso(c.effectiveDate)}.</p>
+          <hr/>
+          <p style="font-size: 0.8rem; color: #777;">Udgam Micro Finance</p>
+        </div>
+      `,
+    }).catch(() => {});
+  }
+
+  notifyEmployee(e._id, `Transfer Approved — letter ${c.letterNo}`, `You have been transferred to ${c.toBranchName} with effect from ${iso(c.effectiveDate)}.`);
+  await audit(req, { action: 'employee.transfer.approve', entity: 'EmployeeChange', entityId: c._id, after: { branch: c.toBranchName } });
+  res.json({ item: presentChange(c) });
+}
+
+/** Point 34: Send appointment/joining letter directly to employee email */
+export async function sendJoiningLetterEmail(req, res) {
+  if (!oid(req.params.id)) throw new HttpError(404, 'Employee not found');
+  const e = await Employee.findById(req.params.id).populate('branch department designation').lean();
+  if (!e) throw new HttpError(404, 'Employee not found');
+  if (!e.email) throw new HttpError(400, 'Employee does not have an email address registered in HR');
+
+  const company = await Company.findOne({ singleton: 'company' }).lean();
+  const coName = company?.name || 'Udgam Micro Finance';
+  const post = `${e.designation?.name || 'Employee'}${e.department ? ` in the ${e.department.name} department` : ''}`;
+  const salary = e.monthlySalary ? ` Your monthly salary will be ₹${Number(e.monthlySalary).toLocaleString('en-IN')}.` : '';
+  const dateStr = e.joiningDate ? new Date(e.joiningDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }) : 'the date of joining';
+
+  const html = `
+    <!doctype html>
+    <html>
+    <head><meta charset="utf-8"><style>body{font-family: Georgia, serif; line-height: 1.6; color: #111; padding: 24px;}</style></head>
+    <body>
+      <div style="text-align: center; border-bottom: 2px solid #111; padding-bottom: 12px; margin-bottom: 20px;">
+        <h1 style="margin: 0; font-size: 22px;">${coName}</h1>
+        <div>${[company?.address, company?.city, company?.state, company?.pincode].filter(Boolean).join(', ')}</div>
+        <div>${[company?.mobile, company?.email].filter(Boolean).join(' · ')}</div>
+      </div>
+      <div style="display: flex; justify-content: space-between; margin-bottom: 16px;">
+        <span>Ref: JL/${e.employeeCode}</span>
+        <span>Date: ${new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+      </div>
+      <div>To,<br/><strong>${e.name}</strong> (${e.employeeCode})<br/>${e.address || ''}</div>
+      <h2 style="text-align: center; text-decoration: underline; margin: 20px 0;">Joining Letter</h2>
+      <p>Dear ${e.name},</p>
+      <p>This is to confirm that you joined ${coName} on ${dateStr} as ${post}, at the ${e.branch?.name || ''} branch. Your employee code is ${e.employeeCode}.${salary}</p>
+      <p>You are expected to follow the rules and policies of the company and to report to your branch manager. We wish you a successful career with us.</p>
+      <br/>
+      <div style="margin-top: 30px;">
+        Yours faithfully,<br/><br/>
+        <strong>Authorised Signatory</strong><br/>
+        ${coName}
+      </div>
+    </body>
+    </html>
+  `;
+
+  await sendMail({
+    to: e.email,
+    subject: `Joining Letter — ${e.employeeCode} ${e.name}`,
+    html,
+  });
+
+  await audit(req, { action: 'employee.joiningLetter.email', entity: 'Employee', entityId: e._id, after: { email: e.email } });
+  res.json({ success: true, message: `Joining letter sent successfully to ${e.email}` });
 }
 
 /** The letterhead of the company for the letters. */
@@ -825,9 +999,25 @@ async function presentTarget(t, allowed) {
 
 const allowedBranches = (req) => { const f = branchFilter(req.user); return f.branch ? new Set(f.branch.$in.map(String)) : null; };
 
-export async function targetOptions(_req, res) {
-  const ranks = await Rank.find({ isDeleted: false, isActive: true }).select('code name level').sort({ level: 1 }).lean();
-  res.json({ ranks: ranks.map((r) => ({ id: r._id, code: r.code, name: r.name })) });
+export async function targetOptions(req, res) {
+  const [ranks, emps] = await Promise.all([
+    Rank.find({ isDeleted: false, isActive: true }).select('code name level').sort({ level: 1 }).lean(),
+    Employee.find({ isDeleted: false, ...branchFilter(req.user) })
+      .select('employeeCode name branch status')
+      .populate('branch', 'code name')
+      .sort({ employeeCode: 1 })
+      .lean(),
+  ]);
+  res.json({
+    ranks: ranks.map((r) => ({ id: r._id, code: r.code, name: r.name })),
+    employees: emps.map((e) => ({
+      id: e._id,
+      code: e.employeeCode,
+      name: e.name,
+      status: e.status || 'active',
+      branch: e.branch ? `${e.branch.code} — ${e.branch.name}` : '',
+    })),
+  });
 }
 
 export async function createTargetTask(req, res) {
@@ -844,8 +1034,8 @@ export async function createTargetTask(req, res) {
   if (npaRecoveryPaise === null || npaRecoveryPaise < 0) throw invalid({ npaRecovery: 'Enter the target amount (₹)' });
   const targets = { newMember: count(b.newMember, 'newMember'), d6: count(b.d6, 'd6'), newGroup: count(b.newGroup, 'newGroup'), productSell: count(b.productSell, 'productSell'), npaRecoveryPaise };
   if (!targets.newMember && !targets.d6 && !targets.newGroup && !targets.productSell && !targets.npaRecoveryPaise) throw invalid({ newMember: 'Give at least one target' });
-  // the employees: every working employee of the rank (their staff login has the rank), and/or the ones chosen
-  const filter = { isDeleted: false, status: 'active', ...branchFilter(req.user) };
+  // Point 31: Include old/past employees as well as active employees so target tasks can track any employee
+  const filter = { isDeleted: false, ...branchFilter(req.user) };
   if (oid(asString(b.branch))) filter.branch = new mongoose.Types.ObjectId(asString(b.branch));
   let rank;
   const ors = [];
@@ -858,8 +1048,8 @@ export async function createTargetTask(req, res) {
   const chosen = (Array.isArray(b.employees) ? b.employees : []).filter(oid);
   if (chosen.length) ors.push({ _id: { $in: chosen } });
   if (!ors.length) throw invalid({ rank: 'Select the rank (or the employees) the task is for' });
-  const emps = await Employee.find({ ...filter, $or: ors }).select('employeeCode name branch').lean();
-  if (!emps.length) throw invalid({ rank: 'No working employee found for this rank in your branches' });
+  const emps = await Employee.find({ ...filter, $or: ors }).select('employeeCode name branch status').lean();
+  if (!emps.length) throw invalid({ rank: 'No employee found for this selection in your branches' });
   const t = await TargetTask.create({
     fromDate, toDate, rank: rank?._id, rankName: rank?.name || '', branch: filter.branch instanceof mongoose.Types.ObjectId ? filter.branch : undefined, targets, remark: asString(b.remark).slice(0, 300),
     employees: emps.map((e) => ({ employee: e._id, code: e.employeeCode, name: e.name, branch: e.branch })), createdByCode: req.user.employeeCode || '',

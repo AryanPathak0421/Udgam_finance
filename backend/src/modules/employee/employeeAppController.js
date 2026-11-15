@@ -3329,7 +3329,7 @@ export async function getGroupEmiMembers(req, res) {
 
   const paymentsByKey = new Map();
   for (const p of allPastPayments) {
-    const k = `${String(p.loanPayment)}_${p.memberCode}`;
+    const k = `${String(p.loanPayment)}_${String(p.memberCode || '').trim().toUpperCase()}`;
     const cur = paymentsByKey.get(k) || { totalPaise: 0, todayPaise: 0 };
     cur.totalPaise += (p.amountPaise || 0);
     if (p.paidOn >= startDay && p.paidOn <= endDay) {
@@ -3340,7 +3340,7 @@ export async function getGroupEmiMembers(req, res) {
   for (const ac of appCollections) {
     // Avoid double counting if already present in allPastPayments!
     if (ac.receiptNo && allPastReceipts.has(ac.receiptNo)) continue;
-    const k = `${String(ac.loanPayment)}_${ac.memberCode}`;
+    const k = `${String(ac.loanPayment)}_${String(ac.memberCode || '').trim().toUpperCase()}`;
     const cur = paymentsByKey.get(k) || { totalPaise: 0, todayPaise: 0 };
     cur.todayPaise += (ac.amountPaise || 0);
     cur.totalPaise += (ac.amountPaise || 0);
@@ -3364,7 +3364,7 @@ export async function getGroupEmiMembers(req, res) {
       const isLineSettled = line.isSettled || settledKeySet.has(`${String(l._id)}_${line.code}`) || settledKeySet.has(`${l.loanId}_${line.code}`);
       if (isLineSettled) continue;
 
-      const stats = paymentsByKey.get(`${String(l._id)}_${line.code}`) || { totalPaise: 0, todayPaise: 0 };
+      const stats = paymentsByKey.get(`${String(l._id)}_${String(line.code || '').trim().toUpperCase()}`) || { totalPaise: 0, todayPaise: 0 };
       const totalPaidPaise = stats.totalPaise;
       const todayPaidPaise = stats.todayPaise;
 
@@ -3444,6 +3444,26 @@ export async function collectBulkEmi(req, res) {
   // Point 23: Block EMI collection on Sundays and Holidays
   await assertNotSundayOrHoliday(paidOn);
 
+  // Point 37: Cannot post collection for a new day if previous day collection is pending approval
+  const paidDayStart = new Date(paidOn);
+  paidDayStart.setHours(0, 0, 0, 0);
+
+  const { branchId: userBranchId } = await getEmployeeContext(req).catch(() => ({}));
+  const branchOrStaff = [];
+  if (userBranchId) branchOrStaff.push({ branch: userBranchId });
+  if (staffCode) branchOrStaff.push({ collectedByCode: staffCode });
+
+  const pendingEarlier = await AppEmiCollection.findOne({
+    status: 'pending',
+    collectedOn: { $lt: paidDayStart },
+    ...(branchOrStaff.length ? { $or: branchOrStaff } : {}),
+  }).sort({ collectedOn: 1 }).lean();
+
+  if (pendingEarlier) {
+    const dStr = new Date(pendingEarlier.collectedOn).toLocaleDateString('en-IN');
+    throw new HttpError(400, `Cannot post collection for today. Earlier collection from ${dStr} is still pending approval. Please get previous day's collection approved first.`);
+  }
+
   for (const it of inputList) {
     try {
       const amount = Number(it.amount);
@@ -3465,31 +3485,8 @@ export async function collectBulkEmi(req, res) {
       const line = (p.lines || []).find((l) => (it.memberCode && l.code === it.memberCode) || (it.memberId && String(l.member) === String(it.memberId))) || p.lines?.[0];
       if (!line) throw new Error('Borrower not found in loan');
 
-      const receiptNo = await generateCode('emiReceipt').catch(() => `REC${Date.now().toString().slice(-8)}`);
-      const doc = await EmiPayment.create({
-        receiptNo,
-        loanPayment: p._id,
-        loanId: p.loanId,
-        formId: p.formId,
-        branch: p.branch,
-        type: 'regular',
-        member: line.member,
-        memberCode: line.code,
-        memberName: line.name,
-        group: p.group?.code ? `${p.group.code} — ${p.group.name}` : '',
-        amountPaise: Math.round(amount * 100),
-        paidOn,
-        payMode: it.payMode || payMode,
-        reference: it.reference || reference,
-        employeeCode: staffCode,
-        createdBy: req.user._id,
-        createdByCode: staffCode,
-        status: 'paid',
-      });
-
-      // Also record in AppEmiCollection with receiptNo linked so it does not duplicate with EmiPayment
-      await AppEmiCollection.create({
-        receiptNo: doc.receiptNo,
+      // Point 37: Record in AppEmiCollection with status 'pending' awaiting manager/admin collection approval
+      const pendingColl = await AppEmiCollection.create({
         loanPayment: p._id,
         loanId: p.loanId || p.formId,
         branch: p.branch?._id || p.branch,
@@ -3503,13 +3500,13 @@ export async function collectBulkEmi(req, res) {
         reference: it.reference || reference || '',
         collectedBy: req.user._id,
         collectedByCode: staffCode,
-        status: 'approved', // Already received and created as paid EmiPayment
-      }).catch(() => {});
+        status: 'pending',
+      });
 
       results.push({
         memberCode: line.code,
         memberName: line.name,
-        receiptNo: doc.receiptNo,
+        receiptNo: String(pendingColl._id),
         amount,
         status: 'success',
       });
@@ -5081,7 +5078,27 @@ export async function requestBranchTransfer(req, res) {
     toBranchName: targetBranch.name,
     remark: reason || 'Transfer requested by employee via Employee App',
     byCode: code,
+    status: 'pending',
   });
+
+  // Point 33: Send email notification on transfer request
+  if (emp.email) {
+    sendMail({
+      to: emp.email,
+      subject: `Branch Transfer Request Submitted — ${letterNo}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+          <h2>Branch Transfer Request</h2>
+          <p>Dear <strong>${emp.name}</strong> (${code}),</p>
+          <p>Your request to transfer to branch <strong>${targetBranch.name}</strong> (Ref: ${letterNo}) has been submitted successfully.</p>
+          <p><strong>Reason:</strong> ${reason || 'N/A'}</p>
+          <p>This request is under review by Management. You will receive an update once it is approved.</p>
+          <hr/>
+          <p style="font-size: 0.8rem; color: #777;">Udgam Micro Finance</p>
+        </div>
+      `,
+    }).catch((err) => console.warn('Transfer request email to employee failed:', err.message));
+  }
 
   res.status(201).json({
     success: true,
@@ -5092,7 +5109,7 @@ export async function requestBranchTransfer(req, res) {
 
 export async function listTransferRequests(req, res) {
   const code = req.user?.employeeCode;
-  const items = await EmployeeChange.find({ employeeCode: code, kind: 'transfer' }).sort({ createdAt: -1 }).lean();
+  const items = await EmployeeChange.find({ employeeCode: code, kind: { $in: ['transfer', 'promotion'] } }).sort({ createdAt: -1 }).lean();
   const branches = await Branch.find({ isActive: { $ne: false }, isDeleted: { $ne: true } })
     .select('_id name code')
     .sort({ name: 1 })

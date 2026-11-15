@@ -4,7 +4,7 @@ import { asyncHandler as h } from '../utils/http.js';
 import {
   leaveBalance, leaveBalances, targetOptions, createTargetTask, listTargetTasks, pendingOldTargets, setTargetD6, cancelTargetTask, listRoomRents, createRoomRent, cancelRoomRent, roomRentPhoto, listRentParties, getRentParty, createRentParty, updateRentParty, deleteRentParty, listTasks, createTask, setTaskStatus, listComplaints, createComplaint, setComplaintStatus,
   listRequirements, createRequirement, decideRequirement, listLeaves, applyLeave, decideLeave, listResignations, applyResignation, decideResignation,
-  listChanges, createChange, letterhead, blockEmployee,
+  listChanges, createChange, decideChange, sendJoiningLetterEmail, letterhead, blockEmployee,
 } from '../controllers/hrExtraController.js';
 
 const router = Router();
@@ -52,6 +52,8 @@ router.post('/hr/resignations/:id/decide', requireAuth, requireRole(...ADMIN), h
 
 router.get('/hr/changes', requireAuth, requireRole(...HR), h(listChanges));
 router.post('/hr/changes', requireAuth, requireRole(...ADMIN), h(createChange));
+router.post('/hr/changes/:id/decide', requireAuth, requireRole(...ADMIN), h(decideChange));
+router.post('/hr/employees/:id/send-joining-letter', requireAuth, requireRole(...HR), h(sendJoiningLetterEmail));
 router.get('/hr/letterhead', requireAuth, requireRole(...HR), h(letterhead));
 router.post('/hr/employees/:id/block', requireAuth, requireRole(...ADMIN), h(blockEmployee));
 

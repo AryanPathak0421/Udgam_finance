@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import { LoanPayment } from '../models/LoanPayment.js';
 import { EmiPayment } from '../models/EmiPayment.js';
+import { AppEmiCollection } from '../models/AppEmiCollection.js';
 import { User } from '../models/User.js';
 import { Member } from '../models/Member.js';
 import { Company } from '../models/Company.js';
@@ -240,6 +241,26 @@ export async function receive(req, p, line, { amountPaise, count, type, paidOn, 
   await assertNotSundayOrHoliday(paidOn || new Date(), p.branch?._id || p.branch);
   // a branch whose day is closed (denomination made) takes no EMI for that day
   await assertDayOpen(p.branch?._id || p.branch, paidOn, req.user);
+
+  // Point 37: Block posting new EMI payment if earlier date's collection is pending approval for this branch
+  const branchId = p.branch?._id || p.branch;
+  const payDate = paidOn || new Date();
+  const payDayStart = new Date(payDate);
+  payDayStart.setHours(0, 0, 0, 0);
+
+  if (branchId) {
+    const pendingEarlier = await AppEmiCollection.findOne({
+      branch: branchId,
+      status: 'pending',
+      collectedOn: { $lt: payDayStart },
+    }).sort({ collectedOn: 1 }).lean();
+
+    if (pendingEarlier) {
+      const dStr = new Date(pendingEarlier.collectedOn).toLocaleDateString('en-IN');
+      throw new HttpError(400, `Cannot post EMI payment for today. Earlier collection from ${dStr} is still pending approval for this branch. Please approve previous day's collection first.`);
+    }
+  }
+
   const st = await borrowerState(p, line, paidOn);
   if (st.settled) throw new HttpError(409, `This loan has been settled (${st.settled.kind === 'death' ? 'death settlement' : st.settled.kind === 'auto' ? 'automatic settlement, all installments paid' : 'loan settlement'} ${st.settled.receiptNo}). No EMI is due.`);
   if (!st.left.length) throw new HttpError(409, 'All installments of this loan are already paid');

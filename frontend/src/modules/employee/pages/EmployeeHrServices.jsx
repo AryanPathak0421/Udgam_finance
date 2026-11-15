@@ -256,6 +256,27 @@ export default function EmployeeHrServices() {
                 </div>
               </div>
 
+              {(() => {
+                if (!leaveForm.from || !leaveForm.to) return null;
+                const d1 = new Date(leaveForm.from);
+                const d2 = new Date(leaveForm.to);
+                if (d2 < d1) return null;
+                const days = Math.round((d2 - d1) / (1000 * 60 * 60 * 24)) + 1;
+                const elBal = leaveData?.balances?.elBalance || 0;
+                const rem = elBal - days;
+                return (
+                  <div style={{ background: rem < 0 ? '#fee2e2' : '#f0fdf4', border: `1px solid ${rem < 0 ? '#f87171' : '#86efac'}`, padding: '8px 10px', borderRadius: 8, fontSize: '0.78rem' }}>
+                    <strong>Applying for {days} Day{days === 1 ? '' : 's'}</strong>
+                    {leaveForm.type === 'earned' && (
+                      <div style={{ marginTop: 2, color: rem < 0 ? '#dc2626' : '#15803d', fontWeight: 700 }}>
+                        EL Balance Deduction: {elBal} − {days} = {rem} Day{rem === 1 ? '' : 's'} remaining
+                        {rem < 0 && <span style={{ display: 'block', fontWeight: 600 }}>⚠️ You do not have enough EL balance for this duration!</span>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
               <div>
                 <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: 2 }}>Reason</label>
                 <textarea className="emp-input" rows="2" placeholder="Explain reason" value={leaveForm.reason} onChange={(e) => setLeaveForm({ ...leaveForm, reason: e.target.value })} required />
@@ -415,19 +436,29 @@ export default function EmployeeHrServices() {
             </form>
           </div>
 
-          <h4 style={{ fontSize: '0.9rem', fontWeight: 700, margin: '0 0 8px 0' }}>Transfer History</h4>
+          <h4 style={{ fontSize: '0.9rem', fontWeight: 700, margin: '0 0 8px 0' }}>Promotion &amp; Transfer Requests</h4>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {transfers.length === 0 ? (
-              <div className="emp-card" style={{ textAlign: 'center', padding: '20px', color: 'var(--emp-text-muted)' }}>No transfer requests submitted.</div>
+              <div className="emp-card" style={{ textAlign: 'center', padding: '20px', color: 'var(--emp-text-muted)' }}>No promotion or transfer records.</div>
             ) : (
               transfers.map((t) => (
-                <div key={t._id} className="emp-card" style={{ margin: 0, padding: 10 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div key={t._id} className="emp-card" style={{ margin: 0, padding: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                     <div>
-                      <div style={{ fontWeight: 800, fontSize: '0.88rem' }}>Ref: #{t.letterNo}</div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)' }}>Target: <strong>{t.toBranchName}</strong></div>
+                      <div style={{ fontWeight: 800, fontSize: '0.88rem' }}>
+                        {t.kind === 'promotion' ? '🎖️ Promotion' : '🏢 Transfer'} — Ref #{t.letterNo}
+                      </div>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--emp-text)', marginTop: 3 }}>
+                        {t.kind === 'promotion'
+                          ? <>Promoted to: <strong>{t.toDesignation}</strong></>
+                          : <>Target Branch: <strong>{t.toBranchName}</strong></>}
+                      </div>
+                      {t.remark && <div style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>{t.remark}</div>}
+                      {t.rejectReason && <div style={{ fontSize: '0.72rem', color: '#dc2626', marginTop: 2 }}>Reason: {t.rejectReason}</div>}
                     </div>
-                    <span className="emp-badge emp-badge-info">Submitted</span>
+                    <span className={`emp-badge ${t.status === 'approved' ? 'emp-badge-success' : t.status === 'rejected' ? 'emp-badge-danger' : 'emp-badge-warning'}`}>
+                      {t.status === 'approved' ? 'Approved' : t.status === 'rejected' ? 'Rejected' : 'Pending Review'}
+                    </span>
                   </div>
                 </div>
               ))

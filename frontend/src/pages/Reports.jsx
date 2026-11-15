@@ -41,7 +41,7 @@ const COLS = {
   approval: [
     ['Form ID', (r) => <strong>{r.formId}</strong>], ['Decided on', (r) => dmy(r.date)], ['Branch', (r) => r.branch], ['Type', (r) => cap(r.loanType)], ['Applicant', (r) => <>{r.applicant}{r.mobile && <div className="muted small">{r.mobile}</div>}</>],
     ['Asked', (r) => inr(r.requested), true], ['Approved', (r) => inr(r.amount), true], ['Status', (r) => <><span className={`badge ${STATUS_BADGE[r.status] || 'grey'}`}>{cap(r.status)}</span>{r.reason && <div className="muted small">{r.reason}</div>}</>],
-    ['Approved by', (r) => (r.decidedByName && r.decidedByName !== r.decidedBy ? <><strong>{r.decidedByName}</strong>{r.decidedBy && <div className="muted small">{r.decidedBy}</div>}</> : <strong>{r.decidedByName || r.decidedBy || '—'}</strong>)], ['Paid out', (r) => (r.paidOut ? dmy(r.paidOut) : '—')],
+    ['Approved by', (r) => (r.decidedByName && r.decidedByName !== r.decidedBy ? <><strong>{r.decidedByName}</strong>{r.decidedBy && <div className="muted small">{r.decidedBy}</div>}</> : <strong>{r.decidedByName || r.decidedBy || '—'}</strong>)],
   ],
   disbursement: [
     ['Loan ID', (r) => <strong>{r.loanId}</strong>], ['Paid on', (r) => dmy(r.date)], ['Branch', (r) => r.branch], ['Type', (r) => cap(r.loanType)], ['Borrower(s)', (r) => r.borrowers], ['Scheme', (r) => r.scheme],
@@ -115,7 +115,7 @@ COLS['group-collection'] = [
 
 const REPORTS = {
   requisition: { title: 'Loan Requisition Report', description: 'Every loan requisition with its status, by the loan date.', range: true, status: ['pending', 'approved', 'rejected', 'cancelled'], from: monthStart },
-  approval: { title: 'Loan Approval Report', description: 'Loans that were approved or rejected, by the date of the decision.', range: true, status: ['approved', 'rejected'], from: monthStart },
+  approval: { title: 'Loan Approval Report', description: 'Loans that were approved (pending disbursement) or rejected, by the date of the decision.', range: true, status: ['approved', 'rejected'], from: monthStart },
   disbursement: { title: 'Loan Disbursement Report', description: 'Loans paid out, by the payment date.', range: true, from: monthStart, staffFilter: true },
   due: { title: 'Loan Due Report', description: 'Borrowers whose EMI falls due on the chosen date and is not paid yet.', asOf: true },
   overdue: { title: 'Loan Over Due Report', description: 'Borrowers with an EMI that was due before the chosen date and is still not paid, the oldest first.', asOf: true },
