@@ -40,6 +40,7 @@ function Filters({ f, set, branches, staff, modes }) {
   const off = useOffDays(f.branch);
   const [moved, setMoved] = useState('');
   useEffect(() => {
+    if (f.date === 'all') return;
     // holidays are known a moment after the page opens: a date on a holiday moves then
     const d = off.skip(f.date);
     if (d !== f.date) { setMoved(`${off.reason(f.date)}: showing ${d}`); set({ date: d }); }
@@ -54,11 +55,41 @@ function Filters({ f, set, branches, staff, modes }) {
           {branches.map((b) => <option key={b.id} value={b.id}>{b.code} — {b.name}</option>)}
         </select>
       )}
-      <label className="small muted" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        EMI due up to
-        <input type="date" value={f.date} onChange={(e) => { const v = e.target.value; const d = off.skip(v); setMoved(d !== v ? `${off.reason(v)}: showing ${d}` : ''); set({ date: d }); }} aria-label="Date" />
-      </label>
-      {moved && <span className="badge amber" role="status">{moved} (a Sunday or a holiday is a day off)</span>}
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#f8fafc', padding: '3px 8px', borderRadius: 8, border: '1px solid var(--border)' }}>
+        <span className="small muted" style={{ fontWeight: 600 }}>EMI due up to:</span>
+        <select
+          value={f.date === 'all' ? 'all' : 'custom'}
+          onChange={(e) => {
+            if (e.target.value === 'all') {
+              setMoved('');
+              set({ date: 'all' });
+            } else {
+              const d = f.savedDate || skipSunday(todayISO());
+              set({ date: d });
+            }
+          }}
+          aria-label="EMI due up to filter mode"
+          style={{ padding: '4px 8px', fontSize: '0.82rem', fontWeight: 700 }}
+        >
+          <option value="all">★ All dates (All dues)</option>
+          <option value="custom">Specific date...</option>
+        </select>
+        {f.date !== 'all' && (
+          <input
+            type="date"
+            value={f.date}
+            onChange={(e) => {
+              const v = e.target.value;
+              const d = off.skip(v);
+              setMoved(d !== v ? `${off.reason(v)}: showing ${d}` : '');
+              set({ date: d, savedDate: d });
+            }}
+            aria-label="Date"
+            style={{ padding: '3px 6px', fontSize: '0.82rem' }}
+          />
+        )}
+      </div>
+      {moved && f.date !== 'all' && <span className="badge amber" role="status">{moved} (a Sunday or a holiday is a day off)</span>}
       <select value={f.staff} onChange={(e) => set({ staff: e.target.value })} aria-label="Staff">
         <option value="">All staff</option>
         {staff.map((s) => <option key={s.code} value={s.code}>{staffLabel(s)}</option>)}
@@ -93,7 +124,7 @@ function Filters({ f, set, branches, staff, modes }) {
 }
 
 function useCollection(kind) {
-  const [f, setF] = useState({ search: '', branch: '', date: skipSunday(todayISO()), staff: '', mode: '', weekday: '', loanType: '', status: 'unpaid', withType: kind === 'single' });
+  const [f, setF] = useState({ search: '', branch: '', date: 'all', savedDate: skipSunday(todayISO()), staff: '', mode: '', weekday: '', loanType: '', status: 'unpaid', withType: kind === 'single' });
   const [branches, setBranches] = useState([]);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -104,7 +135,7 @@ function useCollection(kind) {
     api.groups.branchOptions().then((r) => setBranches(r.items)).catch(() => {});
   }, []);
   useEffect(() => {
-    workDateOf(f.branch).then((d) => { if (d) setF((x) => ({ ...x, date: d })); }).catch(() => {});
+    workDateOf(f.branch).then((d) => { if (d) setF((x) => ({ ...x, savedDate: d, ...(x.date !== 'all' ? { date: d } : {}) })); }).catch(() => {});
   }, [f.branch]);
   const load = useCallback(async () => {
     setLoading(true);
@@ -143,7 +174,7 @@ export function SingleLoanEmi() {
     if (Number(amount) > r.dueAmount) return toast.error(`Only the due EMI (${inr(r.dueAmount)}) can be collected here. Use Advance EMI Payment for later installments.`);
     setBusy(key(r));
     try {
-      const res = await api.emi.collect({ items: [{ loan: r.loan, member: r.member, amount }], paidOn: c.f.date || todayISO(), payMode, bankAccount: payMode === 'bank' ? bankAccount : undefined });
+      const res = await api.emi.collect({ items: [{ loan: r.loan, member: r.member, amount }], paidOn: (c.f.date && c.f.date !== 'all') ? c.f.date : todayISO(), payMode, bankAccount: payMode === 'bank' ? bankAccount : undefined });
       const one = res.results[0];
       if (one.ok) {
         toast.success(`EMI received — receipt ${one.payment.receiptNo}`);
@@ -174,7 +205,7 @@ export function SingleLoanEmi() {
           {c.data && <span className="muted small">{c.data.total} borrower{c.data.total === 1 ? '' : 's'} with EMI due · total due {inr(c.data.totalDue)}</span>}
         </div>
         {c.loading && !c.data ? <Spinner label="Loading…" /> : c.error ? <ErrorState message={c.error} onRetry={c.load} /> : rows.length === 0 ? (
-          <EmptyState title="No EMI is due" description="No single loan has an EMI due on or before this date for these filters." />
+          <EmptyState title="No EMI is due" description={c.f.date === 'all' ? 'No single loan has an unpaid EMI due for these filters.' : 'No single loan has an EMI due on or before this date for these filters.'} />
         ) : (
           <>
             <div className={`table-wrap${c.loading ? ' dim' : ''}`}>
@@ -335,9 +366,9 @@ export function GroupLoanEmi() {
       <PageHeader title="Group Loan EMI" description="Choose the group, tick the members who pay, change the EMI amount if needed and collect." />
       <div className="panel">
         <Filters f={c.f} set={c.set} branches={c.branches} staff={c.data?.staff || []} modes={c.data?.modes || []} />
-        {c.data && <div className="muted small" style={{ margin: '4px 0 10px' }}>{c.f.status === 'paid' ? `${groups.length} paid group${groups.length === 1 ? '' : 's'} on this date` : `${groups.length} unpaid group${groups.length === 1 ? '' : 's'} · total due ${inr(c.data.totalDue)}`} · actual collection {inr(c.data.totalEmi)} · today received {inr(c.data.totalCollected)} · today due {inr(c.data.totalTodayDue)}{c.data.counts ? ` · unpaid ${c.data.counts.unpaid} / paid ${c.data.counts.paid}` : ''}</div>}
+        {c.data && <div className="muted small" style={{ margin: '4px 0 10px' }}>{c.f.status === 'paid' ? `${groups.length} paid group${groups.length === 1 ? '' : 's'} ${c.f.date === 'all' ? '(all dates)' : 'on this date'}` : `${groups.length} unpaid group${groups.length === 1 ? '' : 's'} · total due ${inr(c.data.totalDue)}`} · actual collection {inr(c.data.totalEmi)} · today received {inr(c.data.totalCollected)} · today due {inr(c.data.totalTodayDue)}{c.data.counts ? ` · unpaid ${c.data.counts.unpaid} / paid ${c.data.counts.paid}` : ''}{c.f.date === 'all' ? ' · ★ All Dates' : ''}</div>}
         {c.loading && !c.data ? <Spinner label="Loading…" /> : c.error ? <ErrorState message={c.error} onRetry={c.load} /> : groups.length === 0 ? (
-          <EmptyState title={c.f.status === 'paid' ? 'No paid group' : 'No group EMI is due'} description={c.f.status === 'paid' ? 'No group has paid all its EMI due on this date for these filters.' : 'No group loan has an EMI due on or before this date for these filters.'} />
+          <EmptyState title={c.f.status === 'paid' ? 'No paid group' : 'No group EMI is due'} description={c.f.status === 'paid' ? 'No group has paid all its EMI due on this date for these filters.' : (c.f.date === 'all' ? 'No group loan has an unpaid EMI due for these filters.' : 'No group loan has an EMI due on or before this date for these filters.')} />
         ) : (
           <div className={`table-wrap${c.loading ? ' dim' : ''}`}>
             <table className="data-table">
@@ -363,7 +394,7 @@ export function GroupLoanEmi() {
           </div>
         )}
       </div>
-      {open && <GroupCollect group={open} date={c.f.date} canCollect={canCollect} onClose={() => setOpen(null)} onDone={() => { setOpen(null); c.load(); }} />}
+      {open && <GroupCollect group={open} date={c.f.date === 'all' ? todayISO() : c.f.date} canCollect={canCollect} onClose={() => setOpen(null)} onDone={() => { setOpen(null); c.load(); }} />}
     </>
   );
 }

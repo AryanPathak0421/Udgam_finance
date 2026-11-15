@@ -103,23 +103,38 @@ function stateFrom(p, line, received, asOf) {
 // The same numbers as stateFrom, without building an object per installment (the collection lists go through thousands of borrowers).
 function dueSummary(p, line, received, asOf) {
   const extra = line.extraEmiPaise || 0;
-  const day = iso(asOf);
-  const out = { dueCount: 0, duePaise: 0, outstandingPaise: 0, leftCount: 0, overdueDays: 0, nextDue: '', onDatePaise: 0, onDate: false };
+  const isAllDates = !asOf;
+  const day = asOf ? iso(asOf) : '9999-12-31';
+  const todayStr = iso(startOfToday());
+  const out = {
+    dueCount: 0,
+    duePaise: 0,
+    outstandingPaise: 0,
+    leftCount: 0,
+    overdueDays: 0,
+    nextDue: '',
+    onDatePaise: (p.schedule[0]?.installmentPaise || 0) + extra,
+    onDate: isAllDates,
+  };
   for (const s of p.schedule) {
     const amountPaise = s.installmentPaise + extra;
     const sDay = iso(s.dueDate);
-    if (sDay === day) { out.onDate = true; out.onDatePaise += amountPaise; }
+    if (asOf && sDay === day) {
+      out.onDate = true;
+      out.onDatePaise += amountPaise;
+    }
     const remaining = amountPaise - Math.min(received.get(s.no)?.paid || 0, amountPaise);
     if (remaining <= 0) continue;
     if (!out.leftCount) out.nextDue = sDay;
     out.leftCount += 1;
     out.outstandingPaise += remaining;
-    if (sDay <= day) {
+    if (isAllDates || sDay <= day) {
       if (!out.dueCount) out.firstDue = sDay;
       out.dueCount += 1;
       out.duePaise += remaining;
-      if (sDay < day) {
-        const diff = Math.floor((new Date(`${day}T00:00:00.000Z`).getTime() - new Date(`${sDay}T00:00:00.000Z`).getTime()) / DAY);
+      const compareDay = asOf ? day : todayStr;
+      if (sDay < compareDay) {
+        const diff = Math.floor((new Date(`${compareDay}T00:00:00.000Z`).getTime() - new Date(`${sDay}T00:00:00.000Z`).getTime()) / DAY);
         out.overdueDays = Math.max(out.overdueDays, diff);
       }
     }
@@ -387,20 +402,28 @@ export async function collectEmi(req, res) {
  */
 export async function collectionList(req, res) {
   const kindScope = req.query.kind === 'group' ? 'group' : 'single';
-  const dateStr = asString(req.query.date).slice(0, 10);
-  let asOf = /^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? new Date(`${dateStr}T00:00:00.000Z`) : startOfToday();
-  if (!asOf || Number.isNaN(asOf.getTime())) throw invalid({ date: 'Enter a valid date' });
-  // Sunday is the weekly off and a holiday of the Holiday Master is a day off: a date that falls on one moves to the next working day
-  {
-    const holidays = await loadHolidays();
-    const own = isAdmin(req.user) ? [] : (req.user.branches || []);
-    const asked = mongoose.isValidObjectId(req.query.branch) ? [req.query.branch] : own;
-    const off = asked.length === 1 ? offDaysOf(holidays, asked[0]) : new Set(holidays.company); // one branch: its own holidays too; several: only those of every branch
-    asOf = nextWorking(asOf, off);
+  const rawDate = asString(req.query.date).trim();
+  const isAllDates = !rawDate || rawDate.toLowerCase() === 'all' || rawDate === 'null' || rawDate === 'undefined';
+  let asOf = null;
+  let dayStr = 'all';
+  let dayStart, dayEnd;
+
+  if (!isAllDates) {
+    const dateStr = rawDate.slice(0, 10);
+    asOf = /^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? new Date(`${dateStr}T00:00:00.000Z`) : startOfToday();
+    if (!asOf || Number.isNaN(asOf.getTime())) throw invalid({ date: 'Enter a valid date' });
+    // Sunday is the weekly off and a holiday of the Holiday Master is a day off: a date that falls on one moves to the next working day
+    {
+      const holidays = await loadHolidays();
+      const own = isAdmin(req.user) ? [] : (req.user.branches || []);
+      const asked = mongoose.isValidObjectId(req.query.branch) ? [req.query.branch] : own;
+      const off = asked.length === 1 ? offDaysOf(holidays, asked[0]) : new Set(holidays.company); // one branch: its own holidays too; several: only those of every branch
+      asOf = nextWorking(asOf, off);
+    }
+    dayStr = iso(asOf);
+    dayStart = new Date(`${dayStr}T00:00:00.000Z`);
+    dayEnd = new Date(`${dayStr}T23:59:59.999Z`);
   }
-  const dayStr = iso(asOf);
-  const dayStart = new Date(`${dayStr}T00:00:00.000Z`);
-  const dayEnd = new Date(`${dayStr}T23:59:59.999Z`);
   const filter = { status: 'paid', ...branchFilter(req.user), kind: kindScope === 'group' ? 'group' : { $in: ['personal', 'business', 'product'] } };
   // a chosen branch narrows the user's own branches, it never widens them
   if (mongoose.isValidObjectId(req.query.branch)) {
@@ -451,9 +474,17 @@ export async function collectionList(req, res) {
       byKey.get(k).set(r._id.no, { paid: r.paid, receipts: [] });
     });
     // what was actually received on the chosen date (the receipts dated that day; the old system's records stay out)
+    const todayStart = startOfToday();
+    const todayEnd = new Date(`${iso(todayStart)}T23:59:59.999Z`);
+    const matchPaid = {
+      loanPayment: { $in: pick.map((l) => l._id) },
+      status: 'paid',
+      legacy: { $ne: true },
+      paidOn: isAllDates ? { $gte: todayStart, $lte: todayEnd } : { $gte: dayStart, $lte: dayEnd },
+    };
     // eslint-disable-next-line no-await-in-loop
     const gotToday = new Map((await EmiPayment.aggregate([
-      { $match: { loanPayment: { $in: pick.map((l) => l._id) }, status: 'paid', legacy: { $ne: true }, paidOn: { $gte: dayStart, $lte: dayEnd } } },
+      { $match: matchPaid },
       { $group: { _id: { lp: '$loanPayment', code: '$memberCode' }, paid: { $sum: '$amountPaise' } } },
     ])).map((r) => [`${r._id.lp}|${r._id.code}`, r.paid]));
 
