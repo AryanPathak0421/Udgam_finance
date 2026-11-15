@@ -13,7 +13,14 @@ export const EARN_FIXED = [
   ['basic', 'Basic'], ['hra', 'HRA'], ['ta', 'TA'], ['allowance', 'Allowance'], ['da', 'DA'], ['fuel', 'Fuel'], ['transport', 'Transport allowance'], ['bike', 'Bike repair'], ['otherAllowance', 'Other allowance'],
 ];
 export const EARN_AUTO = [
-  ['commission', 'Commission (auto)'], ['loanIncentive', 'Loan incentive (auto)'], ['productIncentive', 'Product sell incentive'], ['grt', 'GRT commission (new group)'], ['senior', 'Senior commission (supervisor)'], ['npaRecovery', 'NPA recovery 10% (auto)'], ['bonus', 'Bonus / addition'],
+  ['commission', 'Commission (auto)'],
+  ['loanIncentive', 'Loan disbursement commission'],
+  ['productIncentive', 'Product sell commission'],
+  ['grt', 'New group / member joining commission'],
+  ['senior', 'Senior commission (supervisor)'],
+  ['npaRecovery', 'NPA recovery commission'],
+  ['elEncashment', 'EL balance encashment (March)'],
+  ['bonus', 'Bonus / addition'],
 ];
 export const DEDUCTIONS = [
   ['pf', 'PF'], ['esi', 'ESI'], ['profTax', 'Professional tax'], ['advance', 'Advance deduction'], ['leave', 'Absent / unpaid days (auto)'], ['recovery', 'Recovery amount'], ['security', 'Security amount'], ['other', 'Other deduction'],
@@ -109,40 +116,61 @@ export async function loadVariable(month, range, codes, supervisorCodes) {
     if (c.scope === 'supervised') { if (supSet.has(String(c.employeeCode).toUpperCase())) v.senior += c.amountPaise; return; }
     if (c.commissionFor === 'product_sell') v.productIncentive += c.amountPaise;
     else if (c.commissionFor === 'new_group_opening' || c.commissionFor === 'new_member_joining') v.grt += c.amountPaise;
+    else if (c.commissionFor === 'npa_recovery') v.npaRecovery += c.amountPaise;
     else if (LOAN_TYPES.has(c.commissionFor)) v.loanIncentive += c.amountPaise;
   });
-  npa.forEach((r) => { get(r._id).npaRecovery = Math.round(r.t * NPA_RECOVERY_SHARE); });
+  npa.forEach((r) => { get(r._id).npaRecovery = (get(r._id).npaRecovery || 0) + Math.round(r.t * NPA_RECOVERY_SHARE); });
   return { by, securityCut: new Map(prior.map((r) => [String(r._id), r.t])) };
 }
 
 /**
  * The lines of one employee's slip for a month. `ratio` is payable days / days in the month; `variable` what loadVariable gave for the employee;
  * `kept` the lines changed by hand on the slip that is being generated again.
+ * `elBalanceDays` is the remaining due EL balance for March auto encashment.
  */
-export function buildLines(emp, ratio, variable, priorSecurity, kept = new Map(), month) {
+export function buildLines(emp, ratio, variable, priorSecurity, kept = new Map(), month, elBalanceDays = 0) {
   const fixed = fixedOf(emp, month);
   const grown = month ? yearlyIncrements(emp, month) : 0;
   const pct = emp.yearlyIncrementPercent ?? 10;
-  const gross = sum(Object.values(fixed));
   const r = Math.min(Math.max(ratio, 0), 1);
   const basicEarned = fixed.basic * r;
   const secAmount = emp.securityAmountPaise || 0;
   const months = Math.min(Math.max(emp.securityMonths || 1, 1), 5);
   // the security is cut in 1 to 5 equal months, or (never ends) the security amount is cut every month
   const secCut = !secAmount || !isVerified(emp) ? 0 : emp.securityNeverEnds ? secAmount : Math.max(Math.min(Math.ceil(secAmount / months), secAmount - priorSecurity), 0);
-  const specificIncentives = (variable?.loanIncentive || 0) + (variable?.productIncentive || 0) + (variable?.grt || 0) + (variable?.senior || 0);
+  const specificIncentives = (variable?.loanIncentive || 0) + (variable?.productIncentive || 0) + (variable?.grt || 0) + (variable?.senior || 0) + (variable?.npaRecovery || 0);
   const generalCommission = (variable?.commission || 0) > specificIncentives
     ? (variable?.commission || 0) - specificIncentives
     : (specificIncentives === 0 ? (variable?.commission || 0) : 0);
+
+  // Point 30: Salary logic - Basic example 10000, Fuel example 2000 => total 12000 / 30 = 400 * Present days
+  // If fuel is 0, only Basic / 30
+  const baseSalaryPaise = (fixed.basic || 0) + (fixed.fuel || 0);
+  const dailyRatePaise = baseSalaryPaise > 0 ? (baseSalaryPaise / 30) : 0;
+  // Absent deduction based on daily rate (base / 30 * absent days)
+  const payableDaysApprox = r * 30;
+  const absentDaysApprox = Math.max(30 - payableDaysApprox, 0);
+  const absentDeduction = Math.round(dailyRatePaise * absentDaysApprox);
+
+  // Point 30: EL Balance encashment auto added to March month salary: EL Due Balance * (Basic + Fuel) / 30
+  const isMarch = month && String(month).endsWith('-03');
+  const elEncashmentPaise = isMarch && elBalanceDays > 0 ? Math.round(dailyRatePaise * elBalanceDays) : 0;
+
   const auto = {
     ...fixed,
-    commission: generalCommission, loanIncentive: variable?.loanIncentive || 0, productIncentive: variable?.productIncentive || 0, grt: variable?.grt || 0, senior: variable?.senior || 0, npaRecovery: variable?.npaRecovery || 0, bonus: 0,
+    commission: generalCommission,
+    loanIncentive: variable?.loanIncentive || 0,
+    productIncentive: variable?.productIncentive || 0,
+    grt: variable?.grt || 0,
+    senior: variable?.senior || 0,
+    npaRecovery: variable?.npaRecovery || 0,
+    elEncashment: elEncashmentPaise,
+    bonus: 0,
     pf: emp.pfDeduction ? Math.round((basicEarned * (emp.pfPercent ?? 12)) / 100) : 0,
     esi: emp.esiDeduction ? Math.round((basicEarned * (emp.esiPercent ?? 0.75)) / 100) : 0,
     profTax: emp.professionalTaxPaise || 0,
     advance: emp.advanceDeductionPaise || 0,
-    // Absent deduction is calculated specifically from Basic + Fuel
-    leave: Math.round(((fixed.basic || 0) + (fixed.fuel || 0)) * (1 - r)),
+    leave: absentDeduction,
     recovery: 0,
     security: secCut,
     other: 0,

@@ -67,7 +67,7 @@ export async function downloadSalarySlipPdf(slip, companyName = 'Udgam Micro Fin
   doc.text('Payable Days:', col1, y + 21);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(20, 20, 20);
-  doc.text(`${slip.payableDays ?? slip.presentDays ?? 30} of ${slip.daysInMonth || 30} Days`, col1 + 32, y + 21);
+  doc.text(`${slip.payableDays ?? slip.presentDays ?? 30} of ${slip.daysInMonth || 30} Days (Sundays: ${slip.sundays || 0})`, col1 + 32, y + 21);
 
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(70, 70, 70);
@@ -102,19 +102,35 @@ export async function downloadSalarySlipPdf(slip, companyName = 'Udgam Micro Fin
   doc.setFontSize(9);
   doc.setTextColor(40, 40, 40);
 
-  const earnings = [
+  // Point 30: Use slip.lines if available, else fallback
+  const lineEarnings = (slip.lines || [])
+    .filter((l) => l.side === 'earn' && Number(l.amount || 0) > 0)
+    .map((l) => [l.label, Number(l.amount)]);
+  const lineDeductions = (slip.lines || [])
+    .filter((l) => l.side === 'ded' && Number(l.amount || 0) > 0)
+    .map((l) => [l.label, Number(l.amount)]);
+
+  const fallbackEarnings = [
     ['Basic Pay', Number(slip.basicSalary || slip.grossSalary || 0)],
     ...(slip.fuelAllowance ? [['Fuel Allowance', Number(slip.fuelAllowance)]] : []),
     ...(slip.allowances ? [['Other Allowances', Number(slip.allowances)]] : []),
+    ...(slip.loanIncentive ? [['Loan Disbursement Commission', Number(slip.loanIncentive)]] : []),
+    ...(slip.productIncentive ? [['Product Sell Commission', Number(slip.productIncentive)]] : []),
+    ...(slip.npaRecovery ? [['NPA Recovery Commission', Number(slip.npaRecovery)]] : []),
+    ...(slip.grt ? [['New Group / Member Commission', Number(slip.grt)]] : []),
+    ...(slip.elEncashment ? [['EL Balance Encashment (March)', Number(slip.elEncashment)]] : []),
   ];
 
-  const deductions = [
+  const fallbackDeductions = [
     ['Absent Deduction (Basic+Fuel)', Number(slip.absentDeduction || 0)],
     ...(slip.pfDeduction ? [['Provident Fund (PF)', Number(slip.pfDeduction)]] : []),
     ...(slip.esiDeduction ? [['ESI Deduction', Number(slip.esiDeduction)]] : []),
     ...(slip.advanceDeduction ? [['Salary Advance Recovery', Number(slip.advanceDeduction)]] : []),
     ...(slip.securityDeduction ? [['Security Deposit Cut', Number(slip.securityDeduction)]] : []),
   ];
+
+  const earnings = lineEarnings.length > 0 ? lineEarnings : fallbackEarnings;
+  const deductions = lineDeductions.length > 0 ? lineDeductions : fallbackDeductions;
 
   const maxRows = Math.max(earnings.length, deductions.length);
   for (let i = 0; i < maxRows; i++) {
@@ -143,8 +159,8 @@ export async function downloadSalarySlipPdf(slip, companyName = 'Udgam Micro Fin
   doc.line(leftX, y, W - M, y);
   y += 5;
 
-  const totalEarnings = Number(slip.grossSalary || (slip.basicSalary + (slip.allowances || 0) + (slip.fuelAllowance || 0)));
-  const totalDeductions = Number(slip.deductions || slip.absentDeduction || 0);
+  const totalEarnings = Number(slip.totalEarning || slip.grossSalary || (slip.basicSalary + (slip.allowances || 0) + (slip.fuelAllowance || 0)));
+  const totalDeductions = Number(slip.totalDeduction || slip.deductions || slip.absentDeduction || 0);
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10);

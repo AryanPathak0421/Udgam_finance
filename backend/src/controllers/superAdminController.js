@@ -242,7 +242,24 @@ export async function profitLoss(req, res) {
   if (waived) expenseLines.push({ key: 'written_off', label: 'Balance written off (settlement waiver)', amount: rupees(waived) });
   const totalIncome = round2(incomeLines.reduce((s, l) => s + l.amount, 0));
   const totalExpense = round2(expenseLines.reduce((s, l) => s + l.amount, 0));
-  res.json({ from: iso(from), to: iso(to), income: incomeLines, expense: expenseLines, totalIncome, totalExpense, profit: round2(totalIncome - totalExpense), principalCollected: rupees(principal) });
+  const diff = round2(totalIncome - totalExpense);
+  const isLoss = diff < 0;
+  const netProfit = isLoss ? 0 : diff;
+  const netLoss = isLoss ? round2(Math.abs(diff)) : 0;
+  res.json({
+    from: iso(from),
+    to: iso(to),
+    income: incomeLines,
+    expense: expenseLines,
+    totalIncome,
+    totalExpense,
+    profit: diff,
+    isLoss,
+    netProfit,
+    netLoss,
+    loss: netLoss,
+    principalCollected: rupees(principal)
+  });
 }
 
 // ---- Complaints of the whole company -------------------------------------------------------------------------------------------

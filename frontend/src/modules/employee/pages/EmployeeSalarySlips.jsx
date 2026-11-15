@@ -183,8 +183,8 @@ export default function EmployeeSalarySlips() {
               </div>
             </div>
 
-            {/* Attendance & Days Metric */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 6, textAlign: 'center', background: '#f8fafc', padding: 8, borderRadius: 8, marginBottom: 10, fontSize: '0.75rem' }}>
+            {/* Attendance & Days Metric (with Sundays data) */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(70px, 1fr))', gap: 6, textAlign: 'center', background: '#f8fafc', padding: 8, borderRadius: 8, marginBottom: 10, fontSize: '0.75rem' }}>
               <div>
                 <div style={{ color: 'var(--emp-text-muted)' }}>Month Days</div>
                 <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>{activeSlip.daysInMonth || 30}</div>
@@ -192,6 +192,10 @@ export default function EmployeeSalarySlips() {
               <div>
                 <div style={{ color: '#059669' }}>Present</div>
                 <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#059669' }}>{activeSlip.presentDays || 0}</div>
+              </div>
+              <div>
+                <div style={{ color: '#0284c7' }}>Sundays</div>
+                <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#0284c7' }}>{activeSlip.sundays || 0}</div>
               </div>
               <div>
                 <div style={{ color: '#dc2626' }}>Absent</div>
@@ -203,19 +207,24 @@ export default function EmployeeSalarySlips() {
               </div>
             </div>
 
-            {/* Point 17: Salary Calculation Formula Breakdown */}
+            {/* Point 30: Salary Calculation Formula Breakdown */}
             <div style={{ background: '#f8fafc', border: '1px dashed var(--emp-border)', borderRadius: 8, padding: '8px 12px', marginBottom: 14, fontSize: '0.75rem', color: 'var(--emp-text-muted)' }}>
               <div style={{ fontWeight: 700, color: 'var(--emp-text)', marginBottom: 2 }}>
                 🧮 Salary Calculation Breakdown:
               </div>
               <div>
-                Base = Basic (₹{activeSlip.basicSalary}) {activeSlip.fuelAllowance > 0 ? `+ Fuel Allowance (₹${activeSlip.fuelAllowance}) = ₹${activeSlip.basicSalary + activeSlip.fuelAllowance}` : '(Fuel allowance not applicable)'}
+                Base = Basic (₹{activeSlip.basicSalary || activeSlip.lines?.find((l) => l.key === 'basic')?.amount || activeSlip.gross || 0}) {Number(activeSlip.fuelAllowance || activeSlip.lines?.find((l) => l.key === 'fuel')?.amount || 0) > 0 ? `+ Fuel Allowance (₹${activeSlip.fuelAllowance || activeSlip.lines?.find((l) => l.key === 'fuel')?.amount})` : '(No fuel allowance)'}
               </div>
               <div>
-                Daily Rate = ₹{activeSlip.basicSalary + (activeSlip.fuelAllowance || 0)} ÷ {activeSlip.daysInMonth || 30} days = <strong>₹{activeSlip.dailyRate || ((activeSlip.basicSalary + (activeSlip.fuelAllowance || 0)) / (activeSlip.daysInMonth || 30)).toFixed(2)}/day</strong>
+                Daily Rate = (Basic + Fuel) ÷ 30 days = <strong>₹{activeSlip.dailyRate || ((Number(activeSlip.basicSalary || activeSlip.lines?.find((l) => l.key === 'basic')?.amount || 0) + Number(activeSlip.fuelAllowance || activeSlip.lines?.find((l) => l.key === 'fuel')?.amount || 0)) / 30).toFixed(2)}/day</strong>
               </div>
               <div>
-                Earned Payout = Daily Rate × {activeSlip.payableDays} Payable Days = <strong>₹{Number(activeSlip.earnedSalary || (activeSlip.dailyRate ? activeSlip.dailyRate * activeSlip.payableDays : activeSlip.netSalary)).toLocaleString('en-IN')}</strong> {activeSlip.absentDays > 0 ? `(Deducted ${activeSlip.absentDays} absent days)` : ''}
+                Sundays & holidays between working days are fully paid.
+                {activeSlip.lines?.find((l) => l.key === 'elEncashment')?.amount > 0 && (
+                  <div style={{ color: '#15803d', fontWeight: 700, marginTop: 2 }}>
+                    ✨ March Month Auto EL Encashment: +₹{activeSlip.lines.find((l) => l.key === 'elEncashment').amount}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -223,7 +232,10 @@ export default function EmployeeSalarySlips() {
             <div style={{ background: 'linear-gradient(135deg, #059669, #10b981)', color: '#fff', padding: '16px', borderRadius: 10, textAlign: 'center', marginBottom: 16 }}>
               <div style={{ fontSize: '0.75rem', opacity: 0.9, textTransform: 'uppercase' }}>Net Take-Home Salary</div>
               <div style={{ fontSize: '2.2rem', fontWeight: 900, marginTop: 2 }}>
-                ₹{Number(activeSlip.netSalary || 0).toLocaleString('en-IN')}
+                ₹{Number(activeSlip.netSalary ?? activeSlip.net ?? 0).toLocaleString('en-IN')}
+              </div>
+              <div style={{ fontSize: '0.78rem', opacity: 0.92, marginTop: 4 }}>
+                Total Salary: ₹{Number(activeSlip.totalEarning ?? activeSlip.grossSalary ?? activeSlip.gross ?? 0).toLocaleString('en-IN')} · Deductions: -₹{Number(activeSlip.totalDeduction ?? activeSlip.deductions ?? 0).toLocaleString('en-IN')}
               </div>
               {activeSlip.paidOn && (
                 <div style={{ fontSize: '0.72rem', opacity: 0.85, marginTop: 4 }}>
@@ -233,29 +245,41 @@ export default function EmployeeSalarySlips() {
             </div>
 
             {/* Earnings & Deductions Breakdown */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, fontSize: '0.82rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12, fontSize: '0.82rem' }}>
               {/* Earnings */}
               <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', padding: 10, borderRadius: 8 }}>
                 <div style={{ fontWeight: 700, color: '#15803d', marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}>
                   <span>Earnings (+)</span>
+                  <span className="badge" style={{ background: '#dcfce7', color: '#15803d', fontSize: '0.72rem' }}>Total Salary</span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}>
-                  <span style={{ color: 'var(--emp-text-muted)' }}>Basic Salary:</span>
-                  <strong>₹{Number(activeSlip.basicSalary || 0).toLocaleString('en-IN')}</strong>
-                </div>
-                {activeSlip.fuelAllowance > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}>
-                    <span style={{ color: 'var(--emp-text-muted)' }}>Fuel Allowance:</span>
-                    <strong>₹{Number(activeSlip.fuelAllowance || 0).toLocaleString('en-IN')}</strong>
-                  </div>
+                {activeSlip.lines && activeSlip.lines.length > 0 ? (
+                  activeSlip.lines.filter((l) => l.side === 'earn' && Number(l.amount || 0) > 0).map((l) => (
+                    <div key={l.key} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}>
+                      <span style={{ color: 'var(--emp-text-muted)' }}>{l.label}:</span>
+                      <strong>₹{Number(l.amount).toLocaleString('en-IN')}</strong>
+                    </div>
+                  ))
+                ) : (
+                  <>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}>
+                      <span style={{ color: 'var(--emp-text-muted)' }}>Basic Salary:</span>
+                      <strong>₹{Number(activeSlip.basicSalary || 0).toLocaleString('en-IN')}</strong>
+                    </div>
+                    {Number(activeSlip.fuelAllowance || 0) > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}>
+                        <span style={{ color: 'var(--emp-text-muted)' }}>Fuel Allowance:</span>
+                        <strong>₹{Number(activeSlip.fuelAllowance).toLocaleString('en-IN')}</strong>
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}>
+                      <span style={{ color: 'var(--emp-text-muted)' }}>Other Allowances:</span>
+                      <strong>₹{Number(activeSlip.allowances || 0).toLocaleString('en-IN')}</strong>
+                    </div>
+                  </>
                 )}
-                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}>
-                  <span style={{ color: 'var(--emp-text-muted)' }}>Other Allowances:</span>
-                  <strong>₹{Number(activeSlip.allowances || 0).toLocaleString('en-IN')}</strong>
-                </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed #86efac', paddingTop: 6, marginTop: 4, fontWeight: 800, color: '#15803d' }}>
-                  <span>Gross Earnings:</span>
-                  <span>₹{Number(activeSlip.grossSalary || (activeSlip.basicSalary + activeSlip.allowances)).toLocaleString('en-IN')}</span>
+                  <span>Total Earnings:</span>
+                  <span>₹{Number(activeSlip.totalEarning ?? activeSlip.grossSalary ?? activeSlip.gross ?? 0).toLocaleString('en-IN')}</span>
                 </div>
               </div>
 
@@ -263,38 +287,38 @@ export default function EmployeeSalarySlips() {
               <div style={{ background: '#fef2f2', border: '1px solid #fecaca', padding: 10, borderRadius: 8 }}>
                 <div style={{ fontWeight: 700, color: '#b91c1c', marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}>
                   <span>Deductions (-)</span>
+                  <span className="badge" style={{ background: '#fee2e2', color: '#b91c1c', fontSize: '0.72rem' }}>Total Deduction</span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}>
-                  <span style={{ color: 'var(--emp-text-muted)' }}>Absent Deduction (Basic+Fuel):</span>
-                  <strong style={{ color: '#dc2626' }}>-₹{Number(activeSlip.absentDeduction || 0).toLocaleString('en-IN')}</strong>
-                </div>
-                {activeSlip.pfDeduction > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}>
-                    <span style={{ color: 'var(--emp-text-muted)' }}>PF:</span>
-                    <strong>-₹{Number(activeSlip.pfDeduction).toLocaleString('en-IN')}</strong>
-                  </div>
-                )}
-                {activeSlip.esiDeduction > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}>
-                    <span style={{ color: 'var(--emp-text-muted)' }}>ESI:</span>
-                    <strong>-₹{Number(activeSlip.esiDeduction).toLocaleString('en-IN')}</strong>
-                  </div>
-                )}
-                {activeSlip.advanceDeduction > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}>
-                    <span style={{ color: 'var(--emp-text-muted)' }}>Advance Deduction:</span>
-                    <strong>-₹{Number(activeSlip.advanceDeduction).toLocaleString('en-IN')}</strong>
-                  </div>
-                )}
-                {activeSlip.securityDeduction > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}>
-                    <span style={{ color: 'var(--emp-text-muted)' }}>Security Cut:</span>
-                    <strong>-₹{Number(activeSlip.securityDeduction).toLocaleString('en-IN')}</strong>
-                  </div>
+                {activeSlip.lines && activeSlip.lines.length > 0 ? (
+                  activeSlip.lines.filter((l) => l.side === 'ded' && Number(l.amount || 0) > 0).map((l) => (
+                    <div key={l.key} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}>
+                      <span style={{ color: 'var(--emp-text-muted)' }}>{l.label}:</span>
+                      <strong style={{ color: '#dc2626' }}>-₹{Number(l.amount).toLocaleString('en-IN')}</strong>
+                    </div>
+                  ))
+                ) : (
+                  <>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}>
+                      <span style={{ color: 'var(--emp-text-muted)' }}>Absent Deduction (Basic+Fuel):</span>
+                      <strong style={{ color: '#dc2626' }}>-₹{Number(activeSlip.absentDeduction || 0).toLocaleString('en-IN')}</strong>
+                    </div>
+                    {Number(activeSlip.pfDeduction || 0) > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}>
+                        <span style={{ color: 'var(--emp-text-muted)' }}>PF:</span>
+                        <strong>-₹{Number(activeSlip.pfDeduction).toLocaleString('en-IN')}</strong>
+                      </div>
+                    )}
+                    {Number(activeSlip.esiDeduction || 0) > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}>
+                        <span style={{ color: 'var(--emp-text-muted)' }}>ESI:</span>
+                        <strong>-₹{Number(activeSlip.esiDeduction).toLocaleString('en-IN')}</strong>
+                      </div>
+                    )}
+                  </>
                 )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed #fca5a5', paddingTop: 6, marginTop: 4, fontWeight: 800, color: '#b91c1c' }}>
                   <span>Total Deductions:</span>
-                  <span>-₹{Number(activeSlip.deductions || activeSlip.absentDeduction || 0).toLocaleString('en-IN')}</span>
+                  <span>-₹{Number(activeSlip.totalDeduction ?? activeSlip.deductions ?? activeSlip.absentDeduction ?? 0).toLocaleString('en-IN')}</span>
                 </div>
               </div>
             </div>

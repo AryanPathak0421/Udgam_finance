@@ -73,7 +73,21 @@ const employeeSchema = new mongoose.Schema(
     // the places the employee can mark the attendance from (more than one): within `radius` metres of any of them (the single place above is the older form)
     attendanceLocations: [{ _id: false, name: String, lat: Number, lng: Number, radius: { type: Number, default: 100 } }],
     // the time of the day (Indian time, HH:MM) the employee can mark the attendance in the app: from - to; empty = any time
-    attendanceTime: { from: String, to: String },
+    // dayWise: Day-wise timing schedule (Monday to Sunday)
+    attendanceTime: {
+      from: String,
+      to: String,
+      dayWiseEnabled: { type: Boolean, default: false },
+      dayWise: {
+        monday: { from: String, to: String, enabled: { type: Boolean, default: true } },
+        tuesday: { from: String, to: String, enabled: { type: Boolean, default: true } },
+        wednesday: { from: String, to: String, enabled: { type: Boolean, default: true } },
+        thursday: { from: String, to: String, enabled: { type: Boolean, default: true } },
+        friday: { from: String, to: String, enabled: { type: Boolean, default: true } },
+        saturday: { from: String, to: String, enabled: { type: Boolean, default: true } },
+        sunday: { from: String, to: String, enabled: { type: Boolean, default: false } },
+      },
+    },
     esiDeduction: { type: Boolean, default: false },
     // verification: all optional, each with the copy as a small PNG / JPEG data URL (not loaded unless asked for)
     aadhaarNo: String,

@@ -322,31 +322,16 @@ function EmployeeForm({ item, onClose, onSaved }) {
           </div>
         )}
 
-        <Sec>Supervisor</Sec>
-        <FormField id="ensdep" label="Supervisor's department"><select id="ensdep" value={supDept} onChange={(e) => { setSupDept(e.target.value); setSupDes(''); }}><option value="">Select department</option>{opts.departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></FormField>
-        <FormField id="ensdes" label="Supervisor's designation"><select id="ensdes" value={supDes} onChange={(e) => setSupDes(e.target.value)}><option value="">Select designation</option>{supDesigs.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></FormField>
-        <FormField id="ensup" label="Supervisor name" className="span-2" error={errors.supervisor} hint="Choose the department and designation first; the employees of it are listed. This employee's details then show with the supervisor (Team in the list).">
-          <select id="ensup" value={f.supervisor} onChange={set('supervisor')}><option value="">No supervisor</option>{supList.map((x) => <option key={x.id} value={x.id}>{staffLabel(x)}{x.designation?.name ? ` · ${x.designation.name}` : ''}</option>)}</select>
-        </FormField>
-        <div className="span-2">
-          <strong>Branches under this employee / supervisor</strong> <span className="muted small">— tick branches to assign under this employee or supervisor</span>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 16px', marginTop: 6 }}>
-            {branches.map((b) => {
-              const isChecked = f.supervisedBranches.includes(b.id);
-              return (
-                <label key={b.id} style={{ display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={isChecked}
-                    onChange={(e) => setF((x) => ({ ...x, supervisedBranches: e.target.checked ? [...x.supervisedBranches, b.id] : x.supervisedBranches.filter((i) => i !== b.id) }))}
-                  /> {b.code} — {b.name} {b.city ? `(${b.city})` : ''}
-                </label>
-              );
-            })}
+        {/* Point 28: Supervisor part removed from Employee Registration form and managed via dedicated Supervisor Assign section */}
+        <div className="span-2" style={{ padding: '10px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, fontSize: '0.84rem', margin: '8px 0 4px', color: '#166534', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+          <div>
+            <strong>Supervisor Assignment:</strong> Supervisor is managed separately under <strong>HR Department → Supervisor Assign</strong>.
+            {f.supervisor && chosenSup && <span> (Currently: {chosenSup.name} {chosenSup.designation?.name ? `· ${chosenSup.designation.name}` : ''})</span>}
           </div>
-          {errors.supervisedBranches && <div className="field-error small">{errors.supervisedBranches}</div>}
+          <Link to="/hr/supervisor-assign" className="btn sm" style={{ background: '#fff', border: '1px solid #86efac', color: '#15803d', fontWeight: 600 }}>
+            Open Supervisor Assign ↗
+          </Link>
         </div>
-        {chosenSup && chosenSup.branch && <p className="muted small span-2" style={{ margin: 0 }}>Supervisor: {chosenSup.name} · {chosenSup.department?.name || '—'} · {chosenSup.designation?.name || '—'} · {chosenSup.branch?.code || '—'}</p>}
 
         <Sec>Deductions</Sec>
         <YesNo id="enpf" label="PF deduction" value={f.pfDeduction} onChange={setV('pfDeduction')} />
@@ -855,7 +840,15 @@ export function EmployeeRegistration() {
                       </td>
                       <td data-label="Department">{e.department?.name || '—'}<div className="muted small">{e.designation?.name || '—'}</div></td>
                       <td data-label="Branch">{branchLabel(e.branch)}</td>
-                      <td data-label="Supervisor">{e.supervisor ? `${e.supervisor.code} ${e.supervisor.name}` : '—'}</td>
+                      <td data-label="Supervisor">
+                        {e.supervisor ? (
+                          `${e.supervisor.code} ${e.supervisor.name}`
+                        ) : (
+                          <Link to="/hr/supervisor-assign" className="link-btn" style={{ fontSize: '0.78rem', color: '#047857', fontWeight: 600 }}>
+                            + Assign Supervisor
+                          </Link>
+                        )}
+                      </td>
                       <td data-label="Joined">{dmy(e.joiningDate)}</td>
                       <td data-label="Monthly salary" className="num">{e.monthlySalary ? inr(e.monthlySalary) : <span className="muted">not set</span>}</td>
                       <td data-label="Bank">{e.bankName || '—'}<div className="muted small">{e.accountNumber}</div></td>
@@ -1140,23 +1133,200 @@ function BulkAttendanceDialog({ shown, picked, branch, onClose, onSaved }) {
   );
 }
 
-/** The time of the day an employee can mark the attendance in the app (Indian time). */
+/** The time of the day an employee can mark the attendance in the app (Indian time) with Day-wise options. */
 function TimeDialog({ item, onClose, onSaved }) {
   const toast = useToast();
-  const [f, setF] = useState({ from: item.time?.from || '09:00', to: item.time?.to || '10:00' });
+  const DAYS = [
+    { key: 'monday', label: 'Monday' },
+    { key: 'tuesday', label: 'Tuesday' },
+    { key: 'wednesday', label: 'Wednesday' },
+    { key: 'thursday', label: 'Thursday' },
+    { key: 'friday', label: 'Friday' },
+    { key: 'saturday', label: 'Saturday' },
+    { key: 'sunday', label: 'Sunday' },
+  ];
+
+  const initialDayWise = Object.fromEntries(
+    DAYS.map(({ key }) => [
+      key,
+      {
+        enabled: item.time?.dayWise?.[key]?.enabled ?? (key !== 'sunday'),
+        from: item.time?.dayWise?.[key]?.from || item.time?.from || '09:00',
+        to: item.time?.dayWise?.[key]?.to || item.time?.to || '18:00',
+      },
+    ])
+  );
+
+  const [f, setF] = useState({
+    from: item.time?.from || '09:00',
+    to: item.time?.to || '18:00',
+    dayWiseEnabled: Boolean(item.time?.dayWiseEnabled),
+    dayWise: initialDayWise,
+  });
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
-  async function save(clear) {
-    setBusy(true); setErrors({});
-    try { await api.hr.setAttendanceTime(item.id, clear ? { clear: true } : f); toast.success(clear ? 'Attendance time removed: any time' : 'Attendance time saved'); onSaved(); } catch (err) { setErrors(err.errors || {}); toast.error(err.message); } finally { setBusy(false); }
+
+  function copyDefaultToAllDays() {
+    setF((prev) => {
+      const updated = { ...prev.dayWise };
+      DAYS.forEach(({ key }) => {
+        updated[key] = {
+          ...updated[key],
+          from: prev.from || '09:00',
+          to: prev.to || '18:00',
+        };
+      });
+      return { ...prev, dayWise: updated };
+    });
+    toast.success('Copied default times to all working days');
   }
+
+  async function save(clear) {
+    setBusy(true);
+    setErrors({});
+    try {
+      await api.hr.setAttendanceTime(item.id, clear ? { clear: true } : f);
+      toast.success(clear ? 'Attendance time removed: any time' : 'Attendance timing schedule saved');
+      onSaved();
+    } catch (err) {
+      setErrors(err.errors || {});
+      toast.error(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
-    <Modal open title={`Attendance time — ${item.employeeCode} ${item.name}`} onClose={onClose} busy={busy}
-      footer={<><button className="btn" onClick={onClose} disabled={busy}>Close</button>{item.time && <button className="btn danger-outline" onClick={() => save(true)} disabled={busy}>Remove (any time)</button>}<button className="btn primary" onClick={() => save(false)} disabled={busy}>{busy ? 'Saving…' : 'Save'}</button></>}>
-      <p className="muted small" style={{ marginTop: 0 }}>The employee can mark the attendance in the app only between these two times (Indian time). Without a time the attendance can be marked at any time of the day.</p>
+    <Modal
+      open
+      title={`Attendance Timings — ${item.employeeCode} ${item.name}`}
+      onClose={onClose}
+      busy={busy}
+      size={f.dayWiseEnabled ? 'lg' : 'md'}
+      footer={
+        <>
+          <button className="btn" onClick={onClose} disabled={busy}>Close</button>
+          {item.time && <button className="btn danger-outline" onClick={() => save(true)} disabled={busy}>Remove (any time)</button>}
+          <button className="btn primary" onClick={() => save(false)} disabled={busy}>{busy ? 'Saving…' : 'Save Timings'}</button>
+        </>
+      }
+    >
+      <p className="muted small" style={{ marginTop: 0 }}>
+        The employee can mark attendance in the mobile app only during allowed times (Indian time). Choose single default hours or set specific hours per day.
+      </p>
+
       <div className="form-grid">
-        <FormField id="atf" label="Attendance opens" required error={errors.from}><input id="atf" type="time" value={f.from} onChange={(e) => setF((x) => ({ ...x, from: e.target.value }))} /></FormField>
-        <FormField id="att" label="Attendance closes" required error={errors.to}><input id="att" type="time" value={f.to} onChange={(e) => setF((x) => ({ ...x, to: e.target.value }))} /></FormField>
+        <FormField id="atf" label="Default opens" required error={errors.from}>
+          <input id="atf" type="time" value={f.from} onChange={(e) => setF((x) => ({ ...x, from: e.target.value }))} />
+        </FormField>
+        <FormField id="att" label="Default closes" required error={errors.to}>
+          <input id="att" type="time" value={f.to} onChange={(e) => setF((x) => ({ ...x, to: e.target.value }))} />
+        </FormField>
+
+        {/* Point 29: Day-wise set options toggle */}
+        <div className="span-2" style={{ padding: '8px 12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, margin: '6px 0' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, cursor: 'pointer', color: '#1e293b' }}>
+            <input
+              type="checkbox"
+              checked={f.dayWiseEnabled}
+              onChange={(e) => setF((x) => ({ ...x, dayWiseEnabled: e.target.checked }))}
+            />
+            📅 Enable Day-wise Attendance Timings (Monday to Sunday)
+          </label>
+          <div className="muted small" style={{ marginTop: 2, marginLeft: 24 }}>
+            Set different opening/closing hours or disable attendance for specific days of the week.
+          </div>
+        </div>
+
+        {f.dayWiseEnabled && (
+          <div className="span-2" style={{ border: '1px solid #cbd5e1', borderRadius: 8, padding: 12, background: '#fff' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 6 }}>
+              <strong style={{ fontSize: '0.85rem' }}>Weekly Attendance Schedule:</strong>
+              <button type="button" className="btn sm" onClick={copyDefaultToAllDays} style={{ fontSize: '0.75rem' }}>
+                Copy default ({f.from} - {f.to}) to all days
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {DAYS.map(({ key, label }) => {
+                const dayConfig = f.dayWise[key] || { enabled: key !== 'sunday', from: f.from, to: f.to };
+                return (
+                  <div
+                    key={key}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12,
+                      padding: '6px 10px',
+                      borderRadius: 6,
+                      background: dayConfig.enabled ? '#f1f5f9' : '#f8fafc',
+                      border: '1px solid #e2e8f0',
+                      opacity: dayConfig.enabled ? 1 : 0.6,
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 110, fontWeight: 600, cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={dayConfig.enabled}
+                        onChange={(e) => {
+                          const val = e.target.checked;
+                          setF((prev) => ({
+                            ...prev,
+                            dayWise: {
+                              ...prev.dayWise,
+                              [key]: { ...dayConfig, enabled: val },
+                            },
+                          }));
+                        }}
+                      />
+                      {label}
+                    </label>
+
+                    {dayConfig.enabled ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span className="small muted">From:</span>
+                        <input
+                          type="time"
+                          value={dayConfig.from}
+                          style={{ padding: '2px 6px', fontSize: '0.85rem', width: 105 }}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setF((prev) => ({
+                              ...prev,
+                              dayWise: {
+                                ...prev.dayWise,
+                                [key]: { ...dayConfig, from: val },
+                              },
+                            }));
+                          }}
+                        />
+                        <span className="small muted">To:</span>
+                        <input
+                          type="time"
+                          value={dayConfig.to}
+                          style={{ padding: '2px 6px', fontSize: '0.85rem', width: 105 }}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setF((prev) => ({
+                              ...prev,
+                              dayWise: {
+                                ...prev.dayWise,
+                                [key]: { ...dayConfig, to: val },
+                              },
+                            }));
+                          }}
+                        />
+                      </div>
+                    ) : (
+                      <span className="badge grey" style={{ fontSize: '0.75rem' }}>Day Off (Attendance Disabled)</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </Modal>
   );

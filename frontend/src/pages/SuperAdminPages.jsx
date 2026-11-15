@@ -176,7 +176,11 @@ export function ProfitLoss() {
   const [to, setTo] = useState(today());
   const list = useLoad(() => api.superAdmin.profitLoss({ branch, from, to }), [branch, from, to]);
   const d = list.data;
-  const Side = ({ title, lines, total, tone }) => (
+  const isLoss = (d?.profit ?? 0) < 0 || Boolean(d?.isLoss);
+  const lossAmount = Math.abs(d?.profit ?? d?.netLoss ?? 0);
+  const profitAmount = isLoss ? 0 : (d?.profit ?? d?.netProfit ?? 0);
+
+  const Side = ({ title, lines, subtotal, balancingLabel, balancingAmount, balancingTone, grandTotal, tone }) => (
     <div className="panel" style={{ padding: 14, flex: '1 1 380px', minWidth: 0 }}>
       <h3 className="section-title">{title}</h3>
       <div className="table-wrap">
@@ -184,7 +188,20 @@ export function ProfitLoss() {
           <tbody>
             {lines.length === 0 && <tr><td className="muted">Nothing in this period.</td></tr>}
             {lines.map((l) => <tr key={l.key}><td data-label="Particulars">{l.label}</td><td data-label="Amount" className="num">{inr(l.amount)}</td></tr>)}
-            <tr style={{ borderTop: '2px solid currentColor' }}><td><strong>Total</strong></td><td className="num"><span className={`badge ${tone}`}><strong>{inr(total)}</strong></span></td></tr>
+            <tr style={{ borderTop: '1px solid var(--border)' }}>
+              <td><strong>Subtotal</strong></td>
+              <td className="num"><strong>{inr(subtotal)}</strong></td>
+            </tr>
+            {balancingAmount > 0 && (
+              <tr style={{ background: isLoss ? '#fef2f2' : '#f0fdf4' }}>
+                <td><strong>{balancingLabel}</strong></td>
+                <td className="num"><span className={`badge ${balancingTone}`}><strong>{inr(balancingAmount)}</strong></span></td>
+              </tr>
+            )}
+            <tr style={{ borderTop: '2px solid currentColor' }}>
+              <td><strong>Grand Total</strong></td>
+              <td className="num"><span className={`badge ${tone}`}><strong>{inr(grandTotal)}</strong></span></td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -199,18 +216,74 @@ export function ProfitLoss() {
           <Dates from={from} setFrom={setFrom} to={to} setTo={setTo} />
           <Refresh onClick={list.load} loading={list.loading} />
         </div>
-        <State list={list}>{() => (
-          <>
-            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-              <Side title="Income" lines={d.income} total={d.totalIncome} tone="green" />
-              <Side title="Expense" lines={d.expense} total={d.totalExpense} tone="danger" />
-            </div>
-            <div className="panel" style={{ padding: 14, marginTop: 12 }}>
-              <span style={{ fontSize: 18 }}>{d.profit >= 0 ? 'Net profit' : 'Net loss'} <span className={`badge ${d.profit >= 0 ? 'green' : 'danger'}`}><strong>{inr(Math.abs(d.profit))}</strong></span></span>
-              <div className="muted small" style={{ marginTop: 6 }}>Principal collected in the period (not income): {inr(d.principalCollected)}. Interest is the share of every EMI received that the loan schedule marks as interest. EMI from the old system that was assumed paid is not counted.</div>
-            </div>
-          </>
-        )}</State>
+        <State list={list}>{() => {
+          const grandTotal = Math.max(d.totalIncome, d.totalExpense);
+          return (
+            <>
+              {/* Point 26: Prominent Overview Cards including Loss */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, margin: '8px 0 14px' }}>
+                <div className="card" style={{ padding: '10px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8 }}>
+                  <div className="small muted">Total Income (Receipts)</div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#16a34a', margin: '4px 0' }}>{inr(d.totalIncome)}</div>
+                  <div className="small muted">Interest + Fees + Income Ledgers</div>
+                </div>
+                <div className="card" style={{ padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8 }}>
+                  <div className="small muted">Total Expense (Payments)</div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#dc2626', margin: '4px 0' }}>{inr(d.totalExpense)}</div>
+                  <div className="small muted">Salary + Rent + Commission + Write-offs</div>
+                </div>
+                <div className="card" style={{ padding: '10px 14px', background: isLoss ? '#fef2f2' : '#f0fdf4', border: `2px solid ${isLoss ? '#ef4444' : '#22c55e'}`, borderRadius: 8 }}>
+                  <div className="small muted">{isLoss ? 'Net Loss (Deficit)' : 'Net Profit (Surplus)'}</div>
+                  <div style={{ fontSize: '1.35rem', fontWeight: 900, color: isLoss ? '#dc2626' : '#16a34a', margin: '4px 0' }}>
+                    {isLoss ? `− ${inr(lossAmount)}` : `+ ${inr(profitAmount)}`}
+                  </div>
+                  <div className="small muted">{isLoss ? 'Total Expense exceeds Total Income' : 'Total Income exceeds Total Expense'}</div>
+                </div>
+              </div>
+
+              {isLoss && (
+                <div className="notice danger" style={{ margin: '0 0 14px' }}>
+                  ⚠️ <strong>Net Loss in Period:</strong> Total expenses ({inr(d.totalExpense)}) exceed total income ({inr(d.totalIncome)}) by <strong>{inr(lossAmount)}</strong>. Loss is credited on the Income side to balance the account.
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                <Side
+                  title="Income (Credit)"
+                  lines={d.income}
+                  subtotal={d.totalIncome}
+                  balancingLabel="Net Loss (Transferred to Balance Sheet)"
+                  balancingAmount={isLoss ? lossAmount : 0}
+                  balancingTone="danger"
+                  grandTotal={grandTotal}
+                  tone="green"
+                />
+                <Side
+                  title="Expense (Debit)"
+                  lines={d.expense}
+                  subtotal={d.totalExpense}
+                  balancingLabel="Net Profit (Transferred to Capital)"
+                  balancingAmount={!isLoss ? profitAmount : 0}
+                  balancingTone="green"
+                  grandTotal={grandTotal}
+                  tone="danger"
+                />
+              </div>
+
+              <div className="panel" style={{ padding: 14, marginTop: 12 }}>
+                <span style={{ fontSize: 18 }}>
+                  {isLoss ? 'Net Loss: ' : 'Net Profit: '}
+                  <span className={`badge ${isLoss ? 'danger' : 'green'}`} style={{ fontSize: 16 }}>
+                    <strong>{inr(isLoss ? lossAmount : profitAmount)}</strong>
+                  </span>
+                </span>
+                <div className="muted small" style={{ marginTop: 6 }}>
+                  Principal collected in the period (not income): {inr(d.principalCollected)}. Interest is the share of every EMI received that the loan schedule marks as interest. EMI from the old system that was assumed paid is not counted.
+                </div>
+              </div>
+            </>
+          );
+        }}</State>
       </div>
     </>
   );
@@ -301,6 +374,90 @@ const SUMMARY_COLUMNS = [
   ['Death settle', 'deathSettle'], ['Death settle amount', 'deathSettleAmount', true], ['Write-off member', 'writeOff'], ['Write-off member amount', 'writeOffAmount', true], ['Block member', 'blocked'],
   ['New group open', 'newGroups'], ['Group leader commission', 'commission', true], ['Product qty sell', 'productQty'], ['Product amount', 'productAmount', true],
 ];
+
+function printCompanySummaryReport(d, from, to) {
+  if (!d) return;
+  const w = window.open('', '_blank');
+  if (!w) {
+    window.print();
+    return;
+  }
+  const T = d.totals || {};
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[m]);
+  const cell = (v, money) => (money ? inr(v) : (v ?? '0'));
+
+  const headCols = SUMMARY_COLUMNS.map(([label]) => `<th class="num">${esc(label)}</th>`).join('');
+  const rowsHtml = (d.rows || []).map((r) => {
+    const cols = SUMMARY_COLUMNS.map(([, key, money]) => `<td class="num">${esc(cell(r[key], money))}</td>`).join('');
+    return `<tr><td><strong>${esc(r.branch)}</strong></td>${cols}</tr>`;
+  }).join('');
+  const totalCols = SUMMARY_COLUMNS.map(([, key, money]) => `<td class="num"><strong>${esc(cell(T[key], money))}</strong></td>`).join('');
+
+  w.document.write(`<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Company Summary Report (${esc(from)} to ${esc(to)})</title>
+  <style>
+    @page { size: A3 landscape; margin: 8mm; }
+    * { box-sizing: border-box; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #111; font-size: 8.5px; margin: 0; padding: 10px; background: #fff; }
+    .header { margin-bottom: 12px; border-bottom: 2px solid #0f766e; padding-bottom: 6px; }
+    h1 { font-size: 16px; margin: 0 0 4px; color: #0f766e; text-transform: uppercase; }
+    .meta { font-size: 10px; color: #555; }
+    .toolbar-print { margin-bottom: 10px; }
+    .btn-print { background: #0f766e; color: #fff; border: 0; padding: 6px 14px; border-radius: 4px; font-weight: bold; cursor: pointer; }
+    table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+    th, td { border: 1px solid #777; padding: 3px 4px; text-align: left; vertical-align: middle; }
+    th { background: #f1f5f9; font-size: 8px; font-weight: bold; text-transform: uppercase; }
+    thead { display: table-header-group; }
+    tr { page-break-inside: avoid; }
+    .num { text-align: right; white-space: nowrap; }
+    tfoot td { background: #e2e8f0; font-weight: bold; border-top: 2px solid #000; }
+    @media print {
+      .no-print { display: none !important; }
+      body { padding: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="no-print toolbar-print" style="float: right;">
+      <button class="btn-print" onclick="window.print()">Print Document</button>
+      <button class="btn-print" style="background: #64748b; margin-left: 6px;" onclick="window.close()">Close</button>
+    </div>
+    <h1>Udgam Microfinance — Company Summary Report</h1>
+    <div class="meta">
+      Period: <strong>${esc(d.from || from)}</strong> to <strong>${esc(d.to || to)}</strong> · Branches: ${d.rows?.length || 0}
+    </div>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th style="min-width: 110px;">Branch name</th>
+        ${headCols}
+      </tr>
+    </thead>
+    <tbody>
+      ${rowsHtml}
+    </tbody>
+    <tfoot>
+      <tr>
+        <td><strong>Total</strong></td>
+        ${totalCols}
+      </tr>
+    </tfoot>
+  </table>
+  <script>
+    window.onload = function() {
+      setTimeout(function() { window.print(); }, 250);
+    };
+  </script>
+</body>
+</html>`);
+  w.document.close();
+}
+
 export function CompanySummary() {
   const [branch, setBranch] = useState('');
   const [from, setFrom] = useState(monthStart());
@@ -312,9 +469,28 @@ export function CompanySummary() {
   return (
     <>
       <PageHeader title="Company Summary Report" description="The whole company branch by branch for the period (members, disbursement, fees, security, due, collection, NPA, settlements, write-off, groups, commission and products). Portfolio and due are as on the last date."
-        actions={<button type="button" className="btn no-print" onClick={() => window.print()} disabled={!d}>Print / PDF</button>} />
-      <div className="panel">
-        <style>{'@media print { @page { size: A3 landscape; margin: 8mm; } .summary-wide { font-size: 9px; } .summary-wide th, .summary-wide td { padding: 2px 4px !important; } .table-wrap { overflow: visible !important; } }'}</style>
+        actions={
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button type="button" className="btn no-print primary" onClick={() => printCompanySummaryReport(d, from, to)} disabled={!d}>
+              🖨️ Print / PDF Report
+            </button>
+          </div>
+        } />
+      <div className="panel" id="company-summary-panel">
+        <style>{`
+          @media print {
+            @page { size: A3 landscape; margin: 6mm; }
+            html, body, .app-shell, .main, .content, #company-summary-panel {
+              background: #fff !important;
+              overflow: visible !important;
+              height: auto !important;
+            }
+            .sidebar, .header, .toolbar, .pagination, .no-print, .btn { display: none !important; }
+            .table-wrap { overflow: visible !important; width: 100% !important; }
+            .summary-wide { font-size: 7.5px !important; width: 100% !important; table-layout: auto !important; }
+            .summary-wide th, .summary-wide td { padding: 2px 3px !important; min-width: 0 !important; }
+          }
+        `}</style>
         <div className="toolbar" style={{ flexWrap: 'wrap' }}>
           <BranchSelect value={branch} onChange={setBranch} />
           <Dates from={from} setFrom={setFrom} to={to} setTo={setTo} />

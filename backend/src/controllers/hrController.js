@@ -22,7 +22,7 @@ import { issueOtp, hashOtp, takeVerified, consumeChallenge } from '../services/o
 import { sendMail, mailConfigured } from '../services/mailer.js';
 import { EARN_FIXED, ALL_LINES, SETUP_KEYS, setupAt, loadVariable, buildLines, totalsOf, legacyLines, fixedOf, isVerified, sum } from '../services/salaryLines.js';
 import { effectiveOn, monthDays } from '../services/attendanceRules.js';
-import { elBalance } from '../services/earnedLeave.js';
+import { elBalance, elBalances } from '../services/earnedLeave.js';
 import { audit } from '../utils/audit.js';
 import { branchFilter, isAdmin, showMobile } from './groupController.js';
 
@@ -268,10 +268,20 @@ export async function sendEmployeeOtp(req, res) {
     const sms = await sendSms({ to, text: `Udgam Microfinance: OTP ${otp} to verify your mobile number. Valid for 5 minutes. Do not share this OTP.` });
     dev = Boolean(sms.dev);
   } else {
-    const sent = await sendMail({ to, subject: 'Udgam Microfinance: email verification OTP', text: `Your OTP to verify your email is ${otp}. It is valid for 5 minutes. Do not share this OTP.` });
+    const sent = await sendMail({
+      to,
+      subject: 'Udgam Microfinance: Email Verification OTP',
+      text: `Your OTP to verify your employee email is ${otp}. It is valid for 5 minutes. Do not share this OTP with anyone.\n\nUdgam Microfinance`,
+      html: `<div style="font-family: Arial, sans-serif; padding: 16px; color: #111;">
+        <h2 style="color: #0f766e; margin-top: 0;">Udgam Microfinance</h2>
+        <p>Your one-time password (OTP) to verify your employee email is:</p>
+        <div style="font-size: 24px; font-weight: bold; letter-spacing: 4px; color: #0f766e; margin: 16px 0;">${otp}</div>
+        <p style="color: #666; font-size: 13px;">This OTP is valid for 5 minutes. Do not share this OTP with anyone.</p>
+      </div>`
+    });
     dev = !sent;
   }
-  res.json({ challengeId: challenge._id, sentTo: to, expiresAt: challenge.expiresAt, ...(dev && process.env.NODE_ENV !== 'production' ? { devOtp: otp } : {}) });
+  res.json({ challengeId: challenge._id, sentTo: to, expiresAt: challenge.expiresAt, ...(dev ? { devOtp: otp } : {}) });
 }
 
 /**
@@ -289,10 +299,20 @@ export async function sendNewEmployeeOtp(req, res) {
     const sms = await sendSms({ to, text: `Udgam Microfinance: OTP ${otp} to verify your mobile number. Valid for 5 minutes. Do not share this OTP.` });
     dev = Boolean(sms.dev);
   } else {
-    const sent = await sendMail({ to, subject: 'Udgam Microfinance: email verification OTP', text: `Your OTP to verify your email is ${otp}. It is valid for 5 minutes. Do not share this OTP.` });
+    const sent = await sendMail({
+      to,
+      subject: 'Udgam Microfinance: Email Verification OTP',
+      text: `Your OTP to verify your employee email is ${otp}. It is valid for 5 minutes. Do not share this OTP with anyone.\n\nUdgam Microfinance`,
+      html: `<div style="font-family: Arial, sans-serif; padding: 16px; color: #111;">
+        <h2 style="color: #0f766e; margin-top: 0;">Udgam Microfinance</h2>
+        <p>Your one-time password (OTP) to verify your employee email is:</p>
+        <div style="font-size: 24px; font-weight: bold; letter-spacing: 4px; color: #0f766e; margin: 16px 0;">${otp}</div>
+        <p style="color: #666; font-size: 13px;">This OTP is valid for 5 minutes. Do not share this OTP with anyone.</p>
+      </div>`
+    });
     dev = !sent;
   }
-  res.json({ challengeId: challenge._id, sentTo: to, expiresAt: challenge.expiresAt, ...(dev && process.env.NODE_ENV !== 'production' ? { devOtp: otp } : {}) });
+  res.json({ challengeId: challenge._id, sentTo: to, expiresAt: challenge.expiresAt, ...(dev ? { devOtp: otp } : {}) });
 }
 
 export async function verifyNewEmployeeOtp(req, res) {
@@ -1016,22 +1036,47 @@ export async function bulkAttendanceSettings(req, res) {
 }
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
-/** The time of the day an employee can mark the attendance in the app (Indian time): from and to as HH:MM; both empty (or clear) removes it. */
+const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+
+/** The time of the day an employee can mark the attendance in the app (Indian time): from and to as HH:MM; both empty (or clear) removes it. Supports Day-wise settings. */
 export async function setAttendanceTime(req, res) {
   const e = await loadEmployee(req);
   const b = req.body || {};
-  if (b.clear === true || (!asString(b.from) && !asString(b.to))) e.attendanceTime = undefined;
-  else {
-    const from = asString(b.from);
-    const to = asString(b.to);
-    if (!HHMM.test(from)) throw invalid({ from: 'Enter the time the attendance opens (HH:MM)' });
-    if (!HHMM.test(to)) throw invalid({ to: 'Enter the time the attendance closes (HH:MM)' });
-    if (to <= from) throw invalid({ to: 'The closing time must be after the opening time' });
-    e.attendanceTime = { from, to };
+  if (b.clear === true || (!asString(b.from) && !asString(b.to) && !b.dayWiseEnabled)) {
+    e.attendanceTime = undefined;
+  } else {
+    const from = asString(b.from) || '';
+    const to = asString(b.to) || '';
+    if (from && !HHMM.test(from)) throw invalid({ from: 'Enter the time the attendance opens (HH:MM)' });
+    if (to && !HHMM.test(to)) throw invalid({ to: 'Enter the time the attendance closes (HH:MM)' });
+    if (from && to && to <= from) throw invalid({ to: 'The closing time must be after the opening time' });
+
+    const dayWiseEnabled = Boolean(b.dayWiseEnabled);
+    const dayWise = {};
+    const ALL_DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    if (b.dayWise && typeof b.dayWise === 'object') {
+      ALL_DAYS.forEach((d) => {
+        const item = b.dayWise[d] || {};
+        const dFrom = asString(item.from);
+        const dTo = asString(item.to);
+        dayWise[d] = {
+          enabled: item.enabled !== false,
+          from: dFrom && HHMM.test(dFrom) ? dFrom : (from || '09:00'),
+          to: dTo && HHMM.test(dTo) ? dTo : (to || '18:00'),
+        };
+      });
+    }
+
+    e.attendanceTime = {
+      from: from || '09:00',
+      to: to || '18:00',
+      dayWiseEnabled,
+      ...(dayWiseEnabled ? { dayWise } : {}),
+    };
   }
   await e.save();
-  await audit(req, { action: 'attendance.time', entity: 'Employee', entityId: e._id, after: { employee: e.employeeCode, time: e.attendanceTime?.from ? { from: e.attendanceTime.from, to: e.attendanceTime.to } : null } });
-  res.json({ time: e.attendanceTime?.from ? { from: e.attendanceTime.from, to: e.attendanceTime.to } : null });
+  await audit(req, { action: 'attendance.time', entity: 'Employee', entityId: e._id, after: { employee: e.employeeCode, time: e.attendanceTime } });
+  res.json({ time: e.attendanceTime || null });
 }
 
 const nowIst = () => new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date()).replace(/^24:/, '00:');
@@ -1048,10 +1093,26 @@ export async function punchAttendance(req, res) {
   const e = await Employee.findOne({ user: req.user._id, isDeleted: false });
   if (!e) throw new HttpError(404, 'There is no employee record for your login');
   if (e.status !== 'active' || e.isBlocked) throw new HttpError(403, 'Your attendance cannot be marked');
-  // the attendance is marked within the time that was set for the employee
-  if (e.attendanceTime?.from) {
+
+  // Point 29: Day-wise attendance time check (Indian time)
+  if (e.attendanceTime) {
     const now = nowIst();
-    if (now < e.attendanceTime.from || now > e.attendanceTime.to) throw new HttpError(422, `The attendance can be marked only between ${e.attendanceTime.from} and ${e.attendanceTime.to} (it is ${now} now).`, { time: `${e.attendanceTime.from} – ${e.attendanceTime.to}` });
+    const todayIndex = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })).getDay();
+    const todayKey = DAY_NAMES[todayIndex];
+
+    if (e.attendanceTime.dayWiseEnabled && e.attendanceTime.dayWise?.[todayKey]) {
+      const schedule = e.attendanceTime.dayWise[todayKey];
+      if (schedule.enabled === false) {
+        throw new HttpError(422, `Attendance is disabled for ${todayKey.toUpperCase()} under your shift schedule.`, { day: todayKey });
+      }
+      if (schedule.from && schedule.to && (now < schedule.from || now > schedule.to)) {
+        throw new HttpError(422, `Today (${todayKey.toUpperCase()}) attendance can be marked only between ${schedule.from} and ${schedule.to} (it is ${now} now).`, { time: `${schedule.from} – ${schedule.to}` });
+      }
+    } else if (e.attendanceTime.from && e.attendanceTime.to) {
+      if (now < e.attendanceTime.from || now > e.attendanceTime.to) {
+        throw new HttpError(422, `The attendance can be marked only between ${e.attendanceTime.from} and ${e.attendanceTime.to} (it is ${now} now).`, { time: `${e.attendanceTime.from} – ${e.attendanceTime.to}` });
+      }
+    }
   }
   const places = locationsOf(e);
   // A supervisor visiting a branch today can mark attendance at that branch
@@ -1206,6 +1267,19 @@ export async function generateSalary(req, res) {
   const { by: variable, securityCut } = await loadVariable(month, range, emps.map((e) => e.employeeCode), new Set(emps.filter((e) => supIds.has(String(e._id))).map((e) => e.employeeCode)));
   const holidayRows = await Holiday.find({ isDeleted: false, isActive: true, date: { $gte: back, $lt: toEnd } }).select('date branch').lean();
   const holidaysOf = (e) => new Set(holidayRows.filter((h) => !h.branch || String(h.branch) === String(e.branch?._id)).map((h) => iso(h.date)));
+
+  // Point 30: EL Balance due encashment in March
+  const isMarch = Boolean(month && String(month).endsWith('-03'));
+  let elMap = new Map();
+  if (isMarch) {
+    try {
+      const elBalancesMap = await elBalances(emps, range.to);
+      elMap = new Map(emps.map((e) => [String(e._id), (elBalancesMap.get(String(e._id))?.available || 0)]));
+    } catch (err) {
+      console.warn('EL balance lookup failed', err.message);
+    }
+  }
+
   let made = 0; let updated = 0; let keptPaid = 0; let noSalary = 0;
   const ops = [];
   for (const e of emps) {
@@ -1216,9 +1290,9 @@ export async function generateSalary(req, res) {
     // what was changed by hand on the slip stays; a slip from before the lines existed keeps its bonus and other deduction
     const kept = new Map((ex?.lines || []).filter((l) => l.manual).map((l) => [l.key, l.amountPaise]));
     if (ex && !ex.lines?.length) { if (ex.bonusPaise) kept.set('bonus', ex.bonusPaise); if (ex.otherDeductionPaise) kept.set('other', ex.otherDeductionPaise); }
-    const lines = buildLines(e, c.payableDays / range.days, variable.get(String(e.employeeCode || '').toUpperCase()), securityCut.get(String(e._id)) || 0, kept, month);
+    const lines = buildLines(e, c.payableDays / range.days, variable.get(String(e.employeeCode || '').toUpperCase()), securityCut.get(String(e._id)) || 0, kept, month, elMap.get(String(e._id)) || 0);
     const doc = {
-      employee: e._id, employeeCode: e.employeeCode, name: e.name, mobile: e.mobile, branch: e.branch?._id, department: e.department?.name || '', designation: e.designation?.name || '', month, daysInMonth: range.days, ...c, lines, ...totalsOf(lines), generatedByCode: req.user.employeeCode || '',
+      employee: e._id, employeeCode: e.employeeCode, name: e.name, mobile: e.mobile, branch: e.branch?._id, department: e.department?.name || '', designation: e.designation?.name || '', month, daysInMonth: range.days, sundays: c.sundays || 0, ...c, lines, ...totalsOf(lines), generatedByCode: req.user.employeeCode || '',
     };
     if (ex) updated += 1; else made += 1;
     ops.push({ updateOne: { filter: { employee: e._id, month }, update: { $set: doc, $setOnInsert: { status: 'generated' } }, upsert: true } });
@@ -1286,10 +1360,47 @@ export async function adjustSalary(req, res) {
 const slipText = (s) => {
   const lines = (s.lines?.length ? s.lines : legacyLines(s)).filter((l) => l.amountPaise);
   const part = (side) => lines.filter((l) => l.side === side).map((l) => `  ${l.label}: Rs ${(l.amountPaise / 100).toFixed(2)}`).join('\n');
-  return `Salary slip ${s.month}\n${s.employeeCode} ${s.name}\nPayable days ${s.payableDays} of ${s.daysInMonth}\n\nReceive side\n${part('earn')}\n  Total: Rs ${((s.totalEarningPaise ?? s.earnedPaise) / 100).toFixed(2)}\n\nPayment side\n${part('ded') || '  —'}\n  Total deduction: Rs ${((s.totalDeductionPaise ?? s.otherDeductionPaise ?? 0) / 100).toFixed(2)}\n\nNet salary: Rs ${(s.netPaise / 100).toFixed(2)}\n\nUdgam Microfinance`;
+  return `Salary slip ${s.month}\n${s.employeeCode} ${s.name}\nPayable days ${s.payableDays} of ${s.daysInMonth} · Sundays: ${s.sundays || 0}\n\nReceive side (Earnings)\n${part('earn')}\n  Total: Rs ${((s.totalEarningPaise ?? s.earnedPaise) / 100).toFixed(2)}\n\nPayment side (Deductions)\n${part('ded') || '  —'}\n  Total deduction: Rs ${((s.totalDeductionPaise ?? s.otherDeductionPaise ?? 0) / 100).toFixed(2)}\n\nNet salary: Rs ${(s.netPaise / 100).toFixed(2)}\n\nUdgam Microfinance`;
 };
 
-/** Sends the salary slip to the employee by SMS (mobile number of the employee). */
+const slipHtml = (s) => {
+  const lines = (s.lines?.length ? s.lines : legacyLines(s)).filter((l) => l.amountPaise);
+  const earnLines = lines.filter((l) => l.side === 'earn').map((l) => `<tr><td style="padding: 6px 10px; border-bottom: 1px solid #e2e8f0;">${l.label}</td><td style="padding: 6px 10px; text-align: right; border-bottom: 1px solid #e2e8f0; font-weight: bold; color: #15803d;">Rs. ${(l.amountPaise / 100).toFixed(2)}</td></tr>`).join('');
+  const dedLines = lines.filter((l) => l.side === 'ded').map((l) => `<tr><td style="padding: 6px 10px; border-bottom: 1px solid #e2e8f0;">${l.label}</td><td style="padding: 6px 10px; text-align: right; border-bottom: 1px solid #e2e8f0; font-weight: bold; color: #b91c1c;">- Rs. ${(l.amountPaise / 100).toFixed(2)}</td></tr>`).join('');
+  const totalEarn = ((s.totalEarningPaise ?? s.earnedPaise ?? 0) / 100).toFixed(2);
+  const totalDed = ((s.totalDeductionPaise ?? s.otherDeductionPaise ?? 0) / 100).toFixed(2);
+  const net = (s.netPaise / 100).toFixed(2);
+
+  return `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden; background: #fff;">
+    <div style="background: #0f766e; color: #fff; padding: 16px 20px; text-align: center;">
+      <h2 style="margin: 0; font-size: 20px;">UDGAM MICROFINANCE</h2>
+      <div style="font-size: 13px; margin-top: 4px; opacity: 0.95;">Official Salary Slip — ${s.month}</div>
+    </div>
+    <div style="padding: 14px 20px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; font-size: 13px;">
+      <div><strong>Employee:</strong> ${s.name} (${s.employeeCode})</div>
+      <div><strong>Payable Days:</strong> ${s.payableDays} of ${s.daysInMonth} Days · <strong>Sundays:</strong> ${s.sundays || 0}</div>
+      <div><strong>Status:</strong> ${s.status?.toUpperCase() || 'SENT'}</div>
+    </div>
+    <div style="padding: 16px 20px;">
+      <h4 style="margin: 0 0 8px; color: #15803d;">Earnings (+)</h4>
+      <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 14px;">
+        ${earnLines}
+        <tr style="background: #f0fdf4; font-weight: bold;"><td style="padding: 8px 10px;">Total Earnings:</td><td style="padding: 8px 10px; text-align: right; color: #15803d;">Rs. ${totalEarn}</td></tr>
+      </table>
+      <h4 style="margin: 0 0 8px; color: #b91c1c;">Deductions (-)</h4>
+      <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 14px;">
+        ${dedLines || '<tr><td style="padding: 6px 10px;">None</td><td></td></tr>'}
+        <tr style="background: #fef2f2; font-weight: bold;"><td style="padding: 8px 10px;">Total Deductions:</td><td style="padding: 8px 10px; text-align: right; color: #b91c1c;">- Rs. ${totalDed}</td></tr>
+      </table>
+      <div style="background: #0f766e; color: #fff; padding: 14px; border-radius: 8px; text-align: center; margin-top: 16px;">
+        <div style="font-size: 12px; text-transform: uppercase; letter-spacing: 1px; opacity: 0.9;">Net Take-Home Salary</div>
+        <div style="font-size: 24px; font-weight: bold; margin-top: 4px;">Rs. ${net}</div>
+      </div>
+    </div>
+  </div>`;
+};
+
+/** Sends the salary slip to the employee by SMS and Email (mobile number & email of the employee). */
 export async function sendSalary(req, res) {
   const ids = (Array.isArray(req.body?.ids) ? req.body.ids : []).filter((x) => mongoose.isValidObjectId(String(x)));
   if (!ids.length) throw invalid({ ids: 'Select the salaries to send' });
@@ -1310,7 +1421,12 @@ export async function sendSalary(req, res) {
       }
       if (email) {
         // eslint-disable-next-line no-await-in-loop
-        const mailed = await sendMail({ to: email, subject: `Salary slip ${s.month} — ${s.employeeCode}`, text: slipText(s) });
+        const mailed = await sendMail({
+          to: email,
+          subject: `Udgam Microfinance: Salary Slip for ${s.month} — ${s.employeeCode}`,
+          text: slipText(s),
+          html: slipHtml(s),
+        });
         if (mailed) out.mailed += 1;
         reached = true;
       }
@@ -1334,7 +1450,7 @@ export async function sendSalary(req, res) {
 export async function mySalarySlips(req, res) {
   const emp = await Employee.findOne({ user: req.user._id, isDeleted: false }).select('_id');
   if (!emp) return res.json({ items: [] });
-  const rows = await Salary.find({ employee: emp._id, status: { $in: ['sent', 'paid'] } }).sort({ month: -1 }).limit(12).populate('branch', 'code name').lean();
+  const rows = await Salary.find({ employee: emp._id, status: { $in: ['generated', 'sent', 'paid'] } }).sort({ month: -1 }).limit(12).populate('branch', 'code name').lean();
   res.json({ items: rows.map((s) => presentSalary(s, req.user)) });
 }
 
