@@ -124,6 +124,7 @@ const present = (m, user, { detail = false } = {}) => {
       panPhoto: m.panPhoto || null,
       voterId: m.voterId || '',
       voterPhoto: m.voterPhoto || null,
+      passbookPhoto: m.passbookPhoto || null,
       memberPhoto: m.memberPhoto || null,
       signaturePhoto: m.signaturePhoto || null,
       guarantor: presentPerson(m.guarantor, full),
@@ -605,6 +606,7 @@ export async function createMember(req, res) {
   d.signaturePhoto = readImage(b.signaturePhoto, 'signaturePhoto', 'Signature photo', v, { required: true });
   d.panPhoto = readImage(b.panPhoto, 'panPhoto', 'PAN photo', v, { required: Boolean(d.pan) });
   d.voterPhoto = readImage(b.voterPhoto, 'voterPhoto', 'Voter photo', v, { required: false });
+  d.passbookPhoto = readImage(b.passbookPhoto || b.bankPassbookPhoto, 'passbookPhoto', 'Bank passbook photo', v, { required: false });
   v.throwIfAny();
 
   // A mobile number belongs to one member only.
@@ -676,7 +678,7 @@ export async function createMember(req, res) {
       accountVerifiedAt: acctCheck.status === 'verified' ? new Date() : undefined,
       employeeCode,
       ...(fromApp ? { joiningApproval: { source: 'app', status: 'pending' } } : {}),
-      kycKeys: ['memberPhoto', 'signaturePhoto', 'aadhaarPhoto', 'aadhaarBackPhoto', ...(d.panPhoto ? ['panPhoto'] : []), ...(d.voterPhoto ? ['voterPhoto'] : [])],
+      kycKeys: ['memberPhoto', 'signaturePhoto', 'aadhaarPhoto', 'aadhaarBackPhoto', ...(d.panPhoto ? ['panPhoto'] : []), ...(d.voterPhoto ? ['voterPhoto'] : []), ...(d.passbookPhoto ? ['passbookPhoto'] : [])],
       createdBy: req.user._id,
       updatedBy: req.user._id,
     });
@@ -767,7 +769,7 @@ export async function listMembers(req, res) {
 export async function getMember(req, res) {
   if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Member not found');
   const m = await Member.findOne({ _id: req.params.id, isDeleted: false, ...branchFilter(req.user) })
-    .select('+aadhaarPhoto +aadhaarBackPhoto +panPhoto +voterPhoto +memberPhoto +signaturePhoto')
+    .select('+aadhaarPhoto +aadhaarBackPhoto +panPhoto +voterPhoto +passbookPhoto +memberPhoto +signaturePhoto')
     .select(PARTY_PHOTOS)
     .select(HISTORY_PHOTOS)
     .populate(POPULATE);
@@ -815,6 +817,7 @@ async function readPerson(req, kind, m, existing) {
   d.aadhaarBackPhoto = readImage(b.aadhaarBackPhoto, 'aadhaarBackPhoto', 'Aadhaar back photo', v, { required: true });
   d.panPhoto = readImage(b.panPhoto, 'panPhoto', 'PAN photo', v, { required: Boolean(d.pan) });
   d.voterPhoto = readImage(b.voterPhoto, 'voterPhoto', 'Voter photo', v, { required: false });
+  d.passbookPhoto = readImage(b.passbookPhoto || b.bankPassbookPhoto, 'passbookPhoto', 'Bank passbook photo', v, { required: false });
   d.jointPhoto = readImage(b.jointPhoto, 'jointPhoto', 'Joint photo', v, { required: false });
   v.throwIfAny();
 
@@ -1009,6 +1012,7 @@ export const KYC_DOCS = [
   { key: 'aadhaarBackPhoto', who: 'Member', label: 'Aadhaar back' },
   { key: 'panPhoto', who: 'Member', label: 'PAN' },
   { key: 'voterPhoto', who: 'Member', label: 'Voter ID' },
+  { key: 'passbookPhoto', who: 'Member', label: 'Bank passbook photo' },
   ...['guarantor', 'nominee'].flatMap((k) => [
     { key: `${k}.photo`, who: cap(k), label: 'Photo' },
     { key: `${k}.signature`, who: cap(k), label: 'Signature' },
@@ -1069,7 +1073,7 @@ const kycSummary = (m, keys) => {
     ? keys
     : (Array.isArray(m.kycKeys) && m.kycKeys.length)
       ? m.kycKeys
-      : ['memberPhoto', 'signaturePhoto', 'aadhaarPhoto', 'aadhaarBackPhoto', ...(m.panPhoto ? ['panPhoto'] : []), ...(m.voterPhoto ? ['voterPhoto'] : [])];
+      : ['memberPhoto', 'signaturePhoto', 'aadhaarPhoto', 'aadhaarBackPhoto', ...(m.panPhoto ? ['panPhoto'] : []), ...(m.voterPhoto ? ['voterPhoto'] : []), ...(m.passbookPhoto ? ['passbookPhoto'] : [])];
   const docs = docStates(m, effectiveKeys);
   const count = (st) => docs.filter((d) => d.status === st).length;
   const parties = {
@@ -1103,7 +1107,7 @@ const kycSummary = (m, keys) => {
   };
 };
 
-const KYC_PROJECTION = '+aadhaarPhoto +aadhaarBackPhoto +panPhoto +voterPhoto +memberPhoto +signaturePhoto';
+const KYC_PROJECTION = '+aadhaarPhoto +aadhaarBackPhoto +panPhoto +voterPhoto +passbookPhoto +memberPhoto +signaturePhoto';
 
 /** Date-wise queue of members whose documents need approval. */
 export async function listKyc(req, res) {
@@ -1583,6 +1587,7 @@ const MEMBER_PHOTOS = [
   ['aadhaarBackPhoto', 'Aadhaar back photo', 'aadhaarBackPhoto'],
   ['panPhoto', 'PAN photo', 'panPhoto'],
   ['voterPhoto', 'Voter photo', 'voterPhoto'],
+  ['passbookPhoto', 'Bank passbook photo', 'passbookPhoto'],
 ];
 
 /**

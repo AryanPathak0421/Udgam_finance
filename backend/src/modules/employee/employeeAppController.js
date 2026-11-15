@@ -1223,9 +1223,14 @@ export async function registerMember(req, res) {
   const defaultPhoto = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 
   try {
+    const voterDocPhoto = b.voterPhoto || b.voterCardPhoto || '';
+    const passbookDocPhoto = b.passbookPhoto || b.bankPassbookPhoto || '';
+    const voterCardNum = cleanStr(b.voterCardNumber || b.voterId || b.voterNo).toUpperCase();
+
     const kycKeys = ['memberPhoto', 'signaturePhoto', 'aadhaarPhoto', 'aadhaarBackPhoto'];
     if (b.panPhoto) kycKeys.push('panPhoto');
-    if (b.voterPhoto) kycKeys.push('voterPhoto');
+    if (voterDocPhoto) kycKeys.push('voterPhoto');
+    if (passbookDocPhoto) kycKeys.push('passbookPhoto');
     if (b.guarantorName && b.guarantorPhoto) kycKeys.push('guarantor.photo');
 
     const member = await Member.create({
@@ -1249,7 +1254,7 @@ export async function registerMember(req, res) {
       area: cleanStr(b.area) || '',
       aadhaar: aadhaarClean || `${Date.now()}`.slice(-12),
       pan: cleanStr(b.pan),
-      voterId: cleanStr(b.voterId).toUpperCase(),
+      voterId: voterCardNum,
       bankName: cleanStr(b.bankName) || 'State Bank of India',
       ifsc: cleanStr(b.ifsc).toUpperCase() || 'SBIN0000001',
       accountNumber: cleanStr(b.accountNumber) || '10000000000',
@@ -1258,7 +1263,8 @@ export async function registerMember(req, res) {
       aadhaarPhoto: b.aadhaarPhoto || defaultPhoto,
       aadhaarBackPhoto: b.aadhaarBackPhoto || b.aadhaarPhoto || defaultPhoto,
       panPhoto: b.panPhoto || '',
-      voterPhoto: b.voterPhoto || '',
+      voterPhoto: voterDocPhoto,
+      passbookPhoto: passbookDocPhoto,
       kycKeys,
       guarantor: b.guarantorName ? {
         name: cleanStr(b.guarantorName),
@@ -1313,17 +1319,18 @@ export async function getStaffRecentMembers(req, res) {
   const branchIds = [...new Set(rawBranchIds.map((b) => String(b?.id || b?._id || b)))];
 
   const query = { isDeleted: { $ne: true } };
-  // Item 13 Fix: Strictly restrict members to employee's branch to prevent other branch members leaking
-  if (branchIds.length > 0) {
-    query.branch = { $in: branchIds };
-  } else if (codeRegex) {
-    query.employeeCode = codeRegex;
-  }
+  // Item 10C & 13 Fix: Strictly restrict members to employee's branch and members created by this staff
+  const staffOrBranch = [
+    { createdBy: req.user._id },
+    ...(codeRegex ? [{ employeeCode: codeRegex }] : []),
+    ...(branchIds.length > 0 ? [{ branch: { $in: branchIds } }] : []),
+  ];
+  query.$or = staffOrBranch;
 
   const members = await Member.find(query)
     .sort({ createdAt: -1 })
     .limit(1000)
-    .select('+memberPhoto +signaturePhoto +aadhaarPhoto +aadhaarBackPhoto +panPhoto')
+    .select('+memberPhoto +signaturePhoto +aadhaarPhoto +aadhaarBackPhoto +panPhoto +voterPhoto +passbookPhoto')
     .populate('branch', 'name code')
     .lean();
 
@@ -1334,6 +1341,8 @@ export async function getStaffRecentMembers(req, res) {
       const hasAadhaarFront = Boolean(m.aadhaarPhoto);
       const hasAadhaarBack = Boolean(m.aadhaarBackPhoto);
       const hasPan = Boolean(m.panPhoto);
+      const hasVoter = Boolean(m.voterPhoto);
+      const hasPassbook = Boolean(m.passbookPhoto);
 
       // Point 9 Fix: Check if any mandatory document is missing. If even 1 doc is missing, NEVER show verified!
       const missingMandatoryDocs = [];
@@ -1360,6 +1369,9 @@ export async function getStaffRecentMembers(req, res) {
         hasAadhaar: hasAadhaarFront,
         hasAadhaarBack,
         hasPan,
+        hasVoter,
+        hasPassbook,
+        voterId: m.voterId || '',
         isMissing,
         missingCount: missingMandatoryDocs.length,
         missingDocs: missingMandatoryDocs,
@@ -1385,7 +1397,7 @@ export async function getMemberKyc(req, res) {
       { aadhaar: q },
     ],
   })
-    .select('+memberPhoto +signaturePhoto +aadhaarPhoto +aadhaarBackPhoto +panPhoto +guarantor.photo +guarantor.signature +guarantor.aadhaarPhoto +guarantor.aadhaarBackPhoto +guarantor.panPhoto +guarantor.jointPhoto')
+    .select('+memberPhoto +signaturePhoto +aadhaarPhoto +aadhaarBackPhoto +panPhoto +voterPhoto +passbookPhoto +guarantor.photo +guarantor.signature +guarantor.aadhaarPhoto +guarantor.aadhaarBackPhoto +guarantor.panPhoto +guarantor.jointPhoto')
     .populate('branch', 'code name')
     .lean();
   if (!m) throw new HttpError(404, 'Member not found');
@@ -1403,6 +1415,8 @@ export async function getMemberKyc(req, res) {
   const aadhaarFrontDoc = docStatus('aadhaarPhoto', Boolean(m.aadhaarPhoto));
   const aadhaarBackDoc = docStatus('aadhaarBackPhoto', Boolean(m.aadhaarBackPhoto));
   const panDoc = docStatus('panPhoto', Boolean(m.panPhoto));
+  const voterDoc = docStatus('voterPhoto', Boolean(m.voterPhoto));
+  const passbookDoc = docStatus('passbookPhoto', Boolean(m.passbookPhoto));
 
   // Point 12: Old/Current Guarantor documents for re-upload and audit
   const gPhotoDoc = docStatus('guarantor.photo', Boolean(m.guarantor?.photo));
@@ -1420,6 +1434,8 @@ export async function getMemberKyc(req, res) {
     { type: 'aadhaar', field: 'aadhaarPhoto', name: 'Aadhaar Card (Front)', status: aadhaarFrontDoc.status, rejectReason: aadhaarFrontDoc.reason, uploadedAt: m.aadhaarPhoto ? m.createdAt : null, image: m.aadhaarPhoto || null, required: true },
     { type: 'aadhaarBack', field: 'aadhaarBackPhoto', name: 'Aadhaar Card (Back)', status: aadhaarBackDoc.status, rejectReason: aadhaarBackDoc.reason, uploadedAt: m.aadhaarBackPhoto ? m.createdAt : null, image: m.aadhaarBackPhoto || null, required: true },
     { type: 'pan', field: 'panPhoto', name: 'PAN Card Photo', status: panDoc.status, rejectReason: panDoc.reason, uploadedAt: m.panPhoto ? m.createdAt : null, image: m.panPhoto || null, required: false },
+    { type: 'voter', field: 'voterPhoto', name: 'Voter ID Card Photo', status: voterDoc.status, rejectReason: voterDoc.reason, uploadedAt: m.voterPhoto ? m.createdAt : null, image: m.voterPhoto || null, required: false },
+    { type: 'passbook', field: 'passbookPhoto', name: 'Bank Passbook Photo', status: passbookDoc.status, rejectReason: passbookDoc.reason, uploadedAt: m.passbookPhoto ? m.createdAt : null, image: m.passbookPhoto || null, required: false },
     // Point 12: Old/Current Guarantor Documents
     { type: 'guarantorPhoto', field: 'guarantor.photo', name: `Guarantor Photo (${gName})`, status: gPhotoDoc.status, rejectReason: gPhotoDoc.reason, uploadedAt: m.guarantor?.photo ? m.createdAt : null, image: m.guarantor?.photo || null, required: false },
     { type: 'guarantorSignature', field: 'guarantor.signature', name: `Guarantor Signature (${gName})`, status: gSignDoc.status, rejectReason: gSignDoc.reason, uploadedAt: m.guarantor?.signature ? m.createdAt : null, image: m.guarantor?.signature || null, required: false },
@@ -1495,6 +1511,8 @@ export async function reuploadMemberKycDoc(req, res) {
     : docField === 'aadhaar' || docField === 'aadhaarPhoto' ? 'aadhaarPhoto'
     : docField === 'aadhaarBack' || docField === 'aadhaarBackPhoto' ? 'aadhaarBackPhoto'
     : docField === 'pan' || docField === 'panPhoto' ? 'panPhoto'
+    : docField === 'voter' || docField === 'voterPhoto' || docField === 'voterCardPhoto' ? 'voterPhoto'
+    : docField === 'passbook' || docField === 'passbookPhoto' || docField === 'bankPassbookPhoto' ? 'passbookPhoto'
     : docField === 'guarantorPhoto' ? 'guarantor.photo'
     : docField === 'guarantorSignature' ? 'guarantor.signature'
     : docField === 'guarantorAadhaar' ? 'guarantor.aadhaarPhoto'
@@ -1548,6 +1566,8 @@ export async function rejectMemberKycDoc(req, res) {
     : docField === 'aadhaar' || docField === 'aadhaarPhoto' ? 'aadhaarPhoto'
     : docField === 'aadhaarBack' || docField === 'aadhaarBackPhoto' ? 'aadhaarBackPhoto'
     : docField === 'pan' || docField === 'panPhoto' ? 'panPhoto'
+    : docField === 'voter' || docField === 'voterPhoto' || docField === 'voterCardPhoto' ? 'voterPhoto'
+    : docField === 'passbook' || docField === 'passbookPhoto' || docField === 'bankPassbookPhoto' ? 'passbookPhoto'
     : docField;
 
   if (!Array.isArray(m.kycDocs)) m.kycDocs = [];
@@ -2939,11 +2959,13 @@ export async function trackLoanHistory(req, res) {
   const isAutoSettled = Boolean(settlement);
   const isClosed = isAutoSettled || balancePaise <= 0 || loan.status === 'closed';
 
-  // Check if loan has any collection pending system approval (Point 1 & 6)
-  const pendingAppCollection = await AppEmiCollection.findOne({
+  // Check if loan has any collections pending system approval (Point 1, 6, 9)
+  const pendingAppCollections = await AppEmiCollection.find({
     loanPayment: loan._id,
     status: 'pending',
-  }).lean();
+  }).sort({ collectedOn: -1 }).lean();
+
+  const totalPendingPaise = pendingAppCollections.reduce((acc, pc) => acc + (pc.amountPaise || 0), 0);
 
   const scheduleWithStatus = (loan.schedule || []).map((s) => {
     const isPaid = totalCollectedPaise >= (s.installmentPaise || 0) * s.no;
@@ -2957,6 +2979,32 @@ export async function trackLoanHistory(req, res) {
       status: isPaid ? 'paid' : isOverdue ? 'overdue' : 'upcoming',
     };
   });
+
+  const formattedApprovedPayments = emiPayments.map((p) => ({
+    receiptNo: p.receiptNo,
+    type: p.type,
+    paidOn: p.paidOn ? new Date(p.paidOn).toISOString().split('T')[0] : 'N/A',
+    amount: (p.amountPaise || 0) / 100,
+    payMode: p.payMode,
+    memberCode: p.memberCode,
+    memberName: p.memberName,
+    npa: p.npa,
+    status: 'paid',
+    isPendingApproval: false,
+  }));
+
+  const formattedPendingPayments = pendingAppCollections.map((pc) => ({
+    receiptNo: pc.receiptNo || 'PENDING',
+    type: pc.type || 'regular',
+    paidOn: pc.collectedOn ? new Date(pc.collectedOn).toISOString().split('T')[0] : 'Today',
+    amount: (pc.amountPaise || 0) / 100,
+    payMode: pc.payMode,
+    memberCode: pc.memberCode,
+    memberName: pc.memberName,
+    npa: Boolean(pc.npa),
+    status: 'pending_approval',
+    isPendingApproval: true,
+  }));
 
   res.json({
     loan: {
@@ -2974,21 +3022,13 @@ export async function trackLoanHistory(req, res) {
       status: isClosed ? 'closed' : 'active',
       isSettled: isAutoSettled || balancePaise <= 0,
       settlementKind: settlement?.kind || (balancePaise <= 0 ? 'fully_paid' : ''),
-      isPendingApproval: Boolean(pendingAppCollection),
-      pendingApprovalAmount: pendingAppCollection ? (pendingAppCollection.amountPaise / 100) : 0,
+      isPendingApproval: pendingAppCollections.length > 0,
+      pendingApprovalAmount: totalPendingPaise / 100,
+      pendingApprovalCount: pendingAppCollections.length,
       scheduleCount: loan.schedule?.length || 0,
     },
     schedule: scheduleWithStatus,
-    payments: emiPayments.map((p) => ({
-      receiptNo: p.receiptNo,
-      type: p.type,
-      paidOn: p.paidOn ? new Date(p.paidOn).toISOString().split('T')[0] : 'N/A',
-      amount: (p.amountPaise || 0) / 100,
-      payMode: p.payMode,
-      memberCode: p.memberCode,
-      memberName: p.memberName,
-      npa: p.npa,
-    })),
+    payments: [...formattedPendingPayments, ...formattedApprovedPayments],
   });
 }
 
@@ -3030,6 +3070,17 @@ export async function getEmiGroups(req, res) {
   }
   branchIds = [...new Set(branchIds.map(String))];
 
+  const allStaffCodes = [
+    req.query.staffCode,
+    staffCode,
+    emp?.employeeCode,
+    emp?.staffCode,
+    req.user?.employeeCode,
+    req.user?.username,
+  ].filter(Boolean).map((s) => s.trim().toUpperCase());
+  const uniqueStaffCodes = [...new Set(allStaffCodes)];
+  const staffRegexList = uniqueStaffCodes.map((c) => new RegExp(`^${c}$`, 'i'));
+
   let myAssignedGroups = [];
   const groupDocMap = new Map();
 
@@ -3040,14 +3091,15 @@ export async function getEmiGroups(req, res) {
     }
     myAssignedGroups = await Group.find(supGroupQuery).select('code name meetingType dayOfWeek collectionDay branch center').lean();
   } else {
+    // Item 7: Field staff should strictly only see their assigned groups (NOT company groups)
     const staffGroupQuery = {
       isDeleted: { $ne: true },
       $or: [
-        ...(codeRegex ? [{ employeeCode: codeRegex }, { staffCode: codeRegex }] : []),
+        ...(staffRegexList.length ? [{ employeeCode: { $in: staffRegexList } }, { staffCode: { $in: staffRegexList } }] : []),
         ...(emp?._id ? [{ employee: emp._id }, { staffId: emp._id }] : []),
+        { createdBy: req.user._id },
       ],
     };
-    // Point 4: Strictly isolate groups to employee branch
     if (branchIds.length > 0) {
       staffGroupQuery.branch = { $in: branchIds };
     }
@@ -3061,27 +3113,41 @@ export async function getEmiGroups(req, res) {
   let myGroupCodes = myAssignedGroups.map((g) => g.code).filter(Boolean);
 
   if (!myGroupCodes.length) {
-    const staffLoans = await LoanPayment.find({
-      ...(isSupervisorUser && branchIds.length ? { branch: { $in: branchIds } } : {
-        $or: [
-          ...(codeRegex ? [{ employeeCode: codeRegex }, { staffCode: codeRegex }] : []),
-          ...(branchId ? [{ branch: branchId }] : []),
-        ],
-      }),
+    // If no direct group records found, check loans explicitly assigned to this staff (NEVER include all-branch loans for non-supervisors!)
+    const staffLoanQuery = {
+      status: 'paid',
       'group.code': { $exists: true, $ne: '' },
-    })
-      .select('group.code')
-      .lean();
+    };
+    if (branchIds.length > 0) {
+      staffLoanQuery.branch = { $in: branchIds };
+    }
+    if (!isSupervisorUser) {
+      staffLoanQuery.$or = [
+        ...(staffRegexList.length ? [{ employeeCode: { $in: staffRegexList } }, { staffCode: { $in: staffRegexList } }] : []),
+        ...(emp?._id ? [{ staff: emp._id }, { employee: emp._id }] : []),
+        { createdBy: req.user._id },
+      ];
+    }
+    const staffLoans = await LoanPayment.find(staffLoanQuery).select('group.code').lean();
     myGroupCodes = [...new Set(staffLoans.map((l) => l.group?.code).filter(Boolean))];
   }
 
-  if (!myGroupCodes.length && (branchId || emp?.branch || req.user?.branches?.length)) {
-    const activeBranchId = branchId || emp?.branch || req.user?.branches?.[0];
-    const branchGroups = await Group.find({ branch: activeBranchId, isDeleted: { $ne: true } }).select('code name meetingType dayOfWeek collectionDay branch center').limit(100).lean();
+  // Only supervisors who have no assigned groups may fallback to viewing their branch groups
+  if (!myGroupCodes.length && isSupervisorUser && branchIds.length > 0) {
+    const branchGroups = await Group.find({ branch: { $in: branchIds }, isDeleted: { $ne: true } }).select('code name meetingType dayOfWeek collectionDay branch center').limit(100).lean();
     for (const g of branchGroups) {
       if (g.code) groupDocMap.set(g.code, g);
     }
     myGroupCodes = branchGroups.map((g) => g.code).filter(Boolean);
+  }
+
+  // Pre-load Group documents for any group codes discovered via loans so collection day and meeting type are accurate
+  const missingGroupCodes = myGroupCodes.filter((c) => !groupDocMap.has(c));
+  if (missingGroupCodes.length > 0) {
+    const extraGroups = await Group.find({ code: { $in: missingGroupCodes }, isDeleted: { $ne: true } }).select('code name meetingType dayOfWeek collectionDay branch center').lean();
+    for (const g of extraGroups) {
+      if (g.code) groupDocMap.set(g.code, g);
+    }
   }
 
   const loanQuery = {
@@ -3225,9 +3291,8 @@ export async function getEmiGroups(req, res) {
 
       // Default to Tuesday (2) or matching if not defined
       if (groupDayNum !== null) {
-        const matchesIso = groupDayNum === isoDay;
-        const matchesJs = groupDayNum === jsDay;
-        isScheduled = matchesIso || matchesJs;
+        // Item 7: Weekly groups strictly match today's day (1 = Monday, ..., 7 = Sunday)
+        isScheduled = (groupDayNum === isoDay) || (groupDayNum === jsDay && jsDay !== 0);
         const dayIdx = groupDayNum === 7 ? 0 : groupDayNum;
         scheduledDayLabel = dayNames[dayIdx] ? dayNames[dayIdx].charAt(0).toUpperCase() + dayNames[dayIdx].slice(1) : 'Weekly';
       } else {
@@ -3252,8 +3317,8 @@ export async function getEmiGroups(req, res) {
       }
     }
 
-    // If not scheduled for this date and not collecting today, skip (Supervisors see all groups under their branch)
-    if (!isScheduled && !isSupervisorUser && req.query.showAll !== 'true') continue;
+    // Item 7: If not scheduled for this date, strictly skip (daily shows daily, weekly Monday only shows on Monday)
+    if (!isScheduled && req.query.showAll !== 'true') continue;
 
     // Calculate members, due amounts, collected amounts, and pending dues count
     let totalActualEmiPaise = 0;
@@ -3938,7 +4003,7 @@ export async function advancePayment(req, res) {
   }
 
   // 2. Strict rapid double-tap / idempotency check (reject/return within 5 seconds)
-  const recentDuplicate = await EmiPayment.findOne({
+  const recentDuplicate = await AppEmiCollection.findOne({
     loanPayment: loan._id,
     memberCode: line.code,
     amountPaise: payAmountPaise,
@@ -3953,33 +4018,14 @@ export async function advancePayment(req, res) {
       loanId: loan.loanId,
       memberCode: line.code,
       memberName: line.name,
-      message: `Advance payment of ₹${payAmount} was already credited (Receipt: ${recentDuplicate.receiptNo})`,
+      message: `Advance payment of ₹${payAmount} was already submitted (Receipt: ${recentDuplicate.receiptNo})`,
     });
   }
 
   const receiptNo = await generateCode('emiReceipt').catch(() => `ADV${Date.now().toString().slice(-8)}`);
-  const doc = await EmiPayment.create({
-    receiptNo,
-    loanPayment: loan._id,
-    loanId: loan.loanId,
-    formId: loan.formId,
-    branch: loan.branch,
-    type: 'advance',
-    member: line.member,
-    memberCode: line.code,
-    memberName: line.name,
-    group: loan.group?.code ? `${loan.group.code} — ${loan.group.name}` : '',
-    amountPaise: payAmountPaise,
-    paidOn: new Date(),
-    payMode,
-    reference,
-    employeeCode: req.user?.employeeCode || '',
-    createdBy: req.user._id,
-    createdByCode: req.user?.employeeCode || '',
-    status: 'paid',
-  });
 
-  // Record in AppEmiCollection so it appears in Admin App Section Approval
+  // Item 9 Fix: Do NOT create approved EmiPayment directly from app!
+  // Record in AppEmiCollection with status 'pending' awaiting manager/admin collection approval
   await AppEmiCollection.create({
     loanPayment: loan._id,
     loanId: loan.loanId || loan.formId,
@@ -3995,17 +4041,18 @@ export async function advancePayment(req, res) {
     collectedBy: req.user._id,
     collectedByCode: req.user?.employeeCode || '',
     status: 'pending',
-    receiptNo: doc.receiptNo,
-  }).catch(() => {});
+    receiptNo,
+  });
 
   res.status(201).json({
     success: true,
-    receiptNo: doc.receiptNo,
+    receiptNo,
     amount: payAmount,
     loanId: loan.loanId,
     memberCode: line.code,
     memberName: line.name,
-    message: `Advance payment of ₹${payAmount} successfully credited to Loan ${loan.loanId}`,
+    pendingApproval: true,
+    message: `Advance payment of ₹${payAmount} recorded and submitted for System EMI Approval (Receipt: ${receiptNo})`,
   });
 }
 
@@ -4013,46 +4060,71 @@ export async function advancePayment(req, res) {
 // 17. NPA RECOVERY (NPA MEMBERS & OVERDUE RECOVERY)
 // -----------------------------------------------------------------------------
 export async function getNpaLoans(req, res) {
-  const { emp, code: staffCode, branchId } = await getEmployeeContext(req);
+  const { emp, code: staffCode, branchId, branchIds } = await getEmployeeContext(req);
   const codeRegex = staffCode ? new RegExp(`^${staffCode}$`, 'i') : null;
 
-  const myAssignedGroups = await Group.find({
+  // Item 8: Determine active branch(es) strictly
+  let bList = branchIds?.length ? branchIds : (branchId ? [branchId] : []);
+  if (req.query.branchId && mongoose.isValidObjectId(req.query.branchId)) {
+    bList = [req.query.branchId];
+  }
+  bList = [...new Set(bList.map(String))];
+
+  const isSupervisorUser = Boolean(
+    req.user?.isSupervisor ||
+    ['supervisor', 'branch_manager', 'area_manager', 'admin', 'super_admin'].includes(req.user?.role) ||
+    (Array.isArray(emp?.supervisedBranches) && emp.supervisedBranches.length > 0) ||
+    emp?.isSupervisor
+  );
+
+  const allStaffCodes = [
+    req.query.staffCode,
+    staffCode,
+    emp?.employeeCode,
+    emp?.staffCode,
+    req.user?.employeeCode,
+    req.user?.username,
+  ].filter(Boolean).map((s) => s.trim().toUpperCase());
+  const uniqueStaffCodes = [...new Set(allStaffCodes)];
+  const staffRegexList = uniqueStaffCodes.map((c) => new RegExp(`^${c}$`, 'i'));
+
+  // Groups strictly in the branch and assigned to staff
+  const groupQuery = {
     isDeleted: { $ne: true },
-    $or: [
-      ...(codeRegex ? [{ employeeCode: codeRegex }, { staffCode: codeRegex }] : []),
+    ...(bList.length ? { branch: { $in: bList } } : {}),
+  };
+  if (!isSupervisorUser) {
+    groupQuery.$or = [
+      ...(staffRegexList.length ? [{ employeeCode: { $in: staffRegexList } }, { staffCode: { $in: staffRegexList } }] : []),
       ...(emp?._id ? [{ employee: emp._id }, { staffId: emp._id }] : []),
-      ...(branchId ? [{ branch: branchId }] : []),
-    ],
-  }).select('code').lean();
+      { createdBy: req.user._id },
+    ];
+  }
+  const myAssignedGroups = await Group.find(groupQuery).select('code').lean();
   let myGroupCodes = myAssignedGroups.map((g) => g.code).filter(Boolean);
 
-  if (!myGroupCodes.length) {
-    const staffLoans = await LoanPayment.find({
-      $or: [
-        ...(codeRegex ? [{ employeeCode: codeRegex }, { staffCode: codeRegex }] : []),
-        ...(branchId ? [{ branch: branchId }] : []),
-      ],
-      'group.code': { $exists: true, $ne: '' }
-    })
-      .select('group.code')
-      .lean();
-    myGroupCodes = [...new Set(staffLoans.map((l) => l.group?.code).filter(Boolean))];
-  }
-
-  // Item 12 Fix: Strictly scope query by branchId so other branches' NPA loans NEVER leak to this staff
+  // Item 8 Fix: Strictly scope query by branchId so other branches' NPA loans NEVER leak to this staff
   const query = {
     status: { $in: ['paid', 'npa'] },
-    ...(branchId ? { branch: branchId } : {}),
+    ...(bList.length ? { branch: { $in: bList } } : { branch: { $in: [] } }),
   };
-  const staffOrGroup = [];
-  if (codeRegex) {
-    staffOrGroup.push({ employeeCode: codeRegex }, { staffCode: codeRegex });
-  }
-  if (myGroupCodes.length) {
-    staffOrGroup.push({ 'group.code': { $in: myGroupCodes } });
-  }
-  if (staffOrGroup.length) {
+
+  if (!isSupervisorUser) {
+    const staffOrGroup = [];
+    if (staffRegexList.length) {
+      staffOrGroup.push({ employeeCode: { $in: staffRegexList } }, { staffCode: { $in: staffRegexList } });
+    }
+    if (myGroupCodes.length) {
+      staffOrGroup.push({ 'group.code': { $in: myGroupCodes } });
+    }
+    if (emp?._id) {
+      staffOrGroup.push({ staff: emp._id });
+    }
+    staffOrGroup.push({ createdBy: req.user._id });
     query.$or = staffOrGroup;
+  } else if (req.query.staffCode) {
+    const scRegex = new RegExp(`^${req.query.staffCode.trim()}$`, 'i');
+    query.$or = [{ employeeCode: scRegex }, { staffCode: scRegex }];
   }
 
   const loans = await LoanPayment.find(query).populate('branch', 'name code').lean();

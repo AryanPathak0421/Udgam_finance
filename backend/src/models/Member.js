@@ -146,6 +146,7 @@ const memberSchema = new mongoose.Schema(
     panPhoto: { type: String, select: false },
     voterId: { type: String, uppercase: true, trim: true },
     voterPhoto: { type: String, select: false },
+    passbookPhoto: { type: String, select: false },
     memberPhoto: { type: String, required: needed, select: false },
     signaturePhoto: { type: String, required: needed, select: false },
     // Staff ID of the user who registered the member.

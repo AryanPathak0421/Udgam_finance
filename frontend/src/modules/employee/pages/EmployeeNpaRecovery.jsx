@@ -223,17 +223,23 @@ export default function EmployeeNpaRecovery() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8, marginTop: 12, padding: '10px 12px', background: '#f8fafc', borderRadius: 8, border: '1px solid var(--emp-border)' }}>
           <div>
             <label style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--emp-text-muted)' }}>Branch</label>
-            <select
-              className="emp-select"
-              value={selectedBranch}
-              onChange={(e) => setSelectedBranch(e.target.value)}
-              style={{ fontSize: '0.8rem', padding: '6px 8px', width: '100%' }}
-            >
-              <option value="all">All Branches</option>
-              {branchOptions.map((b) => (
-                <option key={b} value={b}>{b}</option>
-              ))}
-            </select>
+            {branchOptions.length > 1 ? (
+              <select
+                className="emp-select"
+                value={selectedBranch}
+                onChange={(e) => setSelectedBranch(e.target.value)}
+                style={{ fontSize: '0.8rem', padding: '6px 8px', width: '100%' }}
+              >
+                <option value="all">Assigned Branches</option>
+                {branchOptions.map((b) => (
+                  <option key={b} value={b}>{b}</option>
+                ))}
+              </select>
+            ) : (
+              <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--emp-primary)', padding: '6px 8px', background: '#fff', borderRadius: 6, border: '1px solid var(--emp-border)' }}>
+                {branchOptions[0] || 'My Branch'}
+              </div>
+            )}
           </div>
           <div>
             <label style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--emp-text-muted)' }}>Center</label>

@@ -59,13 +59,14 @@ const EMPTY_FORM = {
   bankName: '',
   ifsc: '',
   accountNumber: '',
-  // 6 KYC Document Photos
+  // 7 KYC Document Photos
   memberPhoto: '',
   signaturePhoto: '',
   aadhaarPhoto: '',
   aadhaarBackPhoto: '',
   panPhoto: '',
   voterPhoto: '',
+  passbookPhoto: '',
 };
 
 // Reusable Document / Photo Upload Field with In-App Live Camera Modal (Point 5 fix: prevents WebView crash)
@@ -547,7 +548,9 @@ export default function EmployeeNewMember() {
         const bList = res.branches || [];
         setBranches(bList);
         if (bList.length > 0) {
-          const userBranch = bList.find((b) => b.id === empUser?.branch || b.name === empUser?.branch);
+          const empBranchId = String(empUser?.branch?._id || empUser?.branch?.id || empUser?.branch || '');
+          const empBranchName = String(empUser?.branch?.name || empUser?.branch || '').toLowerCase();
+          const userBranch = bList.find((b) => String(b.id) === empBranchId || String(b.name).toLowerCase() === empBranchName);
           setForm((f) => ({ ...f, branch: userBranch ? userBranch.id : bList[0].id }));
         }
       })
@@ -557,7 +560,11 @@ export default function EmployeeNewMember() {
           .then((r) => {
             const items = r.items || [];
             setBranches(items);
-            if (items.length > 0) setForm((f) => ({ ...f, branch: items[0].id }));
+            if (items.length > 0) {
+              const empBranchId = String(empUser?.branch?._id || empUser?.branch?.id || empUser?.branch || '');
+              const userBranch = items.find((b) => String(b.id) === empBranchId);
+              setForm((f) => ({ ...f, branch: userBranch ? userBranch.id : items[0].id }));
+            }
           })
           .catch(() => {});
       });
@@ -995,9 +1002,37 @@ export default function EmployeeNewMember() {
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 360, margin: '0 auto' }}>
+                {/* Item 10B: Direct Button to Guarantor & Nominee Details Page */}
                 <button
                   type="button"
                   className="emp-btn-primary"
+                  style={{
+                    padding: '12px 16px',
+                    textAlign: 'center',
+                    background: '#0284c7',
+                    borderColor: '#0284c7',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    fontSize: '0.92rem',
+                    fontWeight: 700,
+                  }}
+                  onClick={() =>
+                    navigate(
+                      `/employee/guarantor-nominee?member=${encodeURIComponent(
+                        registrationSuccess.code || registrationSuccess.memberCode || ''
+                      )}`
+                    )
+                  }
+                >
+                  <Icon name="shield" size={18} />
+                  <span>Add Guarantor &amp; Nominee Details →</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="emp-btn-secondary"
                   style={{ padding: '12px', textAlign: 'center' }}
                   onClick={() => navigate('/employee/kyc?code=' + encodeURIComponent(registrationSuccess.code || registrationSuccess.memberCode || ''))}
                 >
@@ -1648,6 +1683,16 @@ export default function EmployeeNewMember() {
                     value={form.voterPhoto}
                     error={errors.voterPhoto}
                     onChange={setPhoto('voterPhoto')}
+                  />
+
+                  {/* Bank Passbook Photo (Item 11) */}
+                  <EmpPhotoField
+                    id="passbookPhoto"
+                    label="Member Bank Account Passbook / Cheque Photo (Optional)"
+                    required={false}
+                    value={form.passbookPhoto}
+                    error={errors.passbookPhoto}
+                    onChange={setPhoto('passbookPhoto')}
                   />
                 </div>
               </div>

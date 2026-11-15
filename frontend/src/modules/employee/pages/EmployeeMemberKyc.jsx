@@ -528,7 +528,7 @@ export default function EmployeeMemberKyc() {
           <div className="emp-card">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, color: 'var(--emp-text)' }}>
-                KYC Documents (5 Standard Docs)
+                KYC Documents &amp; Verification
               </h3>
               <span style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)' }}>
                 Upload enabled for missing / rejected (approved docs locked)

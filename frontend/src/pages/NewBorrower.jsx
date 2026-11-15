@@ -35,7 +35,7 @@ const minDob = () => {
 const EMPTY = {
   branch: '', name: '', dob: '', gender: '', mobile: '', email: '', husbandName: '', occupation: '', education: '',
   address: '', pincode: '', state: '', district: '', area: '', aadhaar: '', pan: '', voterId: '', bankName: '', ifsc: '', accountNumber: '',
-  memberPhoto: '', aadhaarPhoto: '', aadhaarBackPhoto: '', panPhoto: '', voterPhoto: '', signaturePhoto: '', employeeCode: '',
+  memberPhoto: '', aadhaarPhoto: '', aadhaarBackPhoto: '', panPhoto: '', voterPhoto: '', passbookPhoto: '', signaturePhoto: '', employeeCode: '',
 };
 
 // A value (mobile / PAN) that must be confirmed with an OTP before the form can be saved.
@@ -227,6 +227,7 @@ export function BorrowerForm({ branches, options, onCancel, onSaved, member = nu
           aadhaarBackPhoto: member.aadhaarBackPhoto || '',
           panPhoto: member.panPhoto || '',
           voterPhoto: member.voterPhoto || '',
+          passbookPhoto: member.passbookPhoto || '',
           signaturePhoto: member.signaturePhoto || '',
         }
       : { ...EMPTY, branch: branches.length === 1 ? branches[0].id : '' }
@@ -561,6 +562,7 @@ export function BorrowerForm({ branches, options, onCancel, onSaved, member = nu
           <PhotoField id="aadhaarBackPhoto" label="Aadhaar back photo" required={!isEdit} value={form.aadhaarBackPhoto} error={errors.aadhaarBackPhoto} onChange={setPhoto('aadhaarBackPhoto')} />
           <PhotoField id="panPhoto" label="PAN card photo" required={Boolean(form.pan)} value={form.panPhoto} error={errors.panPhoto} onChange={setPhoto('panPhoto')} />
           <PhotoField id="voterPhoto" label="Voter ID photo (optional)" value={form.voterPhoto} error={errors.voterPhoto} onChange={setPhoto('voterPhoto')} />
+          <PhotoField id="passbookPhoto" label="Bank passbook / statement photo (optional)" value={form.passbookPhoto} error={errors.passbookPhoto} onChange={setPhoto('passbookPhoto')} />
         </div>
       </div>
 
@@ -612,7 +614,7 @@ function MemberDetail({ id, onClose }) {
             ]}
           />
           <div className="stamp-view sign-row" style={{ marginTop: 16 }}>
-            {[['Member photo', m.memberPhoto], ['Signature', m.signaturePhoto], ['Aadhaar front', m.aadhaarPhoto], ['Aadhaar back', m.aadhaarBackPhoto], ['PAN', m.panPhoto], ['Voter ID', m.voterPhoto]].map(([l, src]) => (
+            {[['Member photo', m.memberPhoto], ['Signature', m.signaturePhoto], ['Aadhaar front', m.aadhaarPhoto], ['Aadhaar back', m.aadhaarBackPhoto], ['PAN', m.panPhoto], ['Voter ID', m.voterPhoto], ['Bank passbook', m.passbookPhoto]].map(([l, src]) => (
               <div key={l}>
                 <div className="detail-label">{l}</div>
                 {src ? <img src={src} alt={l} className="stamp-img" /> : <span className="muted">Not uploaded</span>}

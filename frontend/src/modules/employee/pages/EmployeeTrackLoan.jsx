@@ -113,6 +113,16 @@ export default function EmployeeTrackLoan() {
                 </div>
               </div>
             </div>
+
+            {/* Item 9: Pending Approval Notice */}
+            {loanData.loan?.isPendingApproval && (
+              <div style={{ marginTop: 12, padding: '10px 12px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, fontSize: '0.8rem', color: '#92400e', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Icon name="alerttriangle" size={18} style={{ color: '#d97706', flexShrink: 0 }} />
+                <div>
+                  <strong>Awaiting System Approval:</strong> ₹{Number(loanData.loan.pendingApprovalAmount || 0).toLocaleString('en-IN')} collected via App is pending System/Admin Approval. It will be credited to the loan ledger once approved.
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Sub Tab Switcher */}
@@ -194,12 +204,18 @@ export default function EmployeeTrackLoan() {
                       </div>
 
                       <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#059669' }}>
+                        <div style={{ fontSize: '1.05rem', fontWeight: 800, color: p.isPendingApproval ? '#d97706' : '#059669' }}>
                           +₹{Number(p.amount).toLocaleString('en-IN')}
                         </div>
-                        <span className="emp-badge emp-badge-success" style={{ fontSize: '0.68rem', marginTop: 4 }}>
-                          Confirmed
-                        </span>
+                        {p.isPendingApproval ? (
+                          <span className="emp-badge emp-badge-warning" style={{ fontSize: '0.68rem', marginTop: 4, background: '#fef3c7', color: '#b45309', border: '1px solid #fcd34d' }}>
+                            ⏳ Approval Pending
+                          </span>
+                        ) : (
+                          <span className="emp-badge emp-badge-success" style={{ fontSize: '0.68rem', marginTop: 4 }}>
+                            ✓ Approved
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
