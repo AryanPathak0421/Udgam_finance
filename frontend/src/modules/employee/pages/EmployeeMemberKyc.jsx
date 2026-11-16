@@ -3,6 +3,7 @@ import { api } from '../../../api/client.js';
 import { useEmployeeApp } from '../EmployeeAppContext.jsx';
 import { compressImage } from '../../../utils/image.js';
 import Icon from '../../../components/Icon.jsx';
+import { EmpCompleteDetailsModal } from './EmployeeMemberSynopsis.jsx';
 
 export default function EmployeeMemberKyc() {
   const { t } = useEmployeeApp();
@@ -60,6 +61,22 @@ export default function EmployeeMemberKyc() {
       loadMemberKyc(codeParam);
     }
   }, []);
+
+  // Complete details (same form as Borrower Synopsis) for a member of the old system
+  const [completeModal, setCompleteModal] = useState(false);
+  const [completeOptions, setCompleteOptions] = useState(null);
+  const [completeLoading, setCompleteLoading] = useState(false);
+  const handleOpenComplete = async () => {
+    setCompleteLoading(true);
+    try {
+      setCompleteOptions(await api.members.options());
+      setCompleteModal(true);
+    } catch (err) {
+      alert(err.message || 'Failed to load options for completing details');
+    } finally {
+      setCompleteLoading(false);
+    }
+  };
 
   const loadMemberKyc = async (codeOrId) => {
     const q = String(codeOrId || '').trim();
@@ -470,6 +487,21 @@ export default function EmployeeMemberKyc() {
                 </div>
               </div>
             </div>
+
+            {member.missingDetails?.length > 0 && (
+              <div style={{ marginTop: 12 }}>
+                <button
+                  type="button"
+                  className="emp-btn-primary"
+                  onClick={handleOpenComplete}
+                  disabled={completeLoading}
+                  style={{ width: '100%', padding: '8px 12px', fontSize: '0.82rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: '#d97706', borderColor: '#d97706' }}
+                >
+                  <Icon name="edit" size={14} />
+                  <span>{completeLoading ? 'Loading…' : `Complete Details (${member.missingDetails.length})`}</span>
+                </button>
+              </div>
+            )}
 
             {/* Verification Status Pills */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--emp-border)' }}>
@@ -944,6 +976,18 @@ export default function EmployeeMemberKyc() {
             </button>
           </div>
         </div>
+      )}
+
+      {completeModal && member && (
+        <EmpCompleteDetailsModal
+          member={member}
+          options={completeOptions}
+          onClose={() => setCompleteModal(false)}
+          onSaved={async () => {
+            setCompleteModal(false);
+            await loadMemberKyc(member.code || member.id);
+          }}
+        />
       )}
     </div>
   );

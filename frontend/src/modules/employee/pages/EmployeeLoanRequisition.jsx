@@ -877,7 +877,7 @@ export default function EmployeeLoanRequisition({ initialKind }) {
         const m = res?.member || b;
         const issues = [];
         if (m.isBlocked) issues.push('⛔ Member is BLOCKED. Cannot apply for loans.');
-        if (!m.isKycApproved && m.kycStatus !== 'approved' && !m.mobileVerifiedAt) {
+        if (!m.legacyImport && !m.isKycApproved && m.kycStatus !== 'approved' && !m.mobileVerifiedAt) {
           issues.push('Member KYC is pending verification');
         }
         const mLoans = m.loans || [];
@@ -1644,11 +1644,11 @@ export default function EmployeeLoanRequisition({ initialKind }) {
                         style={{ padding: '3px 8px', fontSize: '0.72rem', fontWeight: 600 }}
                         onClick={() => {
                           const targetList = memberSearch.trim() ? filteredMembers : groupDetail.group.members;
-                          const okIds = targetList.filter((m) => !m.isBlocked && !m.runningInGroup).map((m) => m.id || m._id);
+                          const okIds = targetList.filter((m) => !m.isBlocked && !m.runningInGroup && !(m.issues && m.issues.length)).map((m) => m.id || m._id);
                           setChosenMemberIds((prev) => Array.from(new Set([...prev, ...okIds])));
                         }}
                       >
-                        {memberSearch.trim() ? `Select Matching (${filteredMembers.filter((m) => !m.isBlocked && !m.runningInGroup).length})` : 'Select All Eligible'}
+                        {memberSearch.trim() ? `Select Matching (${filteredMembers.filter((m) => !m.isBlocked && !m.runningInGroup && !(m.issues && m.issues.length)).length})` : 'Select All Eligible'}
                       </button>
                       {chosenMemberIds.length > 0 && (
                         <button
@@ -1720,7 +1720,9 @@ export default function EmployeeLoanRequisition({ initialKind }) {
                       const isBlocked = Boolean(m.isBlocked);
                       const isRunning = Boolean(m.runningInGroup);
                       const isChosen = chosenMemberIds.includes(mid);
-                      const disabled = isBlocked || isRunning;
+                      const issueList = Array.isArray(m.issues) ? m.issues : [];
+                      // same rule as the software: a member with something pending (details, guarantor, nominee, KYC) cannot be selected
+                      const disabled = isBlocked || isRunning || issueList.length > 0;
                       const e = extras[mid] || { id: '', qty: '1' };
                       const p = stock.find((x) => x.id === e.id);
                       const extraVal = p ? Math.round(p.unitPrice * (Number(e.qty) || 1) * 100) / 100 : 0;
@@ -1758,42 +1760,22 @@ export default function EmployeeLoanRequisition({ initialKind }) {
                                 <span style={{ fontSize: '0.7rem', padding: '2px 6px', background: '#fee2e2', color: '#991b1b', borderRadius: 4, fontWeight: 700 }}>Blocked</span>
                               ) : isRunning ? (
                                 <span style={{ fontSize: '0.7rem', padding: '2px 6px', background: '#fef3c7', color: '#b45309', borderRadius: 4, fontWeight: 700 }}>Running Loan (25% Top-up Only)</span>
+                              ) : issueList.length > 0 ? (
+                                <span style={{ fontSize: '0.7rem', padding: '2px 6px', background: '#fee2e2', color: '#991b1b', borderRadius: 4, fontWeight: 700 }}>Not ready</span>
                               ) : (
                                 <span style={{ fontSize: '0.7rem', padding: '2px 6px', background: '#dcfce7', color: '#166534', borderRadius: 4, fontWeight: 700 }}>Eligible</span>
                               )}
                             </div>
                           </div>
 
-                          {/* Point 13.1 & Item 12: Explicit Unverified KYC docs per member in group */}
-                          {(() => {
-                            let displayedUnverified = m.unverifiedDocs || [];
-                            // Item 12: In Group Loan, if either member OR guarantor has uploaded PAN, PAN condition is satisfied
-                            const hasMemberPan = Boolean(m.pan || m.panPhoto);
-                            const hasGuarantorPan = Boolean(m.guarantor?.pan || m.guarantor?.panPhoto);
-                            if (hasMemberPan || hasGuarantorPan) {
-                              displayedUnverified = displayedUnverified.filter((u) => u.key !== 'panPhoto' && u.key !== 'guarantor.panPhoto');
-                            }
-                            if (!displayedUnverified.length) return null;
-                            return (
-                              <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                                {displayedUnverified.map((u) => (
-                                  <span
-                                    key={u.key}
-                                    style={{
-                                      fontSize: '0.68rem',
-                                      padding: '1px 6px',
-                                      background: u.status === 'rejected' ? '#fee2e2' : '#fef3c7',
-                                      color: u.status === 'rejected' ? '#991b1b' : '#92400e',
-                                      borderRadius: 4,
-                                      fontWeight: 700,
-                                    }}
-                                  >
-                                    {u.status === 'rejected' ? '❌' : '⏳'} {u.label} ({u.status === 'rejected' ? 'Rejected' : 'KYC Pending'})
-                                  </span>
-                                ))}
-                              </div>
-                            );
-                          })()}
+                          {/* Why the member cannot get a loan yet: the same lines as the software (details, guarantor, nominee, KYC) */}
+                          {!isBlocked && issueList.length > 0 && (
+                            <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                              {issueList.map((line) => (
+                                <div key={line} style={{ fontSize: '0.68rem', color: '#b91c1c', fontWeight: 600, lineHeight: 1.35 }}>{line}</div>
+                              ))}
+                            </div>
+                          )}
 
                           {isChosen && !disabled && (
                             <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--emp-border)' }}>

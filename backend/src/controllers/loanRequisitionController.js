@@ -281,6 +281,8 @@ export const KYC_DOC_LABELS = {
 
 export function getUnverifiedKycDocs(m, kind = '') {
   if (!m) return [];
+  // a member of the old system (legacyImport) has no KYC documents in the app: they do not hold back a loan
+  if (m.legacyImport) return [];
   const baseKeys = ['memberPhoto', 'signaturePhoto', 'aadhaarPhoto', 'aadhaarBackPhoto'];
 
   const hasMemberPan = Boolean(m.pan || (m.kycKeys || []).includes('panPhoto') || m.panPhoto);
@@ -469,11 +471,13 @@ export function notReady(m) {
   if (m.joiningApproval?.status === 'pending') out.push('The joining of this member (registered in the app) is waiting for approval (App Section → Member Joining Approval)');
   if (m.joiningApproval?.status === 'rejected') out.push('The joining of this member was rejected');
   // a member imported from the old system has to complete the details that were missing (mobile verified with an OTP, bank, photos ...)
-  const todo = missingDetails(m);
+  // (a legacyImport member is exempt from these checks: the old system never had the details, guarantor, nominee or KYC photos)
+  const todo = m.legacyImport ? [] : missingDetails(m);
   if (todo.length) out.push(`Complete the member's missing details first (Member Details → Borrower Synopsis → Complete details): ${todo.map((d) => d.label).join(', ')}`);
-  if (!m.guarantor?.name) out.push('Add the guarantor first (Member Details → Guarantor & Nominee)');
+  if (m.legacyImport && !m.guarantor?.name) { /* not recorded in the old system */ }
+  else if (!m.guarantor?.name) out.push('Add the guarantor first (Member Details → Guarantor & Nominee)');
   else if (m.guarantor.deceasedOn) out.push('The guarantor has died. Change the guarantor first (Member Details → Guarantor & Nominee) before a new loan requisition');
-  if (!m.nominee?.name) out.push('Add the nominee first (Member Details → Guarantor & Nominee)');
+  if (!m.legacyImport && !m.nominee?.name) out.push('Add the nominee first (Member Details → Guarantor & Nominee)');
 
   // Point 13.1: Explicit names of missing or unverified KYC documents
   const unverified = getUnverifiedKycDocs(m);

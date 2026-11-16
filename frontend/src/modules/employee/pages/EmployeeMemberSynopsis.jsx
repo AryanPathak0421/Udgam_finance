@@ -899,7 +899,7 @@ export default function EmployeeMemberSynopsis() {
   );
 }
 
-function EmpCompleteDetailsModal({ member, options, onClose, onSaved }) {
+export function EmpCompleteDetailsModal({ member, options, onClose, onSaved }) {
   const missing = new Set((member.missingDetails || []).map((d) => d.key));
   const [form, setForm] = useState({
     mobile: member.mobile || '',
