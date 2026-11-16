@@ -3576,7 +3576,7 @@ export async function getEmiGroups(req, res) {
         const totalScheduledPaise = (l.schedule || []).reduce((s, x) => s + (x.installmentPaise || 0), 0) + (line.extraEmiPaise || 0) * (l.schedule?.length || 0);
         const totalLoanPaise = line.amountPaise || l.totalAmountPaise || 0;
         if (totalScheduledPaise > 0 && stats.totalPaise >= totalScheduledPaise) continue; // finished loan
-        if (totalLoanPaise > 0 && stats.totalPaise >= totalLoanPaise) continue;
+        // (a loan is finished when everything scheduled is paid, see above; what was paid is not compared with the principal, because the installments also carry the interest)
 
         if (codeKey) seenMemberCodes.add(codeKey);
 
@@ -3775,7 +3775,7 @@ export async function getGroupEmiMembers(req, res) {
 
       // Finished / fully-paid loans should not appear in EMI collection list
       if (totalScheduledPaise > 0 && totalPaidPaise >= totalScheduledPaise) continue;
-      if (totalLoanPaise > 0 && totalPaidPaise >= totalLoanPaise) continue;
+      // (not compared with the principal: the installments also carry the interest, so a loan with the principal paid still owes the rest)
 
       if (codeKey) seenMemberCodes.add(codeKey);
 
