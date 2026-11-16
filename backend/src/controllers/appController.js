@@ -57,9 +57,11 @@ export async function listAppUsers(req, res) {
     const existingUserIds = new Set(existingAppUsers.map((a) => String(a.user)));
     const existingCodes = new Set(existingAppUsers.map((a) => (a.employeeCode || '').toUpperCase()));
 
+    // (HR employees loaded from the old system's workbook are not given an app login by themselves: an admin creates it with 'Create app user')
     const allEmployees = await Employee.find({
       isDeleted: { $ne: true },
       isBlocked: { $ne: true },
+      legacyImport: { $ne: true },
     }).populate('branch', 'code name').lean();
 
     for (const emp of allEmployees) {

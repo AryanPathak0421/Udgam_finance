@@ -401,7 +401,7 @@ function TeamModal({ supervisor, onClose }) {
                   <td data-label="Branch">{branchLabel(e.branch)}</td><td data-label="Joined">{dmy(e.joiningDate)}</td><td data-label="Home town">{e.homeTown || '—'}<div className="muted small">{[e.area, e.district, e.state].filter(Boolean).join(', ')}</div></td>
                   <td data-label="Father">{e.fatherName || '—'}<div className="muted small">{e.fatherMobile}</div></td><td data-label="Marital">{e.maritalStatus ? e.maritalStatus[0].toUpperCase() + e.maritalStatus.slice(1) : '—'}</td>
                   <td data-label="PF">{e.pfDeduction ? 'Yes' : 'No'}</td><td data-label="ESI">{e.esiDeduction ? 'Yes' : 'No'}</td><td data-label="Salary" className="num">{e.monthlySalary ? inr(e.monthlySalary) : '—'}</td>
-                  <td data-label="Bank">{e.bankName || '—'}<div className="muted small">{e.accountNumber}</div></td><td data-label="Status">{e.status === 'active' ? 'Working' : 'Left'}</td>
+                  <td data-label="Bank">{e.bankName || '—'}<div className="muted small">{e.accountNumber}</div></td><td data-label="Status">{e.isBlocked ? 'Blocked' : e.status === 'active' ? 'Working' : 'Left'}</td>
                 </tr>
               ))}
             </tbody>
@@ -753,7 +753,7 @@ function EmployeeProfile({ item, onClose }) {
             {row('Branch', branchLabel(e.branch))}
             {row('Post', [e.designation?.name, e.department?.name].filter(Boolean).join(' · ') || '—')}
             {row('Joined', e.joiningDate ? dmy(e.joiningDate) : '—')}
-            {row('Status', e.status === 'active' ? 'Working' : 'Left')}
+            {row('Status', e.isBlocked ? 'Blocked' : e.status === 'active' ? 'Working' : 'Left')}
             {row('Monthly salary (set)', e.monthlySalary ? inr(e.monthlySalary) : 'Not set')}
             {row('Basic salary (current)', e.salarySetup?.basic ? inr(e.salarySetup.basic) : '—', true)}
             {row('Yearly increase of the Basic', `${e.salarySetup?.yearlyIncrementPercent ?? 10}% every year from joining date`)}
@@ -852,7 +852,7 @@ export function EmployeeRegistration() {
                       <td data-label="Joined">{dmy(e.joiningDate)}</td>
                       <td data-label="Monthly salary" className="num">{e.monthlySalary ? inr(e.monthlySalary) : <span className="muted">not set</span>}</td>
                       <td data-label="Bank">{e.bankName || '—'}<div className="muted small">{e.accountNumber}</div></td>
-                      <td data-label="Status"><span className={`badge ${e.status === 'active' ? 'green' : 'grey'}`}>{e.status === 'active' ? 'Working' : `Left ${dmy(e.leftOn)}`}</span></td>
+                      <td data-label="Status"><span className={`badge ${e.isBlocked ? 'danger' : e.status === 'active' ? 'green' : 'grey'}`}>{e.isBlocked ? 'Blocked' : e.status === 'active' ? 'Working' : `Left ${dmy(e.leftOn)}`}</span></td>
                       <td><div style={{ display: 'flex', gap: 6 }}><button className="btn sm" onClick={() => setProfile(e)}>Profile</button><button className="btn sm" onClick={() => setForm(e)}>Edit</button>{e.teamCount > 0 && <button className="btn sm" onClick={() => setTeam(e)}>Team ({e.teamCount})</button>}<button className="btn sm" onClick={() => toggle(e)}>{e.status === 'active' ? 'Left' : 'Rejoin'}</button></div></td>
                     </tr>
                   ))}

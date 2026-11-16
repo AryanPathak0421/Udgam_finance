@@ -167,7 +167,9 @@ async function main() {
     const dn = str(r[2]); const gn = str(r[3]);
     if (dn && !deptId.has(dn.toLowerCase())) { const id = oid(); deptId.set(dn.toLowerCase(), id); deptDocs.push({ _id: id, name: dn.toUpperCase() === dn ? title(dn) : dn, isActive: true, isDeleted: false, ...stamp() }); }
     if (gn && !desigId.has(gn.toLowerCase())) { const id = oid(); desigId.set(gn.toLowerCase(), id); desigDocs.push({ _id: id, name: gn, department: deptId.get(dn.toLowerCase()), isActive: true, isDeleted: false, ...stamp() }); }
-    hrDocs.push({ _id: oid(), employeeCode: up(r[0]), name: str(r[1]), mobile: str(r[5]).replace(/\D/g, '').slice(-10), department: deptId.get(dn.toLowerCase()), designation: desigId.get(gn.toLowerCase()), branch: branchOf(r[8]), joiningDate: dateOf(r[4]) || undefined, isActive: str(r[6]).toLowerCase() !== 'inactive', isDeleted: false, ...stamp() });
+    hrDocs.push({ _id: oid(), employeeCode: up(r[0]), name: str(r[1]), mobile: str(r[5]).replace(/\D/g, '').slice(-10), department: deptId.get(dn.toLowerCase()), designation: desigId.get(gn.toLowerCase()), branch: branchOf(r[8]), joiningDate: dateOf(r[4]) || undefined, isActive: str(r[6]).toLowerCase() !== 'inactive', isDeleted: false,
+      // the sheet's Action column is 'block' for an employee blocked in the old system and 'unblock' for one that works
+      ...(str(r[6]).toLowerCase() === 'block' ? { isBlocked: true, blockReason: 'Blocked in the old system', blockedAt: new Date(), blockedByCode: 'LEGACY' } : {}), ...stamp() });
   }
 
   // ---- groups
