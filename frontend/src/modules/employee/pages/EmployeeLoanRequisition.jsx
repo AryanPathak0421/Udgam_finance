@@ -503,8 +503,9 @@ export default function EmployeeLoanRequisition({ initialKind }) {
   const isProduct = loanKind === 'product';
 
   // Master Details
+  const initialBranch = empUser?.branch?.id || empUser?.branch?._id || empUser?.branchId || (typeof empUser?.branch === 'string' ? empUser?.branch : '');
   const [branches, setBranches] = useState([]);
-  const [selectedBranch, setSelectedBranch] = useState('');
+  const [selectedBranch, setSelectedBranch] = useState(initialBranch);
   const [formFrontPhoto, setFormFrontPhoto] = useState('');
   const [formBackPhoto, setFormBackPhoto] = useState('');
 
@@ -594,27 +595,41 @@ export default function EmployeeLoanRequisition({ initialKind }) {
 
   // Load branches with reliable staff auto-selection (Point 9.1)
   useEffect(() => {
+    const staffBranchId =
+      empUser?.branch?.id ||
+      empUser?.branch?._id ||
+      empUser?.branchId ||
+      (typeof empUser?.branch === 'string' ? empUser?.branch : null);
+
     api.branches.options()
       .then((res) => {
         const bList = res.branches || res.items || [];
-        setBranches(bList);
-        if (bList.length > 0) {
-          const staffBranchId =
-            empUser?.branch?.id ||
-            empUser?.branch?._id ||
-            empUser?.branchId ||
-            (typeof empUser?.branch === 'string' ? empUser?.branch : null);
-          const matched = bList.find(
-            (b) =>
-              (b.id && (b.id === staffBranchId || String(b.id) === String(staffBranchId))) ||
-              (b._id && (b._id === staffBranchId || String(b._id) === String(staffBranchId))) ||
-              (empUser?.branch?.code && b.code === empUser?.branch?.code)
-          );
-          const defBranch = matched ? (matched.id || matched._id) : (bList[0].id || bList[0]._id);
-          setSelectedBranch(defBranch);
+        const matched = bList.find(
+          (b) =>
+            (b.id && (b.id === staffBranchId || String(b.id) === String(staffBranchId))) ||
+            (b._id && (b._id === staffBranchId || String(b._id) === String(staffBranchId))) ||
+            (empUser?.branch?.code && b.code === empUser?.branch?.code)
+        );
+        if (matched) {
+          // Strictly lock to employee's assigned branch only
+          setBranches([matched]);
+          setSelectedBranch(matched.id || matched._id);
+        } else if (staffBranchId) {
+          const fallback = { id: staffBranchId, code: empUser?.branch?.code || 'MY-BRANCH', name: empUser?.branch?.name || 'Assigned Branch' };
+          setBranches([fallback]);
+          setSelectedBranch(staffBranchId);
+        } else {
+          setBranches(bList);
+          if (bList.length > 0) setSelectedBranch(bList[0].id || bList[0]._id);
         }
       })
-      .catch(() => {});
+      .catch(() => {
+        if (staffBranchId) {
+          const fallback = { id: staffBranchId, code: empUser?.branch?.code || 'MY-BRANCH', name: empUser?.branch?.name || 'Assigned Branch' };
+          setBranches([fallback]);
+          setSelectedBranch(staffBranchId);
+        }
+      });
   }, [empUser]);
 
   // Load stock products whenever branch or loanKind changes
@@ -801,7 +816,8 @@ export default function EmployeeLoanRequisition({ initialKind }) {
     }
     let live = true;
     setSearchingBorrower(true);
-    api.loanRequisitions.borrowers({ branch: selectedBranch, q: debouncedSearch.trim() })
+    const effBranch = selectedBranch || empUser?.branch?.id || empUser?.branch?._id || empUser?.branchId || (typeof empUser?.branch === 'string' ? empUser?.branch : '');
+    api.loanRequisitions.borrowers({ branch: effBranch, q: debouncedSearch.trim() })
       .then((res) => {
         if (live) {
           const okItems = (res.items || []).filter((x) => !x.isBlocked);
@@ -811,9 +827,10 @@ export default function EmployeeLoanRequisition({ initialKind }) {
       .catch(async () => {
         const m = await api.employeeApp.memberSynopsis(debouncedSearch.trim()).catch(() => null);
         if (live && m?.member && !m.member.isBlocked) {
-          const mBranch = String(m.member.branch?._id || m.member.branch || '');
-          if (!selectedBranch || !mBranch || mBranch === String(selectedBranch)) {
-            setBorrowerCandidates([{ id: m.member._id, code: m.member.code, name: m.member.name, mobile: m.member.mobile, isBlocked: m.member.isBlocked }]);
+          const mBranch = String(m.member.branch?._id || m.member.branch?.id || m.member.branch || '');
+          const myBranch = String(effBranch);
+          if (!myBranch || mBranch === myBranch) {
+            setBorrowerCandidates([{ id: m.member._id || m.member.id, code: m.member.code, name: m.member.name, mobile: m.member.mobile, isBlocked: m.member.isBlocked }]);
           }
         }
       })
@@ -821,7 +838,7 @@ export default function EmployeeLoanRequisition({ initialKind }) {
         if (live) setSearchingBorrower(false);
       });
     return () => { live = false; };
-  }, [debouncedSearch, selectedBranch, isGroup]);
+  }, [debouncedSearch, selectedBranch, empUser, isGroup]);
 
   // Pick borrower handler
   const handlePickBorrower = async (b) => {
@@ -1399,6 +1416,7 @@ export default function EmployeeLoanRequisition({ initialKind }) {
                   className="emp-input"
                   value={selectedBranch}
                   onChange={(e) => setSelectedBranch(e.target.value)}
+                  disabled={Boolean(empUser?.branch)}
                   required
                 >
                   <option value="">Select Branch</option>

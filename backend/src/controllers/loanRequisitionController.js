@@ -90,7 +90,7 @@ export async function schemes(req, res) {
 export async function stockProducts(req, res) {
   // Loans are given from the stock of the branch of the requisition.
   if (!mongoose.isValidObjectId(String(req.query.branch || ''))) return res.json({ items: [] });
-  assertBranchAccess(req.user, req.query.branch);
+  await assertBranchAccess(req.user, req.query.branch);
   const branchObjId = new mongoose.Types.ObjectId(req.query.branch);
   const items = await StockProduct.find({
     isDeleted: false,
@@ -114,13 +114,17 @@ export async function verificationStatus(req, res) {
 }
 
 // ---- borrower (personal / business / product) ----------------------------------------------------------------
-function assertBranchAccess(user, branch) {
+async function assertBranchAccess(user, branch) {
   if (!mongoose.isValidObjectId(branch)) throw new HttpError(422, 'Select the branch first');
   if (isAdmin(user)) return;
-  const userBranches = [
+  let userBranches = [
     ...(user.branches || []).map((x) => String(x?._id || x)),
     ...(user.branch ? [String(user.branch?._id || user.branch)] : []),
   ];
+  if (userBranches.length === 0 && user.employeeCode) {
+    const emp = await Employee.findOne({ employeeCode: user.employeeCode }).select('branch').lean();
+    if (emp?.branch) userBranches.push(String(emp.branch._id || emp.branch));
+  }
   if (userBranches.length > 0 && !userBranches.includes(String(branch))) {
     throw new HttpError(403, 'You can only use branches assigned to you');
   }
@@ -128,14 +132,26 @@ function assertBranchAccess(user, branch) {
 
 /** Members of a branch that can be picked on the form. */
 export async function borrowers(req, res) {
-  assertBranchAccess(req.user, req.query.branch);
-  const filter = { isDeleted: false, branch: req.query.branch, isBlocked: { $ne: true } };
-  const q = asString(req.query.q);
+  let targetBranch = req.query.branch;
+  if (!targetBranch || !mongoose.isValidObjectId(targetBranch)) {
+    let userBranches = [
+      ...(req.user.branches || []).map((x) => String(x?._id || x)),
+      ...(req.user.branch ? [String(req.user.branch?._id || req.user.branch)] : []),
+    ];
+    if (userBranches.length === 0 && req.user.employeeCode) {
+      const emp = await Employee.findOne({ employeeCode: req.user.employeeCode }).select('branch').lean();
+      if (emp?.branch) userBranches.push(String(emp.branch._id || emp.branch));
+    }
+    targetBranch = userBranches[0];
+  }
+  await assertBranchAccess(req.user, targetBranch);
+  const filter = { isDeleted: false, branch: targetBranch, isBlocked: { $ne: true } };
+  const q = asString(req.query.q).trim();
   if (q) {
     const rx = new RegExp(escapeRegex(q), 'i');
-    filter.$or = [{ code: rx }, { name: rx }, { mobile: rx }];
+    filter.$or = [{ code: rx }, { name: rx }, { mobile: rx }, { aadhar: rx }, { aadhaar: rx }];
   }
-  const items = await Member.find(filter).select('code name mobile').sort({ code: 1 }).limit(30);
+  const items = await Member.find(filter).select('code name mobile').sort({ code: 1 }).limit(30).lean();
   res.json({ items: items.map((m) => ({ id: m._id, code: m.code, name: m.name, mobile: m.mobile })) });
 }
 
@@ -423,7 +439,7 @@ export async function borrowerDetail(req, res) {
 // ---- group ----------------------------------------------------------------------------------------------------
 /** Groups of a branch, optionally narrowed to one employee. */
 export async function groups(req, res) {
-  assertBranchAccess(req.user, req.query.branch);
+  await assertBranchAccess(req.user, req.query.branch);
   const filter = { isDeleted: false, isActive: true, branch: req.query.branch };
   const emp = asString(req.query.employeeCode).toUpperCase();
   if (emp) filter.employeeCode = emp;

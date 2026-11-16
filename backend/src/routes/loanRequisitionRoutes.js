@@ -9,7 +9,7 @@ const router = Router();
 
 const READ = ['super_admin', 'admin', 'branch_manager', 'loan_officer', 'field_officer', 'collection_officer', 'accountant', 'viewer'];
 const APPROVE = ['super_admin', 'admin', 'branch_manager']; // loan approval
-const CREATE = ['super_admin', 'admin', 'branch_manager', 'loan_officer', 'field_officer'];
+const CREATE = ['super_admin', 'admin', 'branch_manager', 'loan_officer', 'field_officer', 'collection_officer'];
 
 router.get('/loan-requisitions/schemes', requireAuth, requireRole(...CREATE), h(schemes));
 router.get('/loan-requisitions/borrowers', requireAuth, requireRole(...CREATE), h(borrowers));
