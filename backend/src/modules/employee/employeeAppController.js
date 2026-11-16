@@ -1398,7 +1398,7 @@ export async function getMemberKyc(req, res) {
       { aadhaar: q },
     ],
   })
-    .select('+memberPhoto +signaturePhoto +aadhaarPhoto +aadhaarBackPhoto +panPhoto +voterPhoto +passbookPhoto +guarantor.photo +guarantor.signature +guarantor.aadhaarPhoto +guarantor.aadhaarBackPhoto +guarantor.panPhoto +guarantor.jointPhoto')
+    .select('+memberPhoto +signaturePhoto +aadhaarPhoto +aadhaarBackPhoto +panPhoto +voterPhoto +passbookPhoto +guarantor.photo +guarantor.signature +guarantor.aadhaarPhoto +guarantor.aadhaarBackPhoto +guarantor.panPhoto +guarantor.jointPhoto +nominee.photo +nominee.signature +nominee.aadhaarPhoto +nominee.aadhaarBackPhoto +nominee.panPhoto')
     .populate('branch', 'code name')
     .lean();
   if (!m) throw new HttpError(404, 'Member not found');
@@ -1429,21 +1429,39 @@ export async function getMemberKyc(req, res) {
 
   const gName = m.guarantor?.name || 'Guarantor';
 
+  // Nominee documents
+  const nName = m.nominee?.name || 'Nominee';
+  const nSameAsGuarantor = Boolean(m.nominee?.sameAsGuarantor);
+  const nPhotoDoc = docStatus('nominee.photo', Boolean(m.nominee?.photo));
+  const nSignDoc = docStatus('nominee.signature', Boolean(m.nominee?.signature));
+  const nAadhaarDoc = docStatus('nominee.aadhaarPhoto', Boolean(m.nominee?.aadhaarPhoto));
+  const nAadhaarBackDoc = docStatus('nominee.aadhaarBackPhoto', Boolean(m.nominee?.aadhaarBackPhoto));
+  const nPanDoc = docStatus('nominee.panPhoto', Boolean(m.nominee?.panPhoto));
+
   const documents = [
-    { type: 'photo', field: 'memberPhoto', name: 'Member Photo', status: photoDoc.status, rejectReason: photoDoc.reason, uploadedAt: m.memberPhoto ? m.createdAt : null, image: m.memberPhoto || null, required: true },
-    { type: 'signature', field: 'signaturePhoto', name: 'Member Signature', status: signDoc.status, rejectReason: signDoc.reason, uploadedAt: m.signaturePhoto ? m.createdAt : null, image: m.signaturePhoto || null, required: true },
-    { type: 'aadhaar', field: 'aadhaarPhoto', name: 'Aadhaar Card (Front)', status: aadhaarFrontDoc.status, rejectReason: aadhaarFrontDoc.reason, uploadedAt: m.aadhaarPhoto ? m.createdAt : null, image: m.aadhaarPhoto || null, required: true },
-    { type: 'aadhaarBack', field: 'aadhaarBackPhoto', name: 'Aadhaar Card (Back)', status: aadhaarBackDoc.status, rejectReason: aadhaarBackDoc.reason, uploadedAt: m.aadhaarBackPhoto ? m.createdAt : null, image: m.aadhaarBackPhoto || null, required: true },
-    { type: 'pan', field: 'panPhoto', name: 'PAN Card Photo', status: panDoc.status, rejectReason: panDoc.reason, uploadedAt: m.panPhoto ? m.createdAt : null, image: m.panPhoto || null, required: false },
-    { type: 'voter', field: 'voterPhoto', name: 'Voter ID Card Photo', status: voterDoc.status, rejectReason: voterDoc.reason, uploadedAt: m.voterPhoto ? m.createdAt : null, image: m.voterPhoto || null, required: false },
-    { type: 'passbook', field: 'passbookPhoto', name: 'Bank Passbook Photo', status: passbookDoc.status, rejectReason: passbookDoc.reason, uploadedAt: m.passbookPhoto ? m.createdAt : null, image: m.passbookPhoto || null, required: false },
-    // Point 12: Old/Current Guarantor Documents
-    { type: 'guarantorPhoto', field: 'guarantor.photo', name: `Guarantor Photo (${gName})`, status: gPhotoDoc.status, rejectReason: gPhotoDoc.reason, uploadedAt: m.guarantor?.photo ? m.createdAt : null, image: m.guarantor?.photo || null, required: false },
-    { type: 'guarantorSignature', field: 'guarantor.signature', name: `Guarantor Signature (${gName})`, status: gSignDoc.status, rejectReason: gSignDoc.reason, uploadedAt: m.guarantor?.signature ? m.createdAt : null, image: m.guarantor?.signature || null, required: false },
-    { type: 'guarantorAadhaar', field: 'guarantor.aadhaarPhoto', name: `Guarantor Aadhaar Front (${gName})`, status: gAadhaarDoc.status, rejectReason: gAadhaarDoc.reason, uploadedAt: m.guarantor?.aadhaarPhoto ? m.createdAt : null, image: m.guarantor?.aadhaarPhoto || null, required: false },
-    { type: 'guarantorAadhaarBack', field: 'guarantor.aadhaarBackPhoto', name: `Guarantor Aadhaar Back (${gName})`, status: gAadhaarBackDoc.status, rejectReason: gAadhaarBackDoc.reason, uploadedAt: m.guarantor?.aadhaarBackPhoto ? m.createdAt : null, image: m.guarantor?.aadhaarBackPhoto || null, required: false },
-    ...(m.guarantor?.panPhoto ? [{ type: 'guarantorPan', field: 'guarantor.panPhoto', name: `Guarantor PAN Card (${gName})`, status: gPanDoc.status, rejectReason: gPanDoc.reason, uploadedAt: m.createdAt, image: m.guarantor.panPhoto, required: false }] : []),
-    ...(m.guarantor?.jointPhoto ? [{ type: 'guarantorJoint', field: 'guarantor.jointPhoto', name: `Member & Guarantor Joint Photo`, status: gJointDoc.status, rejectReason: gJointDoc.reason, uploadedAt: m.createdAt, image: m.guarantor.jointPhoto, required: false }] : []),
+    // 1. Member documents
+    { category: 'member', type: 'photo', field: 'memberPhoto', name: 'Member Photo', status: photoDoc.status, rejectReason: photoDoc.reason, uploadedAt: m.memberPhoto ? m.createdAt : null, image: m.memberPhoto || null, required: true },
+    { category: 'member', type: 'signature', field: 'signaturePhoto', name: 'Member Signature', status: signDoc.status, rejectReason: signDoc.reason, uploadedAt: m.signaturePhoto ? m.createdAt : null, image: m.signaturePhoto || null, required: true },
+    { category: 'member', type: 'aadhaar', field: 'aadhaarPhoto', name: 'Aadhaar Card (Front)', status: aadhaarFrontDoc.status, rejectReason: aadhaarFrontDoc.reason, uploadedAt: m.aadhaarPhoto ? m.createdAt : null, image: m.aadhaarPhoto || null, required: true },
+    { category: 'member', type: 'aadhaarBack', field: 'aadhaarBackPhoto', name: 'Aadhaar Card (Back)', status: aadhaarBackDoc.status, rejectReason: aadhaarBackDoc.reason, uploadedAt: m.aadhaarBackPhoto ? m.createdAt : null, image: m.aadhaarBackPhoto || null, required: true },
+    { category: 'member', type: 'pan', field: 'panPhoto', name: 'PAN Card Photo', status: panDoc.status, rejectReason: panDoc.reason, uploadedAt: m.panPhoto ? m.createdAt : null, image: m.panPhoto || null, required: false },
+    { category: 'member', type: 'voter', field: 'voterPhoto', name: 'Voter ID Card Photo', status: voterDoc.status, rejectReason: voterDoc.reason, uploadedAt: m.voterPhoto ? m.createdAt : null, image: m.voterPhoto || null, required: false },
+    { category: 'member', type: 'passbook', field: 'passbookPhoto', name: 'Bank Passbook Photo', status: passbookDoc.status, rejectReason: passbookDoc.reason, uploadedAt: m.passbookPhoto ? m.createdAt : null, image: m.passbookPhoto || null, required: false },
+    // 2. Guarantor documents
+    { category: 'guarantor', type: 'guarantorPhoto', field: 'guarantor.photo', name: `Guarantor Photo (${gName})`, status: gPhotoDoc.status, rejectReason: gPhotoDoc.reason, uploadedAt: m.guarantor?.photo ? m.createdAt : null, image: m.guarantor?.photo || null, required: false },
+    { category: 'guarantor', type: 'guarantorSignature', field: 'guarantor.signature', name: `Guarantor Signature (${gName})`, status: gSignDoc.status, rejectReason: gSignDoc.reason, uploadedAt: m.guarantor?.signature ? m.createdAt : null, image: m.guarantor?.signature || null, required: false },
+    { category: 'guarantor', type: 'guarantorAadhaar', field: 'guarantor.aadhaarPhoto', name: `Guarantor Aadhaar Front (${gName})`, status: gAadhaarDoc.status, rejectReason: gAadhaarDoc.reason, uploadedAt: m.guarantor?.aadhaarPhoto ? m.createdAt : null, image: m.guarantor?.aadhaarPhoto || null, required: false },
+    { category: 'guarantor', type: 'guarantorAadhaarBack', field: 'guarantor.aadhaarBackPhoto', name: `Guarantor Aadhaar Back (${gName})`, status: gAadhaarBackDoc.status, rejectReason: gAadhaarBackDoc.reason, uploadedAt: m.guarantor?.aadhaarBackPhoto ? m.createdAt : null, image: m.guarantor?.aadhaarBackPhoto || null, required: false },
+    ...(m.guarantor?.panPhoto ? [{ category: 'guarantor', type: 'guarantorPan', field: 'guarantor.panPhoto', name: `Guarantor PAN Card (${gName})`, status: gPanDoc.status, rejectReason: gPanDoc.reason, uploadedAt: m.createdAt, image: m.guarantor.panPhoto, required: false }] : []),
+    ...(m.guarantor?.jointPhoto ? [{ category: 'guarantor', type: 'guarantorJoint', field: 'guarantor.jointPhoto', name: `Member & Guarantor Joint Photo`, status: gJointDoc.status, rejectReason: gJointDoc.reason, uploadedAt: m.createdAt, image: m.guarantor.jointPhoto, required: false }] : []),
+    // 3. Nominee documents
+    ...(!nSameAsGuarantor ? [
+      { category: 'nominee', type: 'nomineePhoto', field: 'nominee.photo', name: `Nominee Photo (${nName})`, status: nPhotoDoc.status, rejectReason: nPhotoDoc.reason, uploadedAt: m.nominee?.photo ? m.createdAt : null, image: m.nominee?.photo || null, required: false },
+      { category: 'nominee', type: 'nomineeSignature', field: 'nominee.signature', name: `Nominee Signature (${nName})`, status: nSignDoc.status, rejectReason: nSignDoc.reason, uploadedAt: m.nominee?.signature ? m.createdAt : null, image: m.nominee?.signature || null, required: false },
+      { category: 'nominee', type: 'nomineeAadhaar', field: 'nominee.aadhaarPhoto', name: `Nominee Aadhaar Front (${nName})`, status: nAadhaarDoc.status, rejectReason: nAadhaarDoc.reason, uploadedAt: m.nominee?.aadhaarPhoto ? m.createdAt : null, image: m.nominee?.aadhaarPhoto || null, required: false },
+      { category: 'nominee', type: 'nomineeAadhaarBack', field: 'nominee.aadhaarBackPhoto', name: `Nominee Aadhaar Back (${nName})`, status: nAadhaarBackDoc.status, rejectReason: nAadhaarBackDoc.reason, uploadedAt: m.nominee?.aadhaarBackPhoto ? m.createdAt : null, image: m.nominee?.aadhaarBackPhoto || null, required: false },
+      ...(m.nominee?.panPhoto ? [{ category: 'nominee', type: 'nomineePan', field: 'nominee.panPhoto', name: `Nominee PAN Card (${nName})`, status: nPanDoc.status, rejectReason: nPanDoc.reason, uploadedAt: m.createdAt, image: m.nominee.panPhoto, required: false }] : []),
+    ] : []),
   ];
 
   // Point 9 Fix: Calculate strict overall KYC status
@@ -1620,6 +1638,49 @@ export async function rejectMemberKycDoc(req, res) {
   })();
 
   res.json({ status: 'ok', message: `Document (${mappedField}) rejected. Notification sent to staff for re-upload.` });
+}
+
+export async function approveMemberKycDoc(req, res) {
+  const q = cleanStr(req.params.id);
+  const docField = req.body?.docField || req.body?.docType;
+
+  const m = await Member.findOne({
+    $or: [{ _id: mongoose.isValidObjectId(q) ? q : null }, { code: q.toUpperCase() }],
+  });
+  if (!m) throw new HttpError(404, 'Member not found');
+
+  const mappedField = docField === 'photo' || docField === 'memberPhoto' ? 'memberPhoto'
+    : docField === 'signature' || docField === 'signaturePhoto' ? 'signaturePhoto'
+    : docField === 'aadhaar' || docField === 'aadhaarPhoto' ? 'aadhaarPhoto'
+    : docField === 'aadhaarBack' || docField === 'aadhaarBackPhoto' ? 'aadhaarBackPhoto'
+    : docField === 'pan' || docField === 'panPhoto' ? 'panPhoto'
+    : docField === 'voter' || docField === 'voterPhoto' || docField === 'voterCardPhoto' ? 'voterPhoto'
+    : docField === 'passbook' || docField === 'passbookPhoto' || docField === 'bankPassbookPhoto' ? 'passbookPhoto'
+    : docField;
+
+  if (!Array.isArray(m.kycDocs)) m.kycDocs = [];
+  m.kycDocs = m.kycDocs.filter((d) => d.key !== mappedField && d.field !== mappedField);
+  m.kycDocs.push({
+    key: mappedField,
+    field: mappedField,
+    status: 'approved',
+    reason: '',
+    approvedAt: new Date(),
+    approvedBy: req.user?._id,
+  });
+
+  const hasRejected = m.kycDocs.some((d) => d.status === 'rejected');
+  m.kycRejected = hasRejected;
+
+  const mandatory = ['memberPhoto', 'signaturePhoto', 'aadhaarPhoto', 'aadhaarBackPhoto'];
+  const allMandatoryApproved = mandatory.every((k) => m.kycDocs.some((d) => (d.key === k || d.field === k) && d.status === 'approved'));
+  if (allMandatoryApproved) {
+    m.isKycApproved = true;
+    m.kycPending = false;
+  }
+  await m.save();
+
+  res.json({ status: 'ok', message: `Document (${mappedField}) approved successfully.`, key: mappedField });
 }
 
 export async function sendMemberPhoneChangeOtp(req, res) {

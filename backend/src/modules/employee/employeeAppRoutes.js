@@ -19,6 +19,7 @@ import {
   getMemberKyc,
   reuploadMemberKycDoc,
   rejectMemberKycDoc,
+  approveMemberKycDoc,
   sendMemberPhoneChangeOtp,
   verifyMemberPhoneChange,
   sendGuarantorOtp,
@@ -103,6 +104,7 @@ router.get('/members/recent', requireAuth, h(getStaffRecentMembers));
 router.get('/members/:id/kyc', requireAuth, h(getMemberKyc));
 router.post('/members/:id/kyc/reupload', requireAuth, h(reuploadMemberKycDoc));
 router.post('/members/:id/kyc/reject', requireAuth, h(rejectMemberKycDoc));
+router.post('/members/:id/kyc/approve', requireAuth, h(approveMemberKycDoc));
 router.post('/members/:id/phone/send-otp', requireAuth, h(sendMemberPhoneChangeOtp));
 router.post('/members/:id/phone/verify-change', requireAuth, h(verifyMemberPhoneChange));
 router.get('/groups', requireAuth, h(getStaffGroups));

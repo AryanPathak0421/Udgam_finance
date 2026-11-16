@@ -46,6 +46,7 @@ const normalizeModes = (modes) => {
 
 const LOAN_TYPES = [
   { id: 'group', label: 'Group Loan Requisition', desc: 'Joint liability microfinance loan for SHG members', icon: 'group' },
+  { id: 'personal', label: 'Personal Loan Requisition', desc: 'Individual borrower loan with scheme selection & EMI preview', icon: 'user' },
   { id: 'business', label: 'Business / MSME Loan', desc: 'Micro & small enterprise financing with shop verification', icon: 'bank' },
   { id: 'product', label: 'Product Loan Requisition', desc: 'Consumer durables, solar, or equipment financing', icon: 'product' },
 ];
@@ -472,6 +473,7 @@ export default function EmployeeLoanRequisition({ initialKind }) {
   };
 
   const isGroup = loanKind === 'group';
+  const isPersonal = loanKind === 'personal';
   const isBusiness = loanKind === 'business';
   const isProduct = loanKind === 'product';
 
@@ -1377,7 +1379,7 @@ export default function EmployeeLoanRequisition({ initialKind }) {
                 <span>Select Loan Requisition Type:</span>
               </label>
               <span style={{ fontSize: '0.72rem', color: '#5eead4', fontWeight: 700, background: 'rgba(94, 234, 212, 0.15)', padding: '2px 8px', borderRadius: 10, border: '1px solid rgba(94, 234, 212, 0.3)' }}>
-                {isGroup ? 'Group SHG' : isBusiness ? 'Enterprise / MSME' : 'Product / Durable'}
+                {isGroup ? 'Group SHG' : isPersonal ? 'Personal Loan' : isBusiness ? 'Enterprise / MSME' : 'Product / Durable'}
               </span>
             </div>
 

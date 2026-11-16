@@ -511,7 +511,7 @@ export default function BorrowerSynopsis() {
           </div>
         )}
         <div style={{ marginTop: 12 }}>
-          <Photos items={[['Member photo', m.memberPhoto], ['Signature', m.signaturePhoto], ['Aadhaar front', m.aadhaarPhoto], ['Aadhaar back', m.aadhaarBackPhoto], ['PAN', m.panPhoto]]} />
+          <Photos items={[['Member photo', m.memberPhoto], ['Signature', m.signaturePhoto], ['Aadhaar front', m.aadhaarPhoto], ['Aadhaar back', m.aadhaarBackPhoto], ['PAN', m.panPhoto], ['Voter ID', m.voterPhoto], ['Bank passbook', m.passbookPhoto]]} />
         </div>
       </Section>
 

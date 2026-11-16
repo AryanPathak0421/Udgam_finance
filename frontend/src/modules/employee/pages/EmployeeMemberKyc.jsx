@@ -24,6 +24,7 @@ export default function EmployeeMemberKyc() {
   const [rejectingDoc, setRejectingDoc] = useState(null);
   const [rejectReason, setRejectReason] = useState('');
   const [rejectBusy, setRejectBusy] = useState(false);
+  const [docCategoryTab, setDocCategoryTab] = useState('all'); // 'all' | 'member' | 'guarantor' | 'nominee'
 
   // Phone Change OTP state
   const [showPhoneModal, setShowPhoneModal] = useState(false);
@@ -125,6 +126,26 @@ export default function EmployeeMemberKyc() {
       setError(err.message || 'Failed to reject document');
     } finally {
       setRejectBusy(false);
+    }
+  };
+
+  const handleApproveDoc = async (doc) => {
+    if (!doc || !member) return;
+    setLoading(true);
+    setError('');
+    setSuccessMsg('');
+    try {
+      await api.employeeApp.approveDoc(member.id || member._id || member.code, {
+        docType: doc.type,
+        docField: doc.field || doc.type,
+      });
+      setSuccessMsg(`✓ Document (${doc.name || doc.type}) marked as Approved!`);
+      loadMemberKyc(member.code || member.id || member._id);
+      fetchRecent();
+    } catch (err) {
+      setError(err.message || 'Failed to approve document');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -524,173 +545,226 @@ export default function EmployeeMemberKyc() {
             )}
           </div>
 
-          {/* Documents Section */}
+          {/* Documents Section — Categorized same as Web Software */}
           <div className="emp-card">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
               <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, color: 'var(--emp-text)' }}>
                 KYC Documents &amp; Verification
               </h3>
               <span style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)' }}>
-                Upload enabled for missing / rejected (approved docs locked)
+                Approve, reject, or re-upload documents (Same as Software)
               </span>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {member.documents?.map((doc) => {
-                const isRejected = doc.status === 'rejected';
-                const isApproved = doc.status === 'approved';
-                const isMissing = doc.status === 'missing' || !doc.image;
-                const isPending = !isApproved && !isRejected && !isMissing;
-                const docFieldKey = doc.field || doc.type;
-
+            {/* Category Tabs: Member / Guarantor / Nominee (Software Matching) */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6, marginBottom: 14 }}>
+              {[
+                { id: 'all', label: `All (${member.documents?.length || 0})` },
+                { id: 'member', label: `Member (${member.documents?.filter((d) => !d.category || d.category === 'member').length || 0})` },
+                { id: 'guarantor', label: `Guarantor (${member.documents?.filter((d) => d.category === 'guarantor').length || 0})` },
+                { id: 'nominee', label: `Nominee (${member.documents?.filter((d) => d.category === 'nominee').length || 0})` },
+              ].map((tb) => {
+                const active = docCategoryTab === tb.id;
                 return (
-                  <div
-                    key={doc.type}
+                  <button
+                    key={tb.id}
+                    type="button"
+                    onClick={() => setDocCategoryTab(tb.id)}
                     style={{
-                      border: '1px solid var(--emp-border)',
-                      borderRadius: 10,
-                      padding: 12,
-                      background: isRejected ? '#fef2f2' : isApproved ? '#f0fdf4' : isMissing ? '#fffbeb' : 'var(--emp-card-bg)',
+                      padding: '6px 4px',
+                      fontSize: '0.72rem',
+                      fontWeight: active ? 800 : 600,
+                      borderRadius: 6,
+                      border: active ? '1.5px solid var(--emp-primary)' : '1px solid var(--emp-border)',
+                      background: active ? 'var(--emp-primary)' : 'var(--emp-card-bg)',
+                      color: active ? '#fff' : 'var(--emp-text)',
+                      cursor: 'pointer',
+                      textAlign: 'center',
                     }}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
-                      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                        {doc.image ? (
-                          <img
-                            src={doc.image}
-                            alt={doc.name}
-                            onClick={() => setPreviewImage(doc.image)}
-                            style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--emp-border)', cursor: 'pointer' }}
-                            title="Click to view full photo"
-                          />
-                        ) : (
-                          <div
-                            style={{
-                              width: 48,
-                              height: 48,
-                              borderRadius: 6,
-                              background: '#e2e8f0',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              fontSize: '0.7rem',
-                              color: '#64748b',
-                              textAlign: 'center',
-                            }}
-                          >
-                            No Doc
+                    {tb.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {member.documents
+                ?.filter((doc) => {
+                  if (docCategoryTab === 'all') return true;
+                  if (docCategoryTab === 'member') return !doc.category || doc.category === 'member';
+                  return doc.category === docCategoryTab;
+                })
+                .map((doc) => {
+                  const isRejected = doc.status === 'rejected';
+                  const isApproved = doc.status === 'approved';
+                  const isMissing = doc.status === 'missing' || !doc.image;
+                  const isPending = !isApproved && !isRejected && !isMissing;
+                  const docFieldKey = doc.field || doc.type;
+
+                  return (
+                    <div
+                      key={doc.field || doc.type}
+                      style={{
+                        border: '1px solid var(--emp-border)',
+                        borderRadius: 10,
+                        padding: 12,
+                        background: isRejected ? '#fef2f2' : isApproved ? '#f0fdf4' : isMissing ? '#fffbeb' : 'var(--emp-card-bg)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+                        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                          {doc.image ? (
+                            <img
+                              src={doc.image}
+                              alt={doc.name}
+                              onClick={() => setPreviewImage(doc.image)}
+                              style={{ width: 50, height: 50, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--emp-border)', cursor: 'pointer' }}
+                              title="Click to view full photo"
+                            />
+                          ) : (
+                            <div
+                              style={{
+                                width: 50,
+                                height: 50,
+                                borderRadius: 6,
+                                background: '#e2e8f0',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: '0.7rem',
+                                color: '#64748b',
+                                textAlign: 'center',
+                              }}
+                            >
+                              No Doc
+                            </div>
+                          )}
+                          <div>
+                            <div style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--emp-text)' }}>
+                              {doc.name || doc.type}
+                            </div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
+                              {doc.uploadedAt ? `Uploaded: ${new Date(doc.uploadedAt).toLocaleDateString('en-IN')}` : 'Not yet uploaded'}
+                            </div>
                           </div>
-                        )}
-                        <div>
-                          <div style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--emp-text)' }}>
-                            {doc.name || doc.type}
-                          </div>
-                          <div style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
-                            {doc.uploadedAt ? `Uploaded: ${new Date(doc.uploadedAt).toLocaleDateString()}` : 'Not yet uploaded'}
-                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                          {isApproved && (
+                            <span className="emp-badge emp-badge-success" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.72rem' }}>
+                              <Icon name="checkcircle" size={11} /> Approved
+                            </span>
+                          )}
+                          {isRejected && (
+                            <span className="emp-badge emp-badge-danger" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.72rem' }}>
+                              <Icon name="cross" size={11} /> Rejected
+                            </span>
+                          )}
+                          {isMissing && (
+                            <span className="emp-badge emp-badge-warning" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.72rem', background: '#fef3c7', color: '#b45309' }}>
+                              <Icon name="alerttriangle" size={11} /> Missing
+                            </span>
+                          )}
+                          {isPending && (
+                            <span className="emp-badge emp-badge-warning" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.72rem' }}>
+                              <Icon name="clock" size={11} /> Pending
+                            </span>
+                          )}
                         </div>
                       </div>
 
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
-                        {isApproved && (
-                          <span className="emp-badge emp-badge-success" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.72rem' }}>
-                            <Icon name="checkcircle" size={11} /> Approved
-                          </span>
-                        )}
-                        {isRejected && (
-                          <span className="emp-badge emp-badge-danger" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.72rem' }}>
-                            <Icon name="cross" size={11} /> Rejected
-                          </span>
-                        )}
-                        {isMissing && (
-                          <span className="emp-badge emp-badge-warning" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.72rem' }}>
-                            <Icon name="alerttriangle" size={11} /> Missing
-                          </span>
-                        )}
-                        {isPending && (
-                          <span className="emp-badge emp-badge-warning" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.72rem' }}>
-                            <Icon name="clock" size={11} /> Pending
-                          </span>
-                        )}
-                      </div>
-                    </div>
+                      {/* Rejection reason banner */}
+                      {isRejected && (
+                        <div style={{ marginTop: 8, padding: '6px 10px', background: '#fee2e2', borderRadius: 6, fontSize: '0.78rem', color: '#991b1b' }}>
+                          <strong>Rejection Reason:</strong> {doc.rejectReason || 'Document illegible or mismatched details.'}
+                        </div>
+                      )}
 
-                    {/* Rejection reason banner */}
-                    {isRejected && (
-                      <div style={{ marginTop: 8, padding: '6px 10px', background: '#fee2e2', borderRadius: 6, fontSize: '0.78rem', color: '#991b1b' }}>
-                        <strong>Rejection Reason:</strong> {doc.rejectReason || 'Document illegible or mismatched details.'}
-                      </div>
-                    )}
+                      {/* Action buttons: Approve KYC Doc, Reject KYC Doc, & Upload / Re-Upload */}
+                      <div style={{ display: 'flex', gap: 8, marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--emp-border)', flexWrap: 'wrap' }}>
+                        <input
+                          type="file"
+                          id={`file-${doc.field || doc.type}`}
+                          accept="image/*,.pdf"
+                          style={{ display: 'none' }}
+                          onChange={(e) => handleReupload(docFieldKey, e.target.files?.[0])}
+                        />
 
-                    {/* Action buttons: Reject KYC Doc & Upload / Re-Upload */}
-                    <div style={{ display: 'flex', gap: 8, marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--emp-border)', flexWrap: 'wrap' }}>
-                      <input
-                        type="file"
-                        id={`file-${doc.type}`}
-                        accept="image/*,.pdf"
-                        style={{ display: 'none' }}
-                        onChange={(e) => handleReupload(docFieldKey, e.target.files?.[0])}
-                      />
-
-                      {/* Point 5: If approved, upload option is locked and hidden */}
-                      {isApproved ? (
-                        <span style={{ fontSize: '0.78rem', color: '#166534', background: '#dcfce7', padding: '6px 12px', borderRadius: 6, display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700 }}>
-                          <Icon name="checkcircle" size={13} /> ✓ Document Approved (Upload Locked)
-                        </span>
-                      ) : (
-                        <>
+                        {/* Approve Document Button (Software Matching) */}
+                        {!isApproved && doc.image && (
                           <button
                             type="button"
-                            className={isRejected ? 'emp-btn-primary' : 'emp-btn-secondary'}
+                            className="emp-btn-primary"
                             style={{
                               padding: '6px 12px',
                               fontSize: '0.78rem',
-                              background: isRejected ? '#dc2626' : undefined,
-                              color: isRejected ? '#fff' : undefined,
+                              background: '#16a34a',
+                              borderColor: '#16a34a',
+                              color: '#fff',
                               display: 'inline-flex',
                               alignItems: 'center',
                               gap: 6,
                             }}
-                            onClick={() => document.getElementById(`file-${doc.type}`).click()}
-                            disabled={reuploadBusy}
+                            onClick={() => handleApproveDoc(doc)}
+                            disabled={loading}
                           >
-                            <Icon name="upload" size={13} />
-                            {reuploadBusy
-                              ? 'Uploading...'
-                              : isRejected
-                              ? 'Re-Upload Document'
-                              : isMissing
-                              ? 'Upload Missing Doc'
-                              : 'Update / Re-Upload Doc'}
+                            <Icon name="checkcircle" size={13} /> Approve Doc
                           </button>
+                        )}
 
-                          {!isRejected && (
-                            <button
-                              type="button"
-                              className="emp-btn-secondary"
-                              style={{
-                                padding: '6px 12px',
-                                fontSize: '0.78rem',
-                                color: '#dc2626',
-                                borderColor: '#fca5a5',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: 6,
-                              }}
-                              onClick={() => {
-                                setRejectingDoc(doc);
-                                setRejectReason('');
-                              }}
-                            >
-                              <Icon name="cross" size={12} /> Reject KYC
-                            </button>
-                          )}
-                        </>
-                      )}
+                        {/* Upload / Re-Upload Button */}
+                        <button
+                          type="button"
+                          className={isRejected ? 'emp-btn-primary' : 'emp-btn-secondary'}
+                          style={{
+                            padding: '6px 12px',
+                            fontSize: '0.78rem',
+                            background: isRejected ? '#dc2626' : undefined,
+                            color: isRejected ? '#fff' : undefined,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 6,
+                          }}
+                          onClick={() => document.getElementById(`file-${doc.field || doc.type}`).click()}
+                          disabled={reuploadBusy}
+                        >
+                          <Icon name="upload" size={13} />
+                          {reuploadBusy
+                            ? 'Uploading...'
+                            : isRejected
+                            ? 'Re-Upload Document'
+                            : isMissing
+                            ? 'Upload Missing Doc'
+                            : 'Update / Replace Doc'}
+                        </button>
+
+                        {/* Reject Document Button */}
+                        {!isRejected && (
+                          <button
+                            type="button"
+                            className="emp-btn-secondary"
+                            style={{
+                              padding: '6px 12px',
+                              fontSize: '0.78rem',
+                              color: '#dc2626',
+                              borderColor: '#fca5a5',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 6,
+                            }}
+                            onClick={() => {
+                              setRejectingDoc(doc);
+                              setRejectReason('');
+                            }}
+                          >
+                            <Icon name="cross" size={12} /> Reject Doc
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
             </div>
           </div>
         </>

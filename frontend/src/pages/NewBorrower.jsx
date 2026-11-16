@@ -550,6 +550,15 @@ export function BorrowerForm({ branches, options, onCancel, onSaved, member = nu
           <FormField id="accountNumber" label="Account number" required error={errors.accountNumber || accountTaken} hint="9 to 18 digits. One account number can be used for one member only.">
             <input id="accountNumber" value={form.accountNumber} onChange={(e) => { setAccountTaken(''); setDigits('accountNumber', 18)(e); }} onBlur={checkAccount} inputMode="numeric" maxLength={18} />
           </FormField>
+          <div className="span-2" style={{ marginTop: 6 }}>
+            <PhotoField
+              id="passbookPhoto"
+              label="Bank Account Passbook / Cheque Photo (optional)"
+              value={form.passbookPhoto}
+              error={errors.passbookPhoto}
+              onChange={setPhoto('passbookPhoto')}
+            />
+          </div>
         </div>
       </div>
 

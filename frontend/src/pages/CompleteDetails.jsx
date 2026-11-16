@@ -11,7 +11,7 @@ import { OtpVerify, PhotoField } from './NewBorrower.jsx';
 export default function CompleteDetails({ member, options, onClose, onSaved }) {
   const toast = useToast();
   const missing = new Set((member.missingDetails || []).map((d) => d.key));
-  const [form, setForm] = useState({ mobile: member.mobile || '', husbandName: '', occupation: '', education: '', address: '', pincode: '', state: member.state || '', district: '', aadhaar: '', bankName: '', ifsc: '', accountNumber: '', memberPhoto: '', signaturePhoto: '', aadhaarPhoto: '', aadhaarBackPhoto: '', panPhoto: '' });
+  const [form, setForm] = useState({ mobile: member.mobile || '', husbandName: '', occupation: '', education: '', address: '', pincode: '', state: member.state || '', district: '', aadhaar: '', bankName: '', ifsc: '', accountNumber: '', passbookPhoto: '', memberPhoto: '', signaturePhoto: '', aadhaarPhoto: '', aadhaarBackPhoto: '', panPhoto: '' });
   const [challengeId, setChallengeId] = useState('');
   const [districts, setDistricts] = useState([]);
   const [errors, setErrors] = useState({});
@@ -101,6 +101,7 @@ export default function CompleteDetails({ member, options, onClose, onSaved }) {
           {missing.has('bankName') && <FormField id="cbank" label="Bank name" required error={errors.bankName}><input id="cbank" value={form.bankName} maxLength={80} onChange={set('bankName')} /></FormField>}
           {missing.has('ifsc') && <FormField id="cifsc" label="IFSC code" required error={errors.ifsc}><input id="cifsc" value={form.ifsc} maxLength={11} onChange={(e) => { setForm((f) => ({ ...f, ifsc: e.target.value.toUpperCase() })); setErrors((x) => ({ ...x, ifsc: undefined })); }} /></FormField>}
           {missing.has('accountNumber') && <FormField id="cacc" label="Account number" required error={errors.accountNumber}><input id="cacc" inputMode="numeric" value={form.accountNumber} onChange={digits('accountNumber', 18)} /></FormField>}
+          {!member.passbookPhoto && <PhotoField id="passbookPhoto" label="Bank passbook / cheque photo (optional)" value={form.passbookPhoto} error={errors.passbookPhoto} onChange={photo('passbookPhoto')} />}
           {missing.has('memberPhoto') && <PhotoField id="memberPhoto" label="Member photo" required value={form.memberPhoto} error={errors.memberPhoto} onChange={photo('memberPhoto')} />}
           {missing.has('signaturePhoto') && <PhotoField id="signaturePhoto" label="Signature" required value={form.signaturePhoto} error={errors.signaturePhoto} onChange={photo('signaturePhoto')} />}
           {missing.has('panPhoto') && <PhotoField id="panPhoto" label="PAN photo" required value={form.panPhoto} error={errors.panPhoto} onChange={photo('panPhoto')} />}

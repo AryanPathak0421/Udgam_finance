@@ -239,6 +239,31 @@ export default function EmployeeHome() {
             <Icon name="arrowright" size={14} style={{ opacity: 0.6 }} />
           </div>
 
+          {/* 2. Personal Loan Requisition */}
+          <div
+            onClick={() => navigate('/employee/requisition?kind=personal')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              padding: '11px 14px',
+              borderRadius: 10,
+              cursor: 'pointer',
+              background: 'rgba(255,255,255,0.06)',
+              border: '1px solid rgba(255,255,255,0.08)',
+              transition: 'all 0.2s ease',
+            }}
+          >
+            <div style={{ color: '#5eead4', display: 'flex', alignItems: 'center', justifyContent: 'center', width: 24 }}>
+              <Icon name="user" size={20} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#ffffff' }}>Personal Loan Requisition</div>
+              <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.65)' }}>Individual borrower loan with scheme selection &amp; EMI calculation</div>
+            </div>
+            <Icon name="arrowright" size={14} style={{ opacity: 0.6 }} />
+          </div>
+
           {/* 2. Business / MSME Loan */}
           <div
             onClick={() => navigate('/employee/requisition?kind=business')}
@@ -344,6 +369,13 @@ export default function EmployeeHome() {
             <Icon name="group" size={22} />
           </div>
           <div className="tile-title">Group Loan</div>
+        </div>
+
+        <div className="emp-action-tile" onClick={() => navigate('/employee/requisition?kind=personal')}>
+          <div className="tile-icon" style={{ color: 'var(--emp-primary)' }}>
+            <Icon name="user" size={22} />
+          </div>
+          <div className="tile-title">Personal Loan</div>
         </div>
 
         <div className="emp-action-tile" onClick={() => navigate('/employee/requisition?kind=business')}>

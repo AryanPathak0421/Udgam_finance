@@ -573,6 +573,7 @@ export const api = {
     memberKyc: (id) => request(`/employee/members/${id}/kyc`),
     reuploadDoc: (id, data) => request(`/employee/members/${id}/kyc/reupload`, { method: 'POST', body: data }),
     rejectDoc: (id, data) => request(`/employee/members/${id}/kyc/reject`, { method: 'POST', body: data }),
+    approveDoc: (id, data) => request(`/employee/members/${id}/kyc/approve`, { method: 'POST', body: data }),
     sendPhoneChangeOtp: (id, data) => request(`/employee/members/${id}/phone/send-otp`, { method: 'POST', body: typeof data === 'string' ? { newMobile: data } : data }),
     verifyPhoneChange: (id, data) => request(`/employee/members/${id}/phone/verify-change`, { method: 'POST', body: data }),
     groups: () => request('/employee/groups'),
