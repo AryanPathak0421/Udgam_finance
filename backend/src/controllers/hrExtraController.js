@@ -918,20 +918,32 @@ export async function blockEmployee(req, res) {
   const block = req.body?.block !== false;
   const reason = asString(req.body?.reason).slice(0, 200);
   if (block) {
-    if (reason.length < 3) throw invalid({ reason: 'Enter the reason' });
+    if (reason.length < 3) throw invalid({ reason: 'Enter the reason (at least 3 characters)' });
     if (e.user && String(e.user) === String(req.user._id)) throw new HttpError(409, 'You cannot block yourself');
     const u = e.user ? await User.findById(e.user).select('role') : null;
-    if (u?.role === 'super_admin') throw new HttpError(409, 'A super admin cannot be blocked');
+    if (u?.role === 'super_admin' || e.employeeCode === 'EMP0001') throw new HttpError(409, 'A super admin cannot be blocked');
   }
   e.isBlocked = block;
   e.blockReason = block ? reason : undefined;
   e.blockedAt = block ? new Date() : undefined;
   e.blockedByCode = block ? req.user.employeeCode || '' : undefined;
   await e.save();
+
+  const codeUpper = (e.employeeCode || '').toUpperCase();
+  const appUserFilter = e.user
+    ? { $or: [{ user: e.user }, { employeeCode: codeUpper }] }
+    : { employeeCode: codeUpper };
+
   if (e.user) {
     await User.updateOne({ _id: e.user }, { $set: { isActive: !block } });
-    if (block) await AppUser.updateOne({ user: e.user }, { $set: { isActive: false, deactivatedAt: new Date() } });
   }
+
+  if (block) {
+    await AppUser.updateMany(appUserFilter, { $set: { isActive: false, deactivatedAt: new Date() } });
+  } else {
+    await AppUser.updateMany(appUserFilter, { $set: { isActive: true }, $unset: { deactivatedAt: '' } });
+  }
+
   await audit(req, { action: block ? 'employee.block' : 'employee.unblock', entity: 'Employee', entityId: e._id, after: { employeeCode: e.employeeCode, reason } });
   res.json({ isBlocked: e.isBlocked });
 }

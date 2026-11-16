@@ -90,11 +90,47 @@ function ReasonModal({ title, subject, label = 'Reason', confirm = 'Reject', onC
   const [reason, setReason] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+
+  const handleSubmit = async () => {
+    const val = reason.trim();
+    if (required && (!val || val.length < 3)) {
+      setError('Please enter a valid reason (at least 3 characters)');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      await onSend(val);
+    } catch (err) {
+      setError(err.errors?.reason || err.errors?.remark || err.message || 'Something went wrong');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <Modal open title={title} onClose={onClose} busy={busy}
-      footer={<><button className="btn" onClick={onClose} disabled={busy}>Cancel</button><button className={`btn ${tone}`} disabled={busy} onClick={async () => { setBusy(true); setError(''); try { await onSend(reason); } catch (err) { setError(err.errors?.reason || err.errors?.remark || err.message); setBusy(false); } }}>{busy ? 'Saving…' : confirm}</button></>}>
-      <p className="muted">{subject}</p>
-      <FormField id="rsn" label={label} required={required} error={error}><input id="rsn" value={reason} maxLength={200} onChange={(e) => setReason(e.target.value)} /></FormField>
+      footer={<><button className="btn" onClick={onClose} disabled={busy}>Cancel</button><button className={`btn ${tone}`} disabled={busy} onClick={handleSubmit}>{busy ? 'Saving…' : confirm}</button></>}>
+      {subject && <p className="muted" style={{ marginBottom: 12 }}>{subject}</p>}
+      <FormField id="rsn" label={label} required={required} error={error}>
+        <input
+          id="rsn"
+          value={reason}
+          maxLength={200}
+          placeholder="Enter reason (at least 3 characters)..."
+          autoFocus
+          onChange={(e) => {
+            setReason(e.target.value);
+            if (error) setError('');
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              handleSubmit();
+            }
+          }}
+        />
+      </FormField>
     </Modal>
   );
 }
@@ -1304,16 +1340,40 @@ export function PromotionTransfer() {
 // Employee list and block
 export function EmployeeList() {
   const toast = useToast();
+  const { user } = useAuth();
   const [branch, setBranch] = useState('');
   const [status, setStatus] = useState('');
   const [search, setSearch] = useState('');
   const q = useDebounce(search, 300);
-  const list = useLoad(() => api.hr.employees({ branch, status, q }), [branch, status, q]);
+  const list = useLoad(() => api.hr.employees({ branch, status, q, includeBlocked: '1' }), [branch, status, q]);
   const [blocking, setBlocking] = useState(null);
+  const [unblocking, setUnblocking] = useState(null);
+  const [unblockBusy, setUnblockBusy] = useState(false);
   const items = list.data?.items || [];
-  async function unblock(e) {
-    try { await api.hr.blockEmployee(e.id, { block: false }); toast.success(`${e.employeeCode} is unblocked`); list.load(); } catch (err) { toast.error(err.message); }
+
+  const isSelfOrSuperAdmin = (emp) => {
+    if (!emp) return false;
+    if (user?.employeeCode && emp.employeeCode === user.employeeCode) return true;
+    if (emp.user && user?._id && String(emp.user) === String(user._id)) return true;
+    if (emp.employeeCode === 'EMP0001') return true;
+    return false;
+  };
+
+  async function handleUnblock() {
+    if (!unblocking) return;
+    setUnblockBusy(true);
+    try {
+      await api.hr.blockEmployee(unblocking.id, { block: false });
+      toast.success(`${unblocking.employeeCode} (${unblocking.name}) unblocked successfully!`);
+      setUnblocking(null);
+      list.load();
+    } catch (err) {
+      toast.error(err.message || 'Failed to unblock employee');
+    } finally {
+      setUnblockBusy(false);
+    }
   }
+
   async function toggleStatus(e) {
     const nextStatus = e.status === 'active' ? 'left' : 'active';
     try {
@@ -1324,58 +1384,143 @@ export function EmployeeList() {
       toast.error(err.message);
     }
   }
+
   return (
     <>
       <PageHeader title="Employee List & Block" description="All employees. Blocking an employee stops the staff login and the app of that employee at once; unblock gives it back." />
       <div className="panel">
         <div className="toolbar" style={{ flexWrap: 'wrap' }}>
           <BranchSelect value={branch} onChange={setBranch} />
-          <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status"><option value="">All</option><option value="active">Working</option><option value="left">Left</option></select>
+          <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status">
+            <option value="">All Employees</option>
+            <option value="active">Working</option>
+            <option value="blocked">Blocked</option>
+            <option value="left">Left</option>
+          </select>
           <input type="search" placeholder="Search name, code, mobile" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search" style={{ minWidth: 200 }} />
           <Refresh onClick={list.load} loading={list.loading} />
         </div>
         <Body list={list} empty="No employee for this filter.">{() => (<>
-          <Summary items={[['Employees', list.data.summary.employees], ['Working', list.data.summary.active], ['Blocked', items.filter((e) => e.isBlocked).length]]} />
+          <Summary items={[
+            ['Employees', list.data.summary?.employees ?? items.length],
+            ['Working', list.data.summary?.active ?? items.filter((e) => e.status === 'active' && !e.isBlocked).length],
+            ['Blocked', list.data.summary?.blocked ?? items.filter((e) => e.isBlocked).length],
+          ]} />
           <div className="table-wrap">
             <table className="data-table">
               <thead><tr><th>Employee</th><th>Department · Designation</th><th>Branch</th><th>Mobile</th><th>Status</th><th /></tr></thead>
               <tbody>
-                {items.map((e) => (
-                  <tr key={e.id}>
-                    <td data-label="Employee"><strong>{e.employeeCode}</strong> {e.name}{e.hasLogin && <div className="muted small">has login</div>}</td>
-                    <td data-label="Department">{e.department?.name || '—'}<div className="muted small">{e.designation?.name || '—'}</div></td>
-                    <td data-label="Branch">{branchLabel(e.branch)}</td><td data-label="Mobile">{e.mobile || '—'}</td>
-                    <td data-label="Status">{e.isBlocked ? <><span className="badge danger">Blocked</span><div className="muted small">{e.blockReason}</div></> : <span className={`badge ${e.status === 'active' ? 'green' : 'grey'}`}>{e.status === 'active' ? 'Working' : `Left ${dmy(e.leftOn)}`}</span>}</td>
-                    <td>
-                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                        {e.status === 'left' || (e.isBlocked && String(e.blockReason || '').toLowerCase().includes('reliev')) || (e.isBlocked && String(e.blockReason || '').toLowerCase().includes('notice')) ? (
-                          <button
-                            type="button"
-                            className="btn sm"
-                            style={{ background: '#16a34a', color: '#fff', fontWeight: 700 }}
-                            title="Re-Join left or relieved employee"
-                            onClick={() => toggleStatus(e)}
-                          >
-                            Re-Join
-                          </button>
-                        ) : (
-                          <button type="button" className="btn sm" onClick={() => toggleStatus(e)}>Mark Left</button>
-                        )}
+                {items.map((e) => {
+                  const selfOrAdmin = isSelfOrSuperAdmin(e);
+                  return (
+                    <tr key={e.id}>
+                      <td data-label="Employee"><strong>{e.employeeCode}</strong> {e.name}{e.hasLogin && <div className="muted small">has login</div>}</td>
+                      <td data-label="Department">{e.department?.name || '—'}<div className="muted small">{e.designation?.name || '—'}</div></td>
+                      <td data-label="Branch">{branchLabel(e.branch)}</td>
+                      <td data-label="Mobile">{e.mobile || '—'}</td>
+                      <td data-label="Status">
                         {e.isBlocked ? (
-                          <button type="button" className="btn sm" onClick={() => unblock(e)}>Unblock</button>
+                          <>
+                            <span className="badge danger">Blocked</span>
+                            {e.blockReason && <div className="muted small" title={e.blockReason}>{e.blockReason}</div>}
+                          </>
                         ) : (
-                          <button type="button" className="btn sm danger-outline" onClick={() => setBlocking(e)}>Block</button>
+                          <span className={`badge ${e.status === 'active' ? 'green' : 'grey'}`}>
+                            {e.status === 'active' ? 'Working' : `Left ${dmy(e.leftOn)}`}
+                          </span>
                         )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                          {e.isBlocked ? (
+                            <button
+                              type="button"
+                              className="btn sm"
+                              style={{ background: '#16a34a', color: '#fff', fontWeight: 600 }}
+                              onClick={() => setUnblocking(e)}
+                            >
+                              Unblock
+                            </button>
+                          ) : (
+                            <>
+                              {e.status === 'left' || (e.isBlocked && String(e.blockReason || '').toLowerCase().includes('reliev')) || (e.isBlocked && String(e.blockReason || '').toLowerCase().includes('notice')) ? (
+                                <button
+                                  type="button"
+                                  className="btn sm"
+                                  style={{ background: '#16a34a', color: '#fff', fontWeight: 700 }}
+                                  title="Re-Join left or relieved employee"
+                                  onClick={() => toggleStatus(e)}
+                                >
+                                  Re-Join
+                                </button>
+                              ) : (
+                                <button type="button" className="btn sm" onClick={() => toggleStatus(e)}>Mark Left</button>
+                              )}
+                              <button
+                                type="button"
+                                className="btn sm danger-outline"
+                                disabled={selfOrAdmin}
+                                title={selfOrAdmin ? 'Cannot block super admin or your own account' : 'Block employee'}
+                                onClick={() => setBlocking(e)}
+                              >
+                                Block
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         </>)}</Body>
       </div>
-      {blocking && <ReasonModal title="Block the employee" subject={`${blocking.employeeCode} ${blocking.name}${blocking.hasLogin ? ': the staff login and the app stop working at once.' : '.'}`} confirm="Block" onClose={() => setBlocking(null)} onSend={async (reason) => { await api.hr.blockEmployee(blocking.id, { block: true, reason }); toast.success('Employee blocked'); setBlocking(null); list.load(); }} />}
+      {blocking && (
+        <ReasonModal
+          title="Block the employee"
+          subject={`${blocking.employeeCode} ${blocking.name}${blocking.hasLogin ? ': the staff login and the app stop working at once.' : '.'}`}
+          confirm="Block"
+          onClose={() => setBlocking(null)}
+          onSend={async (reason) => {
+            await api.hr.blockEmployee(blocking.id, { block: true, reason });
+            toast.success(`${blocking.employeeCode} blocked successfully`);
+            setBlocking(null);
+            list.load();
+          }}
+        />
+      )}
+      {unblocking && (
+        <Modal
+          open
+          title="Unblock the employee"
+          onClose={() => setUnblocking(null)}
+          busy={unblockBusy}
+          footer={
+            <>
+              <button className="btn" onClick={() => setUnblocking(null)} disabled={unblockBusy}>
+                Cancel
+              </button>
+              <button
+                className="btn"
+                style={{ background: '#16a34a', color: '#fff', fontWeight: 600 }}
+                disabled={unblockBusy}
+                onClick={handleUnblock}
+              >
+                {unblockBusy ? 'Unblocking…' : 'Confirm Unblock'}
+              </button>
+            </>
+          }
+        >
+          <p style={{ marginTop: 0 }}>
+            Are you sure you want to unblock <strong>{unblocking.employeeCode} {unblocking.name}</strong>?
+          </p>
+          <p className="muted small">
+            Unblocking will immediately restore their staff login and mobile employee app access.
+          </p>
+        </Modal>
+      )}
     </>
   );
 }

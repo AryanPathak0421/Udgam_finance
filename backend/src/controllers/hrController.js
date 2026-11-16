@@ -23,6 +23,7 @@ import { sendMail, mailConfigured } from '../services/mailer.js';
 import { EARN_FIXED, ALL_LINES, SETUP_KEYS, setupAt, loadVariable, buildLines, totalsOf, legacyLines, fixedOf, isVerified, sum } from '../services/salaryLines.js';
 import { effectiveOn, monthDays } from '../services/attendanceRules.js';
 import { elBalance, elBalances } from '../services/earnedLeave.js';
+import { AppUser } from '../models/AppUser.js';
 import { audit } from '../utils/audit.js';
 import { branchFilter, isAdmin, showMobile } from './groupController.js';
 
@@ -182,19 +183,42 @@ export async function listEmployees(req, res) {
   await ensureEmployees(); // a staff login that has no HR record yet gets one
   const filter = { isDeleted: false, ...scope(req) };
   const st = asString(req.query.status);
-  if (['active', 'left'].includes(st)) filter.status = st;
-  // Blocked employees should not show anywhere across software unless explicitly filtered by 'blocked' status
+  const includeBlocked = req.query.includeBlocked === '1' || req.query.includeBlocked === 'true';
+
   if (st === 'blocked') {
     filter.isBlocked = true;
-  } else {
+  } else if (st === 'active') {
+    filter.status = 'active';
+    filter.isBlocked = { $ne: true };
+  } else if (st === 'left') {
+    filter.status = 'left';
+  } else if (!includeBlocked) {
+    // When includeBlocked is not requested and no specific status given, hide blocked employees
     filter.isBlocked = { $ne: true };
   }
+
   for (const k of ['department', 'designation', 'supervisor']) if (mongoose.isValidObjectId(asString(req.query[k]))) filter[k] = req.query[k];
   const q = asString(req.query.q).toLowerCase();
   const rows = await Employee.find(filter).sort({ employeeCode: 1 }).limit(3000).populate(EMP_POPULATE);
   const team = new Map((await Employee.aggregate([{ $match: { isDeleted: false, status: 'active', supervisor: { $ne: null } } }, { $group: { _id: '$supervisor', n: { $sum: 1 } } }])).map((r) => [String(r._id), r.n]));
   const items = rows.map((e) => ({ ...presentEmployee(e, req.user), teamCount: team.get(String(e._id)) || 0 })).filter((e) => !q || [e.employeeCode, e.name, e.mobile].some((v) => String(v).toLowerCase().includes(q)));
-  res.json({ items, summary: { employees: items.length, active: items.filter((e) => e.status === 'active').length, monthlySalary: items.filter((e) => e.status === 'active').reduce((s, e) => s + e.monthlySalary, 0) } });
+
+  const baseScope = { isDeleted: false, ...scope(req) };
+  const [totalEmployees, activeEmployees, blockedEmployees] = await Promise.all([
+    Employee.countDocuments(baseScope),
+    Employee.countDocuments({ ...baseScope, status: 'active', isBlocked: { $ne: true } }),
+    Employee.countDocuments({ ...baseScope, isBlocked: true }),
+  ]);
+
+  res.json({
+    items,
+    summary: {
+      employees: totalEmployees,
+      active: activeEmployees,
+      blocked: blockedEmployees,
+      monthlySalary: items.filter((e) => e.status === 'active' && !e.isBlocked).reduce((s, e) => s + e.monthlySalary, 0),
+    },
+  });
 }
 
 /** One employee with the photo and the copies of the documents (they are not part of the list). */
@@ -854,6 +878,11 @@ export async function setEmployeeStatus(req, res) {
   e.status = left ? 'left' : 'active';
   e.leftOn = left ? parseDateOnly(asString(req.body?.leftOn)) || startOfToday() : undefined;
 
+  const codeUpper = (e.employeeCode || '').toUpperCase();
+  const appUserFilter = e.user
+    ? { $or: [{ user: e.user }, { employeeCode: codeUpper }] }
+    : { employeeCode: codeUpper };
+
   // Point 35: Re-Join unblocks employee, reactivates login and archives resignation
   if (!left) {
     e.isBlocked = false;
@@ -861,6 +890,7 @@ export async function setEmployeeStatus(req, res) {
     if (e.user) {
       await User.updateOne({ _id: e.user }, { $set: { isBlocked: false, isActive: true } });
     }
+    await AppUser.updateMany(appUserFilter, { $set: { isActive: true }, $unset: { deactivatedAt: '' } });
     await Resignation.updateMany(
       { employee: e._id, status: { $in: ['pending', 'approved'] } },
       { $set: { status: 'rejected', rejectReason: 'Employee rejoined company' } }
@@ -871,6 +901,7 @@ export async function setEmployeeStatus(req, res) {
     if (e.user) {
       await User.updateOne({ _id: e.user }, { $set: { isBlocked: true, isActive: false } });
     }
+    await AppUser.updateMany(appUserFilter, { $set: { isActive: false, deactivatedAt: new Date() } });
   }
 
   await e.save();
