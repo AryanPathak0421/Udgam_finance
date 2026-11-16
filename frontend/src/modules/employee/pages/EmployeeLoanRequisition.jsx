@@ -495,6 +495,7 @@ export default function EmployeeLoanRequisition({ initialKind }) {
   const [loadingGroups, setLoadingGroups] = useState(false);
   const [pickedGroup, setPickedGroup] = useState(null);
   const [groupSearch, setGroupSearch] = useState('');
+  const [memberSearch, setMemberSearch] = useState('');
   const [groupDetail, setGroupDetail] = useState(null);
   const [chosenMemberIds, setChosenMemberIds] = useState([]);
   const [extras, setExtras] = useState({}); // { memberId: { id, qty } }
@@ -626,6 +627,19 @@ export default function EmployeeLoanRequisition({ initialKind }) {
     return groups.filter((g) => (g.code || '').toLowerCase().includes(q) || (g.name || '').toLowerCase().includes(q) || (g.center || '').toLowerCase().includes(q));
   }, [groups, groupSearch]);
 
+  // Filter group members by search query (name, code, mobile, aadhaar)
+  const filteredMembers = useMemo(() => {
+    const list = groupDetail?.group?.members || [];
+    if (!memberSearch.trim()) return list;
+    const q = memberSearch.toLowerCase().trim();
+    return list.filter((m) =>
+      (m.code || '').toLowerCase().includes(q) ||
+      (m.name || '').toLowerCase().includes(q) ||
+      (m.mobile || '').toLowerCase().includes(q) ||
+      (m.aadhar || m.aadhaar || '').toLowerCase().includes(q)
+    );
+  }, [groupDetail?.group?.members, memberSearch]);
+
   // Load staff's assigned groups (do NOT auto-pick; allow employee to choose)
   useEffect(() => {
     setLoadingGroups(true);
@@ -699,6 +713,7 @@ export default function EmployeeLoanRequisition({ initialKind }) {
     setChosenMemberIds([]);
     setExtras({});
     setMemberForms({});
+    setMemberSearch('');
     if (!g) return;
     try {
       const d = await api.loanRequisitions.group(g.id || g._id).catch(() => null);
@@ -1467,18 +1482,37 @@ export default function EmployeeLoanRequisition({ initialKind }) {
                   <div style={{ fontSize: '0.78rem', color: '#64748b' }}>Loading staff groups...</div>
                 ) : (
                   <>
-                    {groups.length > 5 && (
-                      <div style={{ marginBottom: 6 }}>
-                        <input
-                          type="text"
-                          className="emp-input"
-                          style={{ fontSize: '0.78rem', padding: '6px 10px' }}
-                          placeholder="🔍 Search group by code, name or center..."
-                          value={groupSearch}
-                          onChange={(e) => setGroupSearch(e.target.value)}
-                        />
-                      </div>
-                    )}
+                    <div style={{ marginBottom: 6, position: 'relative' }}>
+                      <input
+                        type="text"
+                        className="emp-input"
+                        style={{ fontSize: '0.78rem', padding: '7px 30px 7px 10px', width: '100%', boxSizing: 'border-box' }}
+                        placeholder="🔍 Search group by code, name or center..."
+                        value={groupSearch}
+                        onChange={(e) => setGroupSearch(e.target.value)}
+                      />
+                      {groupSearch && (
+                        <button
+                          type="button"
+                          onClick={() => setGroupSearch('')}
+                          title="Clear search"
+                          style={{
+                            position: 'absolute',
+                            right: 8,
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                            background: 'transparent',
+                            border: 'none',
+                            fontSize: '0.85rem',
+                            color: '#94a3b8',
+                            cursor: 'pointer',
+                            padding: '2px 6px',
+                          }}
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
                     <select
                       className="emp-input"
                       value={pickedGroup?.code || ''}
@@ -1487,7 +1521,11 @@ export default function EmployeeLoanRequisition({ initialKind }) {
                         handlePickGroup(g);
                       }}
                     >
-                      <option value="">-- कृपया ग्रुप चुनें (Select Group) --</option>
+                      <option value="">
+                        {groupSearch.trim() && filteredGroups.length === 0
+                          ? `-- No group matches "${groupSearch}" --`
+                          : '-- कृपया ग्रुप चुनें (Select Group) --'}
+                      </option>
                       {filteredGroups.map((g) => (
                         <option key={g.code} value={g.code}>
                           {g.code} — {g.name} ({g.members?.length || 0} members)
@@ -1531,6 +1569,11 @@ export default function EmployeeLoanRequisition({ initialKind }) {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, flexWrap: 'wrap', gap: 6 }}>
                     <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--emp-text)' }}>
                       Members getting this loan: <strong style={{ color: effCount > 0 ? '#16a34a' : '#dc2626' }}>{effCount}</strong> of {groupDetail.group.members.length} selected
+                      {memberSearch.trim() && (
+                        <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 500, marginLeft: 4 }}>
+                          ({filteredMembers.length} matching)
+                        </span>
+                      )}
                     </span>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button
@@ -1538,11 +1581,12 @@ export default function EmployeeLoanRequisition({ initialKind }) {
                         className="emp-btn-secondary"
                         style={{ padding: '3px 8px', fontSize: '0.72rem', fontWeight: 600 }}
                         onClick={() => {
-                          const okIds = groupDetail.group.members.filter((m) => !m.isBlocked && !m.runningInGroup).map((m) => m.id || m._id);
-                          setChosenMemberIds(okIds);
+                          const targetList = memberSearch.trim() ? filteredMembers : groupDetail.group.members;
+                          const okIds = targetList.filter((m) => !m.isBlocked && !m.runningInGroup).map((m) => m.id || m._id);
+                          setChosenMemberIds((prev) => Array.from(new Set([...prev, ...okIds])));
                         }}
                       >
-                        Select All Eligible
+                        {memberSearch.trim() ? `Select Matching (${filteredMembers.filter((m) => !m.isBlocked && !m.runningInGroup).length})` : 'Select All Eligible'}
                       </button>
                       {chosenMemberIds.length > 0 && (
                         <button
@@ -1551,7 +1595,7 @@ export default function EmployeeLoanRequisition({ initialKind }) {
                           style={{ padding: '3px 8px', fontSize: '0.72rem', color: '#dc2626' }}
                           onClick={() => setChosenMemberIds([])}
                         >
-                          Clear All
+                          Clear All ({chosenMemberIds.length})
                         </button>
                       )}
                     </div>
@@ -1561,10 +1605,55 @@ export default function EmployeeLoanRequisition({ initialKind }) {
                     ℹ️ जिन सदस्यों को लोन देना है, उनके नाम के आगे चेकबॉक्स टिक करें। (कोई भी सदस्य ऑटो-टिक नहीं है)
                   </div>
 
+                  {/* Member Search Input */}
+                  <div style={{ marginBottom: 10, position: 'relative' }}>
+                    <input
+                      type="text"
+                      className="emp-input"
+                      style={{ fontSize: '0.78rem', padding: '7px 30px 7px 10px', width: '100%', boxSizing: 'border-box' }}
+                      placeholder="🔍 Search member by name, code, mobile or Aadhaar..."
+                      value={memberSearch}
+                      onChange={(e) => setMemberSearch(e.target.value)}
+                    />
+                    {memberSearch && (
+                      <button
+                        type="button"
+                        onClick={() => setMemberSearch('')}
+                        title="Clear search"
+                        style={{
+                          position: 'absolute',
+                          right: 8,
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          background: 'transparent',
+                          border: 'none',
+                          fontSize: '0.85rem',
+                          color: '#94a3b8',
+                          cursor: 'pointer',
+                          padding: '2px 6px',
+                        }}
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+
                   {errors.members && <div style={{ fontSize: '0.72rem', color: '#dc2626', fontWeight: 700, marginBottom: 6 }}>{errors.members}</div>}
 
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {groupDetail.group.members.map((m) => {
+                  {filteredMembers.length === 0 ? (
+                    <div style={{ padding: '16px 12px', background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: 8, textAlign: 'center', color: '#64748b', fontSize: '0.78rem', margin: '8px 0' }}>
+                      🔍 No members found matching "<strong>{memberSearch}</strong>"{' '}
+                      <button
+                        type="button"
+                        onClick={() => setMemberSearch('')}
+                        style={{ background: 'transparent', border: 'none', color: 'var(--emp-primary)', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline', marginLeft: 6 }}
+                      >
+                        Clear Search
+                      </button>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {filteredMembers.map((m) => {
                       const mid = m.id || m._id;
                       const isBlocked = Boolean(m.isBlocked);
                       const isRunning = Boolean(m.runningInGroup);
@@ -1773,6 +1862,7 @@ export default function EmployeeLoanRequisition({ initialKind }) {
                       );
                     })}
                   </div>
+                  )}
                 </div>
               )}
 
