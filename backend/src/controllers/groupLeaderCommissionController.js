@@ -7,7 +7,7 @@ import { issueOtp, takeVerified, consumeChallenge } from '../services/otpChallen
 import { parseMonth } from '../services/groupLeaderCommission.js';
 import { sendSms, isDevSms } from '../services/sms.js';
 import { branchFilter, maskMobile, showMobile } from './groupController.js';
-import { asString, createValidator, escapeRegex, HttpError, todayDateString } from '../utils/http.js';
+import { asString, createValidator, escapeRegex, HttpError, todayDateString, parseDateOnly } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
 
 const OTP_TTL_MS = 5 * 60 * 1000;
@@ -56,7 +56,7 @@ export async function report(req, res) {
     }
     if (req.query.paidTo) {
       const pTo = parseDateOnly(asString(req.query.paidTo));
-      if (pTo) filter.depositedAt.$lte = new Date(`${asString(req.query.paidTo)}T23:59:59.999Z`);
+      if (pTo) filter.depositedAt.$lte = new Date(pTo.getTime() + 86400000 - 1);
     }
     if (Object.keys(filter.depositedAt).length === 0) delete filter.depositedAt;
   }
