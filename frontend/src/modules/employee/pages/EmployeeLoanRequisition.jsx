@@ -494,6 +494,7 @@ export default function EmployeeLoanRequisition({ initialKind }) {
   const [groups, setGroups] = useState([]);
   const [loadingGroups, setLoadingGroups] = useState(false);
   const [pickedGroup, setPickedGroup] = useState(null);
+  const [groupSearch, setGroupSearch] = useState('');
   const [groupDetail, setGroupDetail] = useState(null);
   const [chosenMemberIds, setChosenMemberIds] = useState([]);
   const [extras, setExtras] = useState({}); // { memberId: { id, qty } }
@@ -618,16 +619,20 @@ export default function EmployeeLoanRequisition({ initialKind }) {
       });
   }, [loanKind, isBusiness, biz.loanType]);
 
-  // Load staff's assigned groups
+  // Filter groups by search query
+  const filteredGroups = useMemo(() => {
+    if (!groupSearch.trim()) return groups;
+    const q = groupSearch.toLowerCase().trim();
+    return groups.filter((g) => (g.code || '').toLowerCase().includes(q) || (g.name || '').toLowerCase().includes(q) || (g.center || '').toLowerCase().includes(q));
+  }, [groups, groupSearch]);
+
+  // Load staff's assigned groups (do NOT auto-pick; allow employee to choose)
   useEffect(() => {
     setLoadingGroups(true);
     api.employeeApp.groups()
       .then((res) => {
         const grps = res.groups || [];
         setGroups(grps);
-        if (grps.length > 0 && !pickedGroup) {
-          handlePickGroup(grps[0]);
-        }
       })
       .catch(() => {})
       .finally(() => setLoadingGroups(false));
@@ -699,8 +704,8 @@ export default function EmployeeLoanRequisition({ initialKind }) {
       const d = await api.loanRequisitions.group(g.id || g._id).catch(() => null);
       if (d) {
         setGroupDetail(d);
-        const okMembers = (d.group?.members || []).filter((m) => !m.isBlocked && !m.runningInGroup);
-        setChosenMemberIds(okMembers.map((m) => m.id || m._id));
+        // Do NOT automatically tick all members! Employee must select members who need the loan.
+        setChosenMemberIds([]);
       } else {
         // Fallback to group object
         const mList = g.members || [];
@@ -724,7 +729,7 @@ export default function EmployeeLoanRequisition({ initialKind }) {
           },
           issues: [],
         });
-        setChosenMemberIds(mList.map((m) => m.id || m._id || m.code));
+        setChosenMemberIds([]);
       }
     } catch {
       // ignore
@@ -1455,29 +1460,54 @@ export default function EmployeeLoanRequisition({ initialKind }) {
               </h3>
 
               <div style={{ marginBottom: 10 }}>
-                <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
+                <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>
                   Assigned Group *
                 </label>
                 {loadingGroups ? (
                   <div style={{ fontSize: '0.78rem', color: '#64748b' }}>Loading staff groups...</div>
                 ) : (
-                  <select
-                    className="emp-input"
-                    value={pickedGroup?.code || ''}
-                    onChange={(e) => {
-                      const g = groups.find((x) => x.code === e.target.value);
-                      handlePickGroup(g);
-                    }}
-                  >
-                    <option value="">Select Group</option>
-                    {groups.map((g) => (
-                      <option key={g.code} value={g.code}>
-                        {g.code} — {g.name} ({g.members?.length || 0} members)
-                      </option>
-                    ))}
-                  </select>
+                  <>
+                    {groups.length > 5 && (
+                      <div style={{ marginBottom: 6 }}>
+                        <input
+                          type="text"
+                          className="emp-input"
+                          style={{ fontSize: '0.78rem', padding: '6px 10px' }}
+                          placeholder="🔍 Search group by code, name or center..."
+                          value={groupSearch}
+                          onChange={(e) => setGroupSearch(e.target.value)}
+                        />
+                      </div>
+                    )}
+                    <select
+                      className="emp-input"
+                      value={pickedGroup?.code || ''}
+                      onChange={(e) => {
+                        const g = groups.find((x) => x.code === e.target.value);
+                        handlePickGroup(g);
+                      }}
+                    >
+                      <option value="">-- कृपया ग्रुप चुनें (Select Group) --</option>
+                      {filteredGroups.map((g) => (
+                        <option key={g.code} value={g.code}>
+                          {g.code} — {g.name} ({g.members?.length || 0} members)
+                        </option>
+                      ))}
+                    </select>
+                  </>
                 )}
+                {errors.group && <div style={{ fontSize: '0.72rem', color: '#dc2626', fontWeight: 700, marginTop: 4 }}>{errors.group}</div>}
               </div>
+
+              {!pickedGroup && (
+                <div style={{ padding: '18px 14px', background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: 8, textAlign: 'center', color: '#64748b', fontSize: '0.8rem', marginTop: 8 }}>
+                  <div style={{ fontSize: '1.4rem', marginBottom: 4 }}>👥</div>
+                  <div style={{ fontWeight: 700, color: '#334155' }}>कृपया ऊपर से ग्रुप चुनें (Select a Group)</div>
+                  <div style={{ fontSize: '0.74rem', marginTop: 2 }}>
+                    ग्रुप चुनने के बाद सदस्यों की लिस्ट दिखाई देगी। आप जिन सदस्यों को लोन देना चाहते हैं, उन्हें चुन सकेंगे।
+                  </div>
+                </div>
+              )}
 
               {groupDetail?.group && (
                 <div style={{ background: '#f8fafc', border: '1px solid var(--emp-border)', borderRadius: 8, padding: 10, marginBottom: 12 }}>
@@ -1498,21 +1528,37 @@ export default function EmployeeLoanRequisition({ initialKind }) {
               {/* Group Members Checklist Table */}
               {groupDetail?.group?.members && groupDetail.group.members.length > 0 && (
                 <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, flexWrap: 'wrap', gap: 6 }}>
                     <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--emp-text)' }}>
-                      Members getting this loan: <strong>{effCount}</strong> of {groupDetail.group.members.length} selected
+                      Members getting this loan: <strong style={{ color: effCount > 0 ? '#16a34a' : '#dc2626' }}>{effCount}</strong> of {groupDetail.group.members.length} selected
                     </span>
-                    <button
-                      type="button"
-                      className="emp-btn-secondary"
-                      style={{ padding: '2px 8px', fontSize: '0.72rem' }}
-                      onClick={() => {
-                        const okIds = groupDetail.group.members.filter((m) => !m.isBlocked && !m.runningInGroup).map((m) => m.id || m._id);
-                        setChosenMemberIds(chosenMemberIds.length === okIds.length ? [] : okIds);
-                      }}
-                    >
-                      {chosenMemberIds.length === groupDetail.group.members.filter((m) => !m.isBlocked && !m.runningInGroup).length ? 'Deselect All' : 'Select All Eligible'}
-                    </button>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button
+                        type="button"
+                        className="emp-btn-secondary"
+                        style={{ padding: '3px 8px', fontSize: '0.72rem', fontWeight: 600 }}
+                        onClick={() => {
+                          const okIds = groupDetail.group.members.filter((m) => !m.isBlocked && !m.runningInGroup).map((m) => m.id || m._id);
+                          setChosenMemberIds(okIds);
+                        }}
+                      >
+                        Select All Eligible
+                      </button>
+                      {chosenMemberIds.length > 0 && (
+                        <button
+                          type="button"
+                          className="emp-btn-secondary"
+                          style={{ padding: '3px 8px', fontSize: '0.72rem', color: '#dc2626' }}
+                          onClick={() => setChosenMemberIds([])}
+                        >
+                          Clear All
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div style={{ fontSize: '0.72rem', color: '#475569', marginBottom: 8, background: '#f1f5f9', padding: '6px 10px', borderRadius: 6, border: '1px solid #e2e8f0' }}>
+                    ℹ️ जिन सदस्यों को लोन देना है, उनके नाम के आगे चेकबॉक्स टिक करें। (कोई भी सदस्य ऑटो-टिक नहीं है)
                   </div>
 
                   {errors.members && <div style={{ fontSize: '0.72rem', color: '#dc2626', fontWeight: 700, marginBottom: 6 }}>{errors.members}</div>}
@@ -2178,7 +2224,7 @@ export default function EmployeeLoanRequisition({ initialKind }) {
           )}
 
           {/* SECTIONS 6, 7 & 8: SCHEME, PRODUCT, PREVIEW & SUBMIT (Enabled only after Group / Borrower selection - Point 12 & 13) */}
-          {(isGroup || pickedBorrower) && (
+          {((isGroup ? pickedGroup : pickedBorrower)) && (
             <>
               {/* SECTION 6: SCHEME DETAIL & PARAMETERS (Scheme selected FIRST - Point 12) */}
           <div className="emp-card" style={{ marginBottom: 12 }}>
@@ -2204,6 +2250,10 @@ export default function EmployeeLoanRequisition({ initialKind }) {
                   ))}
                 </select>
                 {errors.schemeId && <div style={{ fontSize: '0.7rem', color: '#dc2626', fontWeight: 600 }}>{errors.schemeId}</div>}
+              </div>
+            ) : chosenMemberIds.length === 0 ? (
+              <div style={{ background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', padding: '10px 14px', borderRadius: 6, fontSize: '0.78rem', marginBottom: 12 }}>
+                ⚠️ कृपया ऊपर दिए गए ग्रुप सदस्यों में से कम से कम 1 सदस्य को टिक करें ताकि उनकी स्कीम और लोन राशि सेट की जा सके।
               </div>
             ) : (
               <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#166534', padding: '8px 12px', borderRadius: 6, fontSize: '0.78rem', marginBottom: 12 }}>
