@@ -731,6 +731,16 @@ export default function EmployeeLoanRequisition({ initialKind }) {
     setErrors((er) => ({ ...er, schemeId: undefined, amount: undefined }));
   };
 
+  // Auto-select first available scheme if not yet set or no longer valid
+  useEffect(() => {
+    if (availableSchemes.length > 0) {
+      const exists = availableSchemes.some((s) => s.id === form.schemeId);
+      if (!form.schemeId || !exists) {
+        handleSchemeChange(availableSchemes[0].id);
+      }
+    }
+  }, [availableSchemes, form.schemeId]);
+
   // Group pick handler
   const handlePickGroup = async (g) => {
     setPickedGroup(g);
@@ -2350,8 +2360,8 @@ export default function EmployeeLoanRequisition({ initialKind }) {
           {/* SECTIONS 6, 7 & 8: SCHEME, PRODUCT, PREVIEW & SUBMIT (Enabled only after Group / Borrower selection - Point 12 & 13) */}
           {((isGroup ? pickedGroup : pickedBorrower)) && (
             <>
-              {/* SECTION 6: SCHEME DETAIL & PARAMETERS (Scheme selected FIRST - Point 12) */}
-          <div className="emp-card" style={{ marginBottom: 12 }}>
+              {/* SECTION 6: SCHEME DETAIL & PARAMETERS (Hidden from UI only per user request) */}
+          <div className="emp-card" style={{ marginBottom: 12, display: 'none' }}>
             <h3 style={{ fontSize: '0.95rem', fontWeight: 800, margin: '0 0 10px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 6 }}>
               <Icon name="check" size={16} />
               <span>{isProduct ? '6. Product Loan Scheme' : '6. Scheme Detail & Parameters'}</span>
@@ -2604,7 +2614,7 @@ export default function EmployeeLoanRequisition({ initialKind }) {
             <div className="emp-card" style={{ marginBottom: 14 }}>
               <h3 style={{ fontSize: '0.95rem', fontWeight: 800, margin: '0 0 10px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 6 }}>
                 <Icon name="calculator" size={16} />
-                <span>8. EMI Calculation &amp; Net Disbursal in Hand</span>
+                <span>EMI Calculation &amp; Net Disbursal in Hand</span>
               </h3>
 
               {/* EMI Banner */}
