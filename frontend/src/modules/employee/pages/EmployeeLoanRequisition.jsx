@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../../../api/client.js';
 import { useEmployeeApp } from '../EmployeeAppContext.jsx';
 import { compressImage } from '../../../utils/image.js';
@@ -45,10 +45,9 @@ const normalizeModes = (modes) => {
 };
 
 const LOAN_TYPES = [
-  { id: 'group', label: 'Group Loan', desc: 'Joint liability microfinance loan for SHG members', icon: 'group' },
-  { id: 'personal', label: 'Personal Loan', desc: 'Direct unsecured loan for individual borrowers', icon: 'customer' },
-  { id: 'business', label: 'Business / MSME', desc: 'Micro & small enterprise financing with shop verification', icon: 'building' },
-  { id: 'product', label: 'Product Loan', desc: 'Consumer durables, solar, or equipment financing', icon: 'product' },
+  { id: 'group', label: 'Group Loan Requisition', desc: 'Joint liability microfinance loan for SHG members', icon: 'group' },
+  { id: 'business', label: 'Business / MSME Loan', desc: 'Micro & small enterprise financing with shop verification', icon: 'bank' },
+  { id: 'product', label: 'Product Loan Requisition', desc: 'Consumer durables, solar, or equipment financing', icon: 'product' },
 ];
 
 // Helper: Photo upload field with camera capture, compression, thumbnail, and remove
@@ -439,11 +438,38 @@ function GroupTopUpSection({ members, stock, onDone }) {
   );
 }
 
-export default function EmployeeLoanRequisition() {
+export default function EmployeeLoanRequisition({ initialKind }) {
   const { empUser, t } = useEmployeeApp();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const queryKind = searchParams.get('kind');
+  const validKinds = ['group', 'business', 'product'];
+  const startKind = (initialKind && validKinds.includes(initialKind))
+    ? initialKind
+    : (queryKind && validKinds.includes(queryKind))
+      ? queryKind
+      : 'group';
+
   const [activeTab, setActiveTab] = useState('new'); // 'new' | 'list'
-  const [loanKind, setLoanKind] = useState('group'); // 'group' | 'personal' | 'business' | 'product'
+  const [loanKind, setLoanKind] = useState(startKind); // 'group' | 'business' | 'product'
+
+  useEffect(() => {
+    const k = initialKind || searchParams.get('kind');
+    if (k && validKinds.includes(k) && k !== loanKind) {
+      setLoanKind(k);
+    }
+  }, [initialKind, searchParams]);
+
+  const handleSelectLoanKind = (kindId) => {
+    setLoanKind(kindId);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set('kind', kindId);
+      return next;
+    }, { replace: true });
+    setErrors({});
+  };
 
   const isGroup = loanKind === 'group';
   const isBusiness = loanKind === 'business';
@@ -1332,37 +1358,88 @@ export default function EmployeeLoanRequisition() {
             </div>
           </div>
 
-          {/* SECTION 2: LOAN CATEGORY TABS */}
-          <div className="emp-card" style={{ marginBottom: 12, padding: '12px 14px' }}>
-            <label style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--emp-text)', display: 'block', marginBottom: 8 }}>
-              2. Select Loan Category:
-            </label>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              {LOAN_TYPES.map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => {
-                    setLoanKind(t.id);
-                    setErrors({});
-                  }}
-                  style={{
-                    padding: '10px 8px',
-                    borderRadius: 8,
-                    textAlign: 'left',
-                    cursor: 'pointer',
-                    border: loanKind === t.id ? '2px solid var(--emp-primary)' : '1px solid var(--emp-border)',
-                    background: loanKind === t.id ? 'rgba(37, 99, 235, 0.08)' : 'var(--emp-card-bg)',
-                  }}
-                >
-                  <div style={{ fontWeight: 700, fontSize: '0.82rem', color: loanKind === t.id ? 'var(--emp-primary)' : 'var(--emp-text)' }}>
-                    {t.label}
-                  </div>
-                  <div style={{ fontSize: '0.68rem', color: 'var(--emp-text-muted)', marginTop: 2, lineHeight: 1.2 }}>
-                    {t.desc}
-                  </div>
-                </button>
-              ))}
+          {/* SECTION 2: LOAN CATEGORY SELECTOR (Admin-Styled 3 Categories) */}
+          <div
+            className="emp-card"
+            style={{
+              marginBottom: 14,
+              padding: '14px 16px',
+              background: 'linear-gradient(145deg, #072e2b 0%, #0c3e39 60%, #0a332f 100%)',
+              border: '1px solid rgba(16, 120, 112, 0.4)',
+              borderRadius: 12,
+              color: '#ffffff',
+              boxShadow: '0 4px 14px rgba(7, 46, 43, 0.3)',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <label style={{ fontSize: '0.88rem', fontWeight: 800, color: '#ffffff', display: 'flex', alignItems: 'center', gap: 6, margin: 0 }}>
+                <span style={{ background: '#5eead4', color: '#042f2e', borderRadius: '50%', width: 20, height: 20, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 900 }}>2</span>
+                <span>Select Loan Requisition Type:</span>
+              </label>
+              <span style={{ fontSize: '0.72rem', color: '#5eead4', fontWeight: 700, background: 'rgba(94, 234, 212, 0.15)', padding: '2px 8px', borderRadius: 10, border: '1px solid rgba(94, 234, 212, 0.3)' }}>
+                {isGroup ? 'Group SHG' : isBusiness ? 'Enterprise / MSME' : 'Product / Durable'}
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {LOAN_TYPES.map((t) => {
+                const isSelected = loanKind === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => handleSelectLoanKind(t.id)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12,
+                      padding: '12px 14px',
+                      borderRadius: 10,
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      border: isSelected ? '1.5px solid rgba(94, 234, 212, 0.6)' : '1px solid rgba(255, 255, 255, 0.08)',
+                      background: isSelected
+                        ? 'linear-gradient(135deg, #107870 0%, #0d615a 100%)'
+                        : 'rgba(255, 255, 255, 0.05)',
+                      color: '#ffffff',
+                      boxShadow: isSelected ? '0 3px 10px rgba(0, 0, 0, 0.3)' : 'none',
+                      transition: 'all 0.2s ease',
+                    }}
+                  >
+                    <div
+                      style={{
+                        color: isSelected ? '#ffffff' : '#5eead4',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        width: 26,
+                        height: 26,
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Icon name={t.icon} size={22} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: isSelected ? 800 : 600, fontSize: '0.92rem', color: '#ffffff', letterSpacing: 0.2 }}>
+                        {t.label}
+                      </div>
+                      <div style={{ fontSize: '0.7rem', color: isSelected ? 'rgba(255, 255, 255, 0.85)' : 'rgba(255, 255, 255, 0.6)', marginTop: 2, lineHeight: 1.25 }}>
+                        {t.desc}
+                      </div>
+                    </div>
+                    <div
+                      style={{
+                        width: 18,
+                        height: 18,
+                        borderRadius: '50%',
+                        border: isSelected ? '5px solid #5eead4' : '2px solid rgba(255,255,255,0.3)',
+                        background: isSelected ? '#ffffff' : 'transparent',
+                        flexShrink: 0,
+                      }}
+                    />
+                  </button>
+                );
+              })}
             </div>
           </div>
 

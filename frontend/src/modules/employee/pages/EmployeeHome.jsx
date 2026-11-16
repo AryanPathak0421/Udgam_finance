@@ -181,6 +181,117 @@ export default function EmployeeHome() {
         </div>
       </div>
 
+      {/* Admin-Styled Loan Requisition Section (Synced with Admin Software) */}
+      <div
+        className="emp-card"
+        style={{
+          background: 'linear-gradient(145deg, #072e2b 0%, #0c3e39 60%, #0a332f 100%)',
+          border: '1px solid rgba(16, 120, 112, 0.4)',
+          borderRadius: 14,
+          padding: '14px 16px',
+          color: '#ffffff',
+          boxShadow: '0 6px 18px rgba(7, 46, 43, 0.35)',
+          marginBottom: 16,
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ width: 30, height: 30, borderRadius: 8, background: 'rgba(255,255,255,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#5eead4' }}>
+              <Icon name="file" size={17} />
+            </div>
+            <div>
+              <h4 style={{ margin: 0, fontSize: '0.94rem', fontWeight: 800, color: '#ffffff', letterSpacing: 0.2 }}>
+                Loan Requisition (ऋण मांग)
+              </h4>
+              <span style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.7)' }}>
+                Field loan applications synced with Admin Software
+              </span>
+            </div>
+          </div>
+          <span style={{ fontSize: '0.7rem', padding: '2px 8px', borderRadius: 10, background: 'rgba(94, 234, 212, 0.15)', color: '#5eead4', fontWeight: 700, border: '1px solid rgba(94, 234, 212, 0.3)' }}>
+            3 Categories
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {/* 1. Group Loan Requisition */}
+          <div
+            onClick={() => navigate('/employee/requisition?kind=group')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              padding: '11px 14px',
+              borderRadius: 10,
+              cursor: 'pointer',
+              background: 'rgba(255,255,255,0.06)',
+              border: '1px solid rgba(255,255,255,0.08)',
+              transition: 'all 0.2s ease',
+            }}
+          >
+            <div style={{ color: '#5eead4', display: 'flex', alignItems: 'center', justifyContent: 'center', width: 24 }}>
+              <Icon name="group" size={20} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#ffffff' }}>Group Loan Requisition</div>
+              <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.65)' }}>Joint liability microfinance for SHG / JLG members</div>
+            </div>
+            <Icon name="arrowright" size={14} style={{ opacity: 0.6 }} />
+          </div>
+
+          {/* 2. Business / MSME Loan */}
+          <div
+            onClick={() => navigate('/employee/requisition?kind=business')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              padding: '11px 14px',
+              borderRadius: 10,
+              cursor: 'pointer',
+              background: 'rgba(255,255,255,0.06)',
+              border: '1px solid rgba(255,255,255,0.08)',
+              transition: 'all 0.2s ease',
+            }}
+          >
+            <div style={{ color: '#5eead4', display: 'flex', alignItems: 'center', justifyContent: 'center', width: 24 }}>
+              <Icon name="bank" size={20} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#ffffff' }}>Business / MSME Loan</div>
+              <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.65)' }}>Micro &amp; small enterprise financing with shop verification</div>
+            </div>
+            <Icon name="arrowright" size={14} style={{ opacity: 0.6 }} />
+          </div>
+
+          {/* 3. Product Loan Requisition */}
+          <div
+            onClick={() => navigate('/employee/requisition?kind=product')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              padding: '11px 14px',
+              borderRadius: 10,
+              cursor: 'pointer',
+              background: 'linear-gradient(135deg, #107870 0%, #0d615a 100%)',
+              border: '1px solid rgba(94, 234, 212, 0.4)',
+              boxShadow: '0 3px 10px rgba(0,0,0,0.25)',
+              transition: 'all 0.2s ease',
+            }}
+          >
+            <div style={{ color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', width: 24 }}>
+              <Icon name="product" size={20} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#ffffff' }}>Product Loan Requisition</div>
+              <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.85)' }}>Consumer durables, solar, or equipment financing</div>
+            </div>
+            <Icon name="arrowright" size={14} style={{ opacity: 0.9 }} />
+          </div>
+        </div>
+      </div>
+
       {/* Main Operations Grid */}
       <h4 style={{ margin: '18px 0 10px', fontSize: '0.92rem', textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--emp-text-muted)', fontWeight: 700 }}>
         Financial & Field Operations
@@ -228,11 +339,25 @@ export default function EmployeeHome() {
           <div className="tile-title">{t('member_kyc')}</div>
         </div>
 
-        <div className="emp-action-tile" onClick={() => navigate('/employee/requisition')}>
+        <div className="emp-action-tile" onClick={() => navigate('/employee/requisition?kind=group')}>
           <div className="tile-icon" style={{ color: 'var(--emp-primary)' }}>
-            <Icon name="file" size={22} />
+            <Icon name="group" size={22} />
           </div>
-          <div className="tile-title">{t('loan_requisition')}</div>
+          <div className="tile-title">Group Loan</div>
+        </div>
+
+        <div className="emp-action-tile" onClick={() => navigate('/employee/requisition?kind=business')}>
+          <div className="tile-icon" style={{ color: 'var(--emp-primary)' }}>
+            <Icon name="bank" size={22} />
+          </div>
+          <div className="tile-title">Business / MSME</div>
+        </div>
+
+        <div className="emp-action-tile" onClick={() => navigate('/employee/requisition?kind=product')}>
+          <div className="tile-icon" style={{ color: 'var(--emp-primary)' }}>
+            <Icon name="product" size={22} />
+          </div>
+          <div className="tile-title">Product Loan</div>
         </div>
 
         <div className="emp-action-tile" onClick={() => navigate('/employee/collection-history')}>

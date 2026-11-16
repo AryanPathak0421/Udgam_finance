@@ -125,6 +125,24 @@ export default function EmployeeBottomNav() {
                 </div>
                 <div className="tile-title">{t('member_kyc')}</div>
               </div>
+              <div className="emp-action-tile" onClick={() => { setActionsOpen(false); navigate('/employee/requisition?kind=group'); }}>
+                <div className="tile-icon" style={{ color: 'var(--emp-primary)' }}>
+                  <Icon name="group" size={22} />
+                </div>
+                <div className="tile-title">Group Loan</div>
+              </div>
+              <div className="emp-action-tile" onClick={() => { setActionsOpen(false); navigate('/employee/requisition?kind=business'); }}>
+                <div className="tile-icon" style={{ color: 'var(--emp-primary)' }}>
+                  <Icon name="bank" size={22} />
+                </div>
+                <div className="tile-title">Business / MSME</div>
+              </div>
+              <div className="emp-action-tile" onClick={() => { setActionsOpen(false); navigate('/employee/requisition?kind=product'); }}>
+                <div className="tile-icon" style={{ color: 'var(--emp-primary)' }}>
+                  <Icon name="product" size={22} />
+                </div>
+                <div className="tile-title">Product Loan</div>
+              </div>
             </div>
           </div>
         </div>

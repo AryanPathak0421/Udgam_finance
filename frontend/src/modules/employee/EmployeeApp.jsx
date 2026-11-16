@@ -122,6 +122,12 @@ function EmployeeAppRoutes() {
               <Route path="guarantor-change" element={empUser ? <EmployeeGuarantorNominee /> : <Navigate to="/employee/login" replace />} />
               <Route path="synopsis" element={empUser ? <EmployeeMemberSynopsis /> : <Navigate to="/employee/login" replace />} />
               <Route path="requisition" element={empUser ? <EmployeeLoanRequisition /> : <Navigate to="/employee/login" replace />} />
+              <Route path="requisition/group" element={empUser ? <EmployeeLoanRequisition initialKind="group" /> : <Navigate to="/employee/login" replace />} />
+              <Route path="requisition/business" element={empUser ? <EmployeeLoanRequisition initialKind="business" /> : <Navigate to="/employee/login" replace />} />
+              <Route path="requisition/product" element={empUser ? <EmployeeLoanRequisition initialKind="product" /> : <Navigate to="/employee/login" replace />} />
+              <Route path="group-loan" element={empUser ? <EmployeeLoanRequisition initialKind="group" /> : <Navigate to="/employee/login" replace />} />
+              <Route path="business-loan" element={empUser ? <EmployeeLoanRequisition initialKind="business" /> : <Navigate to="/employee/login" replace />} />
+              <Route path="product-loan" element={empUser ? <EmployeeLoanRequisition initialKind="product" /> : <Navigate to="/employee/login" replace />} />
               <Route path="emi-payment" element={empUser ? <EmployeeEmiPayment /> : <Navigate to="/employee/login" replace />} />
               <Route path="advance-payment" element={empUser ? <EmployeeAdvancePayment /> : <Navigate to="/employee/login" replace />} />
               <Route path="npa-recovery" element={empUser ? <EmployeeNpaRecovery /> : <Navigate to="/employee/login" replace />} />
