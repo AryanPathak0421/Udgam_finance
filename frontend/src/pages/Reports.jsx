@@ -11,6 +11,7 @@ import useDebounce from '../hooks/useDebounce.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { EmployeeSelect } from './NewBorrower.jsx';
 import { todayIso } from '../utils/format.js';
+import { staffLabel } from '../utils/staffLabel.js';
 
 const MODE_LABEL = { cash: 'Cash', bank: 'Bank', upi: 'UPI', cheque: 'Cheque' };
 const inr = (n) => (n === null || n === undefined || Number.isNaN(n) ? '—' : `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
@@ -23,8 +24,8 @@ const cap = (s) => (s ? String(s).charAt(0).toUpperCase() + String(s).slice(1) :
 const STATUS_BADGE = { approved: 'green', rejected: 'danger', pending: 'grey', cancelled: 'grey' };
 
 const staffCell = (r) => {
-  const name = r.staffName || (r.staff && r.staff !== r.paidBy ? r.staff : '');
-  const code = r.paidBy || (r.staff !== name ? r.staff : '');
+  const name = r.staffName || (r.staff && r.staff !== r.paidBy && r.staff !== r.employeeCode ? r.staff : '');
+  const code = r.paidBy || r.employeeCode || r.staffCode || (r.staff !== name ? r.staff : '');
   if (name && name !== '—') {
     return <><strong>{name}</strong>{code && code !== name && <div className="muted small">{code}</div>}</>;
   }
@@ -371,7 +372,16 @@ export function ReportPage({ name }) {
   const [staffList, setStaffList] = useState([]);
   useEffect(() => {
     if (cfg.sheet || cfg.staffFilter) {
-      api.members.employees(branch || undefined).then((r) => setStaffList(r.items || [])).catch(() => setStaffList([]));
+      const loader = api.reports?.staffOptions
+        ? api.reports.staffOptions(branch || undefined)
+        : api.members.employees(branch || undefined);
+      loader
+        .then((r) => setStaffList(r.items || []))
+        .catch(() => {
+          api.members.employees(branch || undefined)
+            .then((r) => setStaffList(r.items || []))
+            .catch(() => setStaffList([]));
+        });
     } else {
       setStaffList([]);
     }
@@ -423,8 +433,10 @@ export function ReportPage({ name }) {
               {cfg.sheet && <select value={mode} onChange={(e) => { setMode(e.target.value); if (e.target.value === 'daily') setWeekday(''); }} aria-label="Daily or weekly"><option value="">Daily and weekly</option><option value="daily">Daily</option><option value="weekly">Weekly</option></select>}
               {cfg.typeFilter && <select value={loanType} onChange={(e) => setLoanType(e.target.value)} aria-label="Kind of loan"><option value="">All loans</option><option value="group">Group</option><option value="personal">Personal</option><option value="business">Business</option><option value="msme">MSME</option><option value="product">Product</option></select>}
               {cfg.sheet && mode !== 'daily' && <select value={weekday} onChange={(e) => setWeekday(e.target.value)} aria-label="Day of the week"><option value="">All days</option>{[1, 2, 3, 4, 5, 6, 0].map((d) => <option key={d} value={d}>{dayName(d)}</option>)}</select>}
-              <input type="search" list="sheetstaff" placeholder="Employee (code), optional" value={staff} onChange={(e) => setStaff(e.target.value)} aria-label="Employee" style={{ minWidth: 190 }} />
-              <datalist id="sheetstaff">{staffList.map((s) => <option key={s.code} value={s.code}>{s.name}</option>)}</datalist>
+              <select value={staff} onChange={(e) => setStaff(e.target.value)} aria-label="Staff" style={{ minWidth: 190 }}>
+                <option value="">All staff</option>
+                {staffList.map((s) => <option key={s.code} value={s.code}>{staffLabel(s)}</option>)}
+              </select>
               {cfg.group && (
                 <select value={groupFilter} onChange={(e) => { setGroupFilter(e.target.value); setPage(1); }} aria-label="Group filter">
                   <option value="">All Groups</option>

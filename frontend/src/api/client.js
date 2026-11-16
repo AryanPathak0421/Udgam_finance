@@ -301,6 +301,7 @@ export const api = {
   },
   reports: {
     get: (name, params) => slow(`/reports/${name}`, params),
+    staffOptions: (branch) => request(`/reports/staff-options${qs({ branch })}`),
     callDone: (data) => request('/reports/call-done', { method: 'POST', body: data }),
     npaPayment: (data) => request('/reports/npa-payment', { method: 'POST', body: data }),
   },

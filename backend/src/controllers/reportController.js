@@ -9,7 +9,7 @@ import { User } from '../models/User.js';
 import { ReportCall } from '../models/ReportCall.js';
 import { asString, parseDateOnly, HttpError, startOfToday } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
-import { branchFilter, showMobile } from './groupController.js';
+import { branchFilter, showMobile, isAdmin } from './groupController.js';
 import { dueSummary, loanDetail, loadLoan, receive, borrowerState } from './emiController.js';
 import { slowRun } from '../services/slowRun.js';
 import { Employee } from '../models/Hr.js';
@@ -292,8 +292,8 @@ const REPORTS = {
         .limit(20000)
         .select('-schedule')
         .populate('branch', 'code')
-        .populate({ path: 'requisition', select: 'employeeCode' })
-        .populate('createdBy', 'employeeCode name')
+        .populate({ path: 'requisition', select: 'employeeCode createdBy groupInfo' })
+        .populate('createdBy', 'employeeCode name username')
         .lean();
     } catch {
       loans = await LoanPayment.find({ status: 'paid', ...branchScope(req), ...dateRange(req, 'paidOn') })
@@ -308,17 +308,21 @@ const REPORTS = {
     const groupDocs = groupCodes.length ? await Group.find({ code: { $in: groupCodes } }).select('code employeeCode').lean() : [];
     const groupStaffMap = new Map(groupDocs.map((g) => [g.code, g.employeeCode]));
 
-    const staffCodes = [...new Set(loans.map((l) => l.employeeCode || l.requisition?.employeeCode || groupStaffMap.get(l.group?.code) || l.createdByCode || l.createdBy?.employeeCode).filter(Boolean))];
+    const staffCodes = [...new Set(loans.map((l) => l.employeeCode || l.requisition?.employeeCode || l.requisition?.groupInfo?.employeeCode || groupStaffMap.get(l.group?.code) || l.createdByCode || l.createdBy?.employeeCode).filter(Boolean))];
     const names = await staffNames(staffCodes);
     const rows = loans.filter((l) => {
-      const code = String(l.employeeCode || l.requisition?.employeeCode || groupStaffMap.get(l.group?.code) || l.createdByCode || l.createdBy?.employeeCode || '').trim();
-      if (staffFilter && code.toUpperCase() !== staffFilter) return false;
-      const sName = names.get(code.toUpperCase()) || names.get(String(l.createdBy?._id || '')) || l.createdBy?.name || '';
+      const code = String(l.employeeCode || l.requisition?.employeeCode || l.requisition?.groupInfo?.employeeCode || groupStaffMap.get(l.group?.code) || l.createdByCode || l.createdBy?.employeeCode || '').trim();
+      const sName = names.get(code.toUpperCase()) || names.get(String(l.createdBy?._id || '')) || l.createdBy?.name || l.createdBy?.username || '';
+      if (staffFilter) {
+        const matchCode = code.toUpperCase().includes(staffFilter);
+        const matchName = sName.toUpperCase().includes(staffFilter);
+        if (!matchCode && !matchName) return false;
+      }
       const memberNames = (l.lines || []).map((x) => `${x.code || ''} ${x.name || ''}`);
       return matches(q, l.loanId, l.formId, l.receiptNo, l.group?.name, code, sName, ...memberNames);
     }).map((l) => {
-      const code = String(l.employeeCode || l.requisition?.employeeCode || groupStaffMap.get(l.group?.code) || l.createdByCode || l.createdBy?.employeeCode || '').trim();
-      const sName = names.get(code.toUpperCase()) || names.get(String(l.createdBy?._id || '')) || l.createdBy?.name || (code && isNaN(code) && code.length > 3 ? code : '');
+      const code = String(l.employeeCode || l.requisition?.employeeCode || l.requisition?.groupInfo?.employeeCode || groupStaffMap.get(l.group?.code) || l.createdByCode || l.createdBy?.employeeCode || '').trim();
+      const sName = names.get(code.toUpperCase()) || names.get(String(l.createdBy?._id || '')) || l.createdBy?.name || l.createdBy?.username || (code && isNaN(code) && code.length > 3 ? code : '');
       const lines = l.lines || [];
       const cashAmt = l.totalCashPaise || l.amountPaise || l.totalAmountPaise || lines.reduce((s, x) => s + (x.amountPaise || 0), 0);
       return {
@@ -794,4 +798,48 @@ export async function npaPayment(req, res) {
   const doc = await receive(req, p, line, { amountPaise, paidOn: today, payMode, reference: asString(b.reference), bankAccount, npa: true, employeeCode: staffCode });
   await audit(req, { action: 'report.npaPayment', entity: 'EmiPayment', entityId: doc._id, after: { loan: p.loanId, member: line.code, amount: amountPaise / 100, staff: staffCode || req.user.employeeCode } });
   res.status(201).json({ receiptNo: doc.receiptNo, outstanding: Math.max(st.totals.outstanding - amountPaise, 0) / 100 });
+}
+
+/** Staff options for report filters: all active employees and users with staff code. */
+export async function reportStaffOptions(req, res) {
+  const branch = mongoose.isValidObjectId(req.query.branch) ? req.query.branch : null;
+  const filter = { isDeleted: false, status: 'active', isBlocked: { $ne: true } };
+  if (branch) {
+    filter.$or = [{ branch }, { supervisedBranches: branch }];
+  } else if (!isAdmin(req.user) && req.user.branches?.length) {
+    filter.$or = [{ branch: { $in: req.user.branches } }, { supervisedBranches: { $in: req.user.branches } }];
+  }
+  const emps = await Employee.find(filter).populate('branch', 'code name').select('employeeCode name branch').sort({ employeeCode: 1 }).lean();
+  const uFilter = { employeeCode: { $exists: true, $ne: '' }, isActive: true };
+  if (branch) {
+    uFilter.branches = branch;
+  } else if (!isAdmin(req.user) && req.user.branches?.length) {
+    uFilter.branches = { $in: req.user.branches };
+  }
+  const users = await User.find(uFilter).select('employeeCode name').sort({ employeeCode: 1 }).lean();
+
+  const map = new Map();
+  emps.forEach((e) => {
+    if (e.employeeCode) {
+      map.set(String(e.employeeCode).trim().toUpperCase(), {
+        code: e.employeeCode,
+        name: e.name || e.employeeCode,
+        branchCode: e.branch?.code || '',
+        branchName: e.branch?.name || '',
+      });
+    }
+  });
+  users.forEach((u) => {
+    const k = String(u.employeeCode).trim().toUpperCase();
+    if (u.employeeCode && !map.has(k)) {
+      map.set(k, {
+        code: u.employeeCode,
+        name: u.name || u.employeeCode,
+        branchCode: '',
+        branchName: '',
+      });
+    }
+  });
+  const items = [...map.values()].sort((a, b) => a.code.localeCompare(b.code));
+  res.json({ items });
 }

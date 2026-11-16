@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler as h } from '../utils/http.js';
-import { report, callDone, npaPayment } from '../controllers/reportController.js';
+import { report, callDone, npaPayment, reportStaffOptions } from '../controllers/reportController.js';
 import { listSurveys, createSurvey, updateSurveyStatus } from '../controllers/surveyController.js';
 
 const router = Router();
@@ -14,6 +14,7 @@ router.post('/center-surveys', requireAuth, requireRole(...CALL), h(createSurvey
 router.post('/center-surveys/:id/status', requireAuth, requireRole(...MGMT), h(updateSurveyStatus));
 router.post('/reports/npa-payment', requireAuth, requireRole('super_admin', 'admin', 'branch_manager', 'accountant', 'collection_officer'), h(npaPayment));
 router.post('/reports/call-done', requireAuth, requireRole(...CALL), h(callDone));
+router.get('/reports/staff-options', requireAuth, requireRole(...READ), h(reportStaffOptions));
 router.get('/reports/:name', requireAuth, requireRole(...READ), h(report));
 
 export default router;
