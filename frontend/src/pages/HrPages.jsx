@@ -1071,12 +1071,56 @@ function LocationDialog({ item, onClose, onSaved }) {
   );
 }
 
+const ATTENDANCE_DAYS = [
+  { key: 'monday', label: 'Monday' },
+  { key: 'tuesday', label: 'Tuesday' },
+  { key: 'wednesday', label: 'Wednesday' },
+  { key: 'thursday', label: 'Thursday' },
+  { key: 'friday', label: 'Friday' },
+  { key: 'saturday', label: 'Saturday' },
+  { key: 'sunday', label: 'Sunday' },
+];
+
 /** The attendance places and / or the attendance time for many employees in one click: all that are shown, or the ones ticked. */
 function BulkAttendanceDialog({ shown, picked, branch, onClose, onSaved }) {
   const toast = useToast();
   const [who, setWho] = useState(picked.length ? 'picked' : 'shown');
   const [setTimeOn, setSetTimeOn] = useState(true);
-  const [time, setTime] = useState({ from: '09:00', to: '10:00', any: false });
+
+  const initialDayWise = Object.fromEntries(
+    ATTENDANCE_DAYS.map(({ key }) => [
+      key,
+      {
+        enabled: key !== 'sunday',
+        from: '09:00',
+        to: '10:00',
+      },
+    ])
+  );
+
+  const [time, setTime] = useState({
+    from: '09:00',
+    to: '10:00',
+    any: false,
+    dayWiseEnabled: false,
+    dayWise: initialDayWise,
+  });
+
+  function copyDefaultToAllDays() {
+    setTime((prev) => {
+      const updated = { ...prev.dayWise };
+      ATTENDANCE_DAYS.forEach(({ key }) => {
+        updated[key] = {
+          ...updated[key],
+          from: prev.from || '09:00',
+          to: prev.to || '10:00',
+        };
+      });
+      return { ...prev, dayWise: updated };
+    });
+    toast.success('Copied default times to all working days');
+  }
+
   const [setPlacesOn, setSetPlacesOn] = useState(true);
   const [mode, setMode] = useState('replace');
   const [places, setPlaces] = useState([blankPlace()]);
@@ -1088,7 +1132,18 @@ function BulkAttendanceDialog({ shown, picked, branch, onClose, onSaved }) {
     setBusy(true); setErrors({});
     try {
       const body = { employees: ids, branch: branch || undefined };
-      if (setTimeOn) { if (time.any) body.clearTime = true; else body.time = { from: time.from, to: time.to }; }
+      if (setTimeOn) {
+        if (time.any) {
+          body.clearTime = true;
+        } else {
+          body.time = {
+            from: time.from,
+            to: time.to,
+            dayWiseEnabled: time.dayWiseEnabled,
+            dayWise: time.dayWise,
+          };
+        }
+      }
       if (setPlacesOn) { if (removePlaces) body.clearLocations = true; else { body.locations = places; body.locationMode = mode; } }
       const r = await api.hr.bulkAttendanceSettings(body);
       toast.success(`${r.updated} employee${r.updated === 1 ? '' : 's'} updated`);
@@ -1107,8 +1162,121 @@ function BulkAttendanceDialog({ shown, picked, branch, onClose, onSaved }) {
         {setTimeOn && (
           <div className="form-grid" style={{ marginTop: 8 }}>
             <label className="span-2" style={{ display: 'flex', gap: 6, alignItems: 'center' }}><input type="checkbox" checked={time.any} onChange={(e) => setTime((x) => ({ ...x, any: e.target.checked }))} /> Any time of the day (take the time limit off)</label>
-            {!time.any && <><FormField id="bkf" label="Attendance opens" required error={errors.from}><input id="bkf" type="time" value={time.from} onChange={(e) => setTime((x) => ({ ...x, from: e.target.value }))} /></FormField>
-            <FormField id="bkt" label="Attendance closes" required error={errors.to}><input id="bkt" type="time" value={time.to} onChange={(e) => setTime((x) => ({ ...x, to: e.target.value }))} /></FormField></>}
+            {!time.any && (
+              <>
+                <FormField id="bkf" label="Attendance opens *" required error={errors.from}>
+                  <input id="bkf" type="time" value={time.from} onChange={(e) => setTime((x) => ({ ...x, from: e.target.value }))} />
+                </FormField>
+                <FormField id="bkt" label="Attendance closes *" required error={errors.to}>
+                  <input id="bkt" type="time" value={time.to} onChange={(e) => setTime((x) => ({ ...x, to: e.target.value }))} />
+                </FormField>
+
+                {/* Day-wise attendance schedule toggle */}
+                <div className="span-2" style={{ padding: '8px 12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, margin: '6px 0' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, cursor: 'pointer', color: '#1e293b' }}>
+                    <input
+                      type="checkbox"
+                      checked={time.dayWiseEnabled}
+                      onChange={(e) => setTime((x) => ({ ...x, dayWiseEnabled: e.target.checked }))}
+                    />
+                    📅 Enable Day-wise Attendance Timings (Monday to Sunday)
+                  </label>
+                  <div className="muted small" style={{ marginTop: 2, marginLeft: 24 }}>
+                    Set different opening/closing hours or disable attendance for specific days of the week.
+                  </div>
+                </div>
+
+                {time.dayWiseEnabled && (
+                  <div className="span-2" style={{ border: '1px solid #cbd5e1', borderRadius: 8, padding: 12, background: '#fff' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 6 }}>
+                      <strong style={{ fontSize: '0.85rem' }}>Weekly Attendance Schedule:</strong>
+                      <button type="button" className="btn sm" onClick={copyDefaultToAllDays} style={{ fontSize: '0.75rem' }}>
+                        Copy default ({time.from} - {time.to}) to all days
+                      </button>
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {ATTENDANCE_DAYS.map(({ key, label }) => {
+                        const dayConfig = time.dayWise[key] || { enabled: key !== 'sunday', from: time.from, to: time.to };
+                        return (
+                          <div
+                            key={key}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 12,
+                              padding: '6px 10px',
+                              borderRadius: 6,
+                              background: dayConfig.enabled ? '#f1f5f9' : '#f8fafc',
+                              border: '1px solid #e2e8f0',
+                              opacity: dayConfig.enabled ? 1 : 0.6,
+                              flexWrap: 'wrap',
+                            }}
+                          >
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 110, fontWeight: 600, cursor: 'pointer' }}>
+                              <input
+                                type="checkbox"
+                                checked={dayConfig.enabled}
+                                onChange={(e) => {
+                                  const val = e.target.checked;
+                                  setTime((prev) => ({
+                                    ...prev,
+                                    dayWise: {
+                                      ...prev.dayWise,
+                                      [key]: { ...dayConfig, enabled: val },
+                                    },
+                                  }));
+                                }}
+                              />
+                              {label}
+                            </label>
+
+                            {dayConfig.enabled ? (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <span className="small muted">From:</span>
+                                <input
+                                  type="time"
+                                  value={dayConfig.from}
+                                  style={{ padding: '2px 6px', fontSize: '0.85rem', width: 105 }}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setTime((prev) => ({
+                                      ...prev,
+                                      dayWise: {
+                                        ...prev.dayWise,
+                                        [key]: { ...dayConfig, from: val },
+                                      },
+                                    }));
+                                  }}
+                                />
+                                <span className="small muted">To:</span>
+                                <input
+                                  type="time"
+                                  value={dayConfig.to}
+                                  style={{ padding: '2px 6px', fontSize: '0.85rem', width: 105 }}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setTime((prev) => ({
+                                      ...prev,
+                                      dayWise: {
+                                        ...prev.dayWise,
+                                        [key]: { ...dayConfig, to: val },
+                                      },
+                                    }));
+                                  }}
+                                />
+                              </div>
+                            ) : (
+                              <span className="badge grey" style={{ fontSize: '0.75rem' }}>Day Off (Attendance Disabled)</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         )}
       </div>

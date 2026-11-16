@@ -966,7 +966,12 @@ export async function attendanceDay(req, res) {
     const rule = eff?.source === 'rule';
     return { id: e._id, employeeCode: e.employeeCode, name: e.name, branch: e.branch?.code || '', branchName: e.branch?.name || '', designation: e.designation?.name || '', status: rule || auto ? 'absent' : a?.status || '', source: rule ? 'rule' : auto ? 'auto' : a?.source || '', reason: rule ? eff.reason : auto ? 'No attendance: absent by itself' : '', firstActivity: a?.firstActivity || null, lastActivity: a?.lastActivity || null, remark: a?.remark || '', hasLogin: Boolean(e.user),
       locations: locationsOf(e), distanceM: a?.distanceM ?? null,
-      time: e.attendanceTime?.from ? { from: e.attendanceTime.from, to: e.attendanceTime.to } : null };
+      time: e.attendanceTime?.from ? {
+        from: e.attendanceTime.from,
+        to: e.attendanceTime.to,
+        dayWiseEnabled: Boolean(e.attendanceTime.dayWiseEnabled),
+        dayWise: e.attendanceTime.dayWise || null,
+      } : null };
   });
   const count = (s) => items.filter((i) => i.status === s).length;
   const holidays = (await Holiday.find({ date, isDeleted: false, isActive: true }).select('name').lean()).map((h) => h.name);
@@ -1023,18 +1028,40 @@ export async function bulkAttendanceSettings(req, res) {
     filter._id = { $in: ids };
   }
   const doLocations = b.clearLocations === true || (Array.isArray(b.locations) && b.locations.length > 0);
-  const doTime = b.clearTime === true || (b.time && (asString(b.time.from) || asString(b.time.to)));
+  const doTime = b.clearTime === true || (b.time && (asString(b.time.from) || asString(b.time.to) || b.time.dayWiseEnabled));
   if (!doLocations && !doTime) throw invalid({ locations: 'Give the places and / or the time to set' });
   let places = [];
   if (doLocations && b.clearLocations !== true) places = readPlaces(b.locations);
   let time;
   if (doTime && b.clearTime !== true) {
-    const from = asString(b.time.from);
-    const to = asString(b.time.to);
-    if (!HHMM.test(from)) throw invalid({ from: 'Enter the time the attendance opens (HH:MM)' });
-    if (!HHMM.test(to)) throw invalid({ to: 'Enter the time the attendance closes (HH:MM)' });
-    if (to <= from) throw invalid({ to: 'The closing time must be after the opening time' });
-    time = { from, to };
+    const from = asString(b.time.from) || '09:00';
+    const to = asString(b.time.to) || '18:00';
+    if (from && !HHMM.test(from)) throw invalid({ from: 'Enter the time the attendance opens (HH:MM)' });
+    if (to && !HHMM.test(to)) throw invalid({ to: 'Enter the time the attendance closes (HH:MM)' });
+    if (from && to && to <= from) throw invalid({ to: 'The closing time must be after the opening time' });
+
+    const dayWiseEnabled = Boolean(b.time.dayWiseEnabled);
+    const dayWise = {};
+    const ALL_DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    if (b.time.dayWise && typeof b.time.dayWise === 'object') {
+      ALL_DAYS.forEach((d) => {
+        const item = b.time.dayWise[d] || {};
+        const dFrom = asString(item.from);
+        const dTo = asString(item.to);
+        dayWise[d] = {
+          enabled: item.enabled !== false,
+          from: dFrom && HHMM.test(dFrom) ? dFrom : (from || '09:00'),
+          to: dTo && HHMM.test(dTo) ? dTo : (to || '18:00'),
+        };
+      });
+    }
+
+    time = {
+      from: from || '09:00',
+      to: to || '18:00',
+      dayWiseEnabled,
+      ...(dayWiseEnabled ? { dayWise } : {}),
+    };
   }
   const emps = await Employee.find(filter).select('attendanceLocations attendanceLocation').lean();
   if (!emps.length) throw invalid({ employees: 'No working employee found in your branches' });
