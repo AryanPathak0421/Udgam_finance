@@ -570,7 +570,7 @@ export async function getDashboard(req, res) {
   const todayEnd = new Date(today.getTime() + 24 * 60 * 60 * 1000 - 1);
 
   // Point 5 Fix: Collections by this employee today
-  // Include both approved EmiPayment and today's AppEmiCollection (pending + approved from app), deduplicated
+  // Approved collections come from EmiPayment, and pending app submissions come from AppEmiCollection
   const todayEmiPayments = await EmiPayment.find({
     status: 'paid',
     paidOn: { $gte: today, $lte: todayEnd },
@@ -583,7 +583,7 @@ export async function getDashboard(req, res) {
 
   const todayAppCollections = await AppEmiCollection.find({
     collectedOn: { $gte: today, $lte: todayEnd },
-    status: { $in: ['pending', 'approved'] },
+    status: 'pending',
     $or: [
       ...(codeRegex ? [{ collectedByCode: codeRegex }] : []),
       ...(req.user?._id ? [{ collectedBy: req.user._id }] : []),
@@ -3390,26 +3390,37 @@ export async function getEmiGroups(req, res) {
     { $group: { _id: '$loanPayment', total: { $sum: '$amountPaise' } } },
   ]) : [];
 
+  // Pre-fetch all past payments for dues calculation
+  const allPastPayments = allLoanIds.length ? await EmiPayment.find({
+    loanPayment: { $in: allLoanIds },
+    status: 'paid',
+  }).select('loanPayment memberCode amountPaise paidOn receiptNo').lean() : [];
+
+  const allPastReceipts = new Set(allPastPayments.map((p) => p.receiptNo).filter(Boolean));
+  const seenTodayLoanMember = new Set(
+    allPastPayments
+      .filter((p) => p.paidOn >= startDay && p.paidOn <= endDay)
+      .map((p) => `${String(p.loanPayment)}_${String(p.memberCode || '').trim().toUpperCase()}`)
+  );
+
+  // Only include pending AppEmiCollections awaiting approval (do not double-count approved collections)
   const appCollections = allLoanIds.length ? await AppEmiCollection.find({
     loanPayment: { $in: allLoanIds },
-    status: { $in: ['pending', 'approved'] },
+    status: 'pending',
     collectedOn: { $gte: startDay, $lte: endDay },
-  }).select('loanPayment memberCode amountPaise').lean() : [];
+  }).select('loanPayment memberCode amountPaise receiptNo').lean() : [];
 
   const collectionsByLoanId = new Map();
   for (const c of collections) {
     collectionsByLoanId.set(String(c._id), c.total || 0);
   }
   for (const ac of appCollections) {
+    if (ac.receiptNo && allPastReceipts.has(ac.receiptNo)) continue;
+    const lmKey = `${String(ac.loanPayment)}_${String(ac.memberCode || '').trim().toUpperCase()}`;
+    if (seenTodayLoanMember.has(lmKey)) continue;
     const lid = String(ac.loanPayment);
     collectionsByLoanId.set(lid, (collectionsByLoanId.get(lid) || 0) + (ac.amountPaise || 0));
   }
-
-  // Pre-fetch all past payments for dues calculation
-  const allPastPayments = allLoanIds.length ? await EmiPayment.find({
-    loanPayment: { $in: allLoanIds },
-    status: 'paid',
-  }).select('loanPayment memberCode amountPaise paidOn').lean() : [];
 
   const paymentsByKey = new Map();
   for (const p of allPastPayments) {
@@ -3422,7 +3433,9 @@ export async function getEmiGroups(req, res) {
     paymentsByKey.set(k, cur);
   }
   for (const ac of appCollections) {
+    if (ac.receiptNo && allPastReceipts.has(ac.receiptNo)) continue;
     const k = `${String(ac.loanPayment)}_${ac.memberCode}`;
+    if (seenTodayLoanMember.has(k)) continue;
     const cur = paymentsByKey.get(k) || { totalPaise: 0, todayPaise: 0 };
     cur.todayPaise += (ac.amountPaise || 0);
     cur.totalPaise += (ac.amountPaise || 0);
@@ -3666,6 +3679,11 @@ export async function getGroupEmiMembers(req, res) {
   }).lean();
 
   const allPastReceipts = new Set(allPastPayments.map((p) => p.receiptNo).filter(Boolean));
+  const seenTodayLoanMember = new Set(
+    allPastPayments
+      .filter((p) => p.paidOn >= startDay && p.paidOn <= endDay)
+      .map((p) => `${String(p.loanPayment)}_${String(p.memberCode || '').trim().toUpperCase()}`)
+  );
 
   // Only include pending AppEmiCollections that DO NOT already have a corresponding EmiPayment
   const appCollections = allLoanIds.length ? await AppEmiCollection.find({
@@ -3700,6 +3718,7 @@ export async function getGroupEmiMembers(req, res) {
     // Avoid double counting if already present in allPastPayments!
     if (ac.receiptNo && allPastReceipts.has(ac.receiptNo)) continue;
     const k = `${String(ac.loanPayment)}_${String(ac.memberCode || '').trim().toUpperCase()}`;
+    if (seenTodayLoanMember.has(k)) continue;
     const cur = paymentsByKey.get(k) || { totalPaise: 0, todayPaise: 0 };
     cur.todayPaise += (ac.amountPaise || 0);
     cur.totalPaise += (ac.amountPaise || 0);
