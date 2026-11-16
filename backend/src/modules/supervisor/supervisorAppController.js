@@ -1135,19 +1135,19 @@ export async function recoverNpaLoan(req, res) {
 
   // Point 4: Record in AppEmiCollection with status: 'pending' so it strictly appears in System EMI Approval (/app/emi-approval)
   await AppEmiCollection.create({
-    loanPayment: loan?._id || null,
+    loanPayment: loan?._id || undefined,
     loanId: loan?.loanId || loan?.formId || settlementDoc?.loanId || searchId,
-    branch: resolvedBranch,
+    branch: resolvedBranch || (req.user?.branches || [])[0] || null,
     memberCode: line.code || memberCode || 'MEMBER',
     memberName: line.name || 'Borrower',
     group: loan?.group?.code ? `${loan.group.code} — ${loan.group.name}` : (settlementDoc?.group || ''),
     amountPaise: Math.round(payAmount * 100),
     collectedOn: new Date(),
-    type: 'regular',
+    type: 'npa',
     npa: true,
     payMode: modeClean,
     reference: reference || '',
-    collectedBy: req.user._id,
+    collectedBy: req.user?._id,
     collectedByCode: req.user?.employeeCode || '',
     status: 'pending',
     receiptNo,

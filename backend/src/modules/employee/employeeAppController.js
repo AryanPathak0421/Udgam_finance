@@ -1984,11 +1984,12 @@ export async function collectTodayDue(req, res) {
   }
 
   const receiptNo = await generateCode('emiReceipt').catch(() => `DUE${Date.now().toString().slice(-8)}`);
+  const branchVal = loan.branch?._id || loan.branch || (req.user?.branches || [])[0] || null;
 
   const pendingCollection = await AppEmiCollection.create({
     loanPayment: loan._id,
     loanId: loan.loanId || loan.formId,
-    branch: loan.branch?._id || loan.branch,
+    branch: branchVal,
     memberCode: line.code,
     memberName: line.name,
     group: loan.group?.code ? `${loan.group.code} — ${loan.group.name}` : '',
@@ -1997,7 +1998,7 @@ export async function collectTodayDue(req, res) {
     type: 'regular',
     payMode: ['cash', 'bank', 'upi', 'cheque'].includes(payMode) ? payMode : 'cash',
     reference: reference || '',
-    collectedBy: req.user._id,
+    collectedBy: req.user?._id,
     collectedByCode: req.user?.employeeCode || '',
     status: 'pending',
     receiptNo,
@@ -3898,10 +3899,11 @@ export async function collectBulkEmi(req, res) {
 
       // Point 37: Record in AppEmiCollection with status 'pending' awaiting manager/admin collection approval
       const receiptNo = await generateCode('emiReceipt').catch(() => `APP${Date.now().toString().slice(-8)}`);
+      const branchVal = p.branch?._id || p.branch || userBranchId || (req.user?.branches || [])[0] || null;
       const pendingColl = await AppEmiCollection.create({
         loanPayment: p._id,
         loanId: p.loanId || p.formId,
-        branch: p.branch?._id || p.branch,
+        branch: branchVal,
         memberCode: line.code,
         memberName: line.name,
         group: p.group?.code ? `${p.group.code} — ${p.group.name}` : '',
@@ -3910,7 +3912,7 @@ export async function collectBulkEmi(req, res) {
         type: 'regular',
         payMode: ['cash', 'bank', 'upi', 'cheque'].includes(it.payMode || payMode) ? (it.payMode || payMode) : 'cash',
         reference: it.reference || reference || '',
-        collectedBy: req.user._id,
+        collectedBy: req.user?._id,
         collectedByCode: staffCode,
         status: 'pending',
         receiptNo,
@@ -4216,13 +4218,14 @@ export async function advancePayment(req, res) {
   }
 
   const receiptNo = await generateCode('emiReceipt').catch(() => `ADV${Date.now().toString().slice(-8)}`);
+  const branchVal = loan.branch?._id || loan.branch || (req.user?.branches || [])[0] || null;
 
   // Item 9 Fix: Do NOT create approved EmiPayment directly from app!
   // Record in AppEmiCollection with status 'pending' awaiting manager/admin collection approval
   await AppEmiCollection.create({
     loanPayment: loan._id,
     loanId: loan.loanId || loan.formId,
-    branch: loan.branch?._id || loan.branch,
+    branch: branchVal,
     memberCode: line.code,
     memberName: line.name,
     group: loan.group?.code ? `${loan.group.code} — ${loan.group.name}` : '',
@@ -4231,7 +4234,7 @@ export async function advancePayment(req, res) {
     type: 'advance',
     payMode: ['cash', 'bank', 'upi', 'cheque'].includes(payMode) ? payMode : 'cash',
     reference: reference || '',
-    collectedBy: req.user._id,
+    collectedBy: req.user?._id,
     collectedByCode: req.user?.employeeCode || '',
     status: 'pending',
     receiptNo,
@@ -4523,19 +4526,19 @@ export async function recoverNpaLoan(req, res) {
 
   // Point 4: Record in AppEmiCollection with status: 'pending' so NPA recovery appears in System/Admin Approval section
   await AppEmiCollection.create({
-    loanPayment: loan?._id || null,
+    loanPayment: loan?._id || undefined,
     loanId: loan?.loanId || loan?.formId || settlementDoc?.loanId || searchId,
-    branch: branchId,
+    branch: branchId || (req.user?.branches || [])[0] || null,
     memberCode: line.code || memberCode || 'MEMBER',
     memberName: line.name || 'Borrower',
     group: loan?.group?.code ? `${loan.group.code} — ${loan.group.name}` : (settlementDoc?.group || ''),
     amountPaise: Math.round(payAmount * 100),
     collectedOn: new Date(),
-    type: 'regular',
+    type: 'npa',
     npa: true,
     payMode: modeClean,
     reference: reference || '',
-    collectedBy: req.user._id,
+    collectedBy: req.user?._id,
     collectedByCode: req.user?.employeeCode || '',
     status: 'pending',
     receiptNo,

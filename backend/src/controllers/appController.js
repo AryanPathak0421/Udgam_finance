@@ -31,7 +31,15 @@ function scope(req) {
     const own = filter.branch?.$in?.map(String);
     return own && !own.includes(wanted) ? { branch: { $in: [] } } : { branch: new mongoose.Types.ObjectId(wanted) };
   }
-  return filter.branch ? { branch: { $in: filter.branch.$in.map((b) => new mongoose.Types.ObjectId(String(b))) } } : {};
+  if (!filter.branch || !filter.branch.$in?.length) return {};
+  const branchIds = filter.branch.$in.map((b) => new mongoose.Types.ObjectId(String(b)));
+  return {
+    $or: [
+      { branch: { $in: branchIds } },
+      { branch: { $exists: false } },
+      { branch: null },
+    ],
+  };
 }
 
 // ---- App User Creation --------------------------------------------------------------------------------------------------
@@ -484,9 +492,25 @@ export async function queueAppEmi(req, p, line, { amountPaise, count, type, paid
 }
 
 const presentEmi = (c) => ({
-  id: c._id, loanId: c.loanId, branch: c.branch?._id ? { id: c.branch._id, code: c.branch.code, name: c.branch.name } : null, memberCode: c.memberCode, memberName: c.memberName, group: c.group || '', amount: rupees(c.amountPaise),
-  collectedOn: iso(c.collectedOn), type: c.type || '', installments: c.installments || null, payMode: c.payMode, reference: c.reference || '', collectedBy: c.collectedByCode || '', submittedAt: c.createdAt, status: c.status, decidedBy: c.decidedByCode || '', decidedAt: c.decidedAt,
-  reason: c.rejectReason || '', receiptNo: c.receiptNo || '',
+  id: c._id,
+  loanId: c.loanId,
+  branch: c.branch?._id ? { id: c.branch._id, code: c.branch.code, name: c.branch.name } : (c.branch ? { id: c.branch, code: '—', name: '' } : null),
+  memberCode: c.memberCode,
+  memberName: c.memberName,
+  group: c.group || '',
+  amount: rupees(c.amountPaise),
+  collectedOn: iso(c.collectedOn),
+  type: c.type || (c.npa ? 'npa' : 'regular'),
+  installments: c.installments || null,
+  payMode: c.payMode,
+  reference: c.reference || '',
+  collectedBy: c.collectedByCode || '',
+  submittedAt: c.createdAt,
+  status: c.status,
+  decidedBy: c.decidedByCode || '',
+  decidedAt: c.decidedAt,
+  reason: c.rejectReason || '',
+  receiptNo: c.receiptNo || '',
 });
 
 export async function listEmiApprovals(req, res) {
