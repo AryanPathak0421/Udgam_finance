@@ -527,6 +527,7 @@ export default function EmployeeLoanRequisition({ initialKind }) {
   const [extras, setExtras] = useState({}); // { memberId: { id, qty } }
   const [memberForms, setMemberForms] = useState({}); // { memberId: { front, back } }
   const [memberSchemes, setMemberSchemes] = useState({}); // { memberId: schemeId } (Point 9.2)
+  const [memberAmounts, setMemberAmounts] = useState({}); // { memberId: loan amount } (a group loan has its own amount per member)
   const [memberProductSchemes, setMemberProductSchemes] = useState({}); // { memberId: productSchemeId } (Point 9.7)
 
   // Individual Mode States (Personal / Business / Product)
@@ -982,12 +983,18 @@ export default function EmployeeLoanRequisition({ initialKind }) {
       .filter((r) => r.p && r.qty > 0);
   }, [isGroup, groupDetail, chosenMemberIds, extras, stock]);
 
+  // group loan: every member has an amount of his own (the shared amount is only the starting value)
+  const amountOf = (mid) => (memberAmounts[mid] !== undefined ? memberAmounts[mid] : form.amount);
+  const refAmount = isGroup && chosenMemberIds.length ? amountOf(chosenMemberIds[0]) : form.amount; // the calculation below is shown for this amount
+  const amountsDiffer = isGroup && chosenMemberIds.some((id) => String(amountOf(id)) !== String(refAmount));
+  const groupTotal = isGroup ? chosenMemberIds.reduce((t, id) => t + (Number(amountOf(id)) || 0), 0) : 0;
+  const extraMaxOf = (mid) => Math.floor((Number(amountOf(mid)) || 0) * (EXTRA_PERCENT / 100));
   const extraMax = Math.floor((Number(form.amount) || 0) * (EXTRA_PERCENT / 100));
   const extraKey = extraRows.map((r) => r.value).join(',');
 
   // Debounced live calculation
   const calcDebounce = useDebounce(
-    JSON.stringify({ s: form.schemeId, a: form.amount, m: form.mode, t: installments, r: form.rate, x: extraKey }),
+    JSON.stringify({ s: form.schemeId, a: isGroup ? refAmount : form.amount, m: form.mode, t: installments, r: form.rate, x: extraKey }),
     350
   );
 
@@ -1055,7 +1062,7 @@ export default function EmployeeLoanRequisition({ initialKind }) {
 
     if (!selectedBranch) found.branch = 'Select branch';
     if (!isGroup && !form.schemeId) found.schemeId = 'Select loan scheme';
-    if (!form.amount || Number(form.amount) <= 0) found.amount = 'Enter valid amount';
+    if (!isGroup && (!form.amount || Number(form.amount) <= 0)) found.amount = 'Enter valid amount';
     if (!form.mode) found.mode = 'Select repayment mode';
     if (!form.term) found.term = 'Enter term';
     if (form.rate === '') found.rate = 'Enter interest rate';
@@ -1068,6 +1075,10 @@ export default function EmployeeLoanRequisition({ initialKind }) {
           const mObj = groupDetail?.group?.members?.find((x) => (x.id || x._id) === mid);
           const chosenScheme = memberSchemes[mid] || form.schemeId;
           if (!chosenScheme) found[`ms_${mid}`] = `Select loan scheme for ${mObj?.name || 'member'}`;
+          const memAmt = Number(amountOf(mid));
+          const memScheme = schemes.find((x) => x.id === chosenScheme);
+          if (!(memAmt > 0)) found[`ma_${mid}`] = `Enter the loan amount for ${mObj?.name || 'member'}`;
+          else if (memScheme && (memAmt < memScheme.amountMin || memAmt > memScheme.amountMax)) found[`ma_${mid}`] = `Amount must be between ${inr(memScheme.amountMin)} and ${inr(memScheme.amountMax)} for ${memScheme.name}`;
           if (!memberForms[mid]?.front) found[`mf_${mid}_front`] = `Upload front photo of form for ${mObj?.name || 'member'}`;
           if (!memberForms[mid]?.back) found[`mf_${mid}_back`] = `Upload back photo of form for ${mObj?.name || 'member'}`;
 
@@ -1202,7 +1213,7 @@ export default function EmployeeLoanRequisition({ initialKind }) {
         employeeName: empUser?.name || '',
         schemeId: form.schemeId,
         schemeName: scheme?.name || 'Loan Scheme',
-        amount: Number(form.amount),
+        amount: Number(isGroup ? refAmount : form.amount),
         mode: form.mode,
         term: Number(installments),
         rate: Number(form.rate),
@@ -1237,7 +1248,7 @@ export default function EmployeeLoanRequisition({ initialKind }) {
               member: mid,
               civilScore: m.civilScore != null ? String(m.civilScore) : '',
               schemeId: memberSchemes[mid] || form.schemeId,
-              amount: form.amount,
+              amount: String(amountOf(mid)),
               mode: form.mode,
               term: Number(installments),
               rate: form.rate,
@@ -1726,6 +1737,7 @@ export default function EmployeeLoanRequisition({ initialKind }) {
                       const e = extras[mid] || { id: '', qty: '1' };
                       const p = stock.find((x) => x.id === e.id);
                       const extraVal = p ? Math.round(p.unitPrice * (Number(e.qty) || 1) * 100) / 100 : 0;
+                      const extraMax = extraMaxOf(mid); // 25% of this member's own loan amount
                       const isOver = extraMax > 0 && extraVal > extraMax;
 
                       return (
@@ -1830,6 +1842,24 @@ export default function EmployeeLoanRequisition({ initialKind }) {
                                 </select>
                                 {errors[`ms_${mid}`] && (
                                   <div style={{ fontSize: '0.7rem', color: '#dc2626', fontWeight: 600, marginTop: 2 }}>{errors[`ms_${mid}`]}</div>
+                                )}
+                              </div>
+
+                              {/* Loan amount of this member */}
+                              <div style={{ marginBottom: 8 }}>
+                                <label style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--emp-text)', display: 'block', marginBottom: 3 }}>
+                                  Loan Amount for {m.name} (₹) *
+                                </label>
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  className="emp-input"
+                                  style={{ width: '100%', fontSize: '0.8rem', padding: '6px 8px', fontWeight: 700 }}
+                                  value={amountOf(mid)}
+                                  onChange={(ev) => setMemberAmounts((ma) => ({ ...ma, [mid]: ev.target.value.replace(/[^\d.]/g, '') }))}
+                                />
+                                {errors[`ma_${mid}`] && (
+                                  <div style={{ fontSize: '0.7rem', color: '#dc2626', fontWeight: 600, marginTop: 2 }}>{errors[`ma_${mid}`]}</div>
                                 )}
                               </div>
 
@@ -2518,7 +2548,7 @@ export default function EmployeeLoanRequisition({ initialKind }) {
 
             {/* Form Inputs: Amount, Repayment Mode, Term, Installments, Interest Rate */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
-              <div>
+              <div style={isGroup ? { display: 'none' } : undefined}>
                 <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>
                   {isGroup ? 'Amount per Member (₹) *' : 'Request Amount (₹) *'}
                 </label>
@@ -2528,7 +2558,7 @@ export default function EmployeeLoanRequisition({ initialKind }) {
                   value={form.amount}
                   disabled={isProduct}
                   onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value.replace(/[^\d.]/g, '') }))}
-                  required
+                  required={!isGroup}
                   style={isProduct ? { background: '#f8fafc', fontWeight: 800, color: 'var(--emp-primary)' } : undefined}
                 />
                 {isProduct && product && (
@@ -2653,11 +2683,12 @@ export default function EmployeeLoanRequisition({ initialKind }) {
                 <div style={{ fontSize: '0.78rem', opacity: 0.9 }}>Calculated Installment (EMI):</div>
                 <div style={{ fontSize: '1.25rem', fontWeight: 800, marginTop: 2 }}>
                   {inr(preview.summary.installmentAmount)}{isGroup ? ' / member' : ''} × {preview.summary.installments} installments
+                  {amountsDiffer && <div style={{ fontSize: '0.7rem', fontWeight: 500, opacity: 0.9 }}>for the first selected member ({inr(refAmount)}); each member's EMI follows his own amount</div>}
                 </div>
                 <div style={{ fontSize: '0.8rem', opacity: 0.95, marginTop: 4 }}>
                   Total Payable: <strong>{inr(preview.summary.totalPayable)}</strong>
                   {isGroup && effCount > 1 && (
-                    <span> · Group Total: <strong>{inr((Number(form.amount) || 0) * effCount)}</strong> ({effCount} members)</span>
+                    <span> · Group Total: <strong>{inr(groupTotal)}</strong> ({effCount} members)</span>
                   )}
                 </div>
               </div>
@@ -2717,7 +2748,7 @@ export default function EmployeeLoanRequisition({ initialKind }) {
                           {inr(preview.cash)}
                         </td>
                       </tr>
-                      {isGroup && effCount > 1 && (
+                      {isGroup && effCount > 1 && !amountsDiffer && (
                         <tr style={{ background: '#f0fdf4', color: '#166534', fontWeight: 700 }}>
                           <td style={{ padding: '6px 10px' }}>Total Cash for {effCount} Members:</td>
                           <td style={{ padding: '6px 10px', textAlign: 'right' }}>
@@ -2788,12 +2819,12 @@ export default function EmployeeLoanRequisition({ initialKind }) {
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: '#64748b' }}>Loan Amount:</span>
-                <strong>{inr(form.amount)}{isGroup ? ' / member' : ''}</strong>
+                <strong>{isGroup ? (amountsDiffer ? 'Member-wise' : `${inr(refAmount)} / member`) : inr(form.amount)}</strong>
               </div>
               {isGroup && (
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ color: '#64748b' }}>Selected Members:</span>
-                  <strong>{effCount} members (Total: {inr(Number(form.amount) * effCount)})</strong>
+                  <strong>{effCount} members (Total: {inr(isGroup ? groupTotal : Number(form.amount) * effCount)})</strong>
                 </div>
               )}
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
