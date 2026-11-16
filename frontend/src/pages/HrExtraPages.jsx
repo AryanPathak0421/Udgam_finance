@@ -716,7 +716,19 @@ export function LeaveApply() {
   const [bal, setBal] = useState(null);
   const balances = useLoad(() => api.hr.leaveBalances({ branch }), [branch]);
   const sv = useSaver(toast, () => { setF((x) => ({ ...x, employee: '', reason: '' })); setBal(null); list.load(); balances.load(); });
-  useEffect(() => { if (!f.employee) { setBal(null); return; } api.hr.leaveBalance(f.employee).then((r) => setBal(r.balance)).catch(() => setBal(null)); }, [f.employee]);
+  useEffect(() => {
+    if (!f.employee) {
+      setBal(null);
+      return;
+    }
+    const found = balances.data?.items?.find((b) => String(b.id) === String(f.employee));
+    if (found) setBal(found);
+    api.hr.leaveBalance(f.employee)
+      .then((r) => setBal(r.balance))
+      .catch(() => {
+        if (!found) setBal(null);
+      });
+  }, [f.employee, balances.data]);
   const set = (k) => (e) => { setF((x) => ({ ...x, [k]: e.target.value })); sv.setErrors((x) => ({ ...x, [k]: undefined })); };
   const items = list.data?.items || [];
   return (

@@ -30,14 +30,14 @@ export function balanceOf(emp, taken, asOf = new Date()) {
   const today = new Date(Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth(), asOf.getUTCDate()));
   const fy = fyStartOf(today);
   const fyIdx = idx(fy);
-  const joinDate = emp.joiningDate || emp.createdAt;
+  const joinDate = emp?.joiningDate;
   const first = firstMonth(joinDate);
   const before = first === null ? 0 : earnedBetween(first, first, fyIdx - 1);
   const earned = Math.min(earnedBetween(first, fyIdx, idx(today)), 12);
   const usedBefore = taken.filter((l) => new Date(l.from) < fy).reduce((s, l) => s + (l.days || 0), 0);
   const used = taken.filter((l) => new Date(l.from) >= fy).reduce((s, l) => s + (l.days || 0), 0);
   const opening = Math.max(before - usedBefore, 0);
-  return { financialYear: fyLabel(fy), opening, earned, used, available: Math.max(opening + earned - used, 0), perYear: 12, joiningKnown: Boolean(emp.joiningDate || emp.createdAt) };
+  return { financialYear: fyLabel(fy), opening, earned, used, available: Math.max(opening + earned - used, 0), perYear: 12, joiningKnown: Boolean(emp?.joiningDate) };
 }
 
 /** EL and leaves that are applied for or approved (not rejected) of the employees. */
@@ -45,7 +45,7 @@ async function takenBy(ids) {
   const rows = await Leave.find({
     employee: { $in: ids },
     status: { $in: ['pending', 'approved'] },
-    type: 'earned',
+    type: { $in: ['earned', 'Earned', 'EL', 'el'] },
   }).select('employee from days type').lean();
   const by = new Map();
   rows.forEach((l) => { const k = String(l.employee); if (!by.has(k)) by.set(k, []); by.get(k).push(l); });
