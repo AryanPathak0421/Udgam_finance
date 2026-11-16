@@ -1644,11 +1644,11 @@ export default function EmployeeLoanRequisition({ initialKind }) {
                         style={{ padding: '3px 8px', fontSize: '0.72rem', fontWeight: 600 }}
                         onClick={() => {
                           const targetList = memberSearch.trim() ? filteredMembers : groupDetail.group.members;
-                          const okIds = targetList.filter((m) => !m.isBlocked && !m.runningInGroup && !(m.issues && m.issues.length)).map((m) => m.id || m._id);
+                          const okIds = targetList.filter((m) => !m.isBlocked && !m.runningInGroup).map((m) => m.id || m._id);
                           setChosenMemberIds((prev) => Array.from(new Set([...prev, ...okIds])));
                         }}
                       >
-                        {memberSearch.trim() ? `Select Matching (${filteredMembers.filter((m) => !m.isBlocked && !m.runningInGroup && !(m.issues && m.issues.length)).length})` : 'Select All Eligible'}
+                        {memberSearch.trim() ? `Select Matching (${filteredMembers.filter((m) => !m.isBlocked && !m.runningInGroup).length})` : 'Select All Eligible'}
                       </button>
                       {chosenMemberIds.length > 0 && (
                         <button
@@ -1721,8 +1721,8 @@ export default function EmployeeLoanRequisition({ initialKind }) {
                       const isRunning = Boolean(m.runningInGroup);
                       const isChosen = chosenMemberIds.includes(mid);
                       const issueList = Array.isArray(m.issues) ? m.issues : [];
-                      // same rule as the software: a member with something pending (details, guarantor, nominee, KYC) cannot be selected
-                      const disabled = isBlocked || isRunning || issueList.length > 0;
+                      // (a member with something pending is only marked; the loan is checked when it is submitted, so the amount box stays available)
+                      const disabled = isBlocked || isRunning;
                       const e = extras[mid] || { id: '', qty: '1' };
                       const p = stock.find((x) => x.id === e.id);
                       const extraVal = p ? Math.round(p.unitPrice * (Number(e.qty) || 1) * 100) / 100 : 0;
