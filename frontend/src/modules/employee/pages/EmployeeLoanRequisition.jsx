@@ -431,7 +431,7 @@ function GroupTopUpSection({ members, stock, onDone }) {
                   )}
                 </div>
                 {p && <div style={{ fontSize: '0.75rem', fontWeight: 600, color: val > l.topUpLeft ? '#dc2626' : '#16a34a' }}>Value: {inr(val)}</div>}
-                {e.id && (
+                {(
                   <select
                     className="emp-input"
                     style={{ fontSize: '0.78rem', padding: '6px 8px' }}
@@ -2391,11 +2391,11 @@ export default function EmployeeLoanRequisition({ initialKind }) {
           {/* SECTIONS 6, 7 & 8: SCHEME, PRODUCT, PREVIEW & SUBMIT (Enabled only after Group / Borrower selection - Point 12 & 13) */}
           {((isGroup ? pickedGroup : pickedBorrower)) && (
             <>
-              {/* SECTION 6: SCHEME DETAIL & PARAMETERS (Hidden from UI only per user request) */}
-          <div className="emp-card" style={{ marginBottom: 12, display: 'none' }}>
+              {/* SECTION 6: LOAN AMOUNT & SCHEME (the scheme details and the term / installments / rate fields stay hidden, per the earlier request) */}
+          <div className="emp-card" style={{ marginBottom: 12 }}>
             <h3 style={{ fontSize: '0.95rem', fontWeight: 800, margin: '0 0 10px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 6 }}>
               <Icon name="check" size={16} />
-              <span>{isProduct ? '6. Product Loan Scheme' : '6. Scheme Detail & Parameters'}</span>
+              <span>{isProduct ? '6. Product Loan Scheme' : '6. Loan Amount'}</span>
             </h3>
 
             {!isGroup ? (
@@ -2428,7 +2428,7 @@ export default function EmployeeLoanRequisition({ initialKind }) {
 
             {/* Scheme Specs Badge Card */}
             {scheme && (
-              <div style={{ background: '#f8fafc', border: '1px solid var(--emp-border)', borderRadius: 8, padding: 10, marginBottom: 12 }}>
+              <div style={{ background: '#f8fafc', border: '1px solid var(--emp-border)', borderRadius: 8, padding: 10, marginBottom: 12, display: 'none' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 12px', fontSize: '0.74rem' }}>
                   <div><span style={{ color: '#64748b' }}>Amount:</span> <strong>{inr(scheme.amountMin)} – {inr(scheme.amountMax)}</strong></div>
                   <div><span style={{ color: '#64748b' }}>Term:</span> <strong>{scheme.termMin} – {scheme.termMax} {scheme.termUnit}</strong></div>
@@ -2572,7 +2572,7 @@ export default function EmployeeLoanRequisition({ initialKind }) {
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+            <div style={{ display: 'none', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
               <div>
                 <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>
                   Term ({scheme?.termUnit || 'weeks'}) *
