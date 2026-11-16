@@ -3443,7 +3443,7 @@ export async function getEmiGroups(req, res) {
 
   const paymentsByKey = new Map();
   for (const p of allPastPayments) {
-    const k = `${String(p.loanPayment)}_${p.memberCode}`;
+    const k = `${String(p.loanPayment)}_${String(p.memberCode || '').trim().toUpperCase()}`;
     const cur = paymentsByKey.get(k) || { totalPaise: 0, todayPaise: 0 };
     cur.totalPaise += (p.amountPaise || 0);
     if (p.paidOn >= startDay && p.paidOn <= endDay) {
@@ -3453,7 +3453,7 @@ export async function getEmiGroups(req, res) {
   }
   for (const ac of appCollections) {
     if (ac.receiptNo && allPastReceipts.has(ac.receiptNo)) continue;
-    const k = `${String(ac.loanPayment)}_${ac.memberCode}`;
+    const k = `${String(ac.loanPayment)}_${String(ac.memberCode || '').trim().toUpperCase()}`;
     if (seenTodayLoanMember.has(k)) continue;
     const cur = paymentsByKey.get(k) || { totalPaise: 0, todayPaise: 0 };
     cur.todayPaise += (ac.amountPaise || 0);
@@ -3565,10 +3565,10 @@ export async function getEmiGroups(req, res) {
         const codeKey = line.code ? String(line.code).toUpperCase().trim() : (line.member ? String(line.member) : '');
         if (codeKey && seenMemberCodes.has(codeKey)) continue;
 
-        const isLineSettled = line.isSettled || settledKeySet.has(`${String(l._id)}_${line.code}`) || settledKeySet.has(`${l.loanId}_${line.code}`);
+        const isLineSettled = line.isSettled || settledKeySet.has(`${String(l._id)}_${line.code}`) || settledKeySet.has(`${l.loanId}_${line.code}`) || (codeKey && (settledKeySet.has(`${String(l._id)}_${codeKey}`) || settledKeySet.has(`${l.loanId}_${codeKey}`)));
         if (isLineSettled) continue;
 
-        const stats = paymentsByKey.get(`${String(l._id)}_${line.code}`) || { totalPaise: 0, todayPaise: 0 };
+        const stats = (codeKey ? paymentsByKey.get(`${String(l._id)}_${codeKey}`) : null) || paymentsByKey.get(`${String(l._id)}_${line.code}`) || { totalPaise: 0, todayPaise: 0 };
         const totalScheduledPaise = (l.schedule || []).reduce((s, x) => s + (x.installmentPaise || 0), 0) + (line.extraEmiPaise || 0) * (l.schedule?.length || 0);
         const totalLoanPaise = line.amountPaise || l.totalAmountPaise || 0;
         if (totalScheduledPaise > 0 && stats.totalPaise >= totalScheduledPaise) continue; // finished loan
