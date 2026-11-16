@@ -281,8 +281,6 @@ export const KYC_DOC_LABELS = {
 
 export function getUnverifiedKycDocs(m, kind = '') {
   if (!m) return [];
-  // a member of the old system (legacyImport) has no KYC documents in the app: they do not hold back a loan
-  if (m.legacyImport) return [];
   const baseKeys = ['memberPhoto', 'signaturePhoto', 'aadhaarPhoto', 'aadhaarBackPhoto'];
 
   const hasMemberPan = Boolean(m.pan || (m.kycKeys || []).includes('panPhoto') || m.panPhoto);
@@ -414,6 +412,7 @@ export async function borrowerDetail(req, res) {
       district: m.district,
       state: m.state,
       mobile: FULL_MOBILE_ROLES.includes(req.user.role) ? m.mobile : maskMobile(m.mobile),
+      legacyImport: Boolean(m.legacyImport),
       guarantorName: m.guarantor?.name || '',
       guarantor: m.guarantor ? {
         name: m.guarantor.name || '',
@@ -480,7 +479,8 @@ export function notReady(m) {
   if (!m.legacyImport && !m.nominee?.name) out.push('Add the nominee first (Member Details → Guarantor & Nominee)');
 
   // Point 13.1: Explicit names of missing or unverified KYC documents
-  const unverified = getUnverifiedKycDocs(m);
+  // (the documents of a legacyImport member are still listed on the forms, but they do not hold back a loan)
+  const unverified = m.legacyImport ? [] : getUnverifiedKycDocs(m);
   if (unverified.length > 0) {
     const names = unverified.map((u) => `${u.label} (${u.status === 'rejected' ? 'Rejected' : 'Pending'})`);
     out.push(`KYC Documents Unverified: ${names.join(', ')}. Must be approved under KYC Review.`);
@@ -542,6 +542,7 @@ export async function groupDetail(req, res) {
         code: m.code,
         name: m.name,
         isBlocked: Boolean(m.isBlocked),
+        legacyImport: Boolean(m.legacyImport),
         // why this member cannot be given a loan yet (documents, guarantor, nominee)
         issues: notReady(m),
         unverifiedDocs: getUnverifiedKycDocs(m, 'group'),

@@ -424,7 +424,7 @@ async function main() {
   const commDocs = [...commBy.values()].map((c) => ({ _id: oid(), group: c.g._id, branch: c.g.branch, month: c.month, loans: c.loans, amountPaise: c.amount, status: 'deposited', depositedAt: c.on, otpAttempts: 0, ...stamp(c.on) }));
 
   // ---- report
-  console.log(`\nbranches ${branchDocs.length}, staff logins ${userDocs.length}, HR employees ${hrDocs.length}, groups ${groupDocs.size}, members ${memberDocs.length} (mobile on ${mobiles}, no Aadhaar on ${noAadhaar}, ${badPan} invalid PAN left out)`);
+  console.log(`\nbranches ${branchDocs.length}, staff logins ${userDocs.length}, groups ${groupDocs.size}, members ${memberDocs.length} (mobile on ${mobiles}, no Aadhaar on ${noAadhaar}, ${badPan} invalid PAN left out)`);
   console.log(`loans ${reqDocs.length}, settlements ${setDocs.length} (${setDocs.filter((s) => s.kind === 'death').length} death), EMI records ${emiDocs.length} (${openingLoans} legacy openings, Rs ${openingAmount / 100}), security withdrawals ${wdDocs.length}, commission records ${commDocs.length}`);
   console.log(`settled loans where collected + settlement = payable: ${settleCheck.equal}, other: ${settleCheck.other}; collections above what the loan takes: ${surplusRows} rows (Rs ${surplusAmount / 100}); EMI rows marked advance: ${emiDocs.filter((d) => d.type === 'advance' && !d.legacy).length}`);
   console.log('\n=== Skipped / not saved ===');
@@ -443,7 +443,7 @@ async function main() {
   }
   try { await col('members').dropIndex('aadhaar_1'); } catch { /* not there */ }
   await col('members').createIndex({ aadhaar: 1 }, { unique: true, partialFilterExpression: { isDeleted: false, aadhaar: { $type: 'string' } } });
-  await insert('branches', branchDocs); await insert('users', userDocs); await insert('departments', deptDocs); await insert('designations', desigDocs); await insert('employees', hrDocs);
+  await insert('branches', branchDocs); await insert('users', userDocs); /* the HR employees are loaded by importEmployees.mjs (EMPLOYEE DATA TODAY.xlsx, which has the real employee codes) */
   await insert('groups', [...groupDocs.values()]); await insert('members', memberDocs); await insert('loanrequisitions', reqDocs, 200); await insert('loanpayments', payDocs, 100);
   await insert('loansettlements', setDocs); await insert('emipayments', emiDocs, 2000); await insert('securitywithdrawals', wdDocs); await insert('groupleadercommissions', commDocs);
   console.log('\nDone. Staff logins are switched off (no password is known).');

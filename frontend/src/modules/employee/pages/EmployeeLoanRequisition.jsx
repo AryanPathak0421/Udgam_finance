@@ -1097,7 +1097,7 @@ export default function EmployeeLoanRequisition({ initialKind }) {
       }
 
       // Point 13.1: Document Verification List check
-      if (borrowerDetail?.unverifiedDocs?.length > 0) {
+      if (borrowerDetail?.unverifiedDocs?.length > 0 && !borrowerDetail?.borrower?.legacyImport) {
         const unverifiedNames = borrowerDetail.unverifiedDocs.map((u) => u.label).join(', ');
         found.borrowerDocs = `Cannot create requisition. Unverified/Missing KYC documents: ${unverifiedNames}. Please approve under KYC Review first.`;
       }
@@ -1768,10 +1768,41 @@ export default function EmployeeLoanRequisition({ initialKind }) {
                             </div>
                           </div>
 
+                          {/* Point 13.1 & Item 12: Explicit Unverified KYC docs per member in group */}
+                          {(() => {
+                            let displayedUnverified = m.unverifiedDocs || [];
+                            // Item 12: In Group Loan, if either member OR guarantor has uploaded PAN, PAN condition is satisfied
+                            const hasMemberPan = Boolean(m.pan || m.panPhoto);
+                            const hasGuarantorPan = Boolean(m.guarantor?.pan || m.guarantor?.panPhoto);
+                            if (hasMemberPan || hasGuarantorPan) {
+                              displayedUnverified = displayedUnverified.filter((u) => u.key !== 'panPhoto' && u.key !== 'guarantor.panPhoto');
+                            }
+                            if (!displayedUnverified.length) return null;
+                            return (
+                              <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                                {displayedUnverified.map((u) => (
+                                  <span
+                                    key={u.key}
+                                    style={{
+                                      fontSize: '0.68rem',
+                                      padding: '1px 6px',
+                                      background: u.status === 'rejected' ? '#fee2e2' : '#fef3c7',
+                                      color: u.status === 'rejected' ? '#991b1b' : '#92400e',
+                                      borderRadius: 4,
+                                      fontWeight: 700,
+                                    }}
+                                  >
+                                    {u.status === 'rejected' ? '❌' : '⏳'} {u.label} ({u.status === 'rejected' ? 'Rejected' : 'KYC Pending'})
+                                  </span>
+                                ))}
+                              </div>
+                            );
+                          })()}
+
                           {/* Why the member cannot get a loan yet: the same lines as the software (details, guarantor, nominee, KYC) */}
-                          {!isBlocked && issueList.length > 0 && (
+                          {!isBlocked && issueList.some((line) => !line.startsWith('KYC Documents Unverified')) && (
                             <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
-                              {issueList.map((line) => (
+                              {issueList.filter((line) => !line.startsWith('KYC Documents Unverified')).map((line) => (
                                 <div key={line} style={{ fontSize: '0.68rem', color: '#b91c1c', fontWeight: 600, lineHeight: 1.35 }}>{line}</div>
                               ))}
                             </div>
