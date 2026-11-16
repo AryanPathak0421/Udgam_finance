@@ -44,6 +44,31 @@ const normalizeModes = (modes) => {
   return [];
 };
 
+const getGroupMeetingType = (g) => {
+  if (!g) return 'weekly';
+  const name = String(g.name || '').toLowerCase();
+  if (/\b(daily|dly)\b|\[daily\]|\(daily\)|\(dly\)|\[dly\]/.test(name)) return 'daily';
+  if (/\b(weekly|wly|wky)\b|\[weekly\]|\(weekly\)|\(wly\)|\[wly\]/.test(name)) return 'weekly';
+  if (/\b(monthly|mly)\b|\[monthly\]|\(monthly\)|\(mly\)|\[mly\]/.test(name)) return 'monthly';
+  const mt = String(g.meetingType || g.mode || g.repaymentFrequency || '').toLowerCase();
+  if (['daily', 'weekly', 'monthly'].includes(mt)) return mt;
+  if (g.collectionDay !== undefined && g.collectionDay !== null && Number(g.collectionDay) > 0) return 'weekly';
+  return 'weekly';
+};
+
+const schemeModeLabel = (s) => {
+  if (!s) return 'Weekly';
+  const safeModes = normalizeModes(s.modes);
+  if (safeModes.length > 0) {
+    return safeModes.map((m) => m.label).join(', ');
+  }
+  const nm = (s.name || '').toLowerCase();
+  if (nm.includes('daily') || nm.includes('dly')) return 'Daily';
+  if (nm.includes('weekly') || nm.includes('wly') || nm.includes('wky')) return 'Weekly';
+  if (nm.includes('monthly') || nm.includes('mly')) return 'Monthly';
+  return 'Weekly';
+};
+
 const LOAN_TYPES = [
   { id: 'group', label: 'Group Loan Requisition', desc: 'Joint liability microfinance loan for SHG members', icon: 'group' },
   { id: 'personal', label: 'Personal Loan Requisition', desc: 'Individual borrower loan with scheme selection & EMI preview', icon: 'user' },
@@ -652,27 +677,26 @@ export default function EmployeeLoanRequisition({ initialKind }) {
       .finally(() => setLoadingGroups(false));
   }, []);
 
-  // Weekly Group check and Scheme Filtering (Point 9.5: weekly group must not select daily schemes)
-  const isGroupWeekly = Boolean(
-    isGroup &&
-    (groupDetail?.group?.mode?.toLowerCase() === 'weekly' ||
-     groupDetail?.group?.meetingType?.toLowerCase() === 'weekly' ||
-     groupDetail?.group?.repaymentFrequency?.toLowerCase() === 'weekly' ||
-     pickedGroup?.mode?.toLowerCase() === 'weekly' ||
-     pickedGroup?.meetingType?.toLowerCase() === 'weekly')
-  );
+  // Determine effective group meeting frequency ('daily', 'weekly', 'monthly')
+  const groupMeetingType = useMemo(() => {
+    if (!isGroup) return '';
+    return getGroupMeetingType(groupDetail?.group || pickedGroup);
+  }, [isGroup, groupDetail?.group, pickedGroup]);
 
+  // Group Scheme Filtering: Daily group gets Daily schemes only; Weekly group gets Weekly schemes only; Monthly gets Monthly
   const availableSchemes = useMemo(() => {
-    let list = schemes;
-    if (isGroupWeekly) {
-      list = list.filter((s) => {
-        const mode = (s.repaymentMode || s.mode || '').toLowerCase();
-        const name = (s.name || '').toLowerCase();
-        return mode !== 'daily' && !name.includes('daily') && !name.includes('dly');
-      });
-    }
-    return list;
-  }, [schemes, isGroupWeekly]);
+    if (!isGroup) return schemes;
+    const mt = groupMeetingType || 'weekly';
+    return schemes.filter((s) => {
+      const safeModes = normalizeModes(s.modes);
+      if (safeModes.some((m) => m.value.toLowerCase() === mt)) return true;
+      const nm = (s.name || '').toLowerCase();
+      if (mt === 'daily' && (nm.includes('daily') || nm.includes('dly'))) return true;
+      if (mt === 'weekly' && (nm.includes('weekly') || nm.includes('wly') || nm.includes('wky'))) return true;
+      if (mt === 'monthly' && (nm.includes('monthly') || nm.includes('mly'))) return true;
+      return false;
+    });
+  }, [schemes, isGroup, groupMeetingType]);
 
   const productSchemes = useMemo(() => {
     return schemes.filter(
@@ -690,8 +714,9 @@ export default function EmployeeLoanRequisition({ initialKind }) {
       return;
     }
     const safeModes = normalizeModes(s.modes);
-    const sMode = safeModes[0]?.value || 'weekly';
-    const sTerm = String(s.termMin || s.termMax || (sMode === 'weekly' ? 52 : 12));
+    const mt = isGroup ? (groupMeetingType || 'weekly') : (safeModes[0]?.value || 'weekly');
+    const sMode = safeModes.some((m) => m.value === mt) ? mt : (safeModes[0]?.value || mt);
+    const sTerm = String(s.termMin || s.termMax || (sMode === 'daily' ? 120 : sMode === 'weekly' ? 52 : 12));
     const sRate = String(s.roiMin ?? s.roiMax ?? 24);
     const sAmount = isProduct ? form.amount : String(s.amountMin || 30000);
 
@@ -715,6 +740,12 @@ export default function EmployeeLoanRequisition({ initialKind }) {
     setMemberForms({});
     setMemberSearch('');
     if (!g) return;
+    const mt = getGroupMeetingType(g);
+    setForm((f) => ({
+      ...f,
+      mode: mt,
+      term: mt === 'daily' ? '120' : mt === 'weekly' ? '52' : '12',
+    }));
     try {
       const d = await api.loanRequisitions.group(g.id || g._id).catch(() => null);
       if (d) {
@@ -731,7 +762,7 @@ export default function EmployeeLoanRequisition({ initialKind }) {
             leaderName: g.leaderName || mList[0]?.name || 'Leader',
             employeeCode: empUser?.code || '',
             employeeName: empUser?.name || '',
-            meetingType: g.meetingType || 'weekly',
+            meetingType: mt,
             memberCount: mList.length,
             members: mList.map((m) => ({
               id: m.id || m._id || m.code,
@@ -1526,11 +1557,14 @@ export default function EmployeeLoanRequisition({ initialKind }) {
                           ? `-- No group matches "${groupSearch}" --`
                           : '-- कृपया ग्रुप चुनें (Select Group) --'}
                       </option>
-                      {filteredGroups.map((g) => (
-                        <option key={g.code} value={g.code}>
-                          {g.code} — {g.name} ({g.members?.length || 0} members)
-                        </option>
-                      ))}
+                      {filteredGroups.map((g) => {
+                        const mt = getGroupMeetingType(g);
+                        return (
+                          <option key={g.code} value={g.code}>
+                            {g.code} — {g.name} ({cap(mt)}, {g.members?.length || 0} members)
+                          </option>
+                        );
+                      })}
                     </select>
                   </>
                 )}
@@ -1556,7 +1590,7 @@ export default function EmployeeLoanRequisition({ initialKind }) {
                     <div><span style={{ color: '#64748b' }}>Code:</span> <strong>{groupDetail.group.code}</strong></div>
                     <div><span style={{ color: '#64748b' }}>Name:</span> <strong>{groupDetail.group.name}</strong></div>
                     <div><span style={{ color: '#64748b' }}>Leader:</span> {groupDetail.group.leaderName || '—'}</div>
-                    <div><span style={{ color: '#64748b' }}>Meeting:</span> {cap(groupDetail.group.meetingType || 'weekly')}</div>
+                    <div><span style={{ color: '#64748b' }}>Meeting:</span> <strong style={{ color: groupMeetingType === 'daily' ? '#2563eb' : '#059669' }}>{cap(groupMeetingType || 'weekly')}</strong></div>
                     <div><span style={{ color: '#64748b' }}>Total Members:</span> {groupDetail.group.memberCount}</div>
                     <div><span style={{ color: '#64748b' }}>Staff:</span> {empUser?.name || 'Assigned Staff'}</div>
                   </div>
@@ -1749,7 +1783,7 @@ export default function EmployeeLoanRequisition({ initialKind }) {
                                   <option value="">Select Member Scheme</option>
                                   {availableSchemes.map((s) => (
                                     <option key={s.id} value={s.id}>
-                                      {s.name} ({s.repaymentMode || 'Weekly'}) — {s.roiMin ?? s.roiMax ?? 24}% p.a.
+                                      {s.name} ({schemeModeLabel(s)}) — {s.roiMin ?? s.roiMax ?? 24}% p.a.
                                     </option>
                                   ))}
                                 </select>
@@ -1821,7 +1855,7 @@ export default function EmployeeLoanRequisition({ initialKind }) {
                                       <option value="">Select Product Scheme</option>
                                       {(productSchemes.length > 0 ? productSchemes : availableSchemes).map((s) => (
                                         <option key={s.id} value={s.id}>
-                                          {s.name} ({s.repaymentMode || 'Weekly'})
+                                          {s.name} ({schemeModeLabel(s)})
                                         </option>
                                       ))}
                                     </select>
@@ -2465,25 +2499,35 @@ export default function EmployeeLoanRequisition({ initialKind }) {
               </div>
               <div>
                 <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>
-                  Repayment Mode *
+                  Repayment Mode * {isGroup && <span style={{ color: '#64748b', fontSize: '0.72rem', fontWeight: 500 }}>({cap(groupMeetingType || 'Weekly')} Group)</span>}
                 </label>
-                <select
-                  className="emp-input"
-                  value={form.mode}
-                  onChange={(e) => setForm((f) => ({ ...f, mode: e.target.value }))}
-                >
-                  {normalizeModes(scheme?.modes).length > 0 ? (
-                    normalizeModes(scheme.modes).map((m) => (
-                      <option key={m.value} value={m.value}>{m.label}</option>
-                    ))
-                  ) : (
-                    <>
-                      <option value="weekly">Weekly</option>
-                      <option value="daily">Daily</option>
-                      <option value="monthly">Monthly</option>
-                    </>
-                  )}
-                </select>
+                {isGroup ? (
+                  <input
+                    type="text"
+                    className="emp-input"
+                    readOnly
+                    value={cap(groupMeetingType || form.mode || 'weekly')}
+                    style={{ background: '#f1f5f9', cursor: 'not-allowed', fontWeight: 700, color: 'var(--emp-text)' }}
+                  />
+                ) : (
+                  <select
+                    className="emp-input"
+                    value={form.mode}
+                    onChange={(e) => setForm((f) => ({ ...f, mode: e.target.value }))}
+                  >
+                    {normalizeModes(scheme?.modes).length > 0 ? (
+                      normalizeModes(scheme.modes).map((m) => (
+                        <option key={m.value} value={m.value}>{m.label}</option>
+                      ))
+                    ) : (
+                      <>
+                        <option value="weekly">Weekly</option>
+                        <option value="daily">Daily</option>
+                        <option value="monthly">Monthly</option>
+                      </>
+                    )}
+                  </select>
+                )}
               </div>
             </div>
 

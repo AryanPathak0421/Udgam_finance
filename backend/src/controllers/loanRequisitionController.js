@@ -515,7 +515,7 @@ export async function groupDetail(req, res) {
       leaderName: g.leaderName,
       employeeCode: g.employeeCode || '',
       employeeName: emp?.name || '',
-      meetingType: g.meetingType || '',
+      meetingType: resolveMeetingType(g),
       memberCount: members.length,
       members: members.map((m) => ({
         id: m._id,
@@ -564,6 +564,18 @@ const calcInput = (b, loanDate) => ({
 
 // A member of a group loan may take a product (goods) on top of the loan, up to this share of the loan.
 export const ADDITIONAL_PRODUCT_PERCENT = 25;
+
+export const resolveMeetingType = (g) => {
+  if (!g) return 'weekly';
+  const name = String(g.name || '').toLowerCase();
+  if (/\b(daily|dly)\b|\[daily\]|\(daily\)|\(dly\)|\[dly\]/.test(name)) return 'daily';
+  if (/\b(weekly|wly|wky)\b|\[weekly\]|\(weekly\)|\(wly\)|\[wly\]/.test(name)) return 'weekly';
+  if (/\b(monthly|mly)\b|\[monthly\]|\(monthly\)|\(mly\)|\[mly\]/.test(name)) return 'monthly';
+  const mt = String(g.meetingType || g.mode || '').toLowerCase();
+  if (['daily', 'weekly', 'monthly'].includes(mt)) return mt;
+  if (g.collectionDay !== undefined && g.collectionDay !== null && Number(g.collectionDay) > 0) return 'weekly';
+  return 'weekly';
+};
 
 // A daily group has daily loans, a weekly group weekly loans and a monthly group monthly loans.
 const MODE_NAME = { daily: 'daily', weekly: 'weekly', monthly: 'monthly' };
@@ -1714,7 +1726,8 @@ export async function createGroupRequisition(req, res) {
     const scheme = await LoanScheme.findById(ev.input.scheme.id);
     if (!SCHEME_TYPES.group.includes(scheme.loanType)) { errors[key('schemeId')] = 'Select a group loan scheme'; continue; }
     if (busy.get(mid)?.has(String(scheme._id))) { errors[key('schemeId')] = `${m.code} already has an unfinished loan under ${scheme.name}`; continue; }
-    const modeError = groupModeError(g.meetingType, ev.input.mode);
+    const effectiveMeetingType = resolveMeetingType(g);
+    const modeError = groupModeError(effectiveMeetingType, ev.input.mode);
     if (modeError) { errors[key('mode')] = modeError; continue; }
     // eslint-disable-next-line no-await-in-loop
     const gate = await civilGate({ scheme, member: m, enteredScore: e.civilScore });
@@ -1771,7 +1784,7 @@ export async function createGroupRequisition(req, res) {
       const doc = await LoanRequisition.create({
         kind: 'group', formId: `${base}-${i + 1}`, batchId, batchFormId: base, batchCount: prepared.length, branch: branchId, loanDate,
         group: g._id,
-        groupInfo: { code: g.code, name: g.name, leaderName: g.leaderName, employeeCode: g.employeeCode, meetingType: g.meetingType || '', members: [{ code: p.m.code, name: p.m.name }] },
+        groupInfo: { code: g.code, name: g.name, leaderName: g.leaderName, employeeCode: g.employeeCode, meetingType: resolveMeetingType(g), members: [{ code: p.m.code, name: p.m.name }] },
         members: [p.m._id], memberCount: 1, totalAmountPaise: p.amountPaise,
         ...(p.additional.length ? { additionalProducts: p.additional } : {}),
         memberForms: [{ member: p.m._id, memberCode: p.m.code, front: p.front, back: p.back }],

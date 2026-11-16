@@ -2708,6 +2708,18 @@ export async function calculateLoanEmi(req, res) {
   });
 }
 
+function resolveGroupMeetingType(g) {
+  if (!g) return 'weekly';
+  const name = String(g.name || '').toLowerCase();
+  if (/\b(daily|dly)\b|\[daily\]|\(daily\)|\(dly\)|\[dly\]/.test(name)) return 'daily';
+  if (/\b(weekly|wly|wky)\b|\[weekly\]|\(weekly\)|\(wly\)|\[wly\]/.test(name)) return 'weekly';
+  if (/\b(monthly|mly)\b|\[monthly\]|\(monthly\)|\(mly\)|\[mly\]/.test(name)) return 'monthly';
+  const mt = String(g.meetingType || g.mode || '').toLowerCase();
+  if (['daily', 'weekly', 'monthly'].includes(mt)) return mt;
+  if (g.collectionDay !== undefined && g.collectionDay !== null && Number(g.collectionDay) > 0) return 'weekly';
+  return 'weekly';
+}
+
 export async function getStaffGroups(req, res) {
   const { emp, code, branchId } = await getEmployeeContext(req);
   const codeRegex = code ? new RegExp(`^${code}$`, 'i') : null;
@@ -2736,7 +2748,7 @@ export async function getStaffGroups(req, res) {
       name: g.name,
       center: g.center || '',
       dayOfWeek: g.dayOfWeek || '',
-      meetingType: g.meetingType || 'weekly',
+      meetingType: resolveGroupMeetingType(g),
       branchName: g.branch?.name || '',
       members: (g.members || [])
         .filter((m) => m.member)
