@@ -902,6 +902,11 @@ export async function getTodayDueList(req, res) {
   }).select('loanPayment memberCode amountPaise receiptNo paidOn').lean() : [];
 
   const allPastReceipts = new Set(allPastPayments.map((p) => p.receiptNo).filter(Boolean));
+  const seenTodayLoanMember = new Set(
+    allPastPayments
+      .filter((p) => p.paidOn >= startDay && p.paidOn <= asOf)
+      .map((p) => `${String(p.loanPayment)}_${String(p.memberCode || '').trim().toUpperCase()}`)
+  );
 
   const appCollections = loanIds.length ? await AppEmiCollection.find({
     loanPayment: { $in: loanIds },
@@ -923,6 +928,8 @@ export async function getTodayDueList(req, res) {
     const k = `${String(ac.loanPayment)}_${ac.memberCode}`;
     pendingByLoanMember.set(k, (pendingByLoanMember.get(k) || 0) + (ac.amountPaise || 0));
     if (ac.receiptNo && allPastReceipts.has(ac.receiptNo)) continue;
+    const lmKey = `${String(ac.loanPayment)}_${String(ac.memberCode || '').trim().toUpperCase()}`;
+    if (seenTodayLoanMember.has(lmKey)) continue;
     const cur = paymentsByKey.get(k) || { totalPaise: 0, todayPaise: 0 };
     cur.totalPaise += (ac.amountPaise || 0);
     if (ac.collectedOn >= startDay && ac.collectedOn <= asOf) {
