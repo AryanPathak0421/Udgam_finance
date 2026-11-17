@@ -4,12 +4,58 @@ import { useAuth } from '../context/AuthContext.jsx';
 import AuthShell from '../components/AuthShell.jsx';
 import Icon from '../components/Icon.jsx';
 
-// The three mobile apps (each one is installed from its own login page: it opens there with an Install prompt)
+// The three mobile apps. A button downloads the APK of the app when the file is on the server (frontend/public/downloads);
+// without the file it opens the app's own login page, where Install / Add to Home screen keeps it on the phone.
 const APPS = [
-  { name: 'Staff App', sub: 'Field staff: collections, requisitions, members', href: '/employee/login', icon: '/icon-192.png' },
-  { name: 'Supervisor App', sub: 'Supervisors: approvals, team and branch', href: '/supervisor/login', icon: '/icon-supervisor-192.png' },
-  { name: 'Member App', sub: 'Members: loans, EMI and security', href: '/member/login', icon: '/icon-member-192.png' },
+  { name: 'Staff App', sub: 'Field staff: collections, requisitions, members', href: '/employee/login', icon: '/icon-192.png', apk: '/downloads/Udgam_Staff.apk', apkName: 'Udgam_Staff.apk' },
+  { name: 'Supervisor App', sub: 'Supervisors: approvals, team and branch', href: '/supervisor/login', icon: '/icon-supervisor-192.png', apk: '/downloads/Udgam_Supervisor.apk', apkName: 'Udgam_Supervisor.apk' },
+  { name: 'Member App', sub: 'Members: loans, EMI and security', href: '/member/login', icon: '/icon-member-192.png', apk: '/downloads/Udgam_Member.apk', apkName: 'Udgam_Member.apk' },
 ];
+
+// Is the APK really there? (a missing file is answered with the web page, so the type is checked too)
+async function apkIsThere(url) {
+  try {
+    const res = await fetch(url, { method: 'HEAD', cache: 'no-store' });
+    const type = res.headers.get('content-type') || '';
+    return res.ok && !type.includes('text/html');
+  } catch {
+    return false;
+  }
+}
+
+function AppDownloadButton({ app }) {
+  const [busy, setBusy] = useState(false);
+  async function onClick(e) {
+    e.preventDefault();
+    setBusy(true);
+    const there = await apkIsThere(app.apk);
+    setBusy(false);
+    if (there) {
+      const a = document.createElement('a');
+      a.href = app.apk;
+      a.download = app.apkName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } else {
+      window.open(app.href, '_blank', 'noopener');
+    }
+  }
+  return (
+    <a
+      href={app.apk}
+      onClick={onClick}
+      style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', border: '1px solid #d7e6e4', borderRadius: 10, background: '#f4faf9', textDecoration: 'none', color: '#0f172a' }}
+    >
+      <img src={app.icon} alt="" width={36} height={36} style={{ borderRadius: 8, flexShrink: 0 }} />
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ display: 'block', fontWeight: 700, fontSize: '0.88rem' }}>{app.name}</span>
+        <span style={{ display: 'block', fontSize: '0.72rem', color: '#64748b' }}>{app.sub}</span>
+      </span>
+      <span style={{ background: '#107870', color: '#fff', fontWeight: 700, fontSize: '0.78rem', padding: '7px 12px', borderRadius: 8, whiteSpace: 'nowrap' }}>{busy ? 'Please wait…' : 'Download'}</span>
+    </a>
+  );
+}
 
 export default function Login() {
   const { login } = useAuth();
@@ -153,25 +199,10 @@ export default function Login() {
         <div style={{ marginTop: 20, borderTop: '1px solid #eef0f4', paddingTop: 14 }}>
           <div style={{ textAlign: 'center', fontWeight: 700, fontSize: '0.9rem', color: '#0f172a', marginBottom: 4 }}>Download our apps</div>
           <div style={{ textAlign: 'center', fontSize: '0.74rem', color: '#64748b', marginBottom: 10 }}>
-            Opens the app. Tap <strong>Install</strong> (or <strong>Add to Home screen</strong>) to keep it on your phone.
+            Downloads the app. If the file is not ready, the app opens: tap <strong>Install</strong> (or <strong>Add to Home screen</strong>).
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {APPS.map((a) => (
-              <a
-                key={a.href}
-                href={a.href}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', border: '1px solid #d7e6e4', borderRadius: 10, background: '#f4faf9', textDecoration: 'none', color: '#0f172a' }}
-              >
-                <img src={a.icon} alt="" width={36} height={36} style={{ borderRadius: 8, flexShrink: 0 }} />
-                <span style={{ flex: 1, minWidth: 0 }}>
-                  <span style={{ display: 'block', fontWeight: 700, fontSize: '0.88rem' }}>{a.name}</span>
-                  <span style={{ display: 'block', fontSize: '0.72rem', color: '#64748b' }}>{a.sub}</span>
-                </span>
-                <span style={{ background: '#107870', color: '#fff', fontWeight: 700, fontSize: '0.78rem', padding: '7px 12px', borderRadius: 8, whiteSpace: 'nowrap' }}>Download</span>
-              </a>
-            ))}
+            {APPS.map((app) => <AppDownloadButton key={app.href} app={app} />)}
           </div>
         </div>
       </form>
