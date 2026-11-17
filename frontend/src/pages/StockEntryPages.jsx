@@ -65,6 +65,7 @@ export function StockEntry() {
     setF({
       branch: place === 'ho' ? '' : place || '',
       category: '',
+      brand: '',
       model: '',
       variant: '',
       product: '',
@@ -93,9 +94,15 @@ export function StockEntry() {
     ? products.filter((p) => p.category === f.category)
     : products;
 
-  const models = [...new Set(availableProductsByCategory.map((p) => p.model || p.name).filter(Boolean))].sort();
+  const brands = [...new Set(availableProductsByCategory.map((p) => p.brand).filter(Boolean))].sort();
 
-  const availableVariants = availableProductsByCategory
+  const availableProductsByBrand = f.brand
+    ? availableProductsByCategory.filter((p) => p.brand === f.brand)
+    : availableProductsByCategory;
+
+  const models = [...new Set(availableProductsByBrand.map((p) => p.model || p.name).filter(Boolean))].sort();
+
+  const availableVariants = availableProductsByBrand
     .filter((p) => !f.model || (p.model || p.name) === f.model)
     .map((p) => ({
       id: p.id,
@@ -112,6 +119,18 @@ export function StockEntry() {
     setF((prev) => ({
       ...prev,
       category: cat,
+      brand: '',
+      model: '',
+      variant: '',
+      product: '',
+    }));
+  };
+
+  const onBrandChange = (e) => {
+    const brand = e.target.value;
+    setF((prev) => ({
+      ...prev,
+      brand,
       model: '',
       variant: '',
       product: '',
@@ -120,7 +139,7 @@ export function StockEntry() {
 
   const onModelChange = (e) => {
     const mod = e.target.value;
-    const matching = availableProductsByCategory.filter((p) => (p.model || p.name) === mod);
+    const matching = availableProductsByBrand.filter((p) => (p.model || p.name) === mod);
     const autoProduct = matching.length === 1 ? matching[0] : null;
     setF((prev) => ({
       ...prev,
@@ -270,7 +289,17 @@ export function StockEntry() {
               </select>
             </FormField>
 
-            {/* 3. Model - dropdown */}
+            {/* 3. Brand - dropdown */}
+            <FormField id="se_brand" label="Brand" required error={errors.brand}>
+              <select id="se_brand" value={f.brand} onChange={onBrandChange} disabled={!f.category}>
+                <option value="">Select Brand</option>
+                {brands.map((b) => (
+                  <option key={b} value={b}>{b}</option>
+                ))}
+              </select>
+            </FormField>
+
+            {/* 4. Model - dropdown */}
             <FormField id="se_mod" label="Model" required error={errors.model}>
               <select id="se_mod" value={f.model} onChange={onModelChange} disabled={!f.category && models.length === 0}>
                 <option value="">Select Model</option>
@@ -280,7 +309,7 @@ export function StockEntry() {
               </select>
             </FormField>
 
-            {/* 4. Variant - dropdown */}
+            {/* 5. Variant - dropdown */}
             <FormField id="se_var" label="Variant" required error={errors.product}>
               <select id="se_var" value={f.product} onChange={onVariantChange} disabled={availableVariants.length === 0}>
                 <option value="">Select Variant / Product</option>
