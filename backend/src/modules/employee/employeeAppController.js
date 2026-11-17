@@ -614,68 +614,28 @@ export async function getDashboard(req, res) {
   const todayCollected = totalCollectedPaise / 100;
   const todayReceiptsCount = receiptsCount;
 
-  // Active loans handled by this employee (including assigned groups and branch loans)
-  const myAssignedGroups = await Group.find({
-    isDeleted: { $ne: true },
-    $or: [
-      ...(codeRegex ? [{ employeeCode: codeRegex }, { staffCode: codeRegex }] : []),
-      ...(emp?._id ? [{ employee: emp._id }, { staffId: emp._id }] : []),
-      ...(branchId ? [{ branch: branchId }] : []),
-    ],
-  }).select('code').lean();
-  const myGroupCodes = myAssignedGroups.map((g) => g.code).filter(Boolean);
-
-  const loanQuery = {
-    status: 'paid',
-    $or: [
-      ...(codeRegex ? [{ employeeCode: codeRegex }, { staffCode: codeRegex }] : []),
-      ...(myGroupCodes.length ? [{ 'group.code': { $in: myGroupCodes } }] : []),
-      ...(branchId ? [{ branch: branchId }] : []),
-    ],
-  };
-
-  const loans = await LoanPayment.find(loanQuery)
-    .select('_id loanId formId schedule lines group isSettled status')
-    .lean();
-
-  // Exclude settled loans
-  const loanIds = loans.map((l) => l._id);
-  const activeSettlements = loanIds.length ? await LoanSettlement.find({
-    status: 'active',
-    $or: [
-      { loanPayment: { $in: loanIds } },
-      { loanId: { $in: loans.map((l) => l.loanId).filter(Boolean) } },
-    ],
-  }).select('loanPayment loanId memberCode').lean() : [];
-
-  const settledKeySet = new Set();
-  for (const s of activeSettlements) {
-    if (s.loanPayment && s.memberCode) settledKeySet.add(`${String(s.loanPayment)}_${s.memberCode}`);
-    if (s.loanId && s.memberCode) settledKeySet.add(`${s.loanId}_${s.memberCode}`);
-    if (s.loanPayment && !s.memberCode) settledKeySet.add(`${String(s.loanPayment)}`);
-  }
-
-  let todayTargetDue = 0;
-  let dueCount = 0;
-
-  loans.forEach((l) => {
-    if (l.isSettled || l.status === 'settled' || settledKeySet.has(String(l._id))) return;
-
-    const todaySched = (l.schedule || []).filter((s) => s.dueDate && new Date(s.dueDate) <= todayEnd);
-    if (todaySched.length) {
-      l.lines.forEach((line) => {
-        const isLineSettled = line.isSettled || settledKeySet.has(`${String(l._id)}_${line.code}`) || settledKeySet.has(`${l.loanId}_${line.code}`);
-        if (isLineSettled) return;
-
-        todayTargetDue += (todaySched[todaySched.length - 1].installmentPaise || 0) / 100;
-        dueCount++;
-      });
+  // Collection due of the home card: the same numbers as the EMI Pay page (getEmiGroups) for the groups of this employee that meet today.
+  // (It used to add one installment of EVERY loan of the branch, paid up or not, whatever day the group meets.)
+  let todayTargetDue = 0; // what the members of today's groups pay for one installment (actual collection)
+  let dueCount = 0; // members of today's groups
+  let remainingTodayDue = 0; // actual collection less what was collected today
+  let remainingDueCount = 0; // members who have not paid today
+  try {
+    const groupsReq = Object.assign(Object.create(req), { query: { date: todayDateString() } });
+    const groupsData = await new Promise((resolve, reject) => {
+      getEmiGroups(groupsReq, { json: resolve, status: () => ({ json: resolve }) }).catch(reject);
+    });
+    for (const g of groupsData.groups || []) {
+      if (!g.isScheduled) continue;
+      todayTargetDue += g.actualCollection || 0;
+      dueCount += g.membersCount || 0;
+      remainingTodayDue += Math.max(0, (g.actualCollection || 0) - (g.totalCollectedToday || 0));
+      remainingDueCount += g.dueCount || 0;
     }
-  });
-
-  // Calculate actual remaining due after today's collections
-  const remainingTodayDue = Math.max(0, Math.round(todayTargetDue - todayCollected));
-  const remainingDueCount = Math.max(0, dueCount - todayReceiptsCount);
+  } catch (err) {
+    console.error('home dashboard collection due failed', err.message);
+  }
+  remainingTodayDue = Math.round(remainingTodayDue);
 
   // Performance graph: Collections and Dues for the past 6 months
   const months = [];
@@ -787,7 +747,27 @@ export async function getCollectionHistory(req, res) {
     .sort({ createdAt: -1 })
     .lean();
 
-  const formattedItems = list.map((e) => {
+  // What was collected in the app counts here at once: it is only an approved EMI after the admin approves it, so the collections that still
+  // wait for approval are listed too (marked), otherwise a day's collection would show nothing until it is approved.
+  const waiting = await AppEmiCollection.find({
+    status: 'pending',
+    collectedOn: { $gte: from, $lte: to },
+    $or: [
+      ...(codeRegex ? [{ collectedByCode: codeRegex }] : []),
+      ...(req.user?._id ? [{ collectedBy: req.user._id }] : []),
+      ...(emp?._id ? [{ collectedBy: emp._id }] : []),
+    ],
+  })
+    .populate('loanPayment', 'loanType mode product group')
+    .sort({ createdAt: -1 })
+    .lean();
+  const approvedReceipts = new Set(list.map((e) => e.receiptNo).filter(Boolean));
+  const asHistory = [
+    ...waiting.filter((w) => !w.receiptNo || !approvedReceipts.has(w.receiptNo)).map((w) => ({ ...w, _waiting: true })),
+    ...list,
+  ];
+
+  const formattedItems = asHistory.map((e) => {
     let cat = 'group';
     const lpType = String(e.loanPayment?.loanType || '').toLowerCase();
     if (lpType === 'personal') cat = 'personal';
@@ -806,6 +786,7 @@ export async function getCollectionHistory(req, res) {
       category: cat,
       amount: e.amountPaise / 100,
       payMode: e.payMode,
+      waitingApproval: Boolean(e._waiting),
       time: e.createdAt ? new Date(e.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '',
     };
   });
@@ -3164,7 +3145,9 @@ export async function trackLoanHistory(req, res) {
     .lean();
 
   const totalCollectedPaise = emiPayments.reduce((acc, p) => acc + (p.amountPaise || 0), 0);
-  const totalAmountPaise = loan.totalAmountPaise || loan.amountPaise || 0;
+  // everything the borrowers have to pay for the loan (the installments carry the interest); the principal is only used when the loan has no schedule
+  const scheduleTotalPaise = (loan.lines?.length ? loan.lines : [{}]).reduce((t, ln) => t + (loan.schedule || []).reduce((a, x) => a + (x.installmentPaise || 0), 0) + (ln.extraEmiPaise || 0) * (loan.schedule?.length || 0), 0);
+  const totalAmountPaise = scheduleTotalPaise > 0 ? scheduleTotalPaise : (loan.totalAmountPaise || loan.amountPaise || 0);
   const balancePaise = Math.max(0, totalAmountPaise - totalCollectedPaise);
 
   // Check if loan has an active settlement (Auto Settled / Settled)
@@ -4228,7 +4211,8 @@ export async function advancePayment(req, res) {
 
   const existingPayments = await EmiPayment.find({ loanPayment: loan._id, status: 'paid' }).lean();
   const totalPaidPaise = existingPayments.reduce((acc, p) => acc + (p.amountPaise || 0), 0);
-  const totalLoanPaise = line.amountPaise || loan.totalAmountPaise || loan.amountPaise || 0;
+  const scheduledPaise = (loan.schedule || []).reduce((a, x) => a + (x.installmentPaise || 0), 0) + (line.extraEmiPaise || 0) * (loan.schedule?.length || 0);
+  const totalLoanPaise = scheduledPaise > 0 ? scheduledPaise : (line.amountPaise || loan.totalAmountPaise || loan.amountPaise || 0);
   const remainingBalancePaise = Math.max(0, totalLoanPaise - totalPaidPaise);
 
   if (remainingBalancePaise <= 0 || loan.status === 'closed') {

@@ -968,6 +968,18 @@ export default function EmployeeLoanRequisition({ initialKind }) {
   const termDays = scheme && form.term ? Number(form.term) * (UNIT_DAYS[scheme.termUnit] || 7) : 0;
   const installments = scheme && form.mode && termDays ? Math.max(1, Math.round(termDays / (MODE_DAYS[form.mode] || 7))) : (Number(form.term) || 52);
 
+  // Mode, number of installments and rate of a scheme: the form's own values for the scheme chosen on the form, the scheme's defaults for another one
+  const paramsFor = (sid) => {
+    const sc = schemes.find((x) => x.id === sid);
+    if (!sc || sid === form.schemeId) return { mode: form.mode, term: Number(installments), rate: form.rate };
+    const safeModes = normalizeModes(sc.modes);
+    const mt = isGroup ? (groupMeetingType || 'weekly') : (safeModes[0]?.value || 'weekly');
+    const mode = safeModes.some((m) => m.value === mt) ? mt : (safeModes[0]?.value || mt);
+    const termValue = Number(sc.termMin || sc.termMax || 12);
+    const inst = Math.max(1, Math.round((termValue * (UNIT_DAYS[sc.termUnit] || 7)) / (MODE_DAYS[mode] || 7)));
+    return { mode, term: inst, rate: String(sc.roiMin ?? sc.roiMax ?? 24) };
+  };
+
   // Group extra product calculations
   const extraRows = useMemo(() => {
     if (!isGroup || !groupDetail?.group?.members) return [];
@@ -993,8 +1005,10 @@ export default function EmployeeLoanRequisition({ initialKind }) {
   const extraKey = extraRows.map((r) => r.value).join(',');
 
   // Debounced live calculation
+  const refSchemeId = isGroup && chosenMemberIds.length ? (memberSchemes[chosenMemberIds[0]] || form.schemeId) : form.schemeId;
+  const refParams = paramsFor(refSchemeId);
   const calcDebounce = useDebounce(
-    JSON.stringify({ s: form.schemeId, a: isGroup ? refAmount : form.amount, m: form.mode, t: installments, r: form.rate, x: extraKey }),
+    JSON.stringify({ s: refSchemeId, a: isGroup ? refAmount : form.amount, m: refParams.mode, t: refParams.term, r: refParams.rate, x: extraKey }),
     350
   );
 
@@ -1018,35 +1032,9 @@ export default function EmployeeLoanRequisition({ initialKind }) {
         setPreviewError('');
       })
       .catch((err) => {
-        // Fallback local EMI calculation if API endpoint is slow or offline
-        const amt = Number(a) || 30000;
-        const roi = Number(r) || 24;
-        const nInst = Number(t) || 52;
-        const totInt = Math.round((amt * roi * (nInst / 52)) / 100);
-        const totPay = amt + totInt;
-        const emi = Math.round(totPay / nInst);
-        const pFee = Math.round(amt * 0.02);
-        const ins = Math.round(amt * 0.015);
-        const sec = Math.round(amt * 0.05);
-        const totChg = pFee + ins + sec;
-        const cash = amt - totChg;
-
-        setPreview({
-          summary: {
-            installmentAmount: emi,
-            installments: nInst,
-            totalPayable: totPay,
-            totalInterest: totInt,
-          },
-          charges: {
-            processingFee: pFee,
-            cost: ins,
-            securityAmount: sec,
-            securityType: 'compulsory_deposit',
-          },
-          cash,
-        });
-        setPreviewError('');
+        // The charges (processing fee, insurance, security) are the scheme's own, so there is no local guess: show why it could not be calculated
+        setPreview(null);
+        setPreviewError(err?.errors ? Object.values(err.errors).filter(Boolean).join(' · ') || err.message : (err?.message || 'Could not calculate the loan'));
       });
   }, [calcDebounce]);
 
@@ -1249,9 +1237,9 @@ export default function EmployeeLoanRequisition({ initialKind }) {
               civilScore: m.civilScore != null ? String(m.civilScore) : '',
               schemeId: memberSchemes[mid] || form.schemeId,
               amount: String(amountOf(mid)),
-              mode: form.mode,
-              term: Number(installments),
-              rate: form.rate,
+              mode: paramsFor(memberSchemes[mid] || form.schemeId).mode,
+              term: paramsFor(memberSchemes[mid] || form.schemeId).term,
+              rate: paramsFor(memberSchemes[mid] || form.schemeId).rate,
               front: f.front || formFrontPhoto || '',
               back: f.back || formBackPhoto || '',
               ...(ext?.id ? { additional: { stockProduct: ext.id, quantity: Number(ext.qty) || 1, productSchemeId: memberProductSchemes[mid] } } : {}),
@@ -2669,6 +2657,12 @@ export default function EmployeeLoanRequisition({ initialKind }) {
               </div>
             )}
           </div>
+
+          {previewError && !preview?.summary && (
+            <div style={{ background: '#fee2e2', border: '1px solid #fca5a5', color: '#991b1b', padding: '10px 14px', borderRadius: 8, fontSize: '0.8rem', fontWeight: 600, marginBottom: 12 }}>
+              ⚠️ Could not calculate the loan: {previewError}
+            </div>
+          )}
 
           {/* SECTION 8: REAL-TIME CALCULATIONS & BREAKDOWN TABLES */}
           {preview?.summary && (

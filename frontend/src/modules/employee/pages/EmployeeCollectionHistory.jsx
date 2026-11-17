@@ -213,6 +213,9 @@ export default function EmployeeCollectionHistory() {
                   <span className="emp-badge emp-badge-success" style={{ marginTop: 4, textTransform: 'uppercase', fontSize: '0.68rem' }}>
                     {c.payMode || 'cash'}
                   </span>
+                  {c.waitingApproval && (
+                    <div style={{ marginTop: 4, fontSize: '0.66rem', fontWeight: 700, color: '#b45309' }}>Waiting for approval</div>
+                  )}
                 </div>
               </div>
             </div>
