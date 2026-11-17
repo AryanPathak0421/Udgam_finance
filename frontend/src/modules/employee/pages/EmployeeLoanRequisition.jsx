@@ -333,6 +333,49 @@ function BorrowerOtpBox({ memberId, verified, onVerified, onReset }) {
 }
 
 // Group TopUp Component for members who have a running loan in the group
+// The EMI calculation and the net cash in hand of ONE member of a group loan, shown under his card.
+function MemberCalc({ state }) {
+  if (!state) return null;
+  if (state.error) {
+    return <div style={{ marginTop: 6, background: '#fee2e2', border: '1px solid #fca5a5', color: '#991b1b', padding: '6px 10px', borderRadius: 6, fontSize: '0.72rem', fontWeight: 600 }}>⚠️ Could not calculate: {state.error}</div>;
+  }
+  const p = state.data;
+  if (!p?.summary) return state.loading ? <div style={{ marginTop: 6, fontSize: '0.72rem', color: '#64748b' }}>Calculating…</div> : null;
+  const c = p.charges || {};
+  const deductions = (c.processingFee || 0) + (c.cost || 0) + (c.securityAmount || 0);
+  const row = (label, value, style) => (
+    <tr style={{ borderBottom: '1px solid var(--emp-border)', ...style }}>
+      <td style={{ padding: '4px 8px', color: style?.color || '#64748b' }}>{label}</td>
+      <td style={{ padding: '4px 8px', textAlign: 'right', fontWeight: 600 }}>{value}</td>
+    </tr>
+  );
+  const x = p.extras?.[0];
+  return (
+    <div style={{ marginTop: 8, border: '1px solid var(--emp-border)', borderRadius: 8, overflow: 'hidden', opacity: state.loading ? 0.6 : 1 }}>
+      <div style={{ background: 'linear-gradient(135deg, #1e3a8a, #2563eb)', color: '#fff', padding: '8px 10px' }}>
+        <div style={{ fontSize: '0.68rem', opacity: 0.9 }}>EMI Calculation</div>
+        <div style={{ fontSize: '1rem', fontWeight: 800 }}>{inr(p.summary.installmentAmount)} × {p.summary.installments} installments</div>
+        <div style={{ fontSize: '0.72rem', opacity: 0.95 }}>Total Payable: <strong>{inr(p.summary.totalPayable)}</strong></div>
+      </div>
+      <table style={{ width: '100%', fontSize: '0.72rem', borderCollapse: 'collapse' }}>
+        <tbody>
+          {row('Total Principal', inr(p.summary.totalPayable - p.summary.totalInterest))}
+          {row('Total Interest', inr(p.summary.totalInterest))}
+          {row('Processing Fee', inr(c.processingFee))}
+          {row('Insurance Fee', inr(c.cost))}
+          {row('Security Deposit', inr(c.securityAmount))}
+          {row('Total Deductions', `−${inr(deductions)}`, { color: '#dc2626' })}
+          {x && !x.error && row('25% Product EMI', `${inr(x.installmentAmount)} (value ${inr(x.value)})`)}
+          <tr style={{ background: '#ecfdf5', color: '#065f46' }}>
+            <td style={{ padding: '6px 8px', fontWeight: 800 }}>Net Cash in Hand</td>
+            <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 800 }}>{inr(p.cash)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function GroupTopUpSection({ members, stock, onDone }) {
   const [row, setRow] = useState({});
   const [productSchemes, setProductSchemes] = useState([]);
@@ -527,6 +570,8 @@ export default function EmployeeLoanRequisition({ initialKind }) {
   const [extras, setExtras] = useState({}); // { memberId: { id, qty } }
   const [memberForms, setMemberForms] = useState({}); // { memberId: { front, back } }
   const [memberSchemes, setMemberSchemes] = useState({}); // { memberId: schemeId } (Point 9.2)
+  const [memberPreviews, setMemberPreviews] = useState({}); // { memberId: { key, data, error, loading } }: the calculation of every ticked member of a group
+  const memberCalcRef = useRef({}); // the request each member's calculation was last asked for
   const [memberAmounts, setMemberAmounts] = useState({}); // { memberId: loan amount } (a group loan has its own amount per member)
   const [memberProductSchemes, setMemberProductSchemes] = useState({}); // { memberId: productSchemeId } (Point 9.7)
 
@@ -1040,6 +1085,48 @@ export default function EmployeeLoanRequisition({ initialKind }) {
         setPreviewError(err?.errors ? Object.values(err.errors).filter(Boolean).join(' · ') || err.message : (err?.message || 'Could not calculate the loan'));
       });
   }, [calcDebounce]);
+
+  // Group loan: the calculation of every ticked member (his own scheme and amount), shown under his card
+  const memberCalcKey = JSON.stringify(isGroup ? chosenMemberIds.map((mid) => {
+    const sid = memberSchemes[mid] || form.schemeId;
+    const pp = paramsFor(sid);
+    const ex = extras[mid];
+    const exProduct = ex ? stock.find((x) => x.id === ex.id) : null;
+    const exValue = exProduct ? Math.round(exProduct.unitPrice * (Number(ex.qty) || 1) * 100) / 100 : 0;
+    return [mid, sid, String(amountOf(mid)), pp.mode, pp.term, pp.rate, exValue];
+  }) : []);
+  const memberCalcDebounced = useDebounce(memberCalcKey, 400);
+  useEffect(() => {
+    const list = JSON.parse(memberCalcDebounced);
+    const alive = new Set(list.map((x) => x[0]));
+    setMemberPreviews((prev) => Object.fromEntries(Object.entries(prev).filter(([k]) => alive.has(k))));
+    Object.keys(memberCalcRef.current).forEach((k) => { if (!alive.has(k)) delete memberCalcRef.current[k]; });
+    list.forEach(([mid, sid, amt, mode, term, rate, exValue]) => {
+      if (!sid || !amt || !mode || !term || rate === '') {
+        memberCalcRef.current[mid] = '';
+        setMemberPreviews((prev) => ({ ...prev, [mid]: { key: '', data: null, error: '', loading: false } }));
+        return;
+      }
+      const key = [sid, amt, mode, term, rate, exValue].join('|');
+      if (memberCalcRef.current[mid] === key) return;
+      memberCalcRef.current[mid] = key;
+      setMemberPreviews((prev) => ({ ...prev, [mid]: { key, data: prev[mid]?.data || null, error: '', loading: true } }));
+      api.loanRequisitions.preview({ schemeId: sid, amount: amt, mode, term: Number(term), rate, extras: exValue > 0 ? [exValue] : undefined })
+        .then((res) => setMemberPreviews((prev) => (memberCalcRef.current[mid] === key ? { ...prev, [mid]: { key, data: res, error: '', loading: false } } : prev)))
+        .catch((err) => setMemberPreviews((prev) => (memberCalcRef.current[mid] === key
+          ? { ...prev, [mid]: { key, data: null, error: err?.errors ? Object.values(err.errors).filter(Boolean).join(' · ') || err.message : (err?.message || 'Could not calculate the loan'), loading: false } }
+          : prev)));
+    });
+  }, [memberCalcDebounced]);
+  // what all ticked members get together (for the review window)
+  const groupCalc = chosenMemberIds.reduce((t, mid) => {
+    const d = memberPreviews[mid]?.data;
+    if (!d?.charges) return t;
+    t.members += 1;
+    t.deductions += (d.charges.processingFee || 0) + (d.charges.cost || 0) + (d.charges.securityAmount || 0);
+    t.cash += d.cash || 0;
+    return t;
+  }, { members: 0, deductions: 0, cash: 0 });
 
   // Validation before opening Review Modal
   const handleReview = (e) => {
@@ -1854,6 +1941,9 @@ export default function EmployeeLoanRequisition({ initialKind }) {
                                 )}
                               </div>
 
+                              {/* EMI calculation and net cash in hand of this member */}
+                              <MemberCalc state={memberPreviews[mid]} />
+
                               {/* Mobile OTP Verification Warning (Point 9.6) */}
                               {m.mobileVerified === false && (
                                 <div style={{ background: '#fee2e2', color: '#991b1b', padding: '4px 8px', borderRadius: 6, fontSize: '0.72rem', fontWeight: 600, marginBottom: 8 }}>
@@ -2661,14 +2751,14 @@ export default function EmployeeLoanRequisition({ initialKind }) {
             )}
           </div>
 
-          {previewError && !preview?.summary && (
+          {!isGroup && previewError && !preview?.summary && (
             <div style={{ background: '#fee2e2', border: '1px solid #fca5a5', color: '#991b1b', padding: '10px 14px', borderRadius: 8, fontSize: '0.8rem', fontWeight: 600, marginBottom: 12 }}>
               ⚠️ Could not calculate the loan: {previewError}
             </div>
           )}
 
           {/* SECTION 8: REAL-TIME CALCULATIONS & BREAKDOWN TABLES */}
-          {preview?.summary && (
+          {!isGroup && preview?.summary && (
             <div className="emp-card" style={{ marginBottom: 14 }}>
               <h3 style={{ fontSize: '0.95rem', fontWeight: 800, margin: '0 0 10px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 6 }}>
                 <Icon name="calculator" size={16} />
@@ -2830,17 +2920,17 @@ export default function EmployeeLoanRequisition({ initialKind }) {
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: '#64748b' }}>EMI:</span>
-                <strong style={{ color: 'var(--emp-primary)' }}>{inr(preview?.summary?.installmentAmount)}</strong>
+                <strong style={{ color: 'var(--emp-primary)' }}>{isGroup ? (effCount === 1 ? inr(memberPreviews[chosenMemberIds[0]]?.data?.summary?.installmentAmount) : 'Member-wise') : inr(preview?.summary?.installmentAmount)}</strong>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: '#64748b' }}>Total Deductions:</span>
                 <span style={{ color: '#dc2626' }}>
-                  −{inr((preview?.charges?.processingFee || 0) + (preview?.charges?.cost || 0) + (preview?.charges?.securityAmount || 0))}
+                  −{inr(isGroup ? groupCalc.deductions : ((preview?.charges?.processingFee || 0) + (preview?.charges?.cost || 0) + (preview?.charges?.securityAmount || 0)))}
                 </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', background: '#ecfdf5', padding: '6px 8px', borderRadius: 6, fontWeight: 800, color: '#065f46', fontSize: '0.85rem' }}>
-                <span>Net Cash in Hand Disbursal:</span>
-                <span>{inr(preview?.cash)}</span>
+                <span>Net Cash in Hand Disbursal{isGroup && effCount > 1 ? ' (all members)' : ''}:</span>
+                <span>{inr(isGroup ? groupCalc.cash : preview?.cash)}</span>
               </div>
             </div>
 
