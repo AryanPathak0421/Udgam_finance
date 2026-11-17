@@ -7,6 +7,15 @@ import { Group } from '../models/Group.js';
 import { generateGroupLeaderCommission, parseMonth, monthKey } from './groupLeaderCommission.js';
 
 const monthStart = (m) => new Date(`${m}-01T00:00:00.000Z`);
+const monthEnd = (m) => new Date(monthStart(monthKey(parseMonth(m) + 1)).getTime() - 1);
+
+/**
+ * The commission of the loans disbursed BEFORE this month (the loans of the old system) is taken as already paid: it is marked deposited
+ * by itself ("auto paid", no OTP, no cash entry) and never waits in the pending list. Set GROUP_LEADER_PAID_BEFORE_MONTH ('YYYY-MM') to change
+ * the month; the default is 2026-07, i.e. every loan disbursed before 1 July 2026.
+ */
+export const PAID_BEFORE_MONTH = /^\d{4}-(0[1-9]|1[0-2])$/.test(process.env.GROUP_LEADER_PAID_BEFORE_MONTH || '') ? process.env.GROUP_LEADER_PAID_BEFORE_MONTH : '2026-07';
+const isOldLoanMonth = (month) => parseMonth(month) < parseMonth(PAID_BEFORE_MONTH);
 
 /** Loads the financial years and the active group leader rules (the "All ranks" rule per year). */
 export async function loadRuleContext() {
@@ -81,7 +90,8 @@ export async function syncGroupEntries(group, ctx, realByGroup) {
   const merged = new Map(manual.map((d) => [d.month, d.loans]));
   for (const [month, loans] of real || []) merged.set(month, loans);
   const disbursements = [...merged].map(([month, loans]) => ({ month, loans }));
-  const payouts = new Map();
+  const payouts = new Map(); // payout month -> what the loans disbursed from PAID_BEFORE_MONTH on earn (still to be paid)
+  const autoPaid = new Map(); // payout month -> what the older loans earn (taken as paid)
   let skippedNoRule = 0;
 
   for (const d of disbursements) {
@@ -96,12 +106,13 @@ export async function syncGroupEntries(group, ctx, realByGroup) {
       durationMonths: rule.durationMonths,
       startDelayMonths: rule.startDelayMonths,
     });
+    const target = isOldLoanMonth(d.month) ? autoPaid : payouts;
     for (const m of r.months) {
-      const cur = payouts.get(m.month) || { loans: 0, amountPaise: 0, rates: new Set() };
+      const cur = target.get(m.month) || { loans: 0, amountPaise: 0, rates: new Set() };
       cur.loans += m.eligibleLoans;
       cur.amountPaise += m.amountPaise;
       cur.rates.add(m.perLoanPaise);
-      payouts.set(m.month, cur);
+      target.set(m.month, cur);
     }
   }
 
@@ -142,8 +153,32 @@ export async function syncGroupEntries(group, ctx, realByGroup) {
       stats.unchanged += 1;
     }
   }
+  // the older loans: a month that only has them is paid by itself (an entry that was already deposited stays as it is)
+  for (const [month, p] of autoPaid) {
+    if (payouts.has(month)) continue; // the month also has newer loans: its entry is for those, the older ones are taken as paid
+    const perLoanPaise = p.rates.size === 1 ? [...p.rates][0] : undefined;
+    const e = byMonth.get(month);
+    if (!e) {
+      // eslint-disable-next-line no-await-in-loop
+      await GroupLeaderCommission.create({ group: group._id, branch: group.branch, month, loans: p.loans, perLoanPaise, amountPaise: p.amountPaise, status: 'deposited', depositedAt: monthEnd(month), autoPaid: true });
+      stats.created += 1;
+    } else if (e.status === 'pending') {
+      e.loans = p.loans;
+      e.perLoanPaise = perLoanPaise;
+      e.amountPaise = p.amountPaise;
+      e.status = 'deposited';
+      e.depositedAt = monthEnd(month);
+      e.autoPaid = true;
+      e.otpHash = undefined;
+      e.otpExpiresAt = undefined;
+      e.otpAttempts = 0;
+      // eslint-disable-next-line no-await-in-loop
+      await e.save();
+      stats.updated += 1;
+    }
+  }
   for (const e of existing) {
-    if (!payouts.has(e.month) && e.status === 'pending') {
+    if (!payouts.has(e.month) && !autoPaid.has(e.month) && e.status === 'pending') {
       // eslint-disable-next-line no-await-in-loop
       await e.deleteOne();
       stats.removed += 1;

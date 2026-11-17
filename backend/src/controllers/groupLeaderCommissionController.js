@@ -34,6 +34,7 @@ const present = (e, user) => ({
   status: e.status,
   depositedAt: e.depositedAt || null,
   depositedToMobile: e.depositedToMobile || '',
+  autoPaid: Boolean(e.autoPaid),
 });
 
 /** Monthly group-wise report. */

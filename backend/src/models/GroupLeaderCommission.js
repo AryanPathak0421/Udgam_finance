@@ -15,6 +15,7 @@ const entrySchema = new mongoose.Schema(
     status: { type: String, enum: COMMISSION_STATUS, default: 'pending' },
 
     depositedAt: { type: Date },
+    autoPaid: { type: Boolean, default: false }, // the loans are older than the cutoff of the old system: taken as paid, not through an OTP
     depositedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     depositedToMobile: { type: String }, // masked, for the audit trail
 
