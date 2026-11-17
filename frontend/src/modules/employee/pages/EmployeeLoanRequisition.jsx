@@ -103,7 +103,7 @@ function EmpPhotoField({ id, label, required, value, error, onChange, cameraOnly
       <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>
         {label} {required && <span style={{ color: '#dc2626' }}>*</span>}
       </label>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
         {value ? (
           <div style={{ position: 'relative', width: 68, height: 68, borderRadius: 8, overflow: 'hidden', border: '1.5px solid var(--emp-border)', flexShrink: 0 }}>
             <img src={value} alt="Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -597,7 +597,7 @@ export default function EmployeeLoanRequisition({ initialKind }) {
     businessName: '',
     gstNumber: '',
     udgamNumber: '',
-    civilScore: '740',
+    civilScore: '',
     shopPhotos: ['', '', ''],
     bankStatement: '',
     bankStatementName: '',
@@ -619,7 +619,7 @@ export default function EmployeeLoanRequisition({ initialKind }) {
     mode: 'weekly',
     term: '52',
     rate: '24',
-    civilScore: '740',
+    civilScore: '', // comes from the borrower's Civil Check record, never typed
     purpose: 'Income Generation / Business Expansion',
   });
 
@@ -914,10 +914,10 @@ export default function EmployeeLoanRequisition({ initialKind }) {
             jointPhoto: d.borrower.guarantor.jointPhoto || '',
           });
         }
-        if (d.borrower?.civilCheck?.score) {
-          setForm((f) => ({ ...f, civilScore: String(d.borrower.civilCheck.score) }));
-          setBiz((z) => ({ ...z, civilScore: String(d.borrower.civilCheck.score) }));
-        }
+        // the score is the one of this borrower's Civil Check; a borrower without one has none (the score of the borrower before is not kept)
+        const recorded = d.borrower?.civilCheck?.score ? String(d.borrower.civilCheck.score) : '';
+        setForm((f) => ({ ...f, civilScore: recorded }));
+        setBiz((z) => ({ ...z, civilScore: recorded }));
       } else {
         const res = await api.employeeApp.memberSynopsis(b.code || b.id).catch(() => null);
         const m = res?.member || b;
@@ -1241,7 +1241,7 @@ export default function EmployeeLoanRequisition({ initialKind }) {
     if (minCivil > 0 || isBusiness) {
       const score = Number(form.civilScore || biz.civilScore || borrowerDetail?.borrower?.civilCheck?.score || 0);
       if (!score) {
-        found.civilScore = `CIBIL score is required for ${scheme ? scheme.name : 'this loan'}`;
+        found.civilScore = 'No CIBIL score on record for this borrower. Complete the Civil Check first.';
       } else if (minCivil > 0 && score < minCivil) {
         found.civilScore = `Member CIBIL score (${score}) is below the required minimum (${minCivil}) for ${scheme.name}. Requisition cannot be created.`;
       }
@@ -1368,7 +1368,7 @@ export default function EmployeeLoanRequisition({ initialKind }) {
             businessName: biz.businessName.trim(),
             gstNumber: biz.gstNumber.trim(),
             udgamNumber: biz.udgamNumber.trim(),
-            civilScore: Number(biz.civilScore) || 740,
+            civilScore: Number(biz.civilScore) || undefined,
             shopPhotos: biz.shopPhotos,
             bankStatement: biz.bankStatement,
             itr: biz.itr,
@@ -2336,7 +2336,7 @@ export default function EmployeeLoanRequisition({ initialKind }) {
                 <span>5. Business / MSME Details &amp; Verifications</span>
               </h3>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 10 }}>
                 <div>
                   <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>
                     Loan Sub-Type *
@@ -2395,7 +2395,7 @@ export default function EmployeeLoanRequisition({ initialKind }) {
               </div>
 
               {/* GST and Udyam Numbers */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 10 }}>
                 <div>
                   <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>
                     15-Digit GST Number *
@@ -2435,7 +2435,7 @@ export default function EmployeeLoanRequisition({ initialKind }) {
                 <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--emp-text)', display: 'block', marginBottom: 6 }}>
                   Shop / Work Photos (3 Required: Shop 1, Shop 2, Staff + Shop) *
                 </label>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 8 }}>
                   <EmpPhotoField
                     id="shopPhoto1"
                     label="Shop Photo 1"
@@ -2462,7 +2462,7 @@ export default function EmployeeLoanRequisition({ initialKind }) {
               </div>
 
               {/* Uploads: Bank Statement, ITR, Agreement, Udyam */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
                 <EmpDocumentField
                   id="bankStatement"
                   label="Bank Statement"
@@ -2732,20 +2732,18 @@ export default function EmployeeLoanRequisition({ initialKind }) {
                     </span>
                   )}
                 </div>
+                {/* The score is read from the borrower's Civil Check record: it cannot be typed here */}
                 <input
-                  type="number"
-                  min="300"
-                  max="900"
+                  type="text"
                   className="emp-input"
-                  placeholder="Enter borrower CIBIL score (300 - 900)"
+                  placeholder="No CIBIL check on record"
                   value={form.civilScore || ''}
-                  onChange={(e) => {
-                    const val = e.target.value.replace(/\D/g, '').slice(0, 3);
-                    setForm((f) => ({ ...f, civilScore: val }));
-                    setBiz((z) => ({ ...z, civilScore: val }));
-                  }}
-                  required
+                  readOnly
+                  aria-readonly="true"
+                  tabIndex={-1}
+                  style={{ background: '#f1f5f9', color: '#334155', fontWeight: 800, cursor: 'not-allowed' }}
                 />
+                {!form.civilScore && <div style={{ fontSize: '0.7rem', color: '#b45309', fontWeight: 600, marginTop: 4 }}>The CIBIL score comes from the borrower's Civil Check. No check is on record yet: complete the Civil Check first.</div>}
                 {errors.civilScore && <div style={{ fontSize: '0.7rem', color: '#dc2626', fontWeight: 600, marginTop: 4 }}>{errors.civilScore}</div>}
               </div>
             )}

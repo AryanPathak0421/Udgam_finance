@@ -438,3 +438,9 @@
 }
 
 
+
+/* phone width: nothing wider than its card */
+.emp-main-content { overflow-x: hidden; }
+.emp-page-container, .emp-card { min-width: 0; max-width: 100%; box-sizing: border-box; }
+.emp-card input, .emp-card select, .emp-card textarea { max-width: 100%; min-width: 0; box-sizing: border-box; }
+.emp-card img { max-width: 100%; }
