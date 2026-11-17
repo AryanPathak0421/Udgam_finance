@@ -965,13 +965,16 @@ export default function EmployeeLoanRequisition({ initialKind }) {
   }, [isBusiness, biz.gstNumber, pickedBorrower]);
 
   // Calculate installments from term and mode
-  const termDays = scheme && form.term ? Number(form.term) * (UNIT_DAYS[scheme.termUnit] || 7) : 0;
-  const installments = scheme && form.mode && termDays ? Math.max(1, Math.round(termDays / (MODE_DAYS[form.mode] || 7))) : (Number(form.term) || 52);
+  // (when the form has no term or mode of its own yet, the scheme's own are used: 52 weeks was sent for a 30-week scheme)
+  const termForCalc = Number(form.term) || Number(scheme?.termMin || scheme?.termMax) || 0;
+  const modeForCalc = form.mode || (scheme ? normalizeModes(scheme.modes)[0]?.value : '') || '';
+  const termDays = scheme && termForCalc ? termForCalc * (UNIT_DAYS[scheme.termUnit] || 7) : 0;
+  const installments = scheme && modeForCalc && termDays ? Math.max(1, Math.round(termDays / (MODE_DAYS[modeForCalc] || 7))) : (Number(form.term) || 52);
 
   // Mode, number of installments and rate of a scheme: the form's own values for the scheme chosen on the form, the scheme's defaults for another one
   const paramsFor = (sid) => {
     const sc = schemes.find((x) => x.id === sid);
-    if (!sc || sid === form.schemeId) return { mode: form.mode, term: Number(installments), rate: form.rate };
+    if (!sc || (sid === form.schemeId && form.term && form.mode && form.rate !== '')) return { mode: form.mode || modeForCalc, term: Number(installments), rate: form.rate };
     const safeModes = normalizeModes(sc.modes);
     const mt = isGroup ? (groupMeetingType || 'weekly') : (safeModes[0]?.value || 'weekly');
     const mode = safeModes.some((m) => m.value === mt) ? mt : (safeModes[0]?.value || mt);
