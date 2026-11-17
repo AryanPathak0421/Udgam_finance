@@ -201,6 +201,8 @@ export async function scanBorrowers(req, asOf, pick, opts = {}) {
 
 const sumOf = (rows, f) => Math.round(rows.reduce((s, r) => s + (r[f] || 0), 0) * 100) / 100;
 const borrowerMatch = (q) => (r) => matches(q, r.loanId, r.memberCode, r.memberName, r.group, r.mobile, r.staff, r.branch, r.scheme);
+// the kind of loan chosen on the report (group, personal, business, msme, product); empty = all
+const kindMatch = (req) => { const t = asString(req.query.type).toLowerCase(); return (r) => !t || r.loanType === t; };
 
 const REPORTS = {
   // borrowers whose installment falls due on the date and is not paid yet
@@ -208,21 +210,21 @@ const REPORTS = {
     const asOf = parseDateOnly(asString(req.query.date)) || startOfToday();
     const q = asString(req.query.q).toLowerCase();
     const staff = asString(req.query.staff).trim().toUpperCase();
-    const rows = (await scanBorrowers(req, asOf, (r) => (r.due > 0 && borrowerMatch(q)(r) && (!staff || String(r.staff || '').toUpperCase().includes(staff) || String(r.staffName || '').toUpperCase().includes(staff)) ? r : null), { dueOn: asOf })).sort((a, b) => b.due - a.due);
+    const rows = (await scanBorrowers(req, asOf, (r) => (r.due > 0 && kindMatch(req)(r) && borrowerMatch(q)(r) && (!staff || String(r.staff || '').toUpperCase().includes(staff) || String(r.staffName || '').toUpperCase().includes(staff)) ? r : null), { dueOn: asOf })).sort((a, b) => b.due - a.due);
     return { asOf: iso(asOf), rows, summary: { borrowers: rows.length, due: sumOf(rows, 'due'), outstanding: sumOf(rows, 'outstanding') } };
   },
   // borrowers with an installment that is older than the date and still not paid
   async overdue(req) {
     const asOf = parseDateOnly(asString(req.query.date)) || startOfToday();
     const q = asString(req.query.q).toLowerCase();
-    const rows = (await scanBorrowers(req, asOf, (r) => (r.overdueDays > 0 && borrowerMatch(q)(r) ? r : null))).sort((a, b) => b.overdueDays - a.overdueDays);
+    const rows = (await scanBorrowers(req, asOf, (r) => (r.overdueDays > 0 && kindMatch(req)(r) && borrowerMatch(q)(r) ? r : null))).sort((a, b) => b.overdueDays - a.overdueDays);
     return { asOf: iso(asOf), rows, summary: { borrowers: rows.length, due: sumOf(rows, 'due'), outstanding: sumOf(rows, 'outstanding') } };
   },
   // what every running borrower still has to pay
   async outstanding(req) {
     const asOf = parseDateOnly(asString(req.query.date)) || startOfToday();
     const q = asString(req.query.q).toLowerCase();
-    const rows = (await scanBorrowers(req, asOf, (r) => (r.outstanding > 0 && borrowerMatch(q)(r) ? r : null))).sort((a, b) => b.outstanding - a.outstanding);
+    const rows = (await scanBorrowers(req, asOf, (r) => (r.outstanding > 0 && kindMatch(req)(r) && borrowerMatch(q)(r) ? r : null))).sort((a, b) => b.outstanding - a.outstanding);
     return { asOf: iso(asOf), rows, summary: { borrowers: rows.length, loanAmount: sumOf(rows, 'loanAmount'), paid: sumOf(rows, 'paid'), outstanding: sumOf(rows, 'outstanding') } };
   },
   // any loan whose repayment term has ended and is still due
@@ -230,7 +232,7 @@ const REPORTS = {
     const asOf = parseDateOnly(asString(req.query.date)) || startOfToday();
     const q = asString(req.query.q).toLowerCase();
     const staff = asString(req.query.staff).trim().toUpperCase();
-    const rows = (await scanBorrowers(req, asOf, (r) => (r.outstanding > 0 && (r.daysPastEnd >= 1 || r.overdueDays >= 90) && borrowerMatch(q)(r) && (!staff || String(r.staff || '').toUpperCase().includes(staff)) ? r : null))).sort((a, b) => a.branch.localeCompare(b.branch) || b.daysPastEnd - a.daysPastEnd || b.overdueDays - a.overdueDays);
+    const rows = (await scanBorrowers(req, asOf, (r) => (r.outstanding > 0 && (r.daysPastEnd >= 1 || r.overdueDays >= 90) && kindMatch(req)(r) && borrowerMatch(q)(r) && (!staff || String(r.staff || '').toUpperCase().includes(staff)) ? r : null))).sort((a, b) => a.branch.localeCompare(b.branch) || b.daysPastEnd - a.daysPastEnd || b.overdueDays - a.overdueDays);
     // the last NPA payment of each borrower, so that the admin can revert it
     const last = await EmiPayment.find({ npa: true, status: 'paid', loanPayment: { $in: rows.map((r) => r.loanPaymentId) } }).sort({ createdAt: -1 }).select('loanPayment memberCode receiptNo amountPaise paidOn employeeCode').lean();
     const lastBy = new Map();
@@ -504,11 +506,17 @@ Object.assign(REPORTS, {
   async staffNpaPayment(req) {
     const agg = await EmiPayment.aggregate([
       { $match: { status: 'paid', npa: true, ...branchScope(req), ...dateRange(req, 'paidOn') } },
-      { $group: { _id: '$employeeCode', receipts: { $sum: 1 }, amount: { $sum: '$amountPaise' } } },
+      // one line per staff member and borrower first, so that the report can name the borrowers who paid
+      { $group: { _id: { e: '$employeeCode', m: '$memberCode' }, name: { $first: '$memberName' }, receipts: { $sum: 1 }, amount: { $sum: '$amountPaise' } } },
+      { $group: { _id: '$_id.e', receipts: { $sum: '$receipts' }, amount: { $sum: '$amount' }, members: { $push: { code: '$_id.m', name: '$name', receipts: '$receipts', amount: '$amount' } } } },
     ]);
-    const by = new Map(agg.map((a) => [a._id || '', { receipts: a.receipts, amount: rupees(a.amount) }]));
+    const by = new Map(agg.map((a) => [a._id || '', {
+      receipts: a.receipts,
+      amount: rupees(a.amount),
+      members: a.members.map((m) => ({ code: m.code, name: m.name || '', receipts: m.receipts, amount: rupees(m.amount) })).sort((x, y) => y.amount - x.amount),
+    }]));
     const qs = asString(req.query.q).toLowerCase();
-    const rows = staffFilter(req, await rowsByStaff(by)).filter((r) => matches(qs, r.staff, r.staffName));
+    const rows = staffFilter(req, await rowsByStaff(by)).filter((r) => matches(qs, r.staff, r.staffName, ...(r.members || []).flatMap((m) => [m.code, m.name])));
     return { rows, noCall: true, summary: { staff: rows.length, receipts: sumOf(rows, 'receipts'), amount: sumOf(rows, 'amount') } };
   },
   async staffDisbursement(req) {
@@ -529,11 +537,64 @@ Object.assign(REPORTS, {
     const toEnd = new Date(to.getTime() + 86400000 - 1);
     const agg = await EmiPayment.aggregate([
       { $match: { status: 'paid', legacy: { $ne: true }, group: { $nin: ['', null] }, ...branchScope(req), paidOn: { $gte: from, $lte: toEnd } } },
-      { $group: { _id: '$group', branch: { $first: '$branch' }, receipts: { $sum: 1 }, amount: { $sum: '$amountPaise' }, members: { $addToSet: '$memberCode' }, staff: { $addToSet: '$employeeCode' }, last: { $max: '$paidOn' } } },
+      // one line per group and member first (the report names every member with what he paid and what he still owes)
+      { $group: { _id: { g: '$group', m: '$memberCode' }, name: { $first: '$memberName' }, branch: { $first: '$branch' }, receipts: { $sum: 1 }, amount: { $sum: '$amountPaise' }, staff: { $addToSet: '$employeeCode' }, last: { $max: '$paidOn' } } },
+      { $group: { _id: '$_id.g', branch: { $first: '$branch' }, receipts: { $sum: '$receipts' }, amount: { $sum: '$amount' }, members: { $push: { code: '$_id.m', name: '$name', receipts: '$receipts', amount: '$amount' } }, staff: { $push: '$staff' }, last: { $max: '$last' } } },
     ]);
+    agg.forEach((g) => { g.staff = [...new Set(g.staff.flat())]; });
+    // what each member of those groups still owes as on the last date of the report (the installments that fell due and are not paid)
+    const dueBy = new Map(); // group code -> Map(member code -> { name, due, dueCount })
+    const wanted = [...new Set(agg.map((g) => String(g._id).split(' — ')[0].toUpperCase()))];
+    {
+      // the loans of those groups only (a full scan of every loan is slow): the installments that fell due up to the last date, less what was paid
+      const dEnd = new Date(to.getTime() + 86400000 - 1);
+      // the database adds up the installments that fell due, so that the schedules themselves are not sent over
+      const loans = await LoanPayment.aggregate([
+        { $match: { status: 'paid', 'group.code': { $in: wanted }, ...branchScope(req), 'schedule.dueDate': { $lte: dEnd } } },
+        { $project: {
+          group: { code: '$group.code' },
+          lines: { code: 1, name: 1, extraEmiPaise: 1 },
+          dueCount: { $size: { $filter: { input: '$schedule', as: 's', cond: { $lte: ['$$s.dueDate', dEnd] } } } },
+          firstInstallment: { $ifNull: [{ $arrayElemAt: ['$schedule.installmentPaise', 0] }, 0] },
+          dueInstallments: { $sum: { $map: { input: { $filter: { input: '$schedule', as: 's', cond: { $lte: ['$$s.dueDate', dEnd] } } }, as: 'd', in: '$$d.installmentPaise' } } },
+        } },
+      ]);
+      const ids = loans.map((l) => l._id);
+      const closed = new Set((await LoanSettlement.find({ loanPayment: { $in: ids }, status: 'active' }).select('loanPayment memberCode').lean()).map((x) => `${x.loanPayment}|${x.memberCode}`));
+      const paid = new Map((await EmiPayment.aggregate([
+        { $match: { loanPayment: { $in: ids }, status: 'paid' } },
+        { $group: { _id: { l: '$loanPayment', m: '$memberCode' }, t: { $sum: '$amountPaise' } } },
+      ])).map((x) => [`${x._id.l}|${x._id.m}`, x.t]));
+      for (const l of loans) {
+        for (const line of l.lines || []) {
+          const key = `${l._id}|${line.code}`;
+          if (closed.has(key)) continue;
+          const emi = (l.firstInstallment || 0) + (line.extraEmiPaise || 0);
+          const owed = (l.dueInstallments || 0) + (line.extraEmiPaise || 0) * (l.dueCount || 0) - (paid.get(key) || 0);
+          if (owed <= 0) continue;
+          const gk = String(l.group?.code || '').toUpperCase();
+          if (!dueBy.has(gk)) dueBy.set(gk, new Map());
+          const m = dueBy.get(gk);
+          const cur = m.get(line.code) || { name: line.name, due: 0, dueCount: 0 };
+          cur.due += owed / 100; cur.dueCount += emi > 0 ? Math.ceil(owed / emi) : 0;
+          m.set(line.code, cur);
+        }
+      }
+    }
     const branches = new Map((await Branch.find({}).select('code').lean()).map((b) => [String(b._id), b.code]));
     const staffCodes = [...new Set(agg.flatMap((g) => g.staff).filter(Boolean))];
     const sNames = await staffNames(staffCodes);
+    // every member of the group who paid or who owes, with what he paid (in the dates) and what he owes
+    const memberRows = (g) => {
+      const owes = dueBy.get(String(g._id).split(' — ')[0].toUpperCase()) || new Map();
+      const out = new Map(g.members.map((m) => [m.code, { code: m.code, name: m.name || '', receipts: m.receipts, collected: rupees(m.amount), due: 0, dueCount: 0 }]));
+      owes.forEach((v, code) => {
+        const cur = out.get(code) || { code, name: v.name || '', receipts: 0, collected: 0, due: 0, dueCount: 0 };
+        cur.due = Math.round(v.due * 100) / 100; cur.dueCount = v.dueCount;
+        out.set(code, cur);
+      });
+      return [...out.values()].sort((a, b) => b.due - a.due || a.name.localeCompare(b.name));
+    };
     const rows = agg.map((g) => {
       const staffList = g.staff.filter(Boolean).sort().map((code) => {
         const name = sNames.get(String(code).toUpperCase());
@@ -546,11 +607,13 @@ Object.assign(REPORTS, {
         receipts: g.receipts,
         members: g.members.length,
         collected: rupees(g.amount),
+        due: Math.round(((memberRows(g).reduce((t, m) => t + m.due, 0)) * 100)) / 100,
+        memberRows: memberRows(g),
         collectedBy: staffList || '—',
         lastDate: iso(g.last),
       };
     }).filter((g) => matches(q, g.group, g.branch, g.collectedBy)).sort((a, b) => a.group.localeCompare(b.group));
-    return { rows, noCall: true, summary: { groups: rows.length, receipts: sumOf(rows, 'receipts'), collected: sumOf(rows, 'collected') } };
+    return { rows, noCall: true, summary: { groups: rows.length, receipts: sumOf(rows, 'receipts'), collected: sumOf(rows, 'collected'), due: sumOf(rows, 'due') } };
   },
   // per group: the EMI that fell due in the period (demand), what was collected, and the share collected (CDS: collection and demand statement)
   async groupCollection(req) {
@@ -725,7 +788,7 @@ export async function report(req, res) {
   if (!fn) throw new HttpError(404, 'Unknown report');
   const q = { ...req.query };
   delete q.poll;
-  const heavy = ['due', 'overdue', 'outstanding', 'npa', 'staff-npa', 'personal-collection-sheet', 'msme-collection-sheet', 'group-collection-sheet', 'collection-sheet', 'group-collection'].includes(name);
+  const heavy = ['due', 'overdue', 'outstanding', 'npa', 'staff-npa', 'personal-collection-sheet', 'msme-collection-sheet', 'group-collection-sheet', 'collection-sheet', 'group-collection', 'group-wise-collection'].includes(name);
   let out;
   if (heavy) {
     const r = await slowRun(`report|${name}|${req.user._id}|${JSON.stringify(q)}`, () => fn(req), { poll: req.query.poll === '1' });

@@ -98,9 +98,26 @@ COLS['write-off'] = [
   ['Branch', (r) => r.branch], ['Outstanding', (r) => inr(r.outstanding), true], ['Received', (r) => inr(r.received), true], ['Written off', (r) => <strong>{inr(r.writtenOff)}</strong>, true], ['Remark', (r) => r.remark || '—'],
 ];
 COLS['staff-npa'] = [['Staff', staffCell], ['NPA borrowers', (r) => r.borrowers, true], ['Loan amount', (r) => inr(r.loanAmount), true], ['Outstanding', (r) => <strong>{inr(r.outstanding)}</strong>, true], ['Oldest (days after term)', (r) => r.oldest, true]];
-COLS['staff-npa-payment'] = [['Staff', staffCell], ['NPA receipts', (r) => r.receipts, true], ['Collected', (r) => <strong>{inr(r.amount)}</strong>, true]];
+COLS['staff-npa-payment'] = [['Staff', staffCell], ['Member name', (r) => ((r.members || []).length ? (r.members || []).map((m) => <div key={m.code}>{m.name || '—'} <span className="muted small">({m.code}){m.receipts > 1 ? ` × ${m.receipts}` : ''} · {inr(m.amount)}</span></div>) : '—')], ['NPA receipts', (r) => r.receipts, true], ['Collected', (r) => <strong>{inr(r.amount)}</strong>, true]];
 COLS['staff-disbursement'] = [['Staff', staffCell], ['Loans', (r) => r.loans, true], ['Borrowers', (r) => r.borrowers, true], ['Loan amount', (r) => <strong>{inr(r.amount)}</strong>, true], ['Cash paid', (r) => inr(r.cash), true]];
-COLS['group-wise-collection'] = [['Group', (r) => <strong>{r.group}</strong>], ['Branch', (r) => r.branch || '—'], ['Members who paid', (r) => r.members, true], ['Receipts', (r) => r.receipts, true], ['Collected', (r) => <strong>{inr(r.collected)}</strong>, true], ['Collected by', (r) => r.collectedBy || '—'], ['Last collection', (r) => dmy(r.lastDate)]];
+COLS['group-wise-collection'] = [['Group', (r) => <strong>{r.group}</strong>], ['Branch', (r) => r.branch || '—'], ['Members who paid', (r) => r.members, true], ['Receipts', (r) => r.receipts, true], ['Collected', (r) => <strong>{inr(r.collected)}</strong>, true], ['Due', (r) => <strong style={r.due > 0 ? { color: '#b91c1c' } : undefined}>{inr(r.due || 0)}</strong>, true], ['Collected by', (r) => r.collectedBy || '—'], ['Last collection', (r) => dmy(r.lastDate)],
+  ['View', (r) => (
+    <details>
+      <summary className="btn sm" style={{ display: 'inline-block', cursor: 'pointer' }}>View</summary>
+      <table className="data-table" style={{ marginTop: 6, minWidth: 320 }}>
+        <thead><tr><th>Member</th><th className="num">Collected</th><th className="num">Due</th></tr></thead>
+        <tbody>
+          {(r.memberRows || []).map((m) => (
+            <tr key={m.code}>
+              <td>{m.name || '—'}<div className="muted small">{m.code}{m.receipts > 1 ? ` · ${m.receipts} receipts` : ''}</div></td>
+              <td className="num">{inr(m.collected)}</td>
+              <td className="num" style={m.due > 0 ? { color: '#b91c1c', fontWeight: 700 } : undefined}>{inr(m.due)}{m.dueCount > 0 && <div className="muted small">{m.dueCount} installment{m.dueCount === 1 ? '' : 's'}</div>}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </details>
+  )]];
 COLS['group-collection'] = [
   ['Group Code', (r) => <strong>{r.groupCode || r.group}</strong>],
   ['Group Name', (r) => r.groupName || r.group],
@@ -119,12 +136,12 @@ const REPORTS = {
   requisition: { title: 'Loan Requisition Report', description: 'Every loan requisition with its status, by the loan date.', range: true, status: ['pending', 'approved', 'rejected', 'cancelled'], from: monthStart },
   approval: { title: 'Loan Approval Report', description: 'Loans that were approved (pending disbursement) or rejected, by the date of the decision.', range: true, status: ['approved', 'rejected'], from: monthStart },
   disbursement: { title: 'Loan Disbursement Report', description: 'Loans paid out, by the payment date.', range: true, from: monthStart, staffFilter: true },
-  due: { title: 'Loan Due Report', description: 'Borrowers whose EMI falls due on the chosen date and is not paid yet.', asOf: true, staffFilter: true },
-  overdue: { title: 'Loan Over Due Report', description: 'Borrowers with an EMI that was due before the chosen date and is still not paid, the oldest first.', asOf: true },
-  outstanding: { title: 'Loan Outstanding Report', description: 'What every running borrower still has to pay as on the chosen date.', asOf: true },
+  due: { title: 'Loan Due Report', description: 'Borrowers whose EMI falls due on the chosen date and is not paid yet.', asOf: true, staffFilter: true, typeFilter: true },
+  overdue: { title: 'Loan Over Due Report', description: 'Borrowers with an EMI that was due before the chosen date and is still not paid, the oldest first.', asOf: true, typeFilter: true },
+  outstanding: { title: 'Loan Outstanding Report', description: 'What every running borrower still has to pay as on the chosen date.', asOf: true, typeFilter: true },
   'emi-collection': { title: 'Loan EMI Collection Report', description: 'EMI received, by the date it was paid.', range: true, from: today, staffFilter: true },
   'member-joining': { title: 'Member Joining Report', description: 'Members who joined, by the joining date.', range: true, from: monthStart },
-  npa: { title: 'NPA Report / Pay', description: 'Borrowers of a 120-day loan who still owe after the 121st day: the last installment is behind them and the loan is not paid. NPA payment takes the money received from the borrower.', asOf: true, npaPay: true, print: true, staffFilter: true },
+  npa: { title: 'NPA Report / Pay', description: 'Borrowers of a 120-day loan who still owe after the 121st day: the last installment is behind them and the loan is not paid. NPA payment takes the money received from the borrower.', asOf: true, npaPay: true, print: true, staffFilter: true, typeFilter: true },
   'personal-collection-sheet': { title: 'Personal Loan Collection Sheet', description: 'Personal loan borrowers with an EMI to collect as on the date. Print it for the field.', asOf: true, print: true, sheet: true, staffFilter: true },
   'msme-collection-sheet': { title: 'MSME / Business Loan Collection Sheet', description: 'MSME and business loan borrowers with an EMI to collect as on the date. Print it for the field.', asOf: true, print: true, sheet: true, staffFilter: true },
   'group-collection-sheet': { title: 'Group Loan Collection Sheet', description: 'Group loans with an EMI to collect as on the date, group by group with the group leader, for the field. Print / PDF makes the sheet like the old software: every group with its members and a total.', asOf: true, print: true, sheet: true, group: true, staffFilter: true },
