@@ -256,12 +256,12 @@ async function main() {
   if (unmapped.length) throw new Error('A loan table has no scheme in the app; nothing is written.');
 
   // ---- security
-  const secByLoan = new Map(); const secByMember = new Map(); const withdrawals = [];
+  const secByLoan = new Map(); const untied = []; const withdrawals = []; // untied: deposits that name no loan (the rule that places them is below)
   for (const r of S.sec) {
     const mid = up(r[2]); const amt = paise(r[6]); if (!amt) continue;
     if (/^w/i.test(str(r[5]))) { withdrawals.push({ mid, amt, on: textDate(r[4]) }); continue; }
     const lid = up(r[1]);
-    if (lid) secByLoan.set(lid, (secByLoan.get(lid) || 0) + amt); else secByMember.set(mid, (secByMember.get(mid) || 0) + amt);
+    if (lid) secByLoan.set(lid, (secByLoan.get(lid) || 0) + amt); else untied.push({ mid, amt, on: textDate(r[4]) });
   }
 
   // ---- a member that has loans and collections but is not in the member sheet: made from the collection sheets (code, name, branch only)
@@ -285,8 +285,19 @@ async function main() {
     if (!m) { skip('loans of a member that is not in the member sheet'); continue; }
     seenLoan.add(lid); loanRows.push({ r, lid, m });
   }
-  const latestOf = new Map();
-  loanRows.forEach(({ r, lid, m }) => { const d = textDate(r[6]); const cur = latestOf.get(m.code); if (!cur || (d && d > cur.d)) latestOf.set(m.code, { lid, d }); });
+  // A deposit that names no loan belongs to the first loan the member took on or after the day of the deposit (an old deposit is the security of
+  // an old loan, which is mostly closed by now); with no such loan it goes to the member's latest loan. (It used to go to the latest loan whatever
+  // the date, which made the security of a running loan look bigger and kept it from being withdrawn.)
+  const loansOfMember = new Map();
+  loanRows.forEach(({ r, lid, m }) => { if (!loansOfMember.has(m.code)) loansOfMember.set(m.code, []); loansOfMember.get(m.code).push({ lid, d: textDate(r[6]) }); });
+  loansOfMember.forEach((list) => list.sort((a, b) => (a.d || 0) - (b.d || 0)));
+  const extraSec = new Map(); // loan id -> security of the deposits placed on it
+  for (const dep of untied) {
+    const list = loansOfMember.get(dep.mid);
+    if (!list || !list.length) continue; // a member with no loan in the file: shown nowhere
+    const target = (dep.on && list.find((x) => x.d && x.d >= dep.on)) || list[list.length - 1];
+    extraSec.set(target.lid, (extraSec.get(target.lid) || 0) + dep.amt);
+  }
   const reqDocs = []; const payDocs = []; const loanInfo = new Map(); let receiptSeq = 0;
   for (const { r, lid, m } of loanRows) {
     const tname = str(r[5]); const sc = schemeFor(tname); const t = tableOf(tname);
@@ -300,7 +311,7 @@ async function main() {
     const isGroup = Boolean(gdoc) || sc.loanType === 'group' || sc.loanType === 'product' || lid.startsWith('UDGRP');
     const b = branchOf(r[17]) || m.branch;
     const proc = paise(r[9]) + paise(r[12]); const legal = paise(r[10]); const ins = paise(r[13]);
-    const security = (secByLoan.get(lid) || 0) + (latestOf.get(m.code)?.lid === lid ? secByMember.get(m.code) || 0 : 0);
+    const security = (secByLoan.get(lid) || 0) + (extraSec.get(lid) || 0);
     const net = r[14] !== '' ? paise(r[14]) : amountPaise - proc - legal - ins;
     const empCode = gdoc?.employeeCode || m.employeeCode || 'LEGACY';
     const reqId = oid();
