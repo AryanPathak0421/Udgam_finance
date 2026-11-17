@@ -17,6 +17,7 @@ import {
   addGroupMembers,
   removeGroupMember,
 } from '../controllers/groupController.js';
+import { requestLeaderChange, listLeaderRequests, approveLeaderRequest, rejectLeaderRequest } from '../controllers/groupLeaderRequestController.js';
 import { report, generate, sendOtp, verifyOtp, dueByGroup, sendDueOtp, payDue } from '../controllers/groupLeaderCommissionController.js';
 import { verifyOtp as verifyChallenge } from '../controllers/memberController.js';
 
@@ -35,6 +36,11 @@ const otpLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 40, standardHead
 router.get('/groups', requireAuth, requireRole(...READ), h(listGroups));
 router.get('/groups/branch-options', requireAuth, requireRole(...MANAGE), h(groupBranchOptions));
 router.get('/groups/member-candidates', requireAuth, requireRole(...MANAGE), h(memberCandidates));
+// change of a group leader: the branch asks, the admin approves (then the leader name and mobile of the group are the member's)
+router.get('/groups/leader-requests', requireAuth, requireRole(...MANAGE), h(listLeaderRequests));
+router.post('/groups/leader-requests/:rid/approve', requireAuth, requireRole(...ADMIN), h(approveLeaderRequest));
+router.post('/groups/leader-requests/:rid/reject', requireAuth, requireRole(...ADMIN), h(rejectLeaderRequest));
+router.post('/groups/:id/leader-request', requireAuth, requireRole(...MANAGE), h(requestLeaderChange));
 router.get('/groups/:id', requireAuth, requireRole(...READ), h(getGroup));
 router.post('/groups/:id/members', requireAuth, requireRole(...MANAGE), h(addGroupMembers));
 router.delete('/groups/:id/members/:memberId', requireAuth, requireRole(...MANAGE), h(removeGroupMember));

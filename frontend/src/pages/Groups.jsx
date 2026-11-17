@@ -74,6 +74,119 @@ function GroupForm({ item, branches, isAdmin, onClose, onSaved }) {
 
 // Interim input of how many loans the group had disbursed each month (until the Loans module exists).
 // The branch changes only the meeting type, the collection day and the meeting time of a group.
+// The branch picks the member of the group who becomes the leader; the request goes to the admin.
+function LeaderRequestDialog({ item, onClose, onSent }) {
+  const toast = useToast();
+  const [members, setMembers] = useState(null);
+  const [error, setError] = useState('');
+  const [pick, setPick] = useState('');
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    api.groups.get(item.id).then((r) => setMembers(r.members || [])).catch((err) => { setMembers([]); setError(err.message); });
+  }, [item.id]);
+
+  async function submit(e) {
+    e.preventDefault();
+    if (!pick) { setError('Select the member who becomes the leader'); return; }
+    setSaving(true);
+    try {
+      await api.groups.requestLeader(item.id, pick);
+      toast.success('Request sent to the admin');
+      onSent();
+    } catch (err) {
+      setError(err.errors?.memberId || err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal open title={`Change group leader — ${item.code} ${item.name}`} onClose={onClose} busy={saving}
+      footer={<><button className="btn" onClick={onClose} disabled={saving}>Cancel</button><button className="btn primary" form="leader-form" type="submit" disabled={saving || !pick}>{saving ? 'Sending…' : 'Submit request'}</button></>}>
+      <form id="leader-form" onSubmit={submit} noValidate>
+        <p className="muted small" style={{ marginTop: 0 }}>
+          Current leader: <strong>{item.leaderName || 'Not recorded'}</strong>{item.leaderMobile ? ` · ${item.leaderMobile}` : ''}. Select the member of this group who becomes the leader. The request goes to the admin; when it is approved, the leader name and mobile of the group become that member's name and mobile.
+        </p>
+        {error && <div className="notice warn" role="alert" style={{ marginBottom: 8 }}>{error}</div>}
+        {members === null ? <Spinner label="Loading members…" /> : members.length === 0 ? <p className="muted">This group has no members.</p> : (
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead><tr><th style={{ width: 40 }} /><th>Member</th><th>Mobile</th></tr></thead>
+              <tbody>
+                {members.map((m) => (
+                  <tr key={m.id} style={m.isBlocked ? { opacity: 0.6 } : undefined}>
+                    <td><input type="radio" name="leaderPick" aria-label={`Select ${m.name}`} checked={pick === m.id} disabled={m.isBlocked} onChange={() => { setPick(m.id); setError(''); }} /></td>
+                    <td><strong>{m.name}</strong><div className="muted small">{m.code}{m.isBlocked ? ' · blocked' : ''}</div></td>
+                    <td>{m.mobile || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </form>
+    </Modal>
+  );
+}
+
+// Admin: the leader change requests of the branches, approve or reject.
+function LeaderRequestsDialog({ onClose, onChanged }) {
+  const toast = useToast();
+  const [items, setItems] = useState(null);
+  const [error, setError] = useState('');
+  const [busyId, setBusyId] = useState('');
+  const load = useCallback(() => api.groups.leaderRequests({ status: 'pending' }).then((r) => setItems(r.items || [])).catch((err) => { setItems([]); setError(err.message); }), []);
+  useEffect(() => { load(); }, [load]);
+
+  async function decide(it, approve) {
+    let reason = '';
+    if (!approve) {
+      reason = window.prompt('Reason for rejecting (optional)') ?? null;
+      if (reason === null) return;
+    }
+    setBusyId(it.id);
+    try {
+      if (approve) await api.groups.approveLeader(it.id); else await api.groups.rejectLeader(it.id, reason);
+      toast.success(approve ? `${it.memberName} is now the leader of ${it.groupCode}` : 'Request rejected');
+      await load();
+      onChanged();
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setBusyId('');
+    }
+  }
+
+  return (
+    <Modal open title="Group leader change requests" onClose={onClose} size="lg" footer={<button className="btn" onClick={onClose}>Close</button>}>
+      {error && <div className="notice warn" role="alert">{error}</div>}
+      {items === null ? <Spinner label="Loading…" /> : items.length === 0 ? <p className="muted">No request is waiting.</p> : (
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead><tr><th>Group</th><th>Present leader</th><th>New leader</th><th>Asked by</th><th className="actions-col">Action</th></tr></thead>
+            <tbody>
+              {items.map((it) => (
+                <tr key={it.id}>
+                  <td><strong>{it.groupCode}</strong><div className="muted small">{it.groupName}{it.branch ? ` · ${it.branch.code}` : ''}</div></td>
+                  <td>{it.oldLeaderName || 'Not recorded'}<div className="muted small">{it.oldLeaderMobile}</div></td>
+                  <td><strong>{it.memberName}</strong><div className="muted small">{it.memberCode} · {it.memberMobile}</div></td>
+                  <td>{it.requestedBy || '—'}<div className="muted small">{it.requestedAt ? new Date(it.requestedAt).toLocaleDateString('en-IN') : ''}</div></td>
+                  <td className="actions-col">
+                    <div className="row-actions">
+                      <button className="btn sm primary" disabled={busyId === it.id} onClick={() => decide(it, true)}>Approve</button>
+                      <button className="btn sm danger-outline" disabled={busyId === it.id} onClick={() => decide(it, false)}>Reject</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 function ScheduleDialog({ item, onClose, onSaved }) {
   const toast = useToast();
   const [form, setForm] = useState({ meetingType: item.meetingType || '', collectionDay: item.collectionDay ? String(item.collectionDay) : '', meetingTime: item.meetingTime || '' });
@@ -244,6 +357,11 @@ export default function Groups() {
   const [status, setStatus] = useState('');
   const [dialog, setDialog] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [leaderPending, setLeaderPending] = useState([]); // the leader change requests that wait for the admin
+  const loadLeaderPending = useCallback(() => {
+    if (canManage) api.groups.leaderRequests({ status: 'pending' }).then((r) => setLeaderPending(r.items || [])).catch(() => {});
+  }, [canManage]);
+  useEffect(() => { loadLeaderPending(); }, [loadLeaderPending]);
   const q = useDebounce(search);
 
   useEffect(() => {
@@ -303,7 +421,12 @@ export default function Groups() {
       <PageHeader
         title="Group List"
         description="All groups with their leader, employee and meeting schedule. The commission OTP goes to the leader's registered mobile number."
-        actions={canManage && <button className="btn primary" onClick={() => navigate('/group-master/create')}>+ Create Group</button>}
+        actions={canManage && (
+          <>
+            {isAdmin && <button className="btn" onClick={() => setDialog({ type: 'leaderRequests' })}>Leader change requests{leaderPending.length ? ` (${leaderPending.length})` : ''}</button>}
+            <button className="btn primary" onClick={() => navigate('/group-master/create')}>+ Create Group</button>
+          </>
+        )}
       />
 
       <div className="panel">
@@ -364,6 +487,9 @@ export default function Groups() {
                           {isAdmin && <button className="btn sm" onClick={() => setDialog({ type: 'loans', item: g })}>Disbursements</button>}
                           {canEdit && <button className="btn sm" onClick={() => setDialog({ type: 'form', item: g })}>Edit</button>}
                           {!canEdit && canManage && <button className="btn sm" onClick={() => setDialog({ type: 'schedule', item: g })}>Change meeting</button>}
+                          {!canEdit && canManage && (leaderPending.some((x) => x.groupId === String(g.id))
+                            ? <button className="btn sm" disabled title="A leader change of this group is waiting for the admin">Leader change pending</button>
+                            : <button className="btn sm" onClick={() => setDialog({ type: 'leader', item: g })}>Change leader</button>)}
                           {canEdit && <button className="btn sm" onClick={() => setDialog({ type: 'status', item: g })}>{g.isActive ? 'Deactivate' : 'Activate'}</button>}
                           {canDelete && <button className="btn sm danger-outline" onClick={() => setDialog({ type: 'delete', item: g })}>Delete</button>}
                         </div>
@@ -382,6 +508,8 @@ export default function Groups() {
         <GroupForm item={dialog.item} branches={branches} isAdmin={isAdmin} onClose={close} onSaved={() => { close(); load(); }} />
       )}
       {dialog?.type === 'schedule' && dialog.item && <ScheduleDialog item={dialog.item} onClose={close} onSaved={() => { close(); load(); }} />}
+      {dialog?.type === 'leader' && dialog.item && <LeaderRequestDialog item={dialog.item} onClose={close} onSent={() => { close(); loadLeaderPending(); }} />}
+      {dialog?.type === 'leaderRequests' && isAdmin && <LeaderRequestsDialog onClose={close} onChanged={() => { loadLeaderPending(); load(); }} />}
       {dialog?.type === 'loans' && isAdmin && <DisbursementDialog group={dialog.item} canEdit onClose={close} />}
 
       <ConfirmDialog
