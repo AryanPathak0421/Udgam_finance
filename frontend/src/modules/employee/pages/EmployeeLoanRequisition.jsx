@@ -767,10 +767,10 @@ export default function EmployeeLoanRequisition({ initialKind }) {
     setMemberSearch('');
     if (!g) return;
     const mt = getGroupMeetingType(g);
+    // (the term is not set here: it comes from the scheme. It used to be set to 52 weeks for a weekly group, whatever the scheme allows: a 30-week scheme then failed)
     setForm((f) => ({
       ...f,
       mode: mt,
-      term: mt === 'daily' ? '120' : mt === 'weekly' ? '52' : '12',
     }));
     try {
       const d = await api.loanRequisitions.group(g.id || g._id).catch(() => null);
@@ -974,7 +974,7 @@ export default function EmployeeLoanRequisition({ initialKind }) {
   // Mode, number of installments and rate of a scheme: the form's own values for the scheme chosen on the form, the scheme's defaults for another one
   const paramsFor = (sid) => {
     const sc = schemes.find((x) => x.id === sid);
-    if (!sc || (sid === form.schemeId && form.term && form.mode && form.rate !== '')) return { mode: form.mode || modeForCalc, term: Number(installments), rate: form.rate };
+    if (!sc || (!isGroup && sid === form.schemeId && form.term && form.mode && form.rate !== '')) return { mode: form.mode || modeForCalc, term: Number(installments), rate: form.rate };
     const safeModes = normalizeModes(sc.modes);
     const mt = isGroup ? (groupMeetingType || 'weekly') : (safeModes[0]?.value || 'weekly');
     const mode = safeModes.some((m) => m.value === mt) ? mt : (safeModes[0]?.value || mt);
