@@ -4,6 +4,13 @@ import { useAuth } from '../context/AuthContext.jsx';
 import AuthShell from '../components/AuthShell.jsx';
 import Icon from '../components/Icon.jsx';
 
+// The three mobile apps (each one is installed from its own login page: it opens there with an Install prompt)
+const APPS = [
+  { name: 'Staff App', sub: 'Field staff: collections, requisitions, members', href: '/employee/login', icon: '/icon-192.png' },
+  { name: 'Supervisor App', sub: 'Supervisors: approvals, team and branch', href: '/supervisor/login', icon: '/icon-supervisor-192.png' },
+  { name: 'Member App', sub: 'Members: loans, EMI and security', href: '/member/login', icon: '/icon-member-192.png' },
+];
+
 export default function Login() {
   const { login } = useAuth();
   const [email, setEmail] = useState('');
@@ -143,22 +150,29 @@ export default function Login() {
           <Icon name="shield" size={14} /> Secure, encrypted session
         </div>
 
-        <div style={{ marginTop: 20, textAlign: 'center', borderTop: '1px solid #eef0f4', paddingTop: 14 }}>
-          <Link
-            to="/employee/login"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 8,
-              color: '#107870',
-              fontWeight: 600,
-              fontSize: '0.88rem',
-              textDecoration: 'none'
-            }}
-          >
-            <Icon name="phone" size={16} />
-            <span>Switch to Field Staff Mobile App</span>
-          </Link>
+        <div style={{ marginTop: 20, borderTop: '1px solid #eef0f4', paddingTop: 14 }}>
+          <div style={{ textAlign: 'center', fontWeight: 700, fontSize: '0.9rem', color: '#0f172a', marginBottom: 4 }}>Download our apps</div>
+          <div style={{ textAlign: 'center', fontSize: '0.74rem', color: '#64748b', marginBottom: 10 }}>
+            Opens the app. Tap <strong>Install</strong> (or <strong>Add to Home screen</strong>) to keep it on your phone.
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {APPS.map((a) => (
+              <a
+                key={a.href}
+                href={a.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', border: '1px solid #d7e6e4', borderRadius: 10, background: '#f4faf9', textDecoration: 'none', color: '#0f172a' }}
+              >
+                <img src={a.icon} alt="" width={36} height={36} style={{ borderRadius: 8, flexShrink: 0 }} />
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ display: 'block', fontWeight: 700, fontSize: '0.88rem' }}>{a.name}</span>
+                  <span style={{ display: 'block', fontSize: '0.72rem', color: '#64748b' }}>{a.sub}</span>
+                </span>
+                <span style={{ background: '#107870', color: '#fff', fontWeight: 700, fontSize: '0.78rem', padding: '7px 12px', borderRadius: 8, whiteSpace: 'nowrap' }}>Download</span>
+              </a>
+            ))}
+          </div>
         </div>
       </form>
     </AuthShell>
