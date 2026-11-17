@@ -151,11 +151,7 @@ function EntryDialog({ cats, ledgers, branches, isAdmin, defaultBranch, onClose,
                 {ledgers[form.side].map((l) => <option key={l.id} value={`ledger:${l.id}`}>{l.name}</option>)}
               </optgroup>
             )}
-            {(cats[form.side] || []).filter((c) => c.key !== 'voucher_receive' && c.key !== 'other_payment' && c.key !== 'npa_receive').length > 0 && (
-              <optgroup label="Other cash entries">
-                {(cats[form.side] || []).filter((c) => c.key !== 'voucher_receive' && c.key !== 'other_payment' && c.key !== 'npa_receive').map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
-              </optgroup>
-            )}
+            {/* the "Other cash entries" are not offered here any more: only the ledger master (voucher names) */}
           </select>
         </FormField>
         {(branches.length > 1 || isAdmin) && (
