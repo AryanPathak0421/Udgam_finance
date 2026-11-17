@@ -3359,7 +3359,28 @@ export async function getEmiGroups(req, res) {
     loanQuery.branch = { $in: branchIds };
   }
 
-  let allLoans = await LoanPayment.find(loanQuery).lean();
+  // The loans of the groups, with what their schedules add up to (the first installment, how many, the total, how many fell due by the date, the
+  // weekdays and days of the month they fall on). The schedules themselves are not sent: that is what made this slow.
+  const endOfDay = new Date(`${dateStr}T23:59:59.999Z`);
+  const sched = { $ifNull: ['$schedule', []] };
+  const castMatch = { ...loanQuery, ...(loanQuery.branch ? { branch: { $in: loanQuery.branch.$in.map((b) => new mongoose.Types.ObjectId(String(b))) } } : {}) };
+  let allLoans = (await LoanPayment.aggregate([
+    { $match: castMatch },
+    { $project: {
+      loanId: 1, formId: 1, mode: 1, modeLabel: 1, group: 1, lines: 1, isSettled: 1, status: 1, totalAmountPaise: 1, createdAt: 1, branch: 1,
+      first: { $arrayElemAt: [sched, 0] },
+      n: { $size: sched },
+      total: { $sum: '$schedule.installmentPaise' },
+      dueCount: { $size: { $filter: { input: sched, as: 's', cond: { $and: [{ $ne: ['$$s.dueDate', null] }, { $lte: ['$$s.dueDate', endOfDay] }] } } } },
+      dows: { $setUnion: [{ $map: { input: sched, as: 's', in: { $dayOfWeek: '$$s.dueDate' } } }, []] },
+      doms: { $setUnion: [{ $map: { input: sched, as: 's', in: { $dayOfMonth: '$$s.dueDate' } } }, []] },
+    } },
+  ])).map((l) => ({
+    ...l,
+    // only the first installment is kept as the schedule (its amount and date are what the code below reads); the rest is in _sch
+    schedule: l.first ? [{ dueDate: l.first.dueDate, installmentPaise: l.first.installmentPaise }] : [],
+    _sch: { n: l.n || 0, total: l.total || 0, dueCount: l.dueCount || 0, dows: new Set((l.dows || []).map((d) => d - 1)), doms: new Set(l.doms || []) },
+  }));
 
   // Group loans by groupCode
   const loansByGroupCode = new Map();
@@ -3396,18 +3417,21 @@ export async function getEmiGroups(req, res) {
     { $group: { _id: '$loanPayment', total: { $sum: '$amountPaise' } } },
   ]) : [];
 
-  // Pre-fetch all past payments for dues calculation
-  const allPastPayments = allLoanIds.length ? await EmiPayment.find({
-    loanPayment: { $in: allLoanIds },
-    status: 'paid',
-  }).select('loanPayment memberCode amountPaise paidOn receiptNo').lean() : [];
-
-  const allPastReceipts = new Set(allPastPayments.map((p) => p.receiptNo).filter(Boolean));
-  const seenTodayLoanMember = new Set(
-    allPastPayments
-      .filter((p) => p.paidOn >= startDay && p.paidOn <= endDay)
-      .map((p) => `${String(p.loanPayment)}_${String(p.memberCode || '').trim().toUpperCase()}`)
-  );
+  // What was paid, added up by the database per loan and borrower: all time and today (it used to load every EMI payment of these loans)
+  const paidAgg = allLoanIds.length ? await EmiPayment.aggregate([
+    { $match: { loanPayment: { $in: allLoanIds }, status: 'paid' } },
+    { $group: { _id: { l: '$loanPayment', m: '$memberCode' }, total: { $sum: '$amountPaise' }, today: { $sum: { $cond: [{ $and: [{ $gte: ['$paidOn', startDay] }, { $lte: ['$paidOn', endDay] }] }, '$amountPaise', 0] } } } },
+  ]) : [];
+  const paymentsByKey = new Map();
+  const seenTodayLoanMember = new Set();
+  for (const p of paidAgg) {
+    const k = `${String(p._id.l)}_${String(p._id.m || '').trim().toUpperCase()}`;
+    const cur = paymentsByKey.get(k) || { totalPaise: 0, todayPaise: 0 };
+    cur.totalPaise += p.total || 0;
+    cur.todayPaise += p.today || 0;
+    paymentsByKey.set(k, cur);
+    if ((p.today || 0) > 0) seenTodayLoanMember.add(k);
+  }
 
   // Only include pending AppEmiCollections awaiting approval (do not double-count approved collections)
   const appCollections = allLoanIds.length ? await AppEmiCollection.find({
@@ -3415,6 +3439,10 @@ export async function getEmiGroups(req, res) {
     status: 'pending',
     collectedOn: { $gte: startDay, $lte: endDay },
   }).select('loanPayment memberCode amountPaise receiptNo').lean() : [];
+  const pendingReceipts = appCollections.map((c) => c.receiptNo).filter(Boolean);
+  const allPastReceipts = new Set(pendingReceipts.length
+    ? (await EmiPayment.find({ loanPayment: { $in: allLoanIds }, status: 'paid', receiptNo: { $in: pendingReceipts } }).select('receiptNo').lean()).map((p) => p.receiptNo)
+    : []);
 
   const collectionsByLoanId = new Map();
   for (const c of collections) {
@@ -3428,16 +3456,6 @@ export async function getEmiGroups(req, res) {
     collectionsByLoanId.set(lid, (collectionsByLoanId.get(lid) || 0) + (ac.amountPaise || 0));
   }
 
-  const paymentsByKey = new Map();
-  for (const p of allPastPayments) {
-    const k = `${String(p.loanPayment)}_${String(p.memberCode || '').trim().toUpperCase()}`;
-    const cur = paymentsByKey.get(k) || { totalPaise: 0, todayPaise: 0 };
-    cur.totalPaise += (p.amountPaise || 0);
-    if (p.paidOn >= startDay && p.paidOn <= endDay) {
-      cur.todayPaise += (p.amountPaise || 0);
-    }
-    paymentsByKey.set(k, cur);
-  }
   for (const ac of appCollections) {
     if (ac.receiptNo && allPastReceipts.has(ac.receiptNo)) continue;
     const k = `${String(ac.loanPayment)}_${String(ac.memberCode || '').trim().toUpperCase()}`;
@@ -3510,7 +3528,7 @@ export async function getEmiGroups(req, res) {
         scheduledDayLabel = dayNames[dayIdx] ? dayNames[dayIdx].charAt(0).toUpperCase() + dayNames[dayIdx].slice(1) : 'Weekly';
       } else {
         // Fallback: check if any loan has an installment due on targetDate or matching weekday
-        isScheduled = groupLoans.some((l) => (l.schedule || []).some((s) => s.dueDate && new Date(s.dueDate).getDay() === jsDay));
+        isScheduled = groupLoans.some((l) => l._sch.dows.has(jsDay));
         scheduledDayLabel = targetDayName.charAt(0).toUpperCase() + targetDayName.slice(1);
       }
     } else if (meetingType === 'monthly') {
@@ -3525,7 +3543,7 @@ export async function getEmiGroups(req, res) {
         isScheduled = groupMonthDay === dayOfMonth;
         scheduledDayLabel = `${groupMonthDay}th of month`;
       } else {
-        isScheduled = groupLoans.some((l) => (l.schedule || []).some((s) => s.dueDate && new Date(s.dueDate).getDate() === dayOfMonth));
+        isScheduled = groupLoans.some((l) => l._sch.doms.has(dayOfMonth));
         scheduledDayLabel = 'Monthly';
       }
     }
@@ -3556,7 +3574,7 @@ export async function getEmiGroups(req, res) {
         if (isLineSettled) continue;
 
         const stats = (codeKey ? paymentsByKey.get(`${String(l._id)}_${codeKey}`) : null) || paymentsByKey.get(`${String(l._id)}_${line.code}`) || { totalPaise: 0, todayPaise: 0 };
-        const totalScheduledPaise = (l.schedule || []).reduce((s, x) => s + (x.installmentPaise || 0), 0) + (line.extraEmiPaise || 0) * (l.schedule?.length || 0);
+        const totalScheduledPaise = l._sch.total + (line.extraEmiPaise || 0) * l._sch.n;
         const totalLoanPaise = line.amountPaise || l.totalAmountPaise || 0;
         if (totalScheduledPaise > 0 && stats.totalPaise >= totalScheduledPaise) continue; // finished loan
         // (a loan is finished when everything scheduled is paid, see above; what was paid is not compared with the principal, because the installments also carry the interest)
@@ -3569,8 +3587,7 @@ export async function getEmiGroups(req, res) {
         membersCount++;
 
         // Strict endDay comparison so installments due on dateStr are included (Point 2 fix)
-        const dueSchedule = (l.schedule || []).filter((s) => s.dueDate && new Date(s.dueDate) <= endDay);
-        const expectedDuePaise = dueSchedule.length * emiPaise;
+        const expectedDuePaise = l._sch.dueCount * emiPaise;
         const duesPaise = Math.max(0, expectedDuePaise - stats.totalPaise);
         const oldDuePaise = Math.max(0, duesPaise - emiPaise);
         totalOldDuePaise += oldDuePaise;
