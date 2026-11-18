@@ -718,6 +718,9 @@ function RequisitionForm({ kind }) {
             {!b ? <span className="muted">Loading…</span> : (
               <>
                 {detail.issues.length > 0 && <div className="notice warn">{detail.issues.map((i) => <div key={i}>{i}</div>)}</div>}
+                {!detail.issues.length && detail.unverifiedDocs?.length > 0 && (
+                  <div className="notice warn">KYC pending (does not hold back the loan): {detail.unverifiedDocs.map((u) => `${u.label} (${u.status === 'rejected' ? 'Rejected' : 'Pending'})`).join(', ')}</div>
+                )}
                 <DetailList
                   items={[
                     ['Borrower code', b.code], ['Borrower name', b.name], ['Date of birth', b.dob], ['Age', `${b.age} years`],
@@ -740,6 +743,9 @@ function RequisitionForm({ kind }) {
             {!g ? <span className="muted">Loading…</span> : (
               <>
                 {detail.issues.length > 0 && <div className="notice warn">{detail.issues.map((i) => <div key={i}>{i}</div>)}</div>}
+                {!detail.issues.length && detail.unverifiedDocs?.length > 0 && (
+                  <div className="notice warn">KYC pending (does not hold back the loan): {detail.unverifiedDocs.map((u) => `${u.label} (${u.status === 'rejected' ? 'Rejected' : 'Pending'})`).join(', ')}</div>
+                )}
                 <DetailList
                   items={[
                     ['Group code', g.code], ['Group name', g.name], ['Group leader', g.leaderName],

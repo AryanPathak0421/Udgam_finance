@@ -396,6 +396,12 @@ export default function GroupLoanRequisition() {
                             : m.runningInGroup ? <span className="badge grey">Has loan {m.runningInGroup.formId} in this group — product loan only</span>
                               : m.issues?.length ? <div>{m.issues.map((i) => <div key={i} className="field-error small">{i}</div>)}</div>
                                 : <span className="badge green">Eligible</span>}
+                          {/* the KYC documents still to be approved: shown for every member (an old-system member is not held back by them) */}
+                          {!m.isBlocked && !m.issues?.length && m.unverifiedDocs?.length > 0 && (
+                            <div className="small" style={{ marginTop: 4, color: '#92400e' }}>
+                              KYC pending: {m.unverifiedDocs.map((u) => `${u.label} (${u.status === 'rejected' ? 'Rejected' : 'Pending'})`).join(', ')}
+                            </div>
+                          )}
                         </td>
                       </tr>
                     );
