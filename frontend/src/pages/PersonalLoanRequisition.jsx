@@ -724,7 +724,7 @@ function RequisitionForm({ kind }) {
                 <DetailList
                   items={[
                     ['Borrower code', b.code], ['Borrower name', b.name], ['Date of birth', b.dob], ['Age', `${b.age} years`],
-                    ['Gender', cap(b.gender)], ['Phone', b.mobile], ['Member PAN', b.pan || '—'], ['Member voter ID', b.voterId || '—'], ['Guarantor name', b.guarantorName], ['Guarantor phone', b.guarantor?.mobile || '—'], ['Guarantor PAN', b.guarantor?.pan || '—'], ['Guarantor voter ID', b.guarantor?.voterId || '—'],
+                    ['Gender', cap(b.gender)], ['Phone', b.mobile], ...(b.writtenOff ? [['Written off', `Yes — due ${inr(b.writtenOff.due)}`]] : []), ['Member PAN', b.pan || '—'], ['Member voter ID', b.voterId || '—'], ['Guarantor name', b.guarantorName], ['Guarantor phone', b.guarantor?.mobile || '—'], ['Guarantor PAN', b.guarantor?.pan || '—'], ['Guarantor voter ID', b.guarantor?.voterId || '—'],
                     ['Previous loan amount', inr(b.previousLoanAmount)],
                     ['Civil score', b.civilCheck ? `${b.civilCheck.score} (${b.civilCheck.bureau}, ${b.civilCheck.reportDate})` : 'No civil check yet — use Civil Check'],
                     ['Civil charge / fee', b.civilCheck ? inr(b.civilCheck.fee || 0) : '—'],

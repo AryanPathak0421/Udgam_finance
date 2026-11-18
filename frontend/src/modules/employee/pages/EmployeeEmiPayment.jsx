@@ -152,6 +152,7 @@ export default function EmployeeEmiPayment() {
           isAdvancePaid: Boolean(m.isAdvancePaid),
           alreadyPaidToday: Boolean(m.alreadyPaidToday),
           isPendingApproval: isPending,
+          isNpa: Boolean(m.isNpa),
         };
       });
       setCollectionMap(initialMap);
@@ -211,7 +212,7 @@ export default function EmployeeEmiPayment() {
   const toggleSelect = (key) => {
     setCollectionMap((prev) => {
       const current = prev[key] || {};
-      if (current.isAdvancePaid || current.isPendingApproval) return prev;
+      if (current.isAdvancePaid || current.isPendingApproval || current.isNpa) return prev;
       const nextSelected = !current.selected;
       return {
         ...prev,
@@ -821,7 +822,8 @@ export default function EmployeeEmiPayment() {
                 const isAdvance = m.isAdvancePaid;
                 const isPending = Boolean(m.isPendingApproval);
                 const isCollectedToday = Boolean(m.todayPaidAmount > 0 || (m.alreadyPaidToday && m.todayPaidAmount > 0));
-                const isPaidToday = isAdvance || isCollectedToday || isPending;
+                const isNpaMember = Boolean(m.isNpa);
+                const isPaidToday = isAdvance || isCollectedToday || isPending || isNpaMember;
 
                 return (
                   <div
@@ -849,6 +851,7 @@ export default function EmployeeEmiPayment() {
                           <div>
                             <div style={{ fontWeight: 700, fontSize: '0.92rem', color: isPending ? '#c2410c' : isCollectedToday ? '#15803d' : 'var(--emp-text)' }}>
                               {m.memberName}
+                              {m.isNpa && <span style={{ marginLeft: 6, fontSize: '0.66rem', padding: '1px 6px', background: '#fee2e2', color: '#991b1b', borderRadius: 4, fontWeight: 700 }}>NPA — not collected here</span>}
                             </div>
                             <div style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)', marginTop: 1 }}>
                               Code: <strong>{m.memberCode}</strong> • Loan A/c: <strong>{m.loanId}</strong>

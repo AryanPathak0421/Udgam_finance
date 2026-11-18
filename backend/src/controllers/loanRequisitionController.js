@@ -394,6 +394,7 @@ export async function borrowerDetail(req, res) {
 
   const issues = [];
   if (m.isBlocked) issues.push('This borrower is blocked');
+  if (m.writeOff?.totalPaise > 0) issues.push(`Written-off member: ₹${(m.writeOff.totalPaise - (m.writeOff.paidPaise || 0)) / 100} of a loan the company wrote off is still due (Borrower Synopsis → Pay due). The admin has to unblock the member before a new loan.`);
   issues.push(...notReady(m));
 
   // Active loans for this borrower (enforcing Point 10, 11, 13.5 single loan limits)
@@ -416,6 +417,7 @@ export async function borrowerDetail(req, res) {
       mobile: FULL_MOBILE_ROLES.includes(req.user.role) ? m.mobile : maskMobile(m.mobile),
       legacyImport: Boolean(m.legacyImport),
       preRequisitionStatus: preRequisitionStatus(m),
+      writtenOff: m.writeOff?.totalPaise > 0 ? { due: (m.writeOff.totalPaise - (m.writeOff.paidPaise || 0)) / 100 } : null,
       pan: m.pan || '',
       voterId: m.voterId || '',
       guarantorName: m.guarantor?.name || '',
@@ -469,7 +471,7 @@ export async function groups(req, res) {
 }
 
 // What a member needs before a loan can be asked for.
-const MEMBER_PICK = 'code name isBlocked joiningApproval kycKeys kycDocs nominee.name nominee.sameAsGuarantor guarantor.name guarantor.relation guarantor.mobile guarantor.aadhaar guarantor.photo guarantor.signature guarantor.aadhaarPhoto guarantor.aadhaarBackPhoto guarantor.jointPhoto guarantor.deceasedOn guarantor.pan guarantor.voterId voterId legacyImport pan mobile mobileVerifiedAt husbandName occupation education address pincode district aadhaar bankName ifsc accountNumber';
+const MEMBER_PICK = 'code name isBlocked joiningApproval kycKeys kycDocs nominee.name nominee.sameAsGuarantor guarantor.name guarantor.relation guarantor.mobile guarantor.aadhaar guarantor.photo guarantor.signature guarantor.aadhaarPhoto guarantor.aadhaarBackPhoto guarantor.jointPhoto guarantor.deceasedOn guarantor.pan guarantor.voterId voterId writeOff legacyImport pan mobile mobileVerifiedAt husbandName occupation education address pincode district aadhaar bankName ifsc accountNumber';
 export function notReady(m) {
   const out = [];
   // a member registered in the app is not a member until the admin approves the joining
@@ -563,6 +565,7 @@ export async function groupDetail(req, res) {
         isBlocked: Boolean(m.isBlocked),
         legacyImport: Boolean(m.legacyImport),
         preRequisitionStatus: preRequisitionStatus(m),
+        writtenOff: m.writeOff?.totalPaise > 0 ? { due: (m.writeOff.totalPaise - (m.writeOff.paidPaise || 0)) / 100 } : null,
         pan: m.pan || '',
         voterId: m.voterId || '',
         // why this member cannot be given a loan yet (documents, guarantor, nominee)

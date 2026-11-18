@@ -17,6 +17,9 @@ import { blockedCodes } from '../services/blockedStaff.js';
 import { Group } from '../models/Group.js';
 import { readBankAccount } from '../services/bankAccountPick.js';
 import { toMinor } from '../utils/money.js';
+import { generateCode } from '../services/codeSequence.js';
+import { CashEntry } from '../models/CashEntry.js';
+import { defaultWorkDate } from '../services/dayOpen.js';
 
 /**
  * The Report section: loan account ledger, requisition, approval, disbursement, due, over due, outstanding, EMI collection, member joining and NPA.
@@ -463,7 +466,7 @@ Object.assign(REPORTS, {
   async writeOff(req) {
     const q = asString(req.query.q).toLowerCase();
     const kind = ['loan', 'auto_npa'].includes(asString(req.query.status)) ? asString(req.query.status) : '';
-    const sets = kind === 'auto_npa' ? [] : await LoanSettlement.find({ status: 'active', waiverPaise: { $gt: 0 }, kind: 'loan', ...branchScope(req), ...dateRange(req, 'settledOn') }).sort({ settledOn: -1 }).limit(20000).populate('branch', 'code').lean();
+    const sets = kind === 'auto_npa' ? [] : await LoanSettlement.find({ status: 'active', waiverPaise: { $gt: 0 }, kind: { $in: ['loan', 'writeoff'] }, ...branchScope(req), ...dateRange(req, 'settledOn') }).sort({ settledOn: -1 }).limit(20000).populate('branch', 'code').lean();
     const mobiles = await mobileMap(req, sets.map((x) => x.memberCode));
     const rows = sets.filter((x) => matches(q, x.receiptNo, x.loanId, x.formId, x.memberCode, x.memberName, x.group)).map((x) => ({
       mobile: mobiles.get(x.memberCode) || '', key: String(x._id), receiptNo: x.receiptNo, date: iso(x.settledOn), kind: x.kind, loanId: x.loanId || x.formId, memberCode: x.memberCode, memberName: x.memberName, group: x.group || '', branch: x.branch?.code || '',
@@ -861,6 +864,68 @@ export async function npaPayment(req, res) {
   const doc = await receive(req, p, line, { amountPaise, paidOn: today, payMode, reference: asString(b.reference), bankAccount, npa: true, employeeCode: staffCode });
   await audit(req, { action: 'report.npaPayment', entity: 'EmiPayment', entityId: doc._id, after: { loan: p.loanId, member: line.code, amount: amountPaise / 100, staff: staffCode || req.user.employeeCode } });
   res.status(201).json({ receiptNo: doc.receiptNo, outstanding: Math.max(st.totals.outstanding - amountPaise, 0) / 100 });
+}
+
+/**
+ * Write off an NPA loan (admin only): the company gives up the balance. The borrower's loan is closed (no EMI, no due, not in the NPA list or the
+ * collection any more), the member is blocked, and the balance stays on his record: shown in the requisition and in the Borrower Synopsis, where it can
+ * still be paid. After the admin unblocks him he can ask for a new loan.
+ */
+export async function npaWriteOff(req, res) {
+  const b = req.body || {};
+  if (!isAdmin(req.user)) throw new HttpError(403, 'Only the admin can write off a loan');
+  const p = await loadLoan(req, asString(b.loan));
+  const line = p.lines.find((l) => l.code === asString(b.member));
+  if (!line) throw new HttpError(422, 'Select the borrower', { member: 'Select the borrower' });
+  const today = startOfToday();
+  const st = await borrowerState(p, line, today);
+  if (st.settled) throw new HttpError(409, 'This loan is already settled or written off');
+  if (!(p.emiEndDate < today && st.totals.outstanding > 0)) throw new HttpError(409, 'Only an NPA loan (repayment period over, balance still due) can be written off');
+  const remark = asString(b.remark).slice(0, 200);
+  if (remark.length < 3) throw new HttpError(422, 'Enter the reason for the write-off', { remark: 'Enter the reason (3–200 characters)' });
+  const outstanding = st.totals.outstanding;
+  const set = await LoanSettlement.create({
+    kind: 'writeoff', receiptNo: await generateCode('settlementReceipt'), loanPayment: p._id, loanId: p.loanId, formId: p.formId, branch: p.branch._id || p.branch,
+    member: line.member, memberCode: line.code, memberName: line.name, group: p.group?.code ? `${p.group.code} — ${p.group.name}` : '',
+    outstandingPaise: outstanding, amountPaise: 0, waiverPaise: outstanding, settledOn: today, remark, createdBy: req.user._id,
+  });
+  // (updated in place, not saved as a whole: a member brought over from the old system may lack details a save would check)
+  const memberId = line.member?._id || line.member;
+  const m = await Member.findById(memberId).select('isBlocked').lean();
+  if (m) {
+    await Member.updateOne({ _id: memberId }, {
+      $inc: { 'writeOff.totalPaise': outstanding },
+      $set: { 'writeOff.at': today, 'writeOff.byCode': req.user.employeeCode || '', isBlocked: true },
+      $push: {
+        'writeOff.loans': { loanPayment: p._id, loanId: p.loanId, paise: outstanding, at: today, remark },
+        ...(m.isBlocked ? {} : { blockHistory: { action: 'block', reason: `Loan ${p.loanId} written off by the company: ${remark}`.slice(0, 200), at: new Date(), by: req.user._id, byCode: req.user.employeeCode || '' } }),
+      },
+    });
+  }
+  await audit(req, { action: 'report.npaWriteOff', entity: 'LoanSettlement', entityId: set._id, after: { loan: p.loanId, member: line.code, amount: outstanding / 100, remark } });
+  res.status(201).json({ receiptNo: set.receiptNo, writtenOff: outstanding / 100 });
+}
+
+/** A payment of the written-off balance of a member (Borrower Synopsis → Pay due): it goes to the cashbook as an NPA receipt. */
+export async function writeOffPayment(req, res) {
+  const b = req.body || {};
+  if (!mongoose.isValidObjectId(asString(b.member))) throw new HttpError(404, 'Member not found');
+  const m = await Member.findOne({ _id: b.member, isDeleted: false, ...branchFilter(req.user) });
+  if (!m) throw new HttpError(404, 'Member not found');
+  const left = (m.writeOff?.totalPaise || 0) - (m.writeOff?.paidPaise || 0);
+  if (left <= 0) throw new HttpError(409, 'This member has no written-off balance to pay');
+  const amountPaise = toMinor(typeof b.amount === 'number' ? String(b.amount) : asString(b.amount));
+  if (amountPaise === null || amountPaise < 100) throw new HttpError(422, 'Enter the amount (₹1 or more, up to 2 decimals)', { amount: 'Enter the amount (₹1 or more, up to 2 decimals)' });
+  if (amountPaise > left) throw new HttpError(422, 'The amount is more than the written-off balance', { amount: `The balance is only ₹${left / 100}` });
+  const payMode = asString(b.payMode) || 'cash';
+  if (!['cash', 'bank', 'upi', 'cheque'].includes(payMode)) throw new HttpError(422, 'Select how the payment is made', { payMode: 'Select how the payment is made' });
+  const bankAccount = await readBankAccount(b, payMode);
+  const receiptNo = await generateCode('settlementReceipt');
+  const date = await defaultWorkDate(m.branch, req.user);
+  await CashEntry.create({ branch: m.branch, date, side: 'receive', category: 'npa_receive', amountPaise, mode: payMode, bankAccount, remark: `Written-off balance of ${m.code} ${m.name} (${receiptNo})`.slice(0, 200), enteredByCode: req.user.employeeCode || '', createdBy: req.user._id });
+  await Member.updateOne({ _id: m._id }, { $inc: { 'writeOff.paidPaise': amountPaise }, $push: { 'writeOff.payments': { receiptNo, amountPaise, paidOn: date, payMode, byCode: req.user.employeeCode || '' } } });
+  await audit(req, { action: 'member.writeOffPayment', entity: 'Member', entityId: m._id, after: { code: m.code, amount: amountPaise / 100, receiptNo } });
+  res.status(201).json({ receiptNo, due: (left - amountPaise) / 100 });
 }
 
 /** Staff options for report filters: all active employees and users with staff code. */

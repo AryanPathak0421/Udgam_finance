@@ -2516,6 +2516,7 @@ export async function getMemberSynopsis(req, res) {
     isKycRejected,
     kycStatus,
     isBlocked: Boolean(m.isBlocked),
+    writeOff: m.writeOff?.totalPaise > 0 ? { total: m.writeOff.totalPaise / 100, paid: (m.writeOff.paidPaise || 0) / 100, due: (m.writeOff.totalPaise - (m.writeOff.paidPaise || 0)) / 100, at: m.writeOff.at, loans: (m.writeOff.loans || []).map((l) => ({ loanId: l.loanId, amount: (l.paise || 0) / 100, date: l.at, remark: l.remark || '' })), payments: (m.writeOff.payments || []).map((x) => ({ receiptNo: x.receiptNo, amount: (x.amountPaise || 0) / 100, date: x.paidOn, byCode: x.byCode || '' })) } : null,
     blockReason: m.blockReason || '',
     guarantor: m.guarantor || null,
     guarantorHistory: m.guarantorHistory || [],
@@ -3367,7 +3368,7 @@ export async function getEmiGroups(req, res) {
   let allLoans = (await LoanPayment.aggregate([
     { $match: castMatch },
     { $project: {
-      loanId: 1, formId: 1, mode: 1, modeLabel: 1, group: 1, lines: 1, isSettled: 1, status: 1, totalAmountPaise: 1, createdAt: 1, branch: 1,
+      loanId: 1, formId: 1, mode: 1, modeLabel: 1, group: 1, lines: 1, isSettled: 1, status: 1, totalAmountPaise: 1, createdAt: 1, branch: 1, emiEndDate: 1,
       first: { $arrayElemAt: [sched, 0] },
       n: { $size: sched },
       total: { $sum: '$schedule.installmentPaise' },
@@ -3577,6 +3578,8 @@ export async function getEmiGroups(req, res) {
         const totalScheduledPaise = l._sch.total + (line.extraEmiPaise || 0) * l._sch.n;
         const totalLoanPaise = line.amountPaise || l.totalAmountPaise || 0;
         if (totalScheduledPaise > 0 && stats.totalPaise >= totalScheduledPaise) continue; // finished loan
+        // NPA: the repayment period is over and a balance is left: not part of the actual collection (his recovery is an NPA payment)
+        if (l.emiEndDate && new Date(l.emiEndDate) < new Date(`${dateStr}T00:00:00.000Z`) && totalScheduledPaise > stats.totalPaise) continue;
         // (a loan is finished when everything scheduled is paid, see above; what was paid is not compared with the principal, because the installments also carry the interest)
 
         if (codeKey) seenMemberCodes.add(codeKey);
@@ -3791,8 +3794,10 @@ export async function getGroupEmiMembers(req, res) {
       const isFullyPaidToday = todayPaidPaise >= emiPaise && duesPaise === 0;
       const memberPendingDue = duesPaise > 0 ? (duesPaise / 100) : (alreadyPaidToday ? 0 : emiPaise / 100);
       const pendingPaise = pendingByKey.get(`${String(l._id)}_${String(line.code || '').trim().toUpperCase()}`) || 0;
+      const isNpa = Boolean(l.emiEndDate && new Date(l.emiEndDate) < new Date(`${dateStr}T00:00:00.000Z`) && totalScheduledPaise > totalPaidPaise);
 
       members.push({
+        isNpa,
         loanPaymentId: l._id,
         loanId: l.loanId || l.receiptNo,
         memberId: line.member?._id || line.member,
@@ -3817,11 +3822,12 @@ export async function getGroupEmiMembers(req, res) {
     }
   }
 
-  const totalActualCollection = members.reduce((s, m) => s + (m.emiAmount || 0), 0);
+  const live = members.filter((m) => !m.isNpa); // an NPA member is not part of the actual collection or the due of the day
+  const totalActualCollection = live.reduce((s, m) => s + (m.emiAmount || 0), 0);
   const totalCollectedToday = members.reduce((s, m) => s + (m.todayPaidAmount || 0), 0);
   // Remaining due includes all pending dues (Point 2 fix)
-  const totalPendingDue = members.reduce((s, m) => s + (m.dueAmount || 0), 0);
-  const totalDueAmount = members.reduce((s, m) => s + (m.totalDue || m.emiAmount || 0), 0);
+  const totalPendingDue = live.reduce((s, m) => s + (m.dueAmount || 0), 0);
+  const totalDueAmount = live.reduce((s, m) => s + (m.totalDue || m.emiAmount || 0), 0);
 
   res.json({
     groupCode,

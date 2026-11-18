@@ -271,6 +271,26 @@ function ViewDialog({ row, onClose }) {
   );
 }
 
+/** The company gives up the balance of an NPA loan (admin only): the loan closes, the member is blocked, the balance stays on his record. */
+function WriteOffDialog({ row, onClose, onDone }) {
+  const toast = useToast();
+  const [remark, setRemark] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  async function go() {
+    setBusy(true); setError('');
+    try { const r = await api.reports.npaWriteOff({ loan: row.loanPaymentId, member: row.memberCode, remark }); toast.success(`Written off ${inr(r.writtenOff)} — receipt ${r.receiptNo}`); onDone(); } catch (err) { setError(err.errors?.remark || err.message); setBusy(false); }
+  }
+  return (
+    <Modal open title="Write off this loan" onClose={onClose} busy={busy}
+      footer={<><button className="btn" onClick={onClose} disabled={busy}>Cancel</button><button className="btn danger" onClick={go} disabled={busy}>{busy ? 'Writing off…' : 'Write off'}</button></>}>
+      <p className="muted">{row.memberCode} {row.memberName} · loan {row.loanId} · balance {inr(row.outstanding)}</p>
+      <div className="notice warn" style={{ marginBottom: 10 }}>The balance is given up by the company: it stops showing in the collection, the cashbook due and the NPA list, and the member is blocked. The balance stays on his record (shown in the requisition and the Borrower Synopsis, where it can still be paid). A new loan needs the admin to unblock him.</div>
+      <FormField id="wooreason" label="Reason" required error={error}><input id="wooreason" value={remark} maxLength={200} onChange={(e) => setRemark(e.target.value)} /></FormField>
+    </Modal>
+  );
+}
+
 /** The last NPA payment of a borrower is taken back (admin only). */
 function RevertDialog({ row, onClose, onDone }) {
   const toast = useToast();
@@ -380,6 +400,7 @@ export function ReportPage({ name }) {
   const [paying, setPaying] = useState(null);
   const [viewing, setViewing] = useState(null);
   const [reverting, setReverting] = useState(null);
+  const [writingOff, setWritingOff] = useState(null);
   const [mode, setMode] = useState('');
   const [loanType, setLoanType] = useState('');
   const [weekday, setWeekday] = useState('');
@@ -567,13 +588,14 @@ export function ReportPage({ name }) {
                         {callOn && <td data-label="Number">{r.mobile || '—'}</td>}
                         {callOn && <td data-label="Call" className="no-print"><CallButton report={name} row={r} date={callDate} onDone={done} /></td>}
                         {!cfg.noCall && <td data-label="View" className="no-print"><button className="btn sm" onClick={() => setViewing(r)}>View</button></td>}
-                        {cfg.npaPay && <td data-label="NPA payment" className="no-print"><div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}><button className="btn sm primary" onClick={() => setPaying(r)}>NPA payment</button>{admin && r.lastNpa && <button className="btn sm danger-outline" title={`Last: ${r.lastNpa.receiptNo} · ${inr(r.lastNpa.amount)} on ${dmy(r.lastNpa.date)}`} onClick={() => setReverting(r)}>Revert</button>}</div>{r.lastNpa && <div className="muted small">Last {inr(r.lastNpa.amount)} · {dmy(r.lastNpa.date)}{r.lastNpa.staff ? ` · ${r.lastNpa.staff}` : ''}</div>}</td>}
+                        {cfg.npaPay && <td data-label="NPA payment" className="no-print"><div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}><button className="btn sm primary" onClick={() => setPaying(r)}>NPA payment</button>{admin && <button className="btn sm danger-outline" onClick={() => setWritingOff(r)}>Write off</button>}{admin && r.lastNpa && <button className="btn sm danger-outline" title={`Last: ${r.lastNpa.receiptNo} · ${inr(r.lastNpa.amount)} on ${dmy(r.lastNpa.date)}`} onClick={() => setReverting(r)}>Revert</button>}</div>{r.lastNpa && <div className="muted small">Last {inr(r.lastNpa.amount)} · {dmy(r.lastNpa.date)}{r.lastNpa.staff ? ` · ${r.lastNpa.staff}` : ''}</div>}</td>}
                       </tr>
                     ))
                   )}
                 </tbody>
               </table>
             </div>
+            {writingOff && <WriteOffDialog row={writingOff} onClose={() => setWritingOff(null)} onDone={() => { setWritingOff(null); load(); }} />}
             {reverting && <RevertDialog row={reverting} onClose={() => setReverting(null)} onDone={() => { setReverting(null); load(); }} />}
             {viewing && <ViewDialog row={viewing} onClose={() => setViewing(null)} />}
             {paying && <NpaPaymentDialog row={paying} onClose={() => setPaying(null)} onSaved={() => { setPaying(null); load(); }} />}

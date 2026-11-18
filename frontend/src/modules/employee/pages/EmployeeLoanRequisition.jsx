@@ -1842,6 +1842,7 @@ export default function EmployeeLoanRequisition({ initialKind }) {
                               />
                               <div>
                                 <span style={{ fontWeight: 700, fontSize: '0.82rem', color: 'var(--emp-text)' }}>{m.code} — {m.name}</span>
+                                {m.writtenOff && <span style={{ fontSize: '0.68rem', padding: '1px 6px', background: '#fee2e2', color: '#991b1b', borderRadius: 4, fontWeight: 700, marginLeft: 6 }}>Written off · due ₹{m.writtenOff.due}</span>}
                                 {m.mobile && <span style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)', marginLeft: 6 }}>({m.mobile})</span>}
                               </div>
                             </label>

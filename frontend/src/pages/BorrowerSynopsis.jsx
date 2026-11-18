@@ -16,6 +16,25 @@ const fmtTime = (d) => (d ? new Date(d).toLocaleString('en-IN') : '—');
 const TONE = { pending: 'grey', approved: 'green', rejected: 'danger' };
 const LABEL = { pending: 'Pending', approved: 'Approved', rejected: 'Rejected' };
 
+/** The written-off balance of a member is paid (the money goes to the cashbook as an NPA receipt). */
+function WriteOffPay({ member, onClose, onDone }) {
+  const toast = useToast();
+  const [amount, setAmount] = useState(String(member.writeOff.due));
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  async function go() {
+    setBusy(true); setError('');
+    try { const r = await api.reports.writeOffPayment({ member: member.id, amount, payMode: 'cash' }); toast.success(`Received — receipt ${r.receiptNo}`); onDone(); } catch (err) { setError(err.errors?.amount || err.message); setBusy(false); }
+  }
+  return (
+    <Modal open title="Pay the written-off due" onClose={onClose} busy={busy}
+      footer={<><button className="btn" onClick={onClose} disabled={busy}>Cancel</button><button className="btn primary" onClick={go} disabled={busy}>{busy ? 'Saving…' : 'Receive'}</button></>}>
+      <p className="muted">{member.code} {member.name} · written-off balance ₹{member.writeOff.due}</p>
+      <FormField id="wopay" label="Amount received (₹, cash)" required error={error}><input id="wopay" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} /></FormField>
+    </Modal>
+  );
+}
+
 function Section({ title, children }) {
   return (
     <div className="panel" style={{ padding: 16, marginBottom: 14 }}>
@@ -250,6 +269,7 @@ export default function BorrowerSynopsis() {
   const { user } = useAuth();
   const isAdmin = ['super_admin', 'admin'].includes(user?.role);
   const [editing, setEditing] = useState(null); // { branches, options } while the admin edits
+  const [payingWo, setPayingWo] = useState(false);
   const [completing, setCompleting] = useState(null); // form options while the branch completes an imported member's details
   const [updatingPhone, setUpdatingPhone] = useState(false);
   const [search, setSearch] = useState('');
@@ -408,10 +428,18 @@ export default function BorrowerSynopsis() {
       )}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
         <span className={`badge ${m.isBlocked ? 'danger' : 'green'}`}>{m.isBlocked ? 'Blocked' : 'Active'}</span>
+        {m.writeOff && <span className="badge danger">Written-off member</span>}
         <span className={`badge ${TONE[kyc.status]}`}>KYC {LABEL[kyc.status]}</span>
         <span className="badge grey">{m.guarantor ? 'Guarantor added' : 'No guarantor'}</span>
         <span className="badge grey">{m.nominee ? 'Nominee added' : 'No nominee'}</span>
       </div>
+      {m.writeOff && (
+        <div className="notice warn" style={{ marginBottom: 10 }}>
+          <strong>Written-off member</strong> — the company wrote off {m.writeOff.total > 0 ? `₹${m.writeOff.total}` : 'a loan'}{m.writeOff.loans?.length ? ` (loan ${m.writeOff.loans.map((l) => l.loanId).join(', ')})` : ''}. Paid so far ₹{m.writeOff.paid}; <strong>due ₹{m.writeOff.due}</strong>.
+          {m.writeOff.due > 0 && <button className="btn sm primary" style={{ marginLeft: 10 }} onClick={() => setPayingWo(true)}>Pay due</button>}
+        </div>
+      )}
+      {payingWo && <WriteOffPay member={m} onClose={() => setPayingWo(false)} onDone={async () => { setPayingWo(false); setData(await api.members.synopsis(m.id)); }} />}
       {m.isBlocked && <div className="notice warn">Blocked — {m.blockReason}</div>}
 
       <Section title="Personal details">

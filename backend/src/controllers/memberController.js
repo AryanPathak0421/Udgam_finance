@@ -99,6 +99,7 @@ const present = (m, user, { detail = false } = {}) => {
     legacyImport: Boolean(m.legacyImport),
     isActive: m.isActive,
     isBlocked: Boolean(m.isBlocked),
+    writeOff: m.writeOff?.totalPaise > 0 ? { total: m.writeOff.totalPaise / 100, paid: (m.writeOff.paidPaise || 0) / 100, due: (m.writeOff.totalPaise - (m.writeOff.paidPaise || 0)) / 100, at: m.writeOff.at, loans: (m.writeOff.loans || []).map((l) => ({ loanId: l.loanId, amount: (l.paise || 0) / 100, date: l.at, remark: l.remark || '' })), payments: (m.writeOff.payments || []).map((x) => ({ receiptNo: x.receiptNo, amount: (x.amountPaise || 0) / 100, date: x.paidOn, byCode: x.byCode || '' })) } : null,
     blockReason: m.isBlocked ? (m.blockHistory || []).filter((b) => b.action === 'block').slice(-1)[0]?.reason || '' : '',
     createdAt: m.createdAt,
   };

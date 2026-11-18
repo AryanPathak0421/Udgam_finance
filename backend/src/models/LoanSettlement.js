@@ -1,7 +1,8 @@
 import mongoose from 'mongoose';
 
 // loan: closed early by paying what is left; death: closed because the borrower died; auto: every installment was paid, so the loan closes by itself
-export const SETTLEMENT_KINDS = ['loan', 'death', 'auto'];
+// writeoff: the company gives up the balance of an NPA loan (admin); the member is blocked and the balance stays on his record
+export const SETTLEMENT_KINDS = ['loan', 'death', 'auto', 'writeoff'];
 
 // The settlement of one borrower's loan: either closed early by paying what is left ("loan"), or closed because the
 // borrower died ("death"). After it, no more EMI is due on that borrower's loan.

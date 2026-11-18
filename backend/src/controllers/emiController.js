@@ -262,7 +262,7 @@ export async function receive(req, p, line, { amountPaise, count, type, paidOn, 
   }
 
   const st = await borrowerState(p, line, paidOn);
-  if (st.settled) throw new HttpError(409, `This loan has been settled (${st.settled.kind === 'death' ? 'death settlement' : st.settled.kind === 'auto' ? 'automatic settlement, all installments paid' : 'loan settlement'} ${st.settled.receiptNo}). No EMI is due.`);
+  if (st.settled) throw new HttpError(409, `This loan has been settled (${st.settled.kind === 'writeoff' ? 'written off by the company' : st.settled.kind === 'death' ? 'death settlement' : st.settled.kind === 'auto' ? 'automatic settlement, all installments paid' : 'loan settlement'} ${st.settled.receiptNo}). No EMI is due.`);
   if (!st.left.length) throw new HttpError(409, 'All installments of this loan are already paid');
   let pay = amountPaise;
   let kind = type;

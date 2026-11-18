@@ -405,6 +405,11 @@ export default function EmployeeMemberSynopsis() {
             </div>
           )}
 
+          {m.writeOff && (
+            <div style={{ background: '#fef3c7', color: '#92400e', padding: '10px 14px', borderRadius: 8, fontSize: '0.82rem', marginBottom: 12 }}>
+              <strong>Written-off member:</strong> the company wrote off ₹{m.writeOff.total}. Paid ₹{m.writeOff.paid} · <strong>Due ₹{m.writeOff.due}</strong>. The due is paid at the branch / by the admin.
+            </div>
+          )}
           {m.isBlocked && (
             <div style={{ background: '#fee2e2', color: '#991b1b', padding: '10px 14px', borderRadius: 8, fontSize: '0.82rem', marginBottom: 12 }}>
               <strong>Member Blocked:</strong> {m.blockReason || 'Blocked by administration'}

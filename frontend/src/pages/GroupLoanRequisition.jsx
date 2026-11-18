@@ -392,6 +392,7 @@ export default function GroupLoanRequisition() {
                         <td data-label="Code"><strong>{m.code}</strong></td>
                         <td data-label="Name">{m.name}</td>
                         <td data-label="Status">
+                          {m.writtenOff && <div className="badge danger" style={{ marginBottom: 4 }}>Written off · due {inr(m.writtenOff.due)}</div>}
                           {m.isBlocked ? <span className="badge danger">Blocked</span>
                             : m.runningInGroup ? <span className="badge grey">Has loan {m.runningInGroup.formId} in this group — product loan only</span>
                               : m.issues?.length ? <div><div className="badge grey" style={{ marginBottom: 4 }}>{m.preRequisitionStatus}</div>{m.issues.map((i) => <div key={i} className="field-error small">{i}</div>)}</div>

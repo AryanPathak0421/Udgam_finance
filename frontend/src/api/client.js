@@ -308,6 +308,8 @@ export const api = {
     staffOptions: (branch) => request(`/reports/staff-options${qs({ branch })}`),
     callDone: (data) => request('/reports/call-done', { method: 'POST', body: data }),
     npaPayment: (data) => request('/reports/npa-payment', { method: 'POST', body: data }),
+    npaWriteOff: (data) => request('/reports/npa-write-off', { method: 'POST', body: data }),
+    writeOffPayment: (data) => request('/reports/write-off-payment', { method: 'POST', body: data }),
   },
   centerSurveys: {
     list: (params) => request(`/center-surveys${qs(params)}`),

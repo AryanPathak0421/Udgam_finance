@@ -168,6 +168,15 @@ const memberSchema = new mongoose.Schema(
     // A member registered in the mobile app waits for approval (App Section → Member Joining Approval) before a loan can be made. Others have no such record.
     joiningApproval: { source: String, status: { type: String, enum: ['pending', 'approved', 'rejected'] }, byCode: String, at: Date, reason: String },
     blockHistory: { type: [blockSchema], default: [] },
+    // The balance of NPA loans the company has written off (admin). The member stays blocked until the admin unblocks him; the balance can still be paid.
+    writeOff: {
+      totalPaise: { type: Number, default: 0 },
+      paidPaise: { type: Number, default: 0 },
+      at: Date,
+      byCode: String,
+      loans: { type: [{ _id: false, loanPayment: mongoose.Schema.Types.ObjectId, loanId: String, paise: Number, at: Date, remark: String }], default: [] },
+      payments: { type: [{ _id: false, receiptNo: String, amountPaise: Number, paidOn: Date, payMode: String, byCode: String }], default: [] },
+    },
     isActive: { type: Boolean, default: true },
     isDeleted: { type: Boolean, default: false },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
