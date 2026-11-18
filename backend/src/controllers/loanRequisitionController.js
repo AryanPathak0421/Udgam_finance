@@ -323,7 +323,9 @@ export function getUnverifiedKycDocs(m, kind = '') {
     if (status === 'rejected') {
       missingOrUnverified.push({ key: k, label, status: 'rejected' });
     } else if (status !== 'approved') {
-      missingOrUnverified.push({ key: k, label, status: status || 'pending' });
+      // 'missing' = not uploaded yet (Documents Pending); 'pending' = uploaded, waiting for the KYC review (KYC Under Review)
+      const uploaded = (m.kycKeys || []).includes(k) || Boolean(status);
+      missingOrUnverified.push({ key: k, label, status: uploaded ? 'pending' : 'missing' });
     }
   }
   return missingOrUnverified;
@@ -413,6 +415,9 @@ export async function borrowerDetail(req, res) {
       state: m.state,
       mobile: FULL_MOBILE_ROLES.includes(req.user.role) ? m.mobile : maskMobile(m.mobile),
       legacyImport: Boolean(m.legacyImport),
+      preRequisitionStatus: preRequisitionStatus(m),
+      pan: m.pan || '',
+      voterId: m.voterId || '',
       guarantorName: m.guarantor?.name || '',
       guarantor: m.guarantor ? {
         name: m.guarantor.name || '',
@@ -420,6 +425,7 @@ export async function borrowerDetail(req, res) {
         mobile: m.guarantor.mobile || '',
         aadhaar: m.guarantor.aadhaar || '',
         pan: m.guarantor.pan || '',
+        voterId: m.guarantor.voterId || '',
         photo: m.guarantor.photo || '',
         signature: m.guarantor.signature || '',
         aadhaarPhoto: m.guarantor.aadhaarPhoto || '',
@@ -463,7 +469,7 @@ export async function groups(req, res) {
 }
 
 // What a member needs before a loan can be asked for.
-const MEMBER_PICK = 'code name isBlocked joiningApproval kycKeys kycDocs nominee.name nominee.sameAsGuarantor guarantor.name guarantor.relation guarantor.mobile guarantor.aadhaar guarantor.photo guarantor.signature guarantor.aadhaarPhoto guarantor.aadhaarBackPhoto guarantor.jointPhoto guarantor.deceasedOn legacyImport pan mobile mobileVerifiedAt husbandName occupation education address pincode district aadhaar bankName ifsc accountNumber';
+const MEMBER_PICK = 'code name isBlocked joiningApproval kycKeys kycDocs nominee.name nominee.sameAsGuarantor guarantor.name guarantor.relation guarantor.mobile guarantor.aadhaar guarantor.photo guarantor.signature guarantor.aadhaarPhoto guarantor.aadhaarBackPhoto guarantor.jointPhoto guarantor.deceasedOn guarantor.pan guarantor.voterId voterId legacyImport pan mobile mobileVerifiedAt husbandName occupation education address pincode district aadhaar bankName ifsc accountNumber';
 export function notReady(m) {
   const out = [];
   // a member registered in the app is not a member until the admin approves the joining
@@ -482,11 +488,24 @@ export function notReady(m) {
   // (the documents of a legacyImport member are still listed on the forms, but they do not hold back a loan)
   const unverified = m.legacyImport ? [] : getUnverifiedKycDocs(m);
   if (unverified.length > 0) {
-    const names = unverified.map((u) => `${u.label} (${u.status === 'rejected' ? 'Rejected' : 'Pending'})`);
+    const names = unverified.map((u) => `${u.label} (${u.status === 'rejected' ? 'Rejected, upload again' : u.status === 'missing' ? 'Not uploaded' : 'Under review'})`);
     out.push(`KYC Documents Unverified: ${names.join(', ')}. Must be approved under KYC Review.`);
   }
 
   return out;
+}
+
+/** The pre-requisition verification status of a member: all six checks (details, contact, KYC and bank, guarantor, nominee, documents). */
+export function preRequisitionStatus(m) {
+  const todo = m.legacyImport ? [] : missingDetails(m);
+  const noGuarantor = !m.guarantor?.name && !m.legacyImport;
+  const noNominee = !m.nominee?.name && !m.legacyImport;
+  if (todo.length || noGuarantor || noNominee) return 'Details Incomplete';
+  const docs = getUnverifiedKycDocs(m); // (an old-system member is not held back by them, but the status tells it)
+  if (docs.some((d) => d.status === 'rejected')) return 'KYC Rejected / Re-upload Required';
+  if (docs.some((d) => d.status === 'missing')) return 'Documents Pending';
+  if (docs.length) return 'KYC Under Review';
+  return 'Pre-Requisition Verified';
 }
 
 async function loadGroup(req, id) {
@@ -543,6 +562,9 @@ export async function groupDetail(req, res) {
         name: m.name,
         isBlocked: Boolean(m.isBlocked),
         legacyImport: Boolean(m.legacyImport),
+        preRequisitionStatus: preRequisitionStatus(m),
+        pan: m.pan || '',
+        voterId: m.voterId || '',
         // why this member cannot be given a loan yet (documents, guarantor, nominee)
         issues: notReady(m),
         unverifiedDocs: getUnverifiedKycDocs(m, 'group'),
@@ -554,6 +576,7 @@ export async function groupDetail(req, res) {
           mobile: m.guarantor.mobile || '',
           aadhaar: m.guarantor.aadhaar || '',
           pan: m.guarantor.pan || '',
+          voterId: m.guarantor.voterId || '',
           photo: m.guarantor.photo || '',
           signature: m.guarantor.signature || '',
           aadhaarPhoto: m.guarantor.aadhaarPhoto || '',

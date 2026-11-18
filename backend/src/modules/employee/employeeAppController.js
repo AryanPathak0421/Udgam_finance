@@ -4629,9 +4629,13 @@ export async function getCompanyQr(req, res) {
 // -----------------------------------------------------------------------------
 export async function getBorrowerSavings(req, res) {
   const query = cleanStr(req.params.query);
+  // the security of a member of ANOTHER branch is not shown: an employee sees the members of his own branches (the admin sees all)
+  const { branchIds: ownBranches } = await getEmployeeContext(req);
+  const branchScope = ['super_admin', 'admin'].includes(req.user?.role) ? {} : { branch: { $in: ownBranches.map((b) => new mongoose.Types.ObjectId(String(b))) } };
   const member = await Member.findOne({
     $or: [{ code: new RegExp(`^${query}$`, 'i') }, { mobile: query }, { aadhaar: query }],
     isDeleted: false,
+    ...branchScope,
   }).lean();
   if (!member) throw new HttpError(404, `Member not found matching '${query}'`);
 
@@ -4644,6 +4648,7 @@ export async function getBorrowerSavings(req, res) {
   let totalDepositedPaise = 0;
   let runningSecurityPaise = 0;
   let totalInterestPaise = 0;
+  let closedInterestPaise = 0; // the interest of the loans that are closed (it is paid with the security of those loans)
   const deposits = [];
 
   for (const l of loans) {
@@ -4687,6 +4692,8 @@ export async function getBorrowerSavings(req, res) {
 
       if (!isClosed) {
         runningSecurityPaise += line.securityPaise;
+      } else {
+        closedInterestPaise += interest;
       }
 
       deposits.push({
@@ -4713,6 +4720,9 @@ export async function getBorrowerSavings(req, res) {
 
   // Available to withdraw: Closed loan security minus already requested/withdrawn
   const withdrawablePaise = Math.max(0, closedSecurityPaise - withdrawnPaise - pendingPaise);
+  // the interest that is still to be paid on the closed loans (what was already taken with a withdrawal is not paid twice)
+  const interestTakenPaise = [...approvedWithdrawals, ...pendingWithdrawals].reduce((sum, w) => sum + (w.interestPaise || 0), 0);
+  const withdrawableInterestPaise = withdrawablePaise > 0 ? Math.max(0, closedInterestPaise - interestTakenPaise) : 0;
 
   res.json({
     member: {
@@ -4731,6 +4741,9 @@ export async function getBorrowerSavings(req, res) {
     pendingWithdrawal: pendingPaise / 100,
     availableBalance: withdrawablePaise / 100,
     withdrawableAmount: withdrawablePaise / 100,
+    closedInterest: withdrawableInterestPaise / 100,
+    // the balance with its interest added: what can be paid out for the closed loans
+    totalWithdrawable: (withdrawablePaise + withdrawableInterestPaise) / 100,
     deposits,
     withdrawals: withdrawals.map((w) => ({
       id: w._id,

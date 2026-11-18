@@ -91,6 +91,7 @@ function PartySection({ kind, member, onSaved }) {
       if (!form.aadhaarPhoto) found.aadhaarPhoto = 'Aadhaar front photo is required';
       if (!form.aadhaarBackPhoto) found.aadhaarBackPhoto = 'Aadhaar back photo is required';
       if (form.pan && !form.panPhoto) found.panPhoto = 'PAN photo is required when a PAN is given';
+      if (kind === 'guarantor' && !form.jointPhoto) found.jointPhoto = 'The joint photo of the member and the guarantor is required';
       payload = { ...form, mobileChallengeId: challenge || undefined };
     }
     setErrors(found);
@@ -181,7 +182,7 @@ function PartySection({ kind, member, onSaved }) {
               <PhotoField id={`${kind}-aadhaarPhoto`} label="Aadhaar front photo" required value={form.aadhaarPhoto} error={errors.aadhaarPhoto} onChange={setPhoto('aadhaarPhoto')} />
               <PhotoField id={`${kind}-aadhaarBackPhoto`} label="Aadhaar back photo" required value={form.aadhaarBackPhoto} error={errors.aadhaarBackPhoto} onChange={setPhoto('aadhaarBackPhoto')} />
               <PhotoField id={`${kind}-panPhoto`} label="PAN photo" required={Boolean(form.pan)} value={form.panPhoto} error={errors.panPhoto} onChange={setPhoto('panPhoto')} />
-              <PhotoField id={`${kind}-jointPhoto`} label={`Member & ${label.toLowerCase()} joint photo (optional)`} value={form.jointPhoto} error={errors.jointPhoto} onChange={setPhoto('jointPhoto')} />
+              <PhotoField id={`${kind}-jointPhoto`} label={`Member & ${label.toLowerCase()} joint photo${kind === 'guarantor' ? '' : ' (optional)'}`} required={kind === 'guarantor'} value={form.jointPhoto} error={errors.jointPhoto} onChange={setPhoto('jointPhoto')} />
             </div>
           </>
         )}

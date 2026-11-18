@@ -163,6 +163,14 @@ export default function EmployeeBorrowerSavings() {
               </div>
             </div>
 
+            {/* the closed-loan security with its interest added: the amount that can be paid out */}
+            <div style={{ background: '#ecfdf5', border: '1px solid #6ee7b7', borderRadius: 8, padding: 10, marginTop: 10, fontSize: '0.8rem' }}>
+              <div style={{ color: '#065f46', fontWeight: 700 }}>Closed loan security + interest</div>
+              <div style={{ marginTop: 2, color: '#047857' }}>
+                ₹{Number(data.availableBalance || 0).toLocaleString('en-IN')} + ₹{Number(data.closedInterest || 0).toLocaleString('en-IN')} interest = <strong style={{ fontSize: '1.05rem' }}>₹{Number(data.totalWithdrawable != null ? data.totalWithdrawable : data.availableBalance || 0).toLocaleString('en-IN')}</strong>
+              </div>
+            </div>
+
             {/* Point 25: Calculation summary banner */}
             <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '8px 10px', marginTop: 10, fontSize: '0.75rem', color: 'var(--emp-text)' }}>
               <strong>Withdrawal Rule:</strong> Total Security (₹{Number(data.totalDeposited || 0).toLocaleString('en-IN')}) − Running Loan Locked (₹{Number(data.runningSecurity || 0).toLocaleString('en-IN')}) = <strong>₹{Number(data.closedSecurity || 0).toLocaleString('en-IN')}</strong> from closed loan(s) is unlocked &amp; withdrawable.

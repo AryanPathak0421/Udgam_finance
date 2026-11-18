@@ -107,7 +107,7 @@ function MemberLoan({ index, m, e, schemes, productSchemes, stock, errors, onCha
   return (
     <div className="panel" style={{ padding: 16, marginBottom: 14 }}>
       <h3 className="section-title">{index + 1}. {m.code} — {m.name}</h3>
-      <div className="muted small" style={{ marginBottom: 8 }}>Guarantor {m.guarantorName || '—'} · Previous loan {inr(m.previousLoan)} · Civil score {m.civilScore ?? 'not recorded'}{m.civilFee ? ` (Fee: ${inr(m.civilFee)})` : ''}</div>
+      <div className="muted small" style={{ marginBottom: 8 }}>Guarantor {m.guarantorName || '—'}{m.guarantor?.mobile ? ` (phone ${m.guarantor.mobile})` : ''} · Member PAN {m.pan || '—'} · Voter ID {m.voterId || '—'} · Guarantor PAN {m.guarantor?.pan || '—'} · Guarantor voter ID {m.guarantor?.voterId || '—'} · Previous loan {inr(m.previousLoan)} · Civil score {m.civilScore ?? 'not recorded'}{m.civilFee ? ` (Fee: ${inr(m.civilFee)})` : ''}</div>
       {err('member') && <div className="field-error" role="alert">{err('member')}</div>}
       <div className="form-grid">
         <FormField id={`sch-${m.id}`} label="Loan scheme" required error={err('schemeId')}>
@@ -394,12 +394,12 @@ export default function GroupLoanRequisition() {
                         <td data-label="Status">
                           {m.isBlocked ? <span className="badge danger">Blocked</span>
                             : m.runningInGroup ? <span className="badge grey">Has loan {m.runningInGroup.formId} in this group — product loan only</span>
-                              : m.issues?.length ? <div>{m.issues.map((i) => <div key={i} className="field-error small">{i}</div>)}</div>
+                              : m.issues?.length ? <div><div className="badge grey" style={{ marginBottom: 4 }}>{m.preRequisitionStatus}</div>{m.issues.map((i) => <div key={i} className="field-error small">{i}</div>)}</div>
                                 : <span className="badge green">Eligible</span>}
                           {/* the KYC documents still to be approved: shown for every member (an old-system member is not held back by them) */}
                           {!m.isBlocked && !m.issues?.length && m.unverifiedDocs?.length > 0 && (
                             <div className="small" style={{ marginTop: 4, color: '#92400e' }}>
-                              KYC pending: {m.unverifiedDocs.map((u) => `${u.label} (${u.status === 'rejected' ? 'Rejected' : 'Pending'})`).join(', ')}
+                              KYC pending: {m.unverifiedDocs.map((u) => `${u.label} (${u.status === 'rejected' ? 'Rejected' : u.status === 'missing' ? 'Not uploaded' : 'Under review'})`).join(', ')}
                             </div>
                           )}
                         </td>

@@ -821,7 +821,8 @@ async function readPerson(req, kind, m, existing) {
   d.panPhoto = readImage(b.panPhoto, 'panPhoto', 'PAN photo', v, { required: Boolean(d.pan) });
   d.voterPhoto = readImage(b.voterPhoto, 'voterPhoto', 'Voter photo', v, { required: false });
   d.passbookPhoto = readImage(b.passbookPhoto || b.bankPassbookPhoto, 'passbookPhoto', 'Bank passbook photo', v, { required: false });
-  d.jointPhoto = readImage(b.jointPhoto, 'jointPhoto', 'Joint photo', v, { required: false });
+  // the photo of the member together with the guarantor is mandatory (KYC checklist); the nominee has none
+  d.jointPhoto = readImage(b.jointPhoto, 'jointPhoto', 'Member and guarantor joint photo', v, { required: kind === 'guarantor' });
   v.throwIfAny();
 
   // A phone number that is given has to be verified with an OTP. The same number that was already
@@ -1767,6 +1768,8 @@ export async function completeMember(req, res) {
   if (given('state')) { const x = asString(b.state); if (!INDIA_LOCATIONS[x]) v.add('state', 'Select a valid state'); else take('state', 'State', x); }
   if (given('district')) { const x = asString(b.district); if (!x || x.length > 60) v.add('district', 'Select the district'); else take('district', 'District', x); }
   if (given('area')) set.area = asString(b.area).slice(0, 80);
+  // optional: the voter ID number (its photo is taken with the other photos)
+  if (given('voterId')) { const x = asString(b.voterId).toUpperCase().replace(/s/g, ''); if (!/^[A-Z0-9]{6,20}$/.test(x)) v.add('voterId', 'Enter a valid voter ID number'); else if (!m.voterId || admin) set.voterId = x; }
   if (given('aadhaar')) {
     const x = asString(b.aadhaar).replace(/\s/g, '');
     if (!AADHAAR_RE.test(x) || !verhoeff(x)) v.add('aadhaar', 'Enter a valid 12-digit Aadhaar number');

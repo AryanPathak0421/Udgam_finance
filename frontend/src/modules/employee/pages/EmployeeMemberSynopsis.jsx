@@ -919,6 +919,8 @@ export function EmpCompleteDetailsModal({ member, options, onClose, onSaved }) {
     aadhaarPhoto: '',
     aadhaarBackPhoto: '',
     panPhoto: '',
+    voterId: '',
+    voterPhoto: '',
   });
 
   const [challengeId, setChallengeId] = useState('');
@@ -995,7 +997,7 @@ export function EmpCompleteDetailsModal({ member, options, onClose, onSaved }) {
     setError('');
     const body = {};
     Object.entries(form).forEach(([k, v]) => {
-      if (missing.has(k) && String(v).trim() !== '') body[k] = v;
+      if ((missing.has(k) || ['voterId', 'voterPhoto'].includes(k)) && String(v).trim() !== '') body[k] = v;
     });
     if (missing.has('district') && form.state && body.district) body.state = form.state;
     if (missing.has('mobile') && body.mobile) {
@@ -1244,6 +1246,17 @@ export function EmpCompleteDetailsModal({ member, options, onClose, onSaved }) {
                   </div>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* optional: the voter card (shown whether or not it is missing) */}
+          {!member.voterPhoto && (
+            <div style={{ marginTop: 8 }}>
+              <label style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)' }}>Voter ID number (optional)</label>
+              <input className="emp-input" value={form.voterId} maxLength={20} onChange={(e) => setForm((f) => ({ ...f, voterId: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '') }))} style={{ width: '100%' }} />
+              <label style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)', display: 'block', marginTop: 6 }}>Voter card photo (optional)</label>
+              <input type="file" accept="image/*" onChange={(e) => handlePhotoUpload('voterPhoto', e.target.files?.[0])} style={{ fontSize: '0.72rem', width: '100%' }} />
+              {form.voterPhoto && <span style={{ color: '#16a34a', fontSize: '0.7rem' }}>✓ Attached</span>}
             </div>
           )}
 

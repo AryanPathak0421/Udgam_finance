@@ -421,6 +421,7 @@ export function SecurityWithdraw() {
               <span className="badge grey">In running loans (adjust only) {inr(member.runningSecurity)}</span>
               <span className="badge green">Withdraw balance {inr(member.withdrawable)}</span>
               <span className="badge grey">Interest on it ({member.interestRate}% a year) {inr(member.interestWithdrawable)}</span>
+              <span className="badge green">Closed loan security + interest = {inr((member.withdrawable || 0) + (member.withdrawable > 0 ? (member.interestWithdrawable || 0) : 0))}</span>
             </div>
             {member.deposits.length === 0 ? <span className="muted">No security amount has been kept from this member's loans.</span> : (
               <div className="table-wrap">

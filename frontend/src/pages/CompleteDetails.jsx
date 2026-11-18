@@ -6,12 +6,14 @@ import { useToast } from '../components/ui/Toast.jsx';
 import { Link } from 'react-router-dom';
 import { OtpVerify, PhotoField } from './NewBorrower.jsx';
 
+// the optional details that are taken whether or not they were missing
+const OPTIONAL = ['aadhaarBackPhoto', 'voterId', 'voterPhoto'];
 // A member imported from the old system: the branch fills in the details that are missing. A detail that is already there is changed only by an admin
 // (under Edit details); the mobile number needs an OTP.
 export default function CompleteDetails({ member, options, onClose, onSaved }) {
   const toast = useToast();
   const missing = new Set((member.missingDetails || []).map((d) => d.key));
-  const [form, setForm] = useState({ mobile: member.mobile || '', husbandName: '', occupation: '', education: '', address: '', pincode: '', state: member.state || '', district: '', aadhaar: '', bankName: '', ifsc: '', accountNumber: '', passbookPhoto: '', memberPhoto: '', signaturePhoto: '', aadhaarPhoto: '', aadhaarBackPhoto: '', panPhoto: '' });
+  const [form, setForm] = useState({ mobile: member.mobile || '', husbandName: '', occupation: '', education: '', address: '', pincode: '', state: member.state || '', district: '', aadhaar: '', bankName: '', ifsc: '', accountNumber: '', passbookPhoto: '', memberPhoto: '', signaturePhoto: '', aadhaarPhoto: '', aadhaarBackPhoto: '', panPhoto: '', voterId: '', voterPhoto: '' });
   const [challengeId, setChallengeId] = useState('');
   const [districts, setDistricts] = useState([]);
   const [errors, setErrors] = useState({});
@@ -29,7 +31,7 @@ export default function CompleteDetails({ member, options, onClose, onSaved }) {
   async function submit(e) {
     e.preventDefault();
     const body = {};
-    Object.entries(form).forEach(([k, v]) => { if (missing.has(k) && String(v).trim() !== '') body[k] = v; });
+    Object.entries(form).forEach(([k, v]) => { if ((missing.has(k) || OPTIONAL.includes(k)) && String(v).trim() !== '') body[k] = v; });
     if (missing.has('district') && form.state && body.district) body.state = form.state;
     if (body.mobile) {
       if (!challengeId) return setErrors({ mobile: 'Verify the mobile number with an OTP first' });
@@ -106,6 +108,8 @@ export default function CompleteDetails({ member, options, onClose, onSaved }) {
           {missing.has('signaturePhoto') && <PhotoField id="signaturePhoto" label="Signature" required value={form.signaturePhoto} error={errors.signaturePhoto} onChange={photo('signaturePhoto')} />}
           {missing.has('panPhoto') && <PhotoField id="panPhoto" label="PAN photo" required value={form.panPhoto} error={errors.panPhoto} onChange={photo('panPhoto')} />}
           {missing.has('aadhaarPhoto') && <PhotoField id="aadhaarPhoto" label="Aadhaar front photo" required value={form.aadhaarPhoto} error={errors.aadhaarPhoto} onChange={photo('aadhaarPhoto')} />}
+          {!member.voterPhoto && <FormField id="cvoter" label="Voter ID number (optional)" error={errors.voterId}><input id="cvoter" value={form.voterId} maxLength={20} onChange={(e) => setForm((f) => ({ ...f, voterId: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '') }))} /></FormField>}
+          {!member.voterPhoto && <PhotoField id="voterPhoto" label="Voter card photo (optional)" value={form.voterPhoto} error={errors.voterPhoto} onChange={photo('voterPhoto')} />}
           {!member.aadhaarBackPhoto && <PhotoField id="aadhaarBackPhoto" label="Aadhaar back photo (optional)" value={form.aadhaarBackPhoto} error={errors.aadhaarBackPhoto} onChange={photo('aadhaarBackPhoto')} />}
         </div>
         {errors.form && <div className="field-error" role="alert" style={{ marginTop: 10 }}>{errors.form}</div>}
