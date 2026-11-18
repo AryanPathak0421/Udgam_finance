@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client.js';
+import { MemberCodeCell, MemberNameCell } from '../components/MemberCells.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import FormField from '../components/ui/FormField.jsx';
 import Modal from '../components/ui/Modal.jsx';
@@ -314,7 +315,7 @@ function LoanApproval({ status, fixedKind = '' }) {
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th>Form ID</th><th>Loan date</th><th>Type</th><th>Borrower / Group</th><th>Staff name</th><th>Branch</th><th>Scheme</th>
+                    <th>Form ID</th><th>Loan date</th><th>Type</th><th>Borrower / Group</th><th>Member code</th><th>Member name</th><th>Staff name</th><th>Branch</th><th>Scheme</th>
                     <th className="num">Amount</th><th className="num">EMI</th>
                     {status !== 'pending' && <th>{status === 'approved' ? 'Approved' : 'Rejected'}</th>}
                     {status === 'rejected' && <th>Reason</th>}
@@ -328,6 +329,8 @@ function LoanApproval({ status, fixedKind = '' }) {
                       <td data-label="Loan date">{r.loanDate}</td>
                       <td data-label="Type">{r.kindLabel}</td>
                       <td data-label="Borrower">{r.subjectCode} — {r.subjectName}</td>
+                      <MemberCodeCell members={r.members} />
+                      <MemberNameCell members={r.members} />
                       <td data-label="Staff name"><strong>{r.employeeName || r.employeeCode || '—'}</strong>{r.employeeCode && r.employeeName && r.employeeName !== r.employeeCode ? <div className="muted small">{r.employeeCode}</div> : null}</td>
                       <td data-label="Branch">{r.branch?.name || '—'}</td>
                       <td data-label="Scheme">{r.schemeName}</td>

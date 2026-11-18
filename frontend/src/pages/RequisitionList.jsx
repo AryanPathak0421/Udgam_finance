@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { MemberCodeCell, MemberNameCell } from '../components/MemberCells.jsx';
 import { api } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import Modal from '../components/ui/Modal.jsx';
@@ -254,7 +255,7 @@ export default function RequisitionList() {
             <div className={`table-wrap${loading ? ' dim' : ''}`}>
               <table className="data-table">
                 <thead>
-                  <tr><th>Form ID</th><th>Loan date</th><th>Type</th><th>Borrower / Group</th><th>Member name</th><th>Staff name</th><th>Branch</th><th>Scheme</th><th className="num">Amount</th><th className="num">Cash</th><th className="num">EMI</th><th>Status</th><th className="actions-col">Actions</th></tr>
+                  <tr><th>Form ID</th><th>Loan date</th><th>Type</th><th>Borrower / Group</th><th>Member code</th><th>Member name</th><th>Staff name</th><th>Branch</th><th>Scheme</th><th className="num">Amount</th><th className="num">Cash</th><th className="num">EMI</th><th>Status</th><th className="actions-col">Actions</th></tr>
                 </thead>
                 <tbody>
                   {data.items.map((r) => (
@@ -263,14 +264,8 @@ export default function RequisitionList() {
                       <td data-label="Loan date">{r.loanDate}</td>
                       <td data-label="Type">{r.kindLabel}</td>
                       <td data-label="Borrower">{r.subjectCode} — {r.subjectName}</td>
-                      <td data-label="Member name">
-                        {(r.members || []).length === 0 ? '—' : (
-                          <span title={r.members.map((x) => `${x.code} ${x.name}`).join('\n')}>
-                            {r.members.slice(0, 2).map((x) => x.name).join(', ')}{r.members.length > 2 ? ` +${r.members.length - 2} more` : ''}
-                            {r.kind === 'group' && <div className="muted small">{r.members.length} member{r.members.length === 1 ? '' : 's'}</div>}
-                          </span>
-                        )}
-                      </td>
+                      <MemberCodeCell members={r.members} />
+                      <MemberNameCell members={r.members} />
                       <td data-label="Staff name"><strong>{r.employeeName || r.employeeCode || '—'}</strong>{r.employeeCode && r.employeeName && r.employeeName !== r.employeeCode ? <div className="muted small">{r.employeeCode}</div> : null}</td>
                       <td data-label="Branch">{r.branch?.name || '—'}</td>
                       <td data-label="Scheme">{r.schemeName}</td>
