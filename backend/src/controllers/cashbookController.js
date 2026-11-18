@@ -393,7 +393,8 @@ export async function cashbookData(req, query) {
     const nameOfMember = (x) => `${x.memberCode} ${x.memberName || ''}`.trim();
 
     // what kind of loan each EMI / settlement belongs to
-    const emis = await EmiPayment.find({ ...scope, status: 'paid', legacy: { $ne: true }, ...(mode ? { payMode: mode } : {}), ...r }).limit(20000).lean();
+    // (the whole last day: an EMI dated with a time of the day, like an advance EMI of the app, belongs to its day as well)
+    const emis = await EmiPayment.find({ ...scope, status: 'paid', legacy: { $ne: true }, ...(mode ? { payMode: mode } : {}), ...stampRange('paidOn', before) }).limit(20000).lean();
     const sets = await LoanSettlement.find({ ...scope, kind: 'loan', status: 'active', amountPaise: { $gt: 0 }, ...modeFilter('payMode'), ...s }).limit(20000).lean();
     const loanIds = [...new Set([...emis.map((e) => String(e.loanPayment)), ...sets.map((x) => String(x.loanPayment))])];
     const loanInfo = new Map((await LoanPayment.find({ _id: { $in: loanIds } }).select('kind loanType mode')).map((l) => [String(l._id), l]));

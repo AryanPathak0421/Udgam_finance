@@ -42,6 +42,13 @@ function scope(req) {
   };
 }
 
+// The date of an EMI is the day (midnight, Indian date) as for every other EMI: a collection taken with the time of the day (an advance EMI) would
+// otherwise fall outside the day it belongs to in the Cashbook and on the dashboard.
+const dayOnly = (d) => {
+  const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date(d));
+  return new Date(`${day}T00:00:00.000Z`);
+};
+
 // ---- App User Creation --------------------------------------------------------------------------------------------------
 
 const presentUser = (a, u) => ({
@@ -679,7 +686,7 @@ export async function approveEmi(req, res) {
         {
           amountPaise: c.amountPaise,
           type: c.type || 'regular',
-          paidOn: c.collectedOn || new Date(),
+          paidOn: dayOnly(c.collectedOn || new Date()),
           payMode: c.payMode,
           reference: c.reference,
           bankAccount: c.bankAccount,
@@ -696,7 +703,7 @@ export async function approveEmi(req, res) {
           {
             amountPaise: c.amountPaise,
             type: c.type || 'regular',
-            paidOn: new Date(),
+            paidOn: dayOnly(new Date()),
             payMode: c.payMode,
             reference: c.reference,
             bankAccount: c.bankAccount,
@@ -723,7 +730,7 @@ export async function approveEmi(req, res) {
           memberName: line.name || c.memberName,
           group: p.group?.code ? `${p.group.code} — ${p.group.name}` : (c.group || ''),
           amountPaise: c.amountPaise,
-          paidOn: c.collectedOn || new Date(),
+          paidOn: dayOnly(c.collectedOn || new Date()),
           payMode: c.payMode || 'cash',
           reference: c.reference || '',
           employeeCode: c.collectedByCode || collector.employeeCode || '',
@@ -755,7 +762,7 @@ export async function approveEmi(req, res) {
         memberName: c.memberName,
         group: c.group || '',
         amountPaise: c.amountPaise,
-        paidOn: c.collectedOn || new Date(),
+        paidOn: dayOnly(c.collectedOn || new Date()),
         payMode: c.payMode || 'cash',
         reference: c.reference || '',
         employeeCode: c.collectedByCode || collector?.employeeCode || '',
