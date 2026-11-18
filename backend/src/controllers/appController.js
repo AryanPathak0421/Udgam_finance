@@ -662,10 +662,13 @@ export async function approveEmi(req, res) {
     member: c.member,
   };
 
+  // An EMI already made for this collection (a repeated approval) is reused, but never the EMI of ANOTHER collection: the same member paying
+  // the same amount on the next day is a new EMI, not a repeat (it would otherwise stay "due" in the Loan Ledger and Loan Settlement).
+  const takenByOther = async (e) => Boolean(e && await AppEmiCollection.exists({ _id: { $ne: c._id }, status: 'approved', receiptNo: e.receiptNo }));
   let doc;
   if (c.receiptNo) {
     const existing = await EmiPayment.findOne({ receiptNo: c.receiptNo });
-    if (existing) doc = existing;
+    if (existing && !(await takenByOther(existing))) doc = existing;
   }
   if (!doc && p) {
     const matching = await EmiPayment.findOne({
@@ -674,7 +677,7 @@ export async function approveEmi(req, res) {
       amountPaise: c.amountPaise,
       createdAt: { $gte: new Date(c.createdAt.getTime() - 86400000), $lte: new Date(c.createdAt.getTime() + 86400000) },
     });
-    if (matching) doc = matching;
+    if (matching && !(await takenByOther(matching))) doc = matching;
   }
 
   if (!doc && p) {

@@ -970,8 +970,7 @@ export function EmpCompleteDetailsModal({ member, options, onClose, onSaved }) {
     setVerifyingOtp(true);
     setError('');
     try {
-      const cleanNum = form.mobile.trim().replace(/\D/g, '').slice(-10);
-      await api.members.verifyOtp({ challengeId, otp: otp.trim(), mobile: cleanNum, purpose: 'mobile' });
+      await api.members.verifyOtp(challengeId, otp.trim());
       setOtpVerified(true);
       alert('Mobile verified successfully!');
     } catch (err) {
