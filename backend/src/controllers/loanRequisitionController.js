@@ -1146,7 +1146,7 @@ export function createRequisition(kind) {
     // Employee: chosen on the web form, otherwise the signed-in employee (supervisors cannot be field officer).
     let employeeCode = asString(b.employeeCode).toUpperCase();
     if (employeeCode) {
-      const isSup = await Employee.exists({ employeeCode, isDeleted: false, $or: [{ isSupervisor: true }] });
+      const isSup = await isSupervisorStaff(employeeCode);
       const u = await User.findOne({ employeeCode: { $eq: employeeCode, $nin: await blockedCodes() }, $or: [{ isActive: true }, { legacyImport: true }] }).select('role branches');
       if (isSup || u?.role === 'supervisor') throw invalid({ employeeCode: 'Supervisor cannot be assigned as field officer for loan' });
       const emp = u || (await Employee.findOne({ employeeCode, isDeleted: false, isBlocked: { $ne: true }, status: 'active', branch: branchId }));
@@ -1513,6 +1513,16 @@ async function requisitionDateOf(req, branchId, input) {
   return working && working <= today ? working : today;
 }
 
+/**
+ * Whether a staff member is a supervisor (a supervisor cannot be the field officer of a loan): the designation says so. (This was asked of the HR record with
+ * a field that the record does not have; the database treats such a filter as "any record", so every employee was refused as a supervisor.)
+ */
+async function isSupervisorStaff(employeeCode) {
+  const e = await Employee.findOne({ employeeCode, isDeleted: false }).populate('designation', 'name').select('designation').lean();
+  const name = e?.designation?.name || (typeof e?.designation === 'string' ? e.designation : '');
+  return /supervisor/i.test(name || '');
+}
+
 async function approvalDateOf(req, r, b) {
   const today = startOfToday();
   // only the admin chooses the date; for the others it is the working day of the branch (a date they send is not used)
@@ -1842,7 +1852,7 @@ export async function createGroupRequisition(req, res) {
   // Employee: chosen on the form, otherwise the signed-in employee (supervisors cannot be field officer).
   let employeeCode = asString(b.employeeCode).toUpperCase();
   if (employeeCode) {
-    const isSup = await Employee.exists({ employeeCode, isDeleted: false, $or: [{ isSupervisor: true }] });
+    const isSup = await isSupervisorStaff(employeeCode);
     const u = await User.findOne({ employeeCode: { $eq: employeeCode, $nin: await blockedCodes() }, $or: [{ isActive: true }, { legacyImport: true }] }).select('role branches');
     if (isSup || u?.role === 'supervisor') throw invalid({ employeeCode: 'Supervisor cannot be assigned as field officer for loan' });
     const emp = u || (await Employee.findOne({ employeeCode, isDeleted: false, isBlocked: { $ne: true }, status: 'active', branch: branchId }));
