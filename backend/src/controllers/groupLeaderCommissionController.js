@@ -11,19 +11,14 @@ import { asString, createValidator, escapeRegex, HttpError, todayDateString, par
 import { audit } from '../utils/audit.js';
 import { toMinor } from '../utils/money.js';
 import { CashEntry } from '../models/CashEntry.js';
-import { defaultWorkDate, branchWorkingDate, assertDayOpen } from '../services/dayOpen.js';
+import { defaultWorkDate, assertDayOpen } from '../services/dayOpen.js';
 
 /**
- * The commission that is paid goes to the Cashbook of the branch of the group: a payment entry "Group leader commission" on the working day of the
- * branch (the admin pays on the working day of the branch as well, not on a later calendar day).
+ * The commission that is paid goes to the Cashbook of the branch of the group: a payment entry "Group leader commission" dated like every other entry
+ * made by hand (the admin: today; the others: the working day of their branch).
  */
 async function commissionCashEntry(req, branchId, amountPaise, remark) {
-  const today = parseDateOnly(todayDateString());
-  let date = await defaultWorkDate(branchId, req.user);
-  if (['super_admin', 'admin'].includes(req.user.role)) {
-    const work = await branchWorkingDate(branchId).catch(() => null);
-    if (work && today && work <= today) date = work;
-  }
+  const date = await defaultWorkDate(branchId, req.user);
   await assertDayOpen(branchId, date, req.user);
   return CashEntry.create({ branch: branchId, date, side: 'payment', category: 'leader_commission', amountPaise, mode: 'cash', remark: String(remark).slice(0, 200), enteredByCode: req.user.employeeCode || '', createdBy: req.user._id });
 }
