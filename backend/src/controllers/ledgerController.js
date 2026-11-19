@@ -5,12 +5,34 @@ import { ensureDefaultGroups, loadGroupTree } from '../services/accountGroups.js
 import { asString, createValidator, escapeRegex, parseDateOnly, parsePaging, HttpError } from '../utils/http.js';
 import { toMinor } from '../utils/money.js';
 import { audit } from '../utils/audit.js';
+import { CashEntry } from '../models/CashEntry.js';
 
 const MAX_PAISE = 100_000_000_000 * 100; // 1,000 crore rupees
 const iso = (d) => d.toISOString().slice(0, 10);
 
-function present(l, tree) {
+/**
+ * What has been entered on ledgers (the vouchers and the entries made for a ledger), by the ledger: payments are debits, receipts are credits.
+ * The balance of a ledger is its opening balance on its own side plus what was entered on that side less what was entered on the other.
+ */
+async function movementsOf(ids) {
+  const rows = ids.length
+    ? await CashEntry.aggregate([{ $match: { ledger: { $in: ids }, isDeleted: { $ne: true } } }, { $group: { _id: { l: '$ledger', s: '$side' }, t: { $sum: '$amountPaise' } } }])
+    : [];
+  const out = new Map();
+  rows.forEach((r) => {
+    const k = String(r._id.l);
+    const cur = out.get(k) || { debit: 0, credit: 0 };
+    if (r._id.s === 'payment') cur.debit += r.t; else cur.credit += r.t;
+    out.set(k, cur);
+  });
+  return out;
+}
+
+function present(l, tree, mv = { debit: 0, credit: 0 }) {
   const gid = String(l.group?._id || l.group);
+  const opening = l.openingAmountPaise ?? 0;
+  const closingSigned = (l.type === 'debit' ? opening + mv.debit - mv.credit : opening + mv.credit - mv.debit); // on the side of the ledger
+  const closing = { amount: Math.abs(closingSigned) / 100, side: closingSigned >= 0 ? l.type : l.type === 'debit' ? 'credit' : 'debit' };
   const group = tree.byId.get(gid);
   return {
     id: l._id,
@@ -20,6 +42,10 @@ function present(l, tree) {
     type: l.type,
     openingDate: iso(l.openingDate),
     openingAmount: l.openingAmountPaise / 100,
+    entriesDebit: mv.debit / 100,
+    entriesCredit: mv.credit / 100,
+    closingAmount: closing.amount,
+    closingSide: closing.side,
     isActive: l.isActive,
     createdAt: l.createdAt,
     updatedAt: l.updatedAt,
@@ -87,6 +113,8 @@ export async function listLedgers(req, res) {
   if (req.query.status === 'active') matchFilter.isActive = true;
   if (req.query.status === 'inactive') matchFilter.isActive = false;
 
+  const allIds = await Ledger.find(filter).distinct('_id');
+  const moves = await movementsOf(allIds);
   const [items, total, sums] = await Promise.all([
     Ledger.find(filter).sort({ name: 1 }).collation({ locale: 'en', strength: 2 }).skip(skip).limit(limit),
     Ledger.countDocuments(filter),
@@ -114,9 +142,20 @@ export async function listLedgers(req, res) {
   const diff = Math.round((dr - cr) * 100) / 100;
   const absDiff = Math.abs(diff);
   const diffSide = absDiff < 0.001 ? 'Balanced' : diff > 0 ? 'Dr' : 'Cr';
+  // the whole filtered set: what was entered and the closing balances (Dr and Cr) with their difference
+  let entriesDr = 0; let entriesCr = 0; let closeDr = 0; let closeCr = 0;
+  const ledgerRows = await Ledger.find(filter).select('type openingAmountPaise').lean();
+  ledgerRows.forEach((l) => {
+    const mv = moves.get(String(l._id)) || { debit: 0, credit: 0 };
+    entriesDr += mv.debit; entriesCr += mv.credit;
+    const opening = l.openingAmountPaise ?? 0;
+    const signed = l.type === 'debit' ? opening + mv.debit - mv.credit : opening + mv.credit - mv.debit;
+    if ((l.type === 'debit') === (signed >= 0)) closeDr += Math.abs(signed); else closeCr += Math.abs(signed);
+  });
+  const closeDiff = Math.round(closeDr - closeCr) / 100;
 
   res.json({
-    items: items.map((l) => present(l, tree)),
+    items: items.map((l) => present(l, tree, moves.get(String(l._id)))),
     page,
     limit,
     total,
@@ -129,6 +168,12 @@ export async function listLedgers(req, res) {
       rawDifference: diff,
       diffSide,
       isBalanced: absDiff < 0.001,
+      entriesDebit: entriesDr / 100,
+      entriesCredit: entriesCr / 100,
+      closingDebit: closeDr / 100,
+      closingCredit: closeCr / 100,
+      closingDifference: Math.abs(closeDiff),
+      closingDiffSide: Math.abs(closeDiff) < 0.001 ? 'Balanced' : closeDiff > 0 ? 'Dr' : 'Cr',
     },
   });
 }

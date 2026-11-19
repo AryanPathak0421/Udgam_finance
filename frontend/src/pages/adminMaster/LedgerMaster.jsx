@@ -222,6 +222,18 @@ export default function LedgerMaster() {
         </div>
       </section>
 
+      <section className="stat-grid" style={{ marginBottom: 16 }}>
+        <div className="stat-card" style={{ borderLeft: '4px solid #059669' }}>
+          <div><div className="stat-label">Debit entries (Dr)</div><div className="stat-value" style={{ color: '#059669' }}>{formatINR(t.entriesDebit || 0)}</div></div>
+        </div>
+        <div className="stat-card" style={{ borderLeft: '4px solid #2563eb' }}>
+          <div><div className="stat-label">Credit entries (Cr)</div><div className="stat-value" style={{ color: '#2563eb' }}>{formatINR(t.entriesCredit || 0)}</div></div>
+        </div>
+        <div className="stat-card" style={{ borderLeft: '4px solid #7c3aed' }}>
+          <div><div className="stat-label">Closing balance Dr / Cr</div><div className="stat-value" style={{ color: '#7c3aed', fontSize: '1.05rem' }}>{formatINR(t.closingDebit || 0)} Dr / {formatINR(t.closingCredit || 0)} Cr</div><div className="muted small">Difference {formatINR(t.closingDifference || 0)} {t.closingDiffSide === 'Balanced' ? '(Balanced)' : t.closingDiffSide}</div></div>
+        </div>
+      </section>
+
       {/* Difference Alert Banner */}
       {isDiff ? (
         <div
@@ -306,6 +318,9 @@ export default function LedgerMaster() {
                     <th>Type</th>
                     <th>Opening date</th>
                     <th className="num">Opening amount</th>
+                    <th className="num">Debit entries</th>
+                    <th className="num">Credit entries</th>
+                    <th className="num">Balance</th>
                     <th>Status</th>
                     <th className="actions-col">Actions</th>
                   </tr>
@@ -318,6 +333,9 @@ export default function LedgerMaster() {
                       <td data-label="Type"><span className={`badge ${l.type === 'debit' ? 'green' : 'grey'}`}>{SIDE[l.type]}</span></td>
                       <td data-label="Opening date">{formatDate(l.openingDate)}</td>
                       <td data-label="Opening amount" className="num">{formatINR(l.openingAmount)} {SIDE[l.type]}</td>
+                      <td data-label="Debit entries" className="num">{formatINR(l.entriesDebit || 0)}</td>
+                      <td data-label="Credit entries" className="num">{formatINR(l.entriesCredit || 0)}</td>
+                      <td data-label="Balance" className="num"><strong>{formatINR(l.closingAmount || 0)} {SIDE[l.closingSide] || ''}</strong></td>
                       <td data-label="Status"><StatusBadge active={l.isActive} /></td>
                       <td data-label="Actions" className="actions-col">
                         <div className="row-actions">
@@ -340,6 +358,9 @@ export default function LedgerMaster() {
                         Diff: {formatINR(diffVal)} {isDiff ? (t.diffSide || (t.debit >= t.credit ? 'Dr' : 'Cr')) : '(Balanced)'}
                       </div>
                     </td>
+                    <td className="num" style={{ whiteSpace: 'nowrap' }}>{formatINR(t.entriesDebit || 0)}</td>
+                    <td className="num" style={{ whiteSpace: 'nowrap' }}>{formatINR(t.entriesCredit || 0)}</td>
+                    <td className="num" style={{ whiteSpace: 'nowrap' }}>{formatINR(t.closingDebit || 0)} Dr<br />{formatINR(t.closingCredit || 0)} Cr</td>
                     <td colSpan={2} />
                   </tr>
                 </tfoot>
