@@ -1515,9 +1515,9 @@ async function requisitionDateOf(req, branchId, input) {
 
 async function approvalDateOf(req, r, b) {
   const today = startOfToday();
-  const asked = asString(b.approvalDate);
+  // only the admin chooses the date; for the others it is the working day of the branch (a date they send is not used)
+  const asked = isAdmin(req.user) ? asString(b.approvalDate) : '';
   if (asked) {
-    if (!isAdmin(req.user)) throw new HttpError(403, 'Only the admin can choose the approval date');
     const d = parseDateOnly(asked);
     if (!d) throw invalid({ approvalDate: 'Enter a valid date' });
     if (d > today) throw invalid({ approvalDate: 'The approval date cannot be in the future' });

@@ -131,7 +131,7 @@ function ReviewDialog({ id, onClose, onDone }) {
                 This loan is one of the {r.batchCount} member loans of requisition <strong>{r.batchFormId}</strong>. Each member has her own scheme and amount.
                 {!rejecting && (
                   <div style={{ marginTop: 6 }}>
-                    <button className="btn sm primary" disabled={busy} onClick={() => act(async () => { const x = await api.loanRequisitions.approveBatch(r.batchId, approvalDate || undefined); toast.info?.(`${x.approved} approved`); }, 'All pending loans of this requisition approved')}>Approve all pending loans of {r.batchFormId}</button>
+                    <button className="btn sm primary" disabled={busy} onClick={() => act(async () => { const x = await api.loanRequisitions.approveBatch(r.batchId, adminMe ? approvalDate || undefined : undefined); toast.info?.(`${x.approved} approved`); }, 'All pending loans of this requisition approved')}>Approve all pending loans of {r.batchFormId}</button>
                   </div>
                 )}
               </div>
@@ -206,7 +206,7 @@ function ReviewDialog({ id, onClose, onDone }) {
                     <input id="apprdate" type="date" value={approvalDate} max={new Date().toISOString().slice(0, 10)} onChange={(e) => setApprovalDate(e.target.value)} style={{ marginLeft: 8 }} />
                   </div>
                 )}
-                <button className="btn primary" disabled={busy || Boolean(calcError)} onClick={() => act(() => api.loanRequisitions.approve(id, { ...(changed ? { schemeId: f.schemeId, amount: editableAmount ? f.amount : undefined, mode: f.mode, term: f.term, rate: f.rate } : {}), ...(approvalDate ? { approvalDate } : {}) }), 'Loan approved')}>
+                <button className="btn primary" disabled={busy || Boolean(calcError)} onClick={() => act(() => api.loanRequisitions.approve(id, { ...(changed ? { schemeId: f.schemeId, amount: editableAmount ? f.amount : undefined, mode: f.mode, term: f.term, rate: f.rate } : {}), ...(adminMe && approvalDate ? { approvalDate } : {}) }), 'Loan approved')}>
                   {changed ? 'Approve with these changes' : 'Approve loan'}
                 </button>{' '}
                 <button className="btn danger-outline" disabled={busy} onClick={() => setRejecting(true)}>Reject</button>
