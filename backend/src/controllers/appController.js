@@ -697,7 +697,9 @@ export async function approveEmi(req, res) {
           employeeCode: c.collectedByCode || collector.employeeCode,
         }
       );
-    } catch {
+    } catch (firstErr) {
+      // an earlier day of the branch is still waiting for approval: the admin approves that day first (the EMI is not made without its installments)
+      if (/still pending approval/i.test(firstErr?.message || '')) throw firstErr;
       try {
         doc = await receive(
           { user: req.user, ip: req.ip, headers: req.headers },
@@ -721,8 +723,23 @@ export async function approveEmi(req, res) {
           ? (line.member?._id || line.member)
           : (mongoose.isValidObjectId(c.member) ? c.member : undefined);
 
+        // the installments it pays (earliest unpaid first), as receive() does: an EMI without them leaves the day due in the Loan Ledger and the Settlement
+        const allocated = [];
+        try {
+          const st = await borrowerState(p, line, dayOnly(c.collectedOn || new Date()));
+          let rest = c.amountPaise;
+          for (const row of st.left) {
+            if (rest <= 0) break;
+            const take = Math.min(row.remainingPaise, rest);
+            allocated.push({ no: row.no, dueDate: new Date(row.dueDate), amountPaise: take });
+            rest -= take;
+          }
+        } catch { /* a loan that is closed has none */ }
+
         doc = await EmiPayment.create({
           receiptNo,
+          installments: allocated.map((i) => i.no),
+          items: allocated,
           loanPayment: p._id,
           loanId: p.loanId || c.loanId,
           formId: p.formId,
