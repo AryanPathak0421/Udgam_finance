@@ -9,6 +9,7 @@ import { sendSms, isDevSms } from '../services/sms.js';
 import { branchFilter, maskMobile, showMobile } from './groupController.js';
 import { asString, createValidator, escapeRegex, HttpError, todayDateString, parseDateOnly } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
+import { toMinor } from '../utils/money.js';
 
 const OTP_TTL_MS = 5 * 60 * 1000;
 const OTP_MAX_ATTEMPTS = 3;
@@ -267,9 +268,20 @@ async function loadDueGroup(req) {
     entries = entries.filter((e) => months.includes(e.month));
     if (entries.length !== months.length) throw new HttpError(409, 'A chosen month is not due (it may have been paid). Reload and choose again.', { months: 'Reload and choose the months again' });
   }
-  // the OTP belongs to this group and to exactly these months
-  const subject = months.length ? `${group._id}|${months.join(',')}` : String(group._id);
-  return { group, entries, total: entries.reduce((s, e) => s + e.amountPaise, 0), subject };
+  // the commission of a month can be paid for less than it is due (never for more)
+  const given = req.body?.amounts && typeof req.body.amounts === 'object' ? req.body.amounts : {};
+  const pays = entries.map((e) => {
+    const v = given[e.month];
+    if (v === undefined || v === null || String(v).trim() === '') return { entry: e, payPaise: e.amountPaise };
+    const paise = toMinor(typeof v === 'number' ? String(v) : asString(v));
+    if (paise === null || paise < 100) throw new HttpError(422, `Enter the commission of ${e.month} (₹1 or more, up to 2 decimals)`, { amounts: `Enter the commission of ${e.month} (₹1 or more)` });
+    if (paise > e.amountPaise) throw new HttpError(422, `The commission of ${e.month} cannot be more than ₹${e.amountPaise / 100}`, { amounts: `The commission of ${e.month} cannot be more than ₹${e.amountPaise / 100}` });
+    return { entry: e, payPaise: paise };
+  });
+  const edited = pays.some((p) => p.payPaise !== p.entry.amountPaise);
+  // the OTP belongs to this group, to exactly these months and to exactly these amounts
+  const subject = months.length || edited ? `${group._id}|${pays.map((p) => `${p.entry.month}:${p.payPaise}`).join(',')}` : String(group._id);
+  return { group, entries, pays, total: pays.reduce((s, p) => s + p.payPaise, 0), subject };
 }
 
 /** Sends one OTP to the group leader's registered mobile for everything that is due. */
@@ -298,7 +310,7 @@ export async function sendDueOtp(req, res) {
 
 /** Pays everything that is due to the group: needs the OTP that the leader shared (verified first). */
 export async function payDue(req, res) {
-  const { group, entries, total, subject } = await loadDueGroup(req);
+  const { group, entries, pays, total, subject } = await loadDueGroup(req);
   // A group whose leader has no registered mobile number (many groups brought over from the old system) has no OTP to verify: the admin pays it
   // without the OTP and has to give the reason, which is kept in the audit trail.
   let ch = null;
@@ -310,12 +322,17 @@ export async function payDue(req, res) {
     ch = await takeVerified(req.body?.challengeId, req.user, 'group_commission', subject);
     if (!ch) throw new HttpError(422, 'Verify the OTP of the group leader first', { otp: 'Verify the OTP first' });
   }
-  const claim = await GroupLeaderCommission.updateMany(
-    { _id: { $in: entries.map((e) => e._id) }, status: 'pending' },
-    { $set: { status: 'deposited', depositedAt: new Date(), depositedBy: req.user._id, depositedToMobile: group.leaderMobile ? maskMobile(group.leaderMobile) : 'no mobile — paid without OTP' }, $unset: { otpHash: '', otpExpiresAt: '', otpMobile: '' } }
-  );
-  if (claim.modifiedCount !== entries.length) throw new HttpError(409, 'Some of this commission was just paid by someone else. Reload and check.');
+  let claimed = 0;
+  for (const { entry, payPaise } of pays) {
+    // eslint-disable-next-line no-await-in-loop
+    const one = await GroupLeaderCommission.updateOne(
+      { _id: entry._id, status: 'pending' },
+      { $set: { status: 'deposited', depositedAt: new Date(), depositedBy: req.user._id, depositedToMobile: group.leaderMobile ? maskMobile(group.leaderMobile) : 'no mobile — paid without OTP', amountPaise: payPaise, ...(payPaise !== entry.amountPaise ? { originalAmountPaise: entry.amountPaise } : {}) }, $unset: { otpHash: '', otpExpiresAt: '', otpMobile: '' } },
+    );
+    claimed += one.modifiedCount;
+  }
+  if (claimed !== pays.length) throw new HttpError(409, 'Some of this commission was just paid by someone else. Reload and check.');
   if (ch) await consumeChallenge(ch);
-  await audit(req, { action: 'groupLeaderCommission.deposited', entity: 'Group', entityId: group._id, after: { ...(ch ? {} : { withoutOtp: noOtpReason }), months: entries.map((e) => e.month), amount: total / 100, to: maskMobile(group.leaderMobile) } });
+  await audit(req, { action: 'groupLeaderCommission.deposited', entity: 'Group', entityId: group._id, after: { ...(ch ? {} : { withoutOtp: noOtpReason }), months: entries.map((e) => e.month), amount: total / 100, ...(pays.some((p) => p.payPaise !== p.entry.amountPaise) ? { due: entries.reduce((s, e) => s + e.amountPaise, 0) / 100 } : {}), to: maskMobile(group.leaderMobile) } });
   res.json({ paid: entries.length, amount: total / 100, months: entries.map((e) => e.month) });
 }

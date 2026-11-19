@@ -9,7 +9,7 @@ import { useToast } from '../components/ui/Toast.jsx';
 import useDebounce from '../hooks/useDebounce.js';
 import { todayIso } from '../utils/format.js';
 
-const FINANCE = ['super_admin', 'admin', 'accountant'];
+const FINANCE = ['super_admin', 'admin', 'accountant', 'branch_manager']; // who sees the Pay button (the branch manager pays the groups of his own branches)
 const thisMonth = () => todayIso().slice(0, 7);
 const inr = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const monthLabel = (m) => {
@@ -31,7 +31,15 @@ function PayDialog({ group, onClose, onDone }) {
   // month wise: the months that are paid now (all due months are ticked to begin with)
   const [chosen, setChosen] = useState(() => group.entries.map((e) => e.month));
   const chosenEntries = group.entries.filter((e) => chosen.includes(e.month));
-  const chosenTotal = chosenEntries.reduce((s, e) => s + e.amount, 0);
+  // what is paid for a month can be less than what is due, never more
+  const [amounts, setAmounts] = useState({});
+  const payOf = (e) => (amounts[e.month] === undefined || amounts[e.month] === '' ? e.amount : Number(amounts[e.month]));
+  const amountError = (e) => { const v = payOf(e); if (!Number.isFinite(v) || v < 1) return 'At least ₹1'; if (v > e.amount) return `Not more than ${inr(e.amount)}`; if (Math.round(v * 100) !== v * 100) return 'Up to 2 decimals'; return ''; };
+  const amountsBad = chosenEntries.some((e) => amountError(e));
+  const chosenTotal = chosenEntries.reduce((s, e) => s + (Number.isFinite(payOf(e)) ? payOf(e) : 0), 0);
+  const sendAmounts = Object.fromEntries(chosenEntries.filter((e) => payOf(e) !== e.amount).map((e) => [e.month, String(payOf(e))]));
+  const amountsArg = Object.keys(sendAmounts).length ? sendAmounts : undefined;
+  function setAmount(m, v) { setAmounts((a) => ({ ...a, [m]: v })); setSent(null); setVerified(false); setOtp(''); setError(''); }
   const months = chosen.length === group.entries.length ? undefined : chosen;
   function toggleMonth(m) {
     setChosen((c) => (c.includes(m) ? c.filter((x) => x !== m) : [...c, m]));
@@ -43,7 +51,7 @@ function PayDialog({ group, onClose, onDone }) {
     setBusy(true);
     setError('');
     try {
-      const r = await api.groupCommission.payDue(group.groupId, undefined, noOtpReason, months);
+      const r = await api.groupCommission.payDue(group.groupId, undefined, noOtpReason, months, amountsArg);
       toast.success(`${inr(r.amount)} paid to ${group.leaderName} (${r.paid} month${r.paid === 1 ? '' : 's'})`);
       onDone();
     } catch (err) {
@@ -57,7 +65,7 @@ function PayDialog({ group, onClose, onDone }) {
     setBusy(true);
     setError('');
     try {
-      const r = await api.groupCommission.sendDueOtp(group.groupId, months);
+      const r = await api.groupCommission.sendDueOtp(group.groupId, months, amountsArg);
       setSent(r);
       const code = r?.devOtp || r?.otp || '';
       if (code) setOtp(code);
@@ -90,7 +98,7 @@ function PayDialog({ group, onClose, onDone }) {
     setBusy(true);
     setError('');
     try {
-      const r = await api.groupCommission.payDue(group.groupId, sent.challengeId, undefined, months);
+      const r = await api.groupCommission.payDue(group.groupId, sent.challengeId, undefined, months, amountsArg);
       toast.success(`${inr(r.amount)} paid to ${group.leaderName} (${r.paid} month${r.paid === 1 ? '' : 's'})`);
       onDone();
     } catch (err) {
@@ -118,7 +126,7 @@ function PayDialog({ group, onClose, onDone }) {
                 <td data-label="Month">{monthLabel(e.month)}</td>
                 <td data-label="Loans" className="num">{e.loans}</td>
                 <td data-label="Per loan" className="num">{e.perLoan === null ? 'Mixed' : inr(e.perLoan)}</td>
-                <td data-label="Commission" className="num">{inr(e.amount)}</td>
+                <td data-label="Commission" className="num">{chosen.includes(e.month) ? (<div><input aria-label={`Commission of ${monthLabel(e.month)}`} inputMode="decimal" value={amounts[e.month] === undefined ? String(e.amount) : amounts[e.month]} disabled={busy} onChange={(ev) => setAmount(e.month, ev.target.value.replace(/[^0-9.]/g, ''))} style={{ width: 110, textAlign: 'right' }} />{amountError(e) ? <div className="field-error small">{amountError(e)}</div> : payOf(e) < e.amount ? <div className="muted small">due {inr(e.amount)}</div> : null}</div>) : inr(e.amount)}</td>
               </tr>
             ))}
           </tbody>
@@ -134,7 +142,7 @@ function PayDialog({ group, onClose, onDone }) {
               <FormField id="gnootp" label="Reason for paying without the OTP" required error={error}>
                 <input id="gnootp" value={noOtpReason} maxLength={200} onChange={(e) => { setNoOtpReason(e.target.value); setError(''); }} />
               </FormField>
-              <button className="btn primary" onClick={payWithoutOtp} disabled={busy || !chosen.length || noOtpReason.trim().length < 3}>{busy ? 'Paying…' : `Pay ${inr(chosenTotal)} without OTP`}</button>
+              <button className="btn primary" onClick={payWithoutOtp} disabled={busy || !chosen.length || amountsBad || noOtpReason.trim().length < 3}>{busy ? 'Paying…' : `Pay ${inr(chosenTotal)} without OTP`}</button>
             </div>
           )}
         </>
@@ -142,7 +150,7 @@ function PayDialog({ group, onClose, onDone }) {
         <>
           <p className="muted">An OTP goes to the group leader's registered mobile number. The commission is paid only after the leader shares it.</p>
           {error && <div className="field-error" role="alert">{error}</div>}
-          <button className="btn primary" onClick={send} disabled={busy || !chosen.length}>{busy ? 'Sending…' : 'Send OTP'}</button>
+          <button className="btn primary" onClick={send} disabled={busy || !chosen.length || amountsBad}>{busy ? 'Sending…' : 'Send OTP'}</button>
         </>
       ) : !verified ? (
         <form onSubmit={verify} noValidate>
@@ -168,7 +176,7 @@ function PayDialog({ group, onClose, onDone }) {
         <>
           <div className="notice" style={{ marginBottom: 12 }}>✓ OTP verified. Pay {inr(chosenTotal)} to {group.leaderName} now.</div>
           {error && <div className="field-error" role="alert" style={{ marginBottom: 8 }}>{error}</div>}
-          <button className="btn primary" onClick={pay} disabled={busy || !chosen.length}>{busy ? 'Paying…' : `Pay ${inr(chosenTotal)}`}</button>
+          <button className="btn primary" onClick={pay} disabled={busy || !chosen.length || amountsBad}>{busy ? 'Paying…' : `Pay ${inr(chosenTotal)}`}</button>
         </>
       )}
     </Modal>

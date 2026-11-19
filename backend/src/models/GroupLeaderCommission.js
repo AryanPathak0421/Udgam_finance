@@ -12,6 +12,7 @@ const entrySchema = new mongoose.Schema(
     loans: { type: Number, required: true, min: 1 }, // loans earning commission this month
     perLoanPaise: { type: Number, min: 0 }, // empty when loans from different rules are mixed
     amountPaise: { type: Number, required: true, min: 1 },
+    originalAmountPaise: { type: Number }, // the commission as it was due, when less was paid (amountPaise is then what was paid)
     status: { type: String, enum: COMMISSION_STATUS, default: 'pending' },
 
     depositedAt: { type: Date },

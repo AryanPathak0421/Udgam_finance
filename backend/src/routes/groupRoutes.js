@@ -28,6 +28,8 @@ const MANAGE = ['super_admin', 'admin', 'branch_manager', 'loan_officer', 'field
 // Everything that changes the group master itself, and the loan disbursement entry, is admin only.
 const ADMIN = ['super_admin', 'admin'];
 const FINANCE = ['super_admin', 'admin', 'accountant'];
+// paying the commission of a group: the branch manager pays the groups of his own branches (the branches of the user are applied by the controller)
+const PAYERS = [...FINANCE, 'branch_manager'];
 const REPORT = ['super_admin', 'admin', 'branch_manager', 'accountant', 'viewer'];
 
 const otpLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 40, standardHeaders: true, legacyHeaders: false });
@@ -57,9 +59,9 @@ router.get('/group-leader-commission', requireAuth, requireRole(...REPORT), h(re
 router.post('/group-leader-commission/generate', requireAuth, requireRole(...FINANCE), h(generate));
 // due commission of a group, paid with one OTP
 router.get('/group-leader-commission/due', requireAuth, requireRole(...REPORT), h(dueByGroup));
-router.post('/group-leader-commission/pay/send-otp', requireAuth, requireRole(...FINANCE), otpLimiter, h(sendDueOtp));
-router.post('/group-leader-commission/pay/verify-otp', requireAuth, requireRole(...FINANCE), otpLimiter, h(verifyChallenge));
-router.post('/group-leader-commission/pay', requireAuth, requireRole(...FINANCE), otpLimiter, h(payDue));
+router.post('/group-leader-commission/pay/send-otp', requireAuth, requireRole(...PAYERS), otpLimiter, h(sendDueOtp));
+router.post('/group-leader-commission/pay/verify-otp', requireAuth, requireRole(...PAYERS), otpLimiter, h(verifyChallenge));
+router.post('/group-leader-commission/pay', requireAuth, requireRole(...PAYERS), otpLimiter, h(payDue));
 router.post('/group-leader-commission/:id/send-otp', requireAuth, requireRole(...FINANCE), otpLimiter, h(sendOtp));
 router.post('/group-leader-commission/:id/verify-otp', requireAuth, requireRole(...FINANCE), otpLimiter, h(verifyOtp));
 
