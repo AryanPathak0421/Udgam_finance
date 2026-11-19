@@ -1,5 +1,5 @@
 import { DayClose } from '../models/DayClose.js';
-import { assertDayOpen, defaultWorkDate } from '../services/dayOpen.js';
+import { assertDayOpen, defaultWorkDate, branchWorkingDate } from '../services/dayOpen.js';
 import { offDaysFor, dailyNext } from '../services/holidays.js';
 import { readBankAccount } from '../services/bankAccountPick.js';
 import mongoose from 'mongoose';
@@ -130,6 +130,11 @@ const earliestPayment = (r) => {
 async function readPaidOn(req, r, input) {
   const today = startOfToday();
   let paidOn = await defaultWorkDate(r.branch?._id || r.branch, req.user);
+  // the admin is offered the working day of the branch as well (a branch on the 18th is paid on the 18th, not on today's 19th); he may pick another date
+  if (isAdmin(req.user)) {
+    const work = await branchWorkingDate(r.branch?._id || r.branch).catch(() => null);
+    if (work && work <= today) paidOn = work;
+  }
   if (input) {
     paidOn = parseDateOnly(asString(input));
     if (!paidOn) throw invalid({ paidOn: 'Enter a valid date' });

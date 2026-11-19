@@ -27,6 +27,20 @@ import { defaultWorkDate } from '../../services/dayOpen.js';
  * repayment mode (a daily loan has 365, a weekly loan 52) and the scheme's rounding. (The requisition of the app used 52 for every mode, so a
  * daily loan of ₹10,000 for 120 days was given an EMI of ₹200 instead of ₹100.)
  */
+const PERIOD_DAYS = { daily: 1, weekly: 7, fortnightly: 14, monthly: 30 };
+/**
+ * A member is NPA in the group collection when his loan is tagged NPA, its repayment period is over with a balance left, or he is 60 or more
+ * days behind with his installments (the same measure as the NPA list of the app). An NPA member is not part of the actual collection, is not
+ * picked by the first tap or by Select All, and is collected only when the staff ticks him.
+ */
+function isNpaMember({ loan, line, emiPaise, duesPaise, scheduledPaise, paidPaise, dateStr }) {
+  if (loan.npa || loan.isNpa || loan.status === 'npa' || line?.isNpa) return true;
+  if (!(scheduledPaise > paidPaise)) return false;
+  if (loan.emiEndDate && new Date(loan.emiEndDate) < new Date(`${dateStr}T00:00:00.000Z`)) return true;
+  const behind = emiPaise > 0 ? duesPaise / emiPaise : 0;
+  return behind * (PERIOD_DAYS[String(loan.mode || '').toLowerCase()] || 7) >= 60;
+}
+
 function installmentOf(amountRupees, ratePct, term, mode, scheme) {
   try {
     const r = calculateLoan({
@@ -3601,8 +3615,12 @@ export async function getEmiGroups(req, res) {
         const totalScheduledPaise = l._sch.total + (line.extraEmiPaise || 0) * l._sch.n;
         const totalLoanPaise = line.amountPaise || l.totalAmountPaise || 0;
         if (totalScheduledPaise > 0 && stats.totalPaise >= totalScheduledPaise) continue; // finished loan
-        // NPA: the repayment period is over and a balance is left: not part of the actual collection (his recovery is an NPA payment)
-        if (l.emiEndDate && new Date(l.emiEndDate) < new Date(`${dateStr}T00:00:00.000Z`) && totalScheduledPaise > stats.totalPaise) continue;
+        // NPA: not part of the actual collection (his recovery is an NPA payment)
+        {
+          const emiN = (l.schedule?.[0]?.installmentPaise || 0) + (line.extraEmiPaise || 0);
+          const duesN = Math.max(0, (l._sch.dueCount || 0) * emiN - stats.totalPaise);
+          if (isNpaMember({ loan: l, line, emiPaise: emiN, duesPaise: duesN, scheduledPaise: totalScheduledPaise, paidPaise: stats.totalPaise, dateStr })) continue;
+        }
         // (a loan is finished when everything scheduled is paid, see above; what was paid is not compared with the principal, because the installments also carry the interest)
 
         if (codeKey) seenMemberCodes.add(codeKey);
@@ -3817,7 +3835,7 @@ export async function getGroupEmiMembers(req, res) {
       const isFullyPaidToday = todayPaidPaise >= emiPaise && duesPaise === 0;
       const memberPendingDue = duesPaise > 0 ? (duesPaise / 100) : (alreadyPaidToday ? 0 : emiPaise / 100);
       const pendingPaise = pendingByKey.get(`${String(l._id)}_${String(line.code || '').trim().toUpperCase()}`) || 0;
-      const isNpa = Boolean(l.emiEndDate && new Date(l.emiEndDate) < new Date(`${dateStr}T00:00:00.000Z`) && totalScheduledPaise > totalPaidPaise);
+      const isNpa = isNpaMember({ loan: l, line, emiPaise, duesPaise, scheduledPaise: totalScheduledPaise, paidPaise: totalPaidPaise, dateStr });
 
       members.push({
         isNpa,

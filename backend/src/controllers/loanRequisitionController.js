@@ -1399,6 +1399,10 @@ export async function getRequisition(req, res) {
   ]);
   out.employeeCode = code;
   out.employeeName = emp?.name || u?.name || u?.username || '';
+  // the date an approval is given now (the working day of the branch): shown in the approval dialog
+  const working = await branchWorkingDate(r.branch?._id || r.branch).catch(() => null);
+  const today0 = startOfToday();
+  out.approvalWorkDate = (working && working <= today0 ? working : today0).toISOString().slice(0, 10);
   res.json({ requisition: out });
 }
 

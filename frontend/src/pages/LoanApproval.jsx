@@ -53,6 +53,7 @@ function ReviewDialog({ id, onClose, onDone }) {
     api.loanRequisitions.get(id).then((x) => {
       const q = x.requisition;
       setR(q);
+      setApprovalDate(q.approvalWorkDate || ''); // the date the approval is given on: the working day of the branch (the admin may change it)
       setF({ schemeId: String(q.schemeId), amount: String(q.amount), mode: q.mode, term: String(q.term), rate: String(q.rate) });
       // the schemes this kind of loan can be moved to (a business / MSME loan stays in its own type)
       api.loanRequisitions.schemes({ kind: q.kind, type: q.kind === 'business' ? q.business?.loanType : undefined }).then((res) => {
@@ -198,9 +199,10 @@ function ReviewDialog({ id, onClose, onDone }) {
                     {scheme ? `${scheme.name} · ` : ''}{inr(Number(f.amount))}{r.group ? ` per member (${inr(Number(f.amount) * r.memberCount)} in all)` : ''} · EMI {inr(calc.summary.installmentAmount)} · Cash in hand {inr(calc.cash)}
                   </div>
                 )}
+                {!adminMe && r.approvalWorkDate && <div className="notice" style={{ margin: '8px 0' }}>This approval is dated <strong>{new Date(`${r.approvalWorkDate}T00:00:00Z`).toLocaleDateString('en-IN', { timeZone: 'UTC' })}</strong> (the working day of the branch).</div>}
                 {adminMe && (
                   <div style={{ margin: '8px 0' }}>
-                    <label className="muted small" htmlFor="apprdate">Approval date (optional — leave empty for the working day of the branch)</label>
+                    <label className="muted small" htmlFor="apprdate">Approval date (the working day of the branch is filled in; change it for a back date)</label>
                     <input id="apprdate" type="date" value={approvalDate} max={new Date().toISOString().slice(0, 10)} onChange={(e) => setApprovalDate(e.target.value)} style={{ marginLeft: 8 }} />
                   </div>
                 )}
