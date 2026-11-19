@@ -19,6 +19,27 @@ import { EmiPayment } from '../../models/EmiPayment.js';
 import { AppEmiCollection } from '../../models/AppEmiCollection.js';
 import { LoanRequisition } from '../../models/LoanRequisition.js';
 import { LoanScheme } from '../../models/LoanScheme.js';
+import { calculateLoan, MODES as CALC_MODES } from '../../services/loanCalculator.js';
+import { defaultWorkDate } from '../../services/dayOpen.js';
+
+/**
+ * The installment of a loan as the software works it out: the scheme's own method (flat / reducing), the number of periods per year of the
+ * repayment mode (a daily loan has 365, a weekly loan 52) and the scheme's rounding. (The requisition of the app used 52 for every mode, so a
+ * daily loan of ₹10,000 for 120 days was given an EMI of ₹200 instead of ₹100.)
+ */
+function installmentOf(amountRupees, ratePct, term, mode, scheme) {
+  try {
+    const r = calculateLoan({
+      principalPaise: Math.round(amountRupees * 100), annualRateBp: Math.round(ratePct * 100), calculationType: scheme?.calculationType || 'flat', emiType: scheme?.emiType || 'equal',
+      mode, term, startDate: new Date(), roundingPaise: (scheme?.installmentRounding ?? 1) * 100,
+    });
+    return { installment: r.installmentAmount / 100, totalInterest: r.totalInterest / 100 };
+  } catch {
+    const perYear = CALC_MODES[mode]?.perYear || 52;
+    const totalInterest = Math.round((amountRupees * ratePct * (term / perYear)) / 100);
+    return { installment: Math.round((amountRupees + totalInterest) / term), totalInterest };
+  }
+}
 import { LoanSettlement } from '../../models/LoanSettlement.js';
 import { Group } from '../../models/Group.js';
 import { Task, Complaint, Leave, Resignation, EmployeeChange, TargetTask } from '../../models/HrExtra.js';
@@ -2805,8 +2826,10 @@ export async function createLoanRequisition(req, res) {
     let term = Number(b.term) || 52;
     let mode = b.mode || 'weekly';
 
+    let schemeRef = null;
     if (b.schemeId && mongoose.isValidObjectId(b.schemeId)) {
       const schemeDoc = await LoanScheme.findById(b.schemeId);
+      schemeRef = schemeDoc;
       if (schemeDoc) {
         rate = schemeDoc.roiMinBp ? schemeDoc.roiMinBp / 100 : (schemeDoc.roiMaxBp ? schemeDoc.roiMaxBp / 100 : rate);
         term = schemeDoc.termMin || schemeDoc.termMax || term;
@@ -2824,14 +2847,13 @@ export async function createLoanRequisition(req, res) {
 
     const amountPerMember = Number(b.amount) || 30000;
     const totalAmount = amountPerMember * chosenMembers.length;
-    const totalInterest = Math.round((amountPerMember * rate * (term / 52)) / 100);
-    const installment = Math.round((amountPerMember + totalInterest) / term);
+    const { installment, totalInterest } = installmentOf(amountPerMember, rate, term, mode, schemeRef);
 
     const reqDoc = await LoanRequisition.create({
       formId,
       kind: 'group',
       branch: branchId,
-      loanDate: startOfToday(),
+      loanDate: await defaultWorkDate(branchId, req.user).catch(() => startOfToday()),
       schemeName: b.schemeName || 'Group Loan Scheme',
       scheme: b.schemeId || new mongoose.Types.ObjectId(),
       amountPaise: amountPerMember * 100,
@@ -2958,8 +2980,10 @@ export async function createLoanRequisition(req, res) {
   let term = Number(b.term) || 52;
   let mode = b.mode || 'weekly';
 
+  let schemeRef = null;
   if (b.schemeId && mongoose.isValidObjectId(b.schemeId)) {
     const schemeDoc = await LoanScheme.findById(b.schemeId);
+    schemeRef = schemeDoc;
     if (schemeDoc) {
       rate = schemeDoc.roiMinBp ? schemeDoc.roiMinBp / 100 : (schemeDoc.roiMaxBp ? schemeDoc.roiMaxBp / 100 : rate);
       term = schemeDoc.termMin || schemeDoc.termMax || term;
@@ -2976,14 +3000,13 @@ export async function createLoanRequisition(req, res) {
   }
 
   const amount = Number(b.amount) || 10000;
-  const totalInterest = Math.round((amount * rate * (term / 52)) / 100);
-  const installment = Math.round((amount + totalInterest) / term);
+  const { installment, totalInterest } = installmentOf(amount, rate, term, mode, schemeRef);
 
   const reqDoc = await LoanRequisition.create({
     formId,
     kind,
     branch: branchId,
-    loanDate: startOfToday(),
+    loanDate: await defaultWorkDate(branchId, req.user).catch(() => startOfToday()),
     schemeName: b.schemeName || 'Standard Loan Scheme',
     scheme: b.schemeId || new mongoose.Types.ObjectId(),
     amountPaise: amount * 100,

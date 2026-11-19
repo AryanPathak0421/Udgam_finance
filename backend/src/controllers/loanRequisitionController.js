@@ -1500,7 +1500,6 @@ async function approvalDateOf(req, r, b) {
     const d = parseDateOnly(asked);
     if (!d) throw invalid({ approvalDate: 'Enter a valid date' });
     if (d > today) throw invalid({ approvalDate: 'The approval date cannot be in the future' });
-    if (r.loanDate && d < parseDateOnly(new Date(r.loanDate).toISOString().slice(0, 10))) throw invalid({ approvalDate: 'The approval date cannot be before the loan date' });
     return d;
   }
   const working = await branchWorkingDate(r.branch?._id || r.branch).catch(() => null);

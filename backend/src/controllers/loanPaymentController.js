@@ -121,7 +121,8 @@ function emiDates(r, paidOn, startInput, rule, off) {
 
 /** The payment can be made on or after the loan date and the day the loan was approved, never in the future. */
 const earliestPayment = (r) => {
-  const approved = r.decidedAt ? parseDateOnly(iso(r.decidedAt)) : null;
+  const dated = r.approvalDate || r.decidedAt; // the approval date as it was dated (an admin may date it back)
+  const approved = dated ? parseDateOnly(iso(dated)) : null;
   const loanDate = new Date(r.loanDate);
   return approved && approved > loanDate ? approved : loanDate;
 };
