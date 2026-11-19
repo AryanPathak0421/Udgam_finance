@@ -310,10 +310,10 @@ export async function payDue(req, res) {
   // A group whose leader has no registered mobile number (many groups brought over from the old system) has no OTP to verify: the admin pays it
   // without the OTP and has to give the reason, which is kept in the audit trail.
   let ch = null;
-  const noOtpReason = asString(req.body?.noOtpReason);
-  if (!group.leaderMobile && noOtpReason) {
+  // The admin can pay without the OTP of the leader (a group whose leader has no mobile can be paid no other way). Nobody else can.
+  const noOtpReason = asString(req.body?.noOtpReason).slice(0, 200) || 'paid by the admin without OTP';
+  if (req.body?.withoutOtp === true || req.body?.withoutOtp === 'true') {
     if (!['super_admin', 'admin'].includes(req.user.role)) throw new HttpError(403, 'Only the admin can pay a commission without the leader OTP');
-    if (noOtpReason.length < 3 || noOtpReason.length > 200) throw new HttpError(422, 'Enter the reason', { otp: 'Enter the reason (3–200 characters)' });
   } else {
     ch = await takeVerified(req.body?.challengeId, req.user, 'group_commission', subject);
     if (!ch) throw new HttpError(422, 'Verify the OTP of the group leader first', { otp: 'Verify the OTP first' });
@@ -323,7 +323,7 @@ export async function payDue(req, res) {
     // eslint-disable-next-line no-await-in-loop
     const one = await GroupLeaderCommission.updateOne(
       { _id: entry._id, status: 'pending' },
-      { $set: { status: 'deposited', depositedAt: new Date(), depositedBy: req.user._id, depositedToMobile: group.leaderMobile ? maskMobile(group.leaderMobile) : 'no mobile — paid without OTP', amountPaise: payPaise, ...(payPaise !== entry.amountPaise ? { originalAmountPaise: entry.amountPaise } : {}) }, $unset: { otpHash: '', otpExpiresAt: '', otpMobile: '' } },
+      { $set: { status: 'deposited', depositedAt: new Date(), depositedBy: req.user._id, depositedToMobile: ch ? maskMobile(group.leaderMobile) : group.leaderMobile ? `${maskMobile(group.leaderMobile)} (paid without OTP)` : 'no mobile — paid without OTP', amountPaise: payPaise, ...(payPaise !== entry.amountPaise ? { originalAmountPaise: entry.amountPaise } : {}) }, $unset: { otpHash: '', otpExpiresAt: '', otpMobile: '' } },
     );
     claimed += one.modifiedCount;
   }

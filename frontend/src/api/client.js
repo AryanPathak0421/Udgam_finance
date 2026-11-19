@@ -442,7 +442,7 @@ export const api = {
     due: (params) => request(`/group-leader-commission/due${qs(params)}`),
     sendDueOtp: (groupId, months, amounts) => request('/group-leader-commission/pay/send-otp', { method: 'POST', body: { groupId, months, amounts } }),
     verifyDueOtp: (challengeId, otp) => request('/group-leader-commission/pay/verify-otp', { method: 'POST', body: { challengeId, otp } }),
-    payDue: (groupId, challengeId, noOtpReason, months, amounts) => request('/group-leader-commission/pay', { method: 'POST', body: { groupId, challengeId, noOtpReason, months, amounts } }),
+    payDue: (groupId, challengeId, noOtpReason, months, amounts, withoutOtp) => request('/group-leader-commission/pay', { method: 'POST', body: { groupId, challengeId, noOtpReason, months, amounts, withoutOtp } }),
   },
   groupTransfer: {
     employees: (params) => request(`/group-transfer/employees${qs(params)}`),

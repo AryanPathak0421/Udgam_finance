@@ -28,6 +28,9 @@ function PayDialog({ group, onClose, onDone }) {
   const { user: me } = useAuth();
   const adminMe = ['super_admin', 'admin'].includes(me?.role);
   const [noOtpReason, setNoOtpReason] = useState('');
+  // the admin chooses how to pay: with the OTP of the leader, or without it (the leader of some groups has no mobile: only 'without' is possible)
+  const [payMode, setPayMode] = useState('otp');
+  const withoutMode = adminMe && (payMode === 'none' || !group.hasMobile);
   // month wise: the months that are paid now (all due months are ticked to begin with)
   const [chosen, setChosen] = useState(() => group.entries.map((e) => e.month));
   const chosenEntries = group.entries.filter((e) => chosen.includes(e.month));
@@ -51,7 +54,7 @@ function PayDialog({ group, onClose, onDone }) {
     setBusy(true);
     setError('');
     try {
-      const r = await api.groupCommission.payDue(group.groupId, undefined, noOtpReason, months, amountsArg);
+      const r = await api.groupCommission.payDue(group.groupId, undefined, noOtpReason, months, amountsArg, true);
       toast.success(`${inr(r.amount)} paid to ${group.leaderName} (${r.paid} month${r.paid === 1 ? '' : 's'})`);
       onDone();
     } catch (err) {
@@ -132,18 +135,24 @@ function PayDialog({ group, onClose, onDone }) {
         </table>
       </div>
 
-      {!group.hasMobile ? (
+      {adminMe && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }} role="group" aria-label="How to pay">
+          <button type="button" className={`btn sm${!withoutMode ? ' primary' : ''}`} disabled={busy || !group.hasMobile} title={group.hasMobile ? '' : 'The leader has no registered mobile number'} onClick={() => { setPayMode('otp'); setError(''); }}>OTP based</button>
+          <button type="button" className={`btn sm${withoutMode ? ' primary' : ''}`} disabled={busy} onClick={() => { setPayMode('none'); setError(''); }}>Without OTP</button>
+        </div>
+      )}
+      {withoutMode ? (
         <>
-          <div className="notice warn">The group leader has no registered mobile number, so the OTP cannot be sent. An admin adds it in Group Master{adminMe ? ', or pays it here without the OTP (give the reason)' : ''}.</div>
-          {adminMe && (
-            <div style={{ marginTop: 10 }}>
-              <FormField id="gnootp" label="Reason for paying without the OTP" required error={error}>
-                <input id="gnootp" value={noOtpReason} maxLength={200} onChange={(e) => { setNoOtpReason(e.target.value); setError(''); }} />
-              </FormField>
-              <button className="btn primary" onClick={payWithoutOtp} disabled={busy || !chosen.length || amountsBad || noOtpReason.trim().length < 3}>{busy ? 'Paying…' : `Pay ${inr(chosenTotal)} without OTP`}</button>
-            </div>
-          )}
+          <div className="notice warn">{group.hasMobile ? 'No OTP is asked: the commission is paid at once.' : 'The group leader has no registered mobile number, so only this way is possible. No OTP is asked: the commission is paid at once.'}</div>
+          <div style={{ marginTop: 10 }}>
+            <FormField id="gnootp" label="Remark (optional)" error={error}>
+              <input id="gnootp" value={noOtpReason} maxLength={200} onChange={(e) => { setNoOtpReason(e.target.value); setError(''); }} />
+            </FormField>
+            <button className="btn primary" onClick={payWithoutOtp} disabled={busy || !chosen.length || amountsBad}>{busy ? 'Paying…' : `Pay ${inr(chosenTotal)} without OTP`}</button>
+          </div>
         </>
+      ) : !group.hasMobile ? (
+        <div className="notice warn">The group leader has no registered mobile number, so the OTP cannot be sent. An admin adds it in Group Master or pays it without the OTP.</div>
       ) : !sent ? (
         <>
           <p className="muted">An OTP goes to the group leader's registered mobile number. The commission is paid only after the leader shares it.</p>
