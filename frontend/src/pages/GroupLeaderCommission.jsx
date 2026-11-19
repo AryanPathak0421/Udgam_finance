@@ -67,8 +67,6 @@ function PayDialog({ group, onClose, onDone }) {
     try {
       const r = await api.groupCommission.sendDueOtp(group.groupId, months, amountsArg);
       setSent(r);
-      const code = r?.devOtp || r?.otp || '';
-      if (code) setOtp(code);
       setVerified(false);
       toast.success(`OTP sent to ${r.sentTo}`);
     } catch (err) {
@@ -155,15 +153,7 @@ function PayDialog({ group, onClose, onDone }) {
       ) : !verified ? (
         <form onSubmit={verify} noValidate>
           <p className="muted">OTP sent to <strong>{sent.sentTo}</strong>. Valid for 5 minutes.</p>
-          {(sent.devOtp || sent.otp) ? (
-            <div className="notice warn" style={{ marginBottom: 12 }}>
-              OTP: <strong>{sent.devOtp || sent.otp}</strong> (or use universal testing code: <strong>123456</strong>)
-            </div>
-          ) : (
-            <div className="notice" style={{ marginBottom: 12, fontSize: '0.875rem' }}>
-              If SMS is delayed on carrier, you can verify using test code: <strong>123456</strong>
-            </div>
-          )}
+          <div className="notice" style={{ marginBottom: 12, fontSize: '0.875rem' }}>Ask the group leader for the OTP that came on the registered mobile number. Use "Resend OTP" if it is delayed.</div>
           <FormField id="gotp" label="Enter OTP" required error={error}>
             <input id="gotp" value={otp} inputMode="numeric" maxLength={6} autoFocus autoComplete="one-time-code" onChange={(e) => { setOtp(e.target.value.replace(/\D/g, '')); setError(''); }} />
           </FormField>

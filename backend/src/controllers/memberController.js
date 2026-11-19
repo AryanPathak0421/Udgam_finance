@@ -334,7 +334,17 @@ export async function sendOtp(req, res) {
   });
 }
 
+/** The OTP of a member / borrower flow (the test codes 123456 and 000000 are accepted here, as before). */
 export async function verifyOtp(req, res) {
+  return verifyOtpWith(req, res, true);
+}
+
+/** The OTP of a payment: only the OTP that was sent to the mobile is accepted (no test code). */
+export async function verifyOtpStrict(req, res) {
+  return verifyOtpWith(req, res, false);
+}
+
+async function verifyOtpWith(req, res, allowTestCodes) {
   const { challengeId } = req.body || {};
   const otp = asString(req.body?.otp);
   if (!mongoose.isValidObjectId(challengeId)) throw new HttpError(422, 'Send an OTP first');
@@ -347,7 +357,7 @@ export async function verifyOtp(req, res) {
   if (ch.expiresAt.getTime() < Date.now()) throw new HttpError(410, 'The OTP has expired. Please send a new OTP.');
   if (ch.attempts >= OTP_MAX_ATTEMPTS) throw new HttpError(429, 'Too many wrong attempts. Please send a new OTP.');
 
-  const isDemo = otp === '123456' || otp === '000000';
+  const isDemo = allowTestCodes && (otp === '123456' || otp === '000000');
   if (!isDemo) {
     const given = Buffer.from(hashOtp(ch._id, otp), 'hex');
     const stored = Buffer.from(ch.hash, 'hex');

@@ -384,6 +384,7 @@ export const api = {
   loanPayments: {
     prepare: (id, params) => request(`/loan-payments/prepare/${id}${qs(params)}`),
     sendOtp: (requisition) => request('/loan-payments/otp/send', { method: 'POST', body: { requisition } }),
+    verifyOtp: (challengeId, otp) => request('/loan-payments/otp/verify', { method: 'POST', body: { challengeId, otp } }),
     pay: (data) => request('/loan-payments', { method: 'POST', body: data }),
     payBatch: (data) => request('/loan-payments/batch', { method: 'POST', body: data }),
     list: (params) => request(`/loan-payments${qs(params)}`),

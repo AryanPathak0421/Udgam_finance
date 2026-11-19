@@ -19,7 +19,7 @@ import {
 } from '../controllers/groupController.js';
 import { requestLeaderChange, listLeaderRequests, approveLeaderRequest, rejectLeaderRequest } from '../controllers/groupLeaderRequestController.js';
 import { report, generate, sendOtp, verifyOtp, dueByGroup, sendDueOtp, payDue } from '../controllers/groupLeaderCommissionController.js';
-import { verifyOtp as verifyChallenge } from '../controllers/memberController.js';
+import { verifyOtpStrict as verifyChallenge } from '../controllers/memberController.js';
 
 const router = Router();
 

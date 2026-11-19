@@ -161,8 +161,6 @@ export async function sendOtp(req, res) {
   res.json({
     sentTo: maskMobile(mobile),
     expiresAt: e.otpExpiresAt,
-    otp,
-    devOtp: otp,
     smsSent: Boolean(sms?.sent && !sms?.dev),
   });
 }
@@ -184,8 +182,8 @@ export async function verifyOtp(req, res) {
     throw new HttpError(409, 'The leader mobile number has changed. Please send a new OTP.');
   }
 
-  const isDemo = otp === '123456' || otp === '000000';
-  if (!isDemo) {
+  {
+    // only the OTP that was sent to the leader's mobile (no test code)
     const given = Buffer.from(otpHash(e._id, otp), 'hex');
     const stored = Buffer.from(e.otpHash, 'hex');
     const match = given.length === stored.length && crypto.timingSafeEqual(given, stored);
@@ -302,8 +300,6 @@ export async function sendDueOtp(req, res) {
     challengeId: challenge._id,
     sentTo: maskMobile(group.leaderMobile),
     expiresAt: challenge.expiresAt,
-    otp,
-    devOtp: otp,
     smsSent: Boolean(sms?.sent && !sms?.dev),
   });
 }

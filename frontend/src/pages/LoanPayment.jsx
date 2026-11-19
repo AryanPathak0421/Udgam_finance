@@ -285,7 +285,7 @@ function PayDialog({ id, onClose, onPaid }) {
   }
   async function verifyOtp() {
     setOtpState((o) => ({ ...o, busy: true, err: '' }));
-    try { await api.members.verifyOtp(otpState.challengeId, otpState.otp.trim()); setOtpState((o) => ({ ...o, busy: false, verified: true, msg: 'Mobile verified' })); } catch (err) { setOtpState((o) => ({ ...o, busy: false, err: err.errors?.otp || err.message })); }
+    try { await api.loanPayments.verifyOtp(otpState.challengeId, otpState.otp.trim()); setOtpState((o) => ({ ...o, busy: false, verified: true, msg: 'Mobile verified' })); } catch (err) { setOtpState((o) => ({ ...o, busy: false, err: err.errors?.otp || err.message })); }
   }
 
   async function pay() {
@@ -405,7 +405,7 @@ function PayDialog({ id, onClose, onPaid }) {
                 )}
                 {otpState.verified && <span className="badge green">Mobile verified</span>}
               </div>
-              {otpState.msg && !otpState.verified && <div className="small" style={{ marginTop: 6 }}>{otpState.msg}{otpState.devOtp ? ` [dev OTP ${otpState.devOtp}]` : ''}</div>}
+              {otpState.msg && !otpState.verified && <div className="small" style={{ marginTop: 6 }}>{otpState.msg}</div>}
               {(otpState.err || errors.otp) && <div className="field-error" role="alert" style={{ marginTop: 6 }}>{otpState.err || errors.otp}</div>}
             </div>
           )}

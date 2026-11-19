@@ -321,7 +321,7 @@ export async function sendPaymentOtp(req, res) {
   if (!mobile) throw new HttpError(409, 'The member has no registered mobile number');
   const { challenge, otp } = await issueOtp({ user: req.user, purpose: 'loan_payment', subject: String(r._id), sentTo: `${String(mobile).slice(0, 2)}XXXXXX${String(mobile).slice(-2)}` });
   const sms = await sendSms({ to: mobile, text: `Udgam Microfinance: OTP ${otp} to receive your loan of Rs ${Math.round((r.amountPaise || 0) / 100)}. Valid for 5 minutes. Do not share this OTP.` }).catch(() => ({ sent: false }));
-  res.json({ challengeId: challenge._id, sentTo: `${String(mobile).slice(0, 2)}XXXXXX${String(mobile).slice(-2)}`, expiresAt: challenge.expiresAt, ...(isDevSms?.() && process.env.NODE_ENV !== 'production' ? { devOtp: otp } : {}), smsSent: Boolean(sms?.sent && !sms?.dev) });
+  res.json({ challengeId: challenge._id, sentTo: `${String(mobile).slice(0, 2)}XXXXXX${String(mobile).slice(-2)}`, expiresAt: challenge.expiresAt, smsSent: Boolean(sms?.sent && !sms?.dev) });
 }
 
 export async function payLoan(req, res) {
