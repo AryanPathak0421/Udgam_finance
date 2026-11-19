@@ -255,7 +255,7 @@ export default function RequisitionList() {
             <div className={`table-wrap${loading ? ' dim' : ''}`}>
               <table className="data-table">
                 <thead>
-                  <tr><th>Form ID</th><th>Loan date</th><th>Type</th><th>Borrower / Group</th><th>Member code</th><th>Member name</th><th>Staff name</th><th>Branch</th><th>Scheme</th><th className="num">Amount</th><th className="num">Cash</th><th className="num">EMI</th><th>Status</th><th className="actions-col">Actions</th></tr>
+                  <tr><th>Form ID</th><th>Loan date</th><th>Type</th><th>Group name</th><th>Member code</th><th>Member name</th><th>Staff name</th><th>Branch</th><th>Scheme</th><th className="num">Amount</th><th className="num">Cash</th><th className="num">EMI</th><th>Status</th><th className="actions-col">Actions</th></tr>
                 </thead>
                 <tbody>
                   {data.items.map((r) => (
@@ -263,7 +263,7 @@ export default function RequisitionList() {
                       <td data-label="Form ID"><strong>{r.formId}</strong></td>
                       <td data-label="Loan date">{r.loanDate}</td>
                       <td data-label="Type">{r.kindLabel}</td>
-                      <td data-label="Borrower">{r.subjectCode} — {r.subjectName}</td>
+                      <td data-label="Group name">{r.kind === 'group' ? `${r.subjectCode} — ${r.subjectName}` : '—'}</td>
                       <MemberCodeCell members={r.members} />
                       <MemberNameCell members={r.members} />
                       <td data-label="Staff name"><strong>{r.employeeName || r.employeeCode || '—'}</strong>{r.employeeCode && r.employeeName && r.employeeName !== r.employeeCode ? <div className="muted small">{r.employeeCode}</div> : null}</td>

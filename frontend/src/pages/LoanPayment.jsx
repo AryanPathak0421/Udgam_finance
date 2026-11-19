@@ -513,14 +513,14 @@ export function PendingPayments() {
           <>
             <div className={`table-wrap${loading ? ' dim' : ''}`}>
               <table className="data-table">
-                <thead><tr><th>Form ID</th><th>Loan date</th><th>Type</th><th>Borrower / Group</th><th>Member code</th><th>Member name</th><th>Staff name</th><th>Branch</th><th>Scheme</th><th className="num">Amount</th><th className="num">Cash after charges</th><th className="actions-col">Actions</th></tr></thead>
+                <thead><tr><th>Form ID</th><th>Loan date</th><th>Type</th><th>Group name</th><th>Member code</th><th>Member name</th><th>Staff name</th><th>Branch</th><th>Scheme</th><th className="num">Amount</th><th className="num">Cash after charges</th><th className="actions-col">Actions</th></tr></thead>
                 <tbody>
                   {data.items.map((r) => (
                     <tr key={r.id}>
                       <td data-label="Form ID"><strong>{r.formId}</strong></td>
                       <td data-label="Loan date">{r.loanDate}</td>
                       <td data-label="Type">{r.kindLabel}</td>
-                      <td data-label="Borrower">{r.subjectCode} — {r.subjectName}</td>
+                      <td data-label="Group name">{r.kind === 'group' ? `${r.subjectCode} — ${r.subjectName}` : '—'}</td>
                       <MemberCodeCell members={r.members} />
                       <MemberNameCell members={r.members} />
                       <td data-label="Staff name"><strong>{r.employeeName || r.employeeCode || '—'}</strong>{r.employeeCode && r.employeeName && r.employeeName !== r.employeeCode ? <div className="muted small">{r.employeeCode}</div> : null}</td>
@@ -618,7 +618,7 @@ export function PaidLoans() {
           <>
             <div className={`table-wrap${loading ? ' dim' : ''}`}>
               <table className="data-table">
-                <thead><tr><th>Loan ID</th><th>Receipt</th><th>Paid on</th><th>Form ID</th><th>Type</th><th>Borrower / Group</th><th>Member code</th><th>Member name</th><th>Staff name</th><th>Branch</th><th className="num">Loan amount</th><th className="num">Cash paid</th><th>First / last installment</th><th className="actions-col">Actions</th></tr></thead>
+                <thead><tr><th>Loan ID</th><th>Receipt</th><th>Paid on</th><th>Form ID</th><th>Type</th><th>Group name</th><th>Member code</th><th>Member name</th><th>Staff name</th><th>Branch</th><th className="num">Loan amount</th><th className="num">Cash paid</th><th>First / last installment</th><th className="actions-col">Actions</th></tr></thead>
                 <tbody>
                   {data.items.map((p) => (
                     <tr key={p.id}>
@@ -627,7 +627,7 @@ export function PaidLoans() {
                       <td data-label="Paid on">{dmy(p.paidOn)}</td>
                       <td data-label="Form ID">{p.formId}</td>
                       <td data-label="Type">{p.kind}</td>
-                      <td data-label="Borrower">{p.group || `${p.lines[0]?.code} — ${p.lines[0]?.name}`}{p.lines.length > 1 && <div className="muted small">{p.lines.length} members</div>}</td>
+                      <td data-label="Group name">{p.group || '—'}{p.group && p.lines.length > 1 && <div className="muted small">{p.lines.length} members</div>}</td>
                       <MemberCodeCell members={p.lines} />
                       <MemberNameCell members={p.lines} />
                       <td data-label="Staff name"><strong>{p.employeeName || p.employeeCode || '—'}</strong>{p.employeeCode && p.employeeName && p.employeeName !== p.employeeCode ? <div className="muted small">{p.employeeCode}</div> : null}</td>

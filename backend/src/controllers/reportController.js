@@ -291,23 +291,19 @@ const REPORTS = {
     const q = asString(req.query.q).toLowerCase();
     const staffFilter = asString(req.query.staff).trim().toUpperCase();
     let loans = [];
-    try {
-      loans = await LoanPayment.find({ status: 'paid', ...branchScope(req), ...dateRange(req, 'paidOn') })
-        .sort({ paidOn: -1, createdAt: -1 })
-        .limit(20000)
-        .select('-schedule')
-        .populate('branch', 'code')
-        .populate({ path: 'requisition', select: 'employeeCode createdBy groupInfo' })
-        .populate('createdBy', 'employeeCode name username')
-        .lean();
-    } catch {
-      loans = await LoanPayment.find({ status: 'paid', ...branchScope(req), ...dateRange(req, 'paidOn') })
-        .sort({ paidOn: -1, createdAt: -1 })
-        .limit(20000)
-        .select('-schedule')
-        .populate('branch', 'code')
-        .lean();
-    }
+    // The database sorts and cuts the loans without their schedules (a sort of whole loans with all their installments runs out of memory on a big
+    // book), the sort may use the disk, and the staff / branch are filled in afterwards.
+    loans = await LoanPayment.aggregate([
+      { $match: { status: 'paid', ...branchScope(req), ...dateRange(req, 'paidOn') } },
+      { $project: { schedule: 0 } },
+      { $sort: { paidOn: -1, createdAt: -1 } },
+      { $limit: 20000 },
+    ]).allowDiskUse(true);
+    await LoanPayment.populate(loans, [
+      { path: 'branch', select: 'code' },
+      { path: 'requisition', select: 'employeeCode createdBy groupInfo' },
+      { path: 'createdBy', select: 'employeeCode name username', model: 'User' },
+    ]).catch(() => null);
     const mobiles = await mobileMap(req, loans.map((l) => (l.lines && l.lines[0]?.code) || ''));
     const groupCodes = [...new Set(loans.map((l) => l.group?.code).filter(Boolean))];
     const groupDocs = groupCodes.length ? await Group.find({ code: { $in: groupCodes } }).select('code employeeCode').lean() : [];
@@ -332,6 +328,7 @@ const REPORTS = {
       const cashAmt = l.totalCashPaise || l.amountPaise || l.totalAmountPaise || lines.reduce((s, x) => s + (x.amountPaise || 0), 0);
       return {
         mobile: (lines[0]?.code ? mobiles.get(lines[0].code) : '') || '', key: String(l._id), loanId: l.loanId || l.formId, receiptNo: l.receiptNo, date: iso(l.paidOn), branch: l.branch?.code || '', loanType: l.kind === 'group' ? 'group' : l.loanType || l.kind,
+        groupName: l.group?.code ? `${l.group.code} — ${l.group.name}` : '', members: lines.map((x) => ({ code: x.code, name: x.name })),
         borrowers: l.group?.code ? `${l.group.code} — ${l.group.name} (${lines.length} members)` : lines.length ? lines.map((x) => `${x.code} ${x.name}`).join(', ') : (l.memberName || l.memberCode || '—'), scheme: l.schemeName || '', mode: l.modeLabel || l.mode,
         installments: l.installments, amount: rupees(l.totalAmountPaise ?? lines.reduce((s, x) => s + (x.amountPaise || 0), 0)), cash: rupees(cashAmt), payMode: l.payMode,
         staff: sName || code || '—', staffName: sName || '', paidBy: code,
@@ -352,12 +349,12 @@ const REPORTS = {
     const rows = reqs.filter((r) => {
       const code = String(r.employeeCode || r.createdBy?.employeeCode || '').trim();
       const sName = names.get(code.toUpperCase()) || names.get(String(r.createdBy?._id || '')) || r.createdBy?.name || r.createdBy?.username || '';
-      return matches(q, r.formId, r.batchFormId, r.borrower?.code, r.borrower?.name, r.groupInfo?.name, r.groupInfo?.code, r.employeeCode, code, sName);
+      return matches(q, r.formId, r.batchFormId, r.borrower?.code, r.borrower?.name, r.groupInfo?.name, r.groupInfo?.code, r.employeeCode, code, sName, ...(r.groupInfo?.members || []).flatMap((x) => [x.code, x.name]));
     }).map((r) => {
       const code = String(r.employeeCode || r.createdBy?.employeeCode || '').trim();
       const sName = names.get(code.toUpperCase()) || names.get(String(r.createdBy?._id || '')) || r.createdBy?.name || r.createdBy?.username || '';
       return {
-        key: String(r._id), formId: r.formId, date: iso(r.loanDate), branch: r.branch?.code || '', loanType: r.kind, applicant: r.kind === 'group' ? `${r.groupInfo?.code || ''} — ${r.groupInfo?.name || ''} (${r.memberCount || 0} members)` : `${r.borrower?.code || ''} ${r.borrower?.name || ''}`,
+        key: String(r._id), formId: r.formId, date: iso(r.loanDate), branch: r.branch?.code || '', loanType: r.kind, groupName: r.kind === 'group' ? `${r.groupInfo?.code || ''} — ${r.groupInfo?.name || ''}` : '', members: r.kind === 'group' ? (r.groupInfo?.members || []).map((x) => ({ code: x.code, name: x.name })) : r.borrower?.code ? [{ code: r.borrower.code, name: r.borrower.name }] : [], applicant: r.kind === 'group' ? `${r.groupInfo?.code || ''} — ${r.groupInfo?.name || ''} (${r.memberCount || 0} members)` : `${r.borrower?.code || ''} ${r.borrower?.name || ''}`,
         mobile: showMobile(req.user, r.borrower?.mobile), scheme: r.schemeName || '', mode: r.mode, term: r.term, amount: rupees(r.totalAmountPaise ?? r.amountPaise), status: r.status, requestedBy: code || r.employeeCode || '', requestedByName: sName || code || r.employeeCode || '',
       };
     });
@@ -397,7 +394,7 @@ const REPORTS = {
       const code = String(r.decidedByCode || r.decidedBy?.employeeCode || '').trim();
       const sName = names.get(code.toUpperCase()) || names.get(String(r.decidedBy?._id || '')) || r.decidedBy?.name || r.decidedBy?.username || '';
       return {
-        key: String(r._id), formId: r.formId, date: iso(r.decidedAt), branch: r.branch?.code || '', loanType: r.kind, applicant: r.kind === 'group' ? `${r.groupInfo?.code || ''} — ${r.groupInfo?.name || ''} (${r.memberCount || 0} members)` : `${r.borrower?.code || ''} ${r.borrower?.name || ''}`,
+        key: String(r._id), formId: r.formId, date: iso(r.decidedAt), branch: r.branch?.code || '', loanType: r.kind, groupName: r.kind === 'group' ? `${r.groupInfo?.code || ''} — ${r.groupInfo?.name || ''}` : '', members: r.kind === 'group' ? (r.groupInfo?.members || []).map((x) => ({ code: x.code, name: x.name })) : r.borrower?.code ? [{ code: r.borrower.code, name: r.borrower.name }] : [], applicant: r.kind === 'group' ? `${r.groupInfo?.code || ''} — ${r.groupInfo?.name || ''} (${r.memberCount || 0} members)` : `${r.borrower?.code || ''} ${r.borrower?.name || ''}`,
         mobile: showMobile(req.user, r.borrower?.mobile), scheme: r.schemeName || '', requested: rupees(r.requestedAmountPaise ?? r.amountPaise), amount: rupees(r.totalAmountPaise ?? r.amountPaise), status: r.status, decidedBy: code || r.decidedByCode || '', decidedByName: sName || code || r.decidedByCode || '',
         reason: r.rejectReason || '', paidOut: r.disbursedAt ? iso(r.disbursedAt) : '',
       };
