@@ -10,6 +10,23 @@ import { branchFilter, maskMobile, showMobile } from './groupController.js';
 import { asString, createValidator, escapeRegex, HttpError, todayDateString, parseDateOnly } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
 import { toMinor } from '../utils/money.js';
+import { CashEntry } from '../models/CashEntry.js';
+import { defaultWorkDate, branchWorkingDate, assertDayOpen } from '../services/dayOpen.js';
+
+/**
+ * The commission that is paid goes to the Cashbook of the branch of the group: a payment entry "Group leader commission" on the working day of the
+ * branch (the admin pays on the working day of the branch as well, not on a later calendar day).
+ */
+async function commissionCashEntry(req, branchId, amountPaise, remark) {
+  const today = parseDateOnly(todayDateString());
+  let date = await defaultWorkDate(branchId, req.user);
+  if (['super_admin', 'admin'].includes(req.user.role)) {
+    const work = await branchWorkingDate(branchId).catch(() => null);
+    if (work && today && work <= today) date = work;
+  }
+  await assertDayOpen(branchId, date, req.user);
+  return CashEntry.create({ branch: branchId, date, side: 'payment', category: 'leader_commission', amountPaise, mode: 'cash', remark: String(remark).slice(0, 200), enteredByCode: req.user.employeeCode || '', createdBy: req.user._id });
+}
 
 const OTP_TTL_MS = 5 * 60 * 1000;
 const OTP_MAX_ATTEMPTS = 3;
@@ -206,6 +223,7 @@ export async function verifyOtp(req, res) {
   e.otpExpiresAt = undefined;
   e.otpAttempts = 0;
   e.otpMobile = undefined;
+  await commissionCashEntry(req, e.branch?._id || e.branch, e.amountPaise, `Group leader commission ${e.group?.code || ''} ${e.group?.leaderName || ''} (${e.month})`);
   await e.save();
   await audit(req, {
     action: 'groupLeaderCommission.deposited',
@@ -318,6 +336,8 @@ export async function payDue(req, res) {
     ch = await takeVerified(req.body?.challengeId, req.user, 'group_commission', subject);
     if (!ch) throw new HttpError(422, 'Verify the OTP of the group leader first', { otp: 'Verify the OTP first' });
   }
+  // the cashbook entry first (a day that is closed refuses it); it is taken back when the commission was paid by someone else meanwhile
+  const cash = await commissionCashEntry(req, group.branch, total, `Group leader commission ${group.code} ${group.leaderName || ''} (${entries.map((e) => e.month).join(', ')})`);
   let claimed = 0;
   for (const { entry, payPaise } of pays) {
     // eslint-disable-next-line no-await-in-loop
@@ -327,7 +347,10 @@ export async function payDue(req, res) {
     );
     claimed += one.modifiedCount;
   }
-  if (claimed !== pays.length) throw new HttpError(409, 'Some of this commission was just paid by someone else. Reload and check.');
+  if (claimed !== pays.length) {
+    await CashEntry.deleteOne({ _id: cash._id }).catch(() => {});
+    throw new HttpError(409, 'Some of this commission was just paid by someone else. Reload and check.');
+  }
   if (ch) await consumeChallenge(ch);
   await audit(req, { action: 'groupLeaderCommission.deposited', entity: 'Group', entityId: group._id, after: { ...(ch ? {} : { withoutOtp: noOtpReason }), months: entries.map((e) => e.month), amount: total / 100, ...(pays.some((p) => p.payPaise !== p.entry.amountPaise) ? { due: entries.reduce((s, e) => s + e.amountPaise, 0) / 100 } : {}), to: maskMobile(group.leaderMobile) } });
   res.json({ paid: entries.length, amount: total / 100, months: entries.map((e) => e.month) });
