@@ -25,12 +25,39 @@ function PayDialog({ group, onClose, onDone }) {
   const [otp, setOtp] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const { user: me } = useAuth();
+  const adminMe = ['super_admin', 'admin'].includes(me?.role);
+  const [noOtpReason, setNoOtpReason] = useState('');
+  // month wise: the months that are paid now (all due months are ticked to begin with)
+  const [chosen, setChosen] = useState(() => group.entries.map((e) => e.month));
+  const chosenEntries = group.entries.filter((e) => chosen.includes(e.month));
+  const chosenTotal = chosenEntries.reduce((s, e) => s + e.amount, 0);
+  const months = chosen.length === group.entries.length ? undefined : chosen;
+  function toggleMonth(m) {
+    setChosen((c) => (c.includes(m) ? c.filter((x) => x !== m) : [...c, m]));
+    // another selection needs its own OTP
+    setSent(null); setVerified(false); setOtp(''); setError('');
+  }
+
+  async function payWithoutOtp() {
+    setBusy(true);
+    setError('');
+    try {
+      const r = await api.groupCommission.payDue(group.groupId, undefined, noOtpReason, months);
+      toast.success(`${inr(r.amount)} paid to ${group.leaderName} (${r.paid} month${r.paid === 1 ? '' : 's'})`);
+      onDone();
+    } catch (err) {
+      setError(err.errors?.otp || err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function send() {
     setBusy(true);
     setError('');
     try {
-      const r = await api.groupCommission.sendDueOtp(group.groupId);
+      const r = await api.groupCommission.sendDueOtp(group.groupId, months);
       setSent(r);
       const code = r?.devOtp || r?.otp || '';
       if (code) setOtp(code);
@@ -63,7 +90,7 @@ function PayDialog({ group, onClose, onDone }) {
     setBusy(true);
     setError('');
     try {
-      const r = await api.groupCommission.payDue(group.groupId, sent.challengeId);
+      const r = await api.groupCommission.payDue(group.groupId, sent.challengeId, undefined, months);
       toast.success(`${inr(r.amount)} paid to ${group.leaderName} (${r.paid} month${r.paid === 1 ? '' : 's'})`);
       onDone();
     } catch (err) {
@@ -79,13 +106,15 @@ function PayDialog({ group, onClose, onDone }) {
         <div><dt>Group</dt><dd>{group.groupCode} — {group.groupName}</dd></div>
         <div><dt>Leader</dt><dd>{group.leaderName} ({group.leaderMobile || 'no mobile number'})</dd></div>
         <div><dt>Due</dt><dd><strong>{inr(group.totalDue)}</strong> for {group.entries.length} month{group.entries.length === 1 ? '' : 's'}</dd></div>
+        <div><dt>Paying now</dt><dd><strong>{inr(chosenTotal)}</strong> for {chosenEntries.length} month{chosenEntries.length === 1 ? '' : 's'}</dd></div>
       </dl>
       <div className="table-wrap" style={{ marginBottom: 12 }}>
         <table className="data-table">
-          <thead><tr><th>Month</th><th className="num">Loans</th><th className="num">Per loan</th><th className="num">Commission</th></tr></thead>
+          <thead><tr><th style={{ width: 36 }}><input type="checkbox" aria-label="Select all months" checked={chosen.length === group.entries.length} onChange={(e) => { setChosen(e.target.checked ? group.entries.map((x) => x.month) : []); setSent(null); setVerified(false); setOtp(''); }} /></th><th>Month</th><th className="num">Loans</th><th className="num">Per loan</th><th className="num">Commission</th></tr></thead>
           <tbody>
             {group.entries.map((e) => (
               <tr key={e.id}>
+                <td><input type="checkbox" aria-label={`Pay ${monthLabel(e.month)}`} checked={chosen.includes(e.month)} disabled={busy} onChange={() => toggleMonth(e.month)} /></td>
                 <td data-label="Month">{monthLabel(e.month)}</td>
                 <td data-label="Loans" className="num">{e.loans}</td>
                 <td data-label="Per loan" className="num">{e.perLoan === null ? 'Mixed' : inr(e.perLoan)}</td>
@@ -93,17 +122,27 @@ function PayDialog({ group, onClose, onDone }) {
               </tr>
             ))}
           </tbody>
-          <tfoot><tr><td colSpan={3} className="num"><strong>Total due</strong></td><td className="num"><strong>{inr(group.totalDue)}</strong></td></tr></tfoot>
+          <tfoot><tr><td colSpan={4} className="num"><strong>Selected to pay</strong></td><td className="num"><strong>{inr(chosenTotal)}</strong></td></tr></tfoot>
         </table>
       </div>
 
       {!group.hasMobile ? (
-        <div className="notice warn">The group leader has no registered mobile number, so the OTP cannot be sent. An admin adds it in Group Master.</div>
+        <>
+          <div className="notice warn">The group leader has no registered mobile number, so the OTP cannot be sent. An admin adds it in Group Master{adminMe ? ', or pays it here without the OTP (give the reason)' : ''}.</div>
+          {adminMe && (
+            <div style={{ marginTop: 10 }}>
+              <FormField id="gnootp" label="Reason for paying without the OTP" required error={error}>
+                <input id="gnootp" value={noOtpReason} maxLength={200} onChange={(e) => { setNoOtpReason(e.target.value); setError(''); }} />
+              </FormField>
+              <button className="btn primary" onClick={payWithoutOtp} disabled={busy || !chosen.length || noOtpReason.trim().length < 3}>{busy ? 'Paying…' : `Pay ${inr(chosenTotal)} without OTP`}</button>
+            </div>
+          )}
+        </>
       ) : !sent ? (
         <>
           <p className="muted">An OTP goes to the group leader's registered mobile number. The commission is paid only after the leader shares it.</p>
           {error && <div className="field-error" role="alert">{error}</div>}
-          <button className="btn primary" onClick={send} disabled={busy}>{busy ? 'Sending…' : 'Send OTP'}</button>
+          <button className="btn primary" onClick={send} disabled={busy || !chosen.length}>{busy ? 'Sending…' : 'Send OTP'}</button>
         </>
       ) : !verified ? (
         <form onSubmit={verify} noValidate>
@@ -127,9 +166,9 @@ function PayDialog({ group, onClose, onDone }) {
         </form>
       ) : (
         <>
-          <div className="notice" style={{ marginBottom: 12 }}>✓ OTP verified. Pay {inr(group.totalDue)} to {group.leaderName} now.</div>
+          <div className="notice" style={{ marginBottom: 12 }}>✓ OTP verified. Pay {inr(chosenTotal)} to {group.leaderName} now.</div>
           {error && <div className="field-error" role="alert" style={{ marginBottom: 8 }}>{error}</div>}
-          <button className="btn primary" onClick={pay} disabled={busy}>{busy ? 'Paying…' : `Pay ${inr(group.totalDue)}`}</button>
+          <button className="btn primary" onClick={pay} disabled={busy || !chosen.length}>{busy ? 'Paying…' : `Pay ${inr(chosenTotal)}`}</button>
         </>
       )}
     </Modal>

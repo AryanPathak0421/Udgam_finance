@@ -36,6 +36,9 @@ function ReviewDialog({ id, onClose, onDone }) {
   const [error, setError] = useState('');
   const [schemes, setSchemes] = useState([]);
   const [f, setF] = useState({ schemeId: '', amount: '', mode: '', term: '', rate: '' });
+  const { user: me } = useAuth();
+  const adminMe = ['super_admin', 'admin'].includes(me?.role);
+  const [approvalDate, setApprovalDate] = useState(''); // the admin may date the approval back (empty: the working day of the branch)
   const [calc, setCalc] = useState(null);
   const [calcError, setCalcError] = useState('');
   const [rejecting, setRejecting] = useState(false);
@@ -127,7 +130,7 @@ function ReviewDialog({ id, onClose, onDone }) {
                 This loan is one of the {r.batchCount} member loans of requisition <strong>{r.batchFormId}</strong>. Each member has her own scheme and amount.
                 {!rejecting && (
                   <div style={{ marginTop: 6 }}>
-                    <button className="btn sm primary" disabled={busy} onClick={() => act(async () => { const x = await api.loanRequisitions.approveBatch(r.batchId); toast.info?.(`${x.approved} approved`); }, 'All pending loans of this requisition approved')}>Approve all pending loans of {r.batchFormId}</button>
+                    <button className="btn sm primary" disabled={busy} onClick={() => act(async () => { const x = await api.loanRequisitions.approveBatch(r.batchId, approvalDate || undefined); toast.info?.(`${x.approved} approved`); }, 'All pending loans of this requisition approved')}>Approve all pending loans of {r.batchFormId}</button>
                   </div>
                 )}
               </div>
@@ -195,7 +198,13 @@ function ReviewDialog({ id, onClose, onDone }) {
                     {scheme ? `${scheme.name} · ` : ''}{inr(Number(f.amount))}{r.group ? ` per member (${inr(Number(f.amount) * r.memberCount)} in all)` : ''} · EMI {inr(calc.summary.installmentAmount)} · Cash in hand {inr(calc.cash)}
                   </div>
                 )}
-                <button className="btn primary" disabled={busy || Boolean(calcError)} onClick={() => act(() => api.loanRequisitions.approve(id, changed ? { schemeId: f.schemeId, amount: editableAmount ? f.amount : undefined, mode: f.mode, term: f.term, rate: f.rate } : {}), 'Loan approved')}>
+                {adminMe && (
+                  <div style={{ margin: '8px 0' }}>
+                    <label className="muted small" htmlFor="apprdate">Approval date (optional — leave empty for the working day of the branch)</label>
+                    <input id="apprdate" type="date" value={approvalDate} max={new Date().toISOString().slice(0, 10)} onChange={(e) => setApprovalDate(e.target.value)} style={{ marginLeft: 8 }} />
+                  </div>
+                )}
+                <button className="btn primary" disabled={busy || Boolean(calcError)} onClick={() => act(() => api.loanRequisitions.approve(id, { ...(changed ? { schemeId: f.schemeId, amount: editableAmount ? f.amount : undefined, mode: f.mode, term: f.term, rate: f.rate } : {}), ...(approvalDate ? { approvalDate } : {}) }), 'Loan approved')}>
                   {changed ? 'Approve with these changes' : 'Approve loan'}
                 </button>{' '}
                 <button className="btn danger-outline" disabled={busy} onClick={() => setRejecting(true)}>Reject</button>
@@ -317,7 +326,7 @@ function LoanApproval({ status, fixedKind = '' }) {
                   <tr>
                     <th>Form ID</th><th>Loan date</th><th>Type</th><th>Borrower / Group</th><th>Member code</th><th>Member name</th><th>Staff name</th><th>Branch</th><th>Scheme</th>
                     <th className="num">Amount</th><th className="num">EMI</th>
-                    {status !== 'pending' && <th>{status === 'approved' ? 'Approved' : 'Rejected'}</th>}
+                    {status !== 'pending' && <th>{status === 'approved' ? 'Approved on' : 'Rejected'}</th>}
                     {status === 'rejected' && <th>Reason</th>}
                     <th className="actions-col">Actions</th>
                   </tr>
@@ -340,7 +349,7 @@ function LoanApproval({ status, fixedKind = '' }) {
                         {r.requestedAmount && <div className="muted small">asked {inr(r.requestedAmount)}</div>}
                       </td>
                       <td data-label="EMI" className="num">{inr(r.emi)}</td>
-                      {status !== 'pending' && <td data-label="Decided">{fmt(r.decidedAt)}{r.decidedByCode ? <div className="muted small">by {r.decidedByCode}</div> : null}</td>}
+                      {status !== 'pending' && <td data-label="Decided">{r.approvalDate ? new Date(r.approvalDate).toLocaleDateString('en-IN', { timeZone: 'UTC' }) : fmt(r.decidedAt)}{r.decidedByCode ? <div className="muted small">by {r.decidedByCode}</div> : null}</td>}
                       {status === 'rejected' && <td data-label="Reason" style={{ maxWidth: 260 }}>{r.rejectReason || '—'}</td>}
                       <td data-label="Actions" className="actions-col">
                         {status === 'pending' && canDecide && (r.kind !== 'business' || isAdminUser)

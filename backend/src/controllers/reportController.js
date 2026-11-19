@@ -906,6 +906,39 @@ export async function npaWriteOff(req, res) {
   res.status(201).json({ receiptNo: set.receiptNo, writtenOff: outstanding / 100 });
 }
 
+/**
+ * Takes a write-off back (admin only): the loan is open again with the balance it had, the written-off balance leaves the member's record and, when
+ * nothing else is written off, the member is unblocked (the write-off blocked him). Not possible once part of the written-off balance was paid.
+ */
+export async function npaWriteOffRevert(req, res) {
+  if (!isAdmin(req.user)) throw new HttpError(403, 'Only the admin can take back a write-off');
+  const b = req.body || {};
+  if (!mongoose.isValidObjectId(asString(b.settlement))) throw new HttpError(404, 'Write-off not found');
+  const reason = asString(b.reason);
+  if (reason.length < 3 || reason.length > 200) throw new HttpError(422, 'Enter the reason', { reason: 'Enter the reason (3–200 characters)' });
+  const set = await LoanSettlement.findOne({ _id: b.settlement, kind: 'writeoff', status: 'active' });
+  if (!set) throw new HttpError(404, 'Write-off not found (or it is already taken back)');
+  const m = set.member ? await Member.findById(set.member).select('writeOff isBlocked blockHistory').lean() : null;
+  const left = (m?.writeOff?.totalPaise || 0) - set.outstandingPaise;
+  if (m && (m.writeOff?.paidPaise || 0) > Math.max(left, 0)) throw new HttpError(409, 'Part of the written-off balance has been paid. It cannot be taken back.');
+  set.status = 'cancelled';
+  set.cancelReason = reason;
+  set.cancelledAt = new Date();
+  await set.save();
+  if (m) {
+    const clear = left <= 0;
+    const lastBlock = (m.blockHistory || []).filter((x) => x.action === 'block').slice(-1)[0];
+    const unblock = clear && m.isBlocked && /written off/i.test(lastBlock?.reason || '');
+    await Member.updateOne({ _id: set.member }, {
+      $inc: { 'writeOff.totalPaise': -set.outstandingPaise },
+      $pull: { 'writeOff.loans': { loanPayment: set.loanPayment } },
+      ...(unblock ? { $set: { isBlocked: false }, $push: { blockHistory: { action: 'unblock', reason: `Write-off of loan ${set.loanId} taken back: ${reason}`.slice(0, 200), at: new Date(), by: req.user._id, byCode: req.user.employeeCode || '' } } } : {}),
+    });
+  }
+  await audit(req, { action: 'report.npaWriteOffRevert', entity: 'LoanSettlement', entityId: set._id, after: { loan: set.loanId, member: set.memberCode, amount: set.outstandingPaise / 100, reason } });
+  res.json({ reverted: set.outstandingPaise / 100 });
+}
+
 /** A payment of the written-off balance of a member (Borrower Synopsis → Pay due): it goes to the cashbook as an NPA receipt. */
 export async function writeOffPayment(req, res) {
   const b = req.body || {};

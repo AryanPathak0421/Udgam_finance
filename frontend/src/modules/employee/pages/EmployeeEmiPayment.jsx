@@ -121,10 +121,12 @@ export default function EmployeeEmiPayment() {
       setGroupMembers(members);
 
       // Whole group collection summary: strictly compute from deduplicated members list so totals ALWAYS match!
-      const actualCol = members.reduce((s, m) => s + (m.emiAmount || 0), 0);
+      const live = members.filter((m) => !m.isNpa);
+      const actualCol = live.reduce((s, m) => s + (m.emiAmount || 0), 0);
       const colToday = members.reduce((s, m) => s + (m.todayPaidAmount || 0), 0);
-      const totalDue = members.reduce((s, m) => s + (m.totalDue || m.emiAmount || 0), 0);
-      const pendingDue = members.reduce((s, m) => s + (m.dueAmount || 0), 0);
+      const totalDue = live.reduce((s, m) => s + (m.totalDue || m.emiAmount || 0), 0);
+      const pendingDue = live.reduce((s, m) => s + (m.dueAmount || 0), 0);
+      const overDue = live.reduce((s, m) => s + (m.oldDue || 0), 0); // the dues of the earlier installments, up to today
       setActiveGroup((prev) => ({
         ...prev,
         ...group,
@@ -132,6 +134,7 @@ export default function EmployeeEmiPayment() {
         totalDueAmount: totalDue,
         totalCollectedToday: colToday,
         pendingDue: pendingDue,
+        oldDue: overDue,
       }));
 
       // Pre-fill collection map: Only select UNPAID and NOT PENDING members!
@@ -143,8 +146,8 @@ export default function EmployeeEmiPayment() {
         const canCollect = !isPaidToday && !isPending && !m.isAdvancePaid;
         const defaultEmi = m.emiAmount || m.suggestedAmount || 0;
         initialMap[k] = {
-          selected: canCollect,
-          amount: canCollect ? defaultEmi : 0,
+          selected: canCollect && !m.isNpa,
+          amount: canCollect && !m.isNpa ? defaultEmi : 0,
           defaultAmount: defaultEmi,
           loanPaymentId: m.loanPaymentId,
           memberId: m.memberId,
@@ -212,7 +215,7 @@ export default function EmployeeEmiPayment() {
   const toggleSelect = (key) => {
     setCollectionMap((prev) => {
       const current = prev[key] || {};
-      if (current.isAdvancePaid || current.isPendingApproval || current.isNpa) return prev;
+      if (current.isAdvancePaid || current.isPendingApproval) return prev;
       const nextSelected = !current.selected;
       return {
         ...prev,
@@ -246,7 +249,7 @@ export default function EmployeeEmiPayment() {
         const k = getLoanKey(m);
         const isPaidToday = Boolean(m.isAdvancePaid || m.alreadyPaidToday || ((m.todayPaidAmount || 0) >= (m.emiAmount || 0)));
         const isPending = Boolean(m.isPendingApproval);
-        if (!isPaidToday && !isPending && !m.isAdvancePaid) {
+        if (!isPaidToday && !isPending && !m.isAdvancePaid && !m.isNpa) {
           const current = next[k] || {};
           next[k] = {
             ...current,
@@ -629,7 +632,7 @@ export default function EmployeeEmiPayment() {
                       </div>
                       <div style={{ textAlign: 'center' }}>
                         <div style={{ fontSize: '0.68rem', color: is100Percent ? '#166534' : 'var(--emp-text-muted)', fontWeight: 600 }}>
-                          Collected Today:
+                          Collected:
                         </div>
                         <div style={{ fontSize: '1rem', fontWeight: 800, color: '#15803d' }}>
                           ₹{Number(g.totalCollectedToday || 0).toLocaleString('en-IN')}
@@ -637,10 +640,10 @@ export default function EmployeeEmiPayment() {
                       </div>
                       <div style={{ textAlign: 'right' }}>
                         <div style={{ fontSize: '0.68rem', color: is100Percent ? '#166534' : '#b91c1c', fontWeight: 600 }}>
-                          Remaining Due:
+                          Overdue (till today):
                         </div>
                         <div style={{ fontSize: '1rem', fontWeight: 800, color: '#dc2626' }}>
-                          ₹{Number(g.pendingDue ?? Math.max(0, (g.actualCollection || g.totalDueAmount || 0) - (g.totalCollectedToday || 0))).toLocaleString('en-IN')}
+                          ₹{Number(g.oldDue || 0).toLocaleString('en-IN')}
                         </div>
                       </div>
                     </div>
@@ -737,21 +740,16 @@ export default function EmployeeEmiPayment() {
                 </div>
               </div>
               <div style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: '0.7rem', color: 'var(--emp-text-muted)', fontWeight: 600 }}>Collected Today:</div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--emp-text-muted)', fontWeight: 600 }}>Collected:</div>
                 <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#15803d' }}>
                   ₹{Number(activeGroup.totalCollectedToday || 0).toLocaleString('en-IN')}
                 </div>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: '0.7rem', color: '#b91c1c', fontWeight: 600 }}>Remaining Due Today:</div>
+                <div style={{ fontSize: '0.7rem', color: '#b91c1c', fontWeight: 600 }}>Overdue (till today):</div>
                 <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#dc2626' }}>
-                  ₹{Number(Math.max(0, (activeGroup.actualCollection || 0) - (activeGroup.totalCollectedToday || 0))).toLocaleString('en-IN')}
+                  ₹{Number(activeGroup.oldDue || 0).toLocaleString('en-IN')}
                 </div>
-                {activeGroup.pendingDue > 0 && activeGroup.pendingDue !== Math.max(0, (activeGroup.actualCollection || 0) - (activeGroup.totalCollectedToday || 0)) && (
-                  <div style={{ fontSize: '0.66rem', color: '#64748b', marginTop: 1 }}>
-                    Overdue: ₹{Number(activeGroup.pendingDue).toLocaleString('en-IN')}
-                  </div>
-                )}
               </div>
             </div>
           </div>
@@ -770,7 +768,7 @@ export default function EmployeeEmiPayment() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 4px' }}>
                 {(() => {
                   const unpaidMembers = filteredGroupMembers.filter(
-                    (m) => !m.isAdvancePaid && !m.alreadyPaidToday && ((m.todayPaidAmount || 0) < (m.emiAmount || 0))
+                    (m) => !m.isAdvancePaid && !m.alreadyPaidToday && !m.isNpa && ((m.todayPaidAmount || 0) < (m.emiAmount || 0))
                   );
                   const isAllUnpaidChecked = unpaidMembers.length > 0 && unpaidMembers.every((m) => collectionMap[getLoanKey(m)]?.selected);
                   return (
@@ -797,8 +795,9 @@ export default function EmployeeEmiPayment() {
                         const isPaidToday = Boolean(m.isAdvancePaid || m.alreadyPaidToday || ((m.todayPaidAmount || 0) >= (m.emiAmount || 0)));
                         const defaultEmi = m.emiAmount || m.suggestedAmount || 0;
                         reset[k] = {
-                          selected: !isPaidToday,
-                          amount: isPaidToday ? 0 : defaultEmi,
+                          selected: !isPaidToday && !m.isNpa,
+                          amount: isPaidToday || m.isNpa ? 0 : defaultEmi,
+                          isNpa: Boolean(m.isNpa),
                           defaultAmount: defaultEmi,
                           loanPaymentId: m.loanPaymentId,
                           memberId: m.memberId,
@@ -822,8 +821,7 @@ export default function EmployeeEmiPayment() {
                 const isAdvance = m.isAdvancePaid;
                 const isPending = Boolean(m.isPendingApproval);
                 const isCollectedToday = Boolean(m.todayPaidAmount > 0 || (m.alreadyPaidToday && m.todayPaidAmount > 0));
-                const isNpaMember = Boolean(m.isNpa);
-                const isPaidToday = isAdvance || isCollectedToday || isPending || isNpaMember;
+                const isPaidToday = isAdvance || isCollectedToday || isPending;
 
                 return (
                   <div
@@ -851,7 +849,7 @@ export default function EmployeeEmiPayment() {
                           <div>
                             <div style={{ fontWeight: 700, fontSize: '0.92rem', color: isPending ? '#c2410c' : isCollectedToday ? '#15803d' : 'var(--emp-text)' }}>
                               {m.memberName}
-                              {m.isNpa && <span style={{ marginLeft: 6, fontSize: '0.66rem', padding: '1px 6px', background: '#fee2e2', color: '#991b1b', borderRadius: 4, fontWeight: 700 }}>NPA — not collected here</span>}
+                              {m.isNpa && <span style={{ marginLeft: 6, fontSize: '0.66rem', padding: '1px 6px', background: '#fee2e2', color: '#991b1b', borderRadius: 4, fontWeight: 700 }}>NPA — tick him yourself</span>}
                             </div>
                             <div style={{ fontSize: '0.75rem', color: 'var(--emp-text-muted)', marginTop: 1 }}>
                               Code: <strong>{m.memberCode}</strong> • Loan A/c: <strong>{m.loanId}</strong>

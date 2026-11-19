@@ -18,7 +18,9 @@ import { audit } from '../utils/audit.js';
 import { notifyApprovers } from '../services/notify.js';
 import { branchFilter, isAdmin } from './groupController.js';
 import { reserveStock, releaseStock } from './loanRequisitionController.js';
-import { sendSms } from '../services/sms.js';
+import { sendSms, isDevSms } from '../services/sms.js';
+import { issueOtp, takeVerified, consumeChallenge } from '../services/otpChallenges.js';
+import { Member } from '../models/Member.js';
 
 const invalid = (errors) => new HttpError(422, 'Please correct the highlighted fields', errors);
 const POPULATE = [{ path: 'branch', select: 'code name' }, { path: 'requisition', select: 'employeeCode' }, { path: 'createdBy', select: 'employeeCode name username' }];
@@ -304,10 +306,29 @@ async function pay(req, r, b) {
   return doc;
 }
 
+/** An OTP to the registered mobile of the member for the payment of a personal, business / MSME or product loan (a group loan has none). */
+export async function sendPaymentOtp(req, res) {
+  const r = await loadApproved(req, req.body?.requisition);
+  if (r.kind === 'group') throw new HttpError(409, 'A group loan is paid without the OTP of a member');
+  const m = r.member ? await Member.findById(r.member).select('name mobile').lean() : null;
+  const mobile = m?.mobile || r.borrower?.mobile;
+  if (!mobile) throw new HttpError(409, 'The member has no registered mobile number');
+  const { challenge, otp } = await issueOtp({ user: req.user, purpose: 'loan_payment', subject: String(r._id), sentTo: `${String(mobile).slice(0, 2)}XXXXXX${String(mobile).slice(-2)}` });
+  const sms = await sendSms({ to: mobile, text: `Udgam Microfinance: OTP ${otp} to receive your loan of Rs ${Math.round((r.amountPaise || 0) / 100)}. Valid for 5 minutes. Do not share this OTP.` }).catch(() => ({ sent: false }));
+  res.json({ challengeId: challenge._id, sentTo: `${String(mobile).slice(0, 2)}XXXXXX${String(mobile).slice(-2)}`, expiresAt: challenge.expiresAt, ...(isDevSms?.() && process.env.NODE_ENV !== 'production' ? { devOtp: otp } : {}), smsSent: Boolean(sms?.sent && !sms?.dev) });
+}
+
 export async function payLoan(req, res) {
   const b = req.body || {};
   const r = await loadApproved(req, b.requisition);
+  // personal, business / MSME and product loans are paid only after the member's OTP (sent to his registered mobile) is verified
+  let ch = null;
+  if (r.kind !== 'group') {
+    ch = await takeVerified(b.otpChallengeId, req.user, 'loan_payment', String(r._id));
+    if (!ch) throw new HttpError(422, "Verify the OTP sent to the member's mobile first", { otp: "Verify the member's OTP first" });
+  }
   const doc = await pay(req, r, b);
+  if (ch) await consumeChallenge(ch).catch(() => {});
   res.status(201).json({ payment: present(doc) });
 }
 

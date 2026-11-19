@@ -160,6 +160,7 @@ const loanRequisitionSchema = new mongoose.Schema(
     requestedAmountPaise: Number,
     requestedSchemeName: String, // the scheme first asked for when the approver changed it
     decidedAt: Date,
+    approvalDate: Date, // the day the approval is dated: the working day of the branch (the admin may choose a back date)
     decidedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     decidedByCode: String,
     rejectReason: String,

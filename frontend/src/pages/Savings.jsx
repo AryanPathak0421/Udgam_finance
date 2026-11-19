@@ -15,6 +15,13 @@ const REQUESTERS = ['super_admin', 'admin', 'branch_manager', 'accountant'];
 const MODE_LABEL = { cash: 'Cash', bank: 'Bank transfer', upi: 'UPI', cheque: 'Cheque' };
 const KIND_LABEL = { withdraw: 'Withdrawal', adjust: 'Adjusted against EMI' };
 const TONE = { pending: 'grey', awaiting_otp: 'grey', completed: 'green', rejected: 'danger' };
+// the stages that wait for somebody are shown bold and in colour (amber: the admin has to decide, blue: the member's OTP is to be verified)
+const STAGE_STYLE = {
+  pending: { background: '#fef3c7', color: '#92400e', border: '1px solid #f59e0b', fontWeight: 800 },
+  awaiting_otp: { background: '#dbeafe', color: '#1e3a8a', border: '1px solid #3b82f6', fontWeight: 800 },
+  completed: { fontWeight: 700 },
+  rejected: { fontWeight: 700 },
+};
 const STAGE_LABEL = { pending: 'Pending admin approval', awaiting_otp: 'Approved — OTP pending', completed: 'Completed', rejected: 'Rejected' };
 const inr = (n) => (n === null || n === undefined || Number.isNaN(n) ? '—' : `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const dmy = (s) => (s ? new Date(s.length === 10 ? `${s}T00:00:00` : s).toLocaleDateString('en-IN') : '—');
@@ -205,7 +212,7 @@ function WithdrawalTable({ approval }) {
     }
   }
 
-  const tab = (key, label) => <button key={key} className={`btn sm${status === key ? ' primary' : ''}`} onClick={() => setStatus(key)}>{label}{key === 'pending' && data ? ` (${data.pending})` : ''}{key === 'awaiting_otp' && data?.awaitingOtp ? ` (${data.awaitingOtp})` : ''}</button>;
+  const tab = (key, label) => <button key={key} className={`btn sm${status === key ? ' primary' : ''}`} style={{ fontWeight: 700, ...(status !== key && key === 'pending' ? { borderColor: '#f59e0b', color: '#92400e' } : {}), ...(status !== key && key === 'awaiting_otp' ? { borderColor: '#3b82f6', color: '#1e3a8a' } : {}) }} onClick={() => setStatus(key)}>{label}{key === 'pending' && data ? ` (${data.pending})` : ''}{key === 'awaiting_otp' && data?.awaitingOtp ? ` (${data.awaitingOtp})` : ''}</button>;
   return (
     <>
       <PageHeader
@@ -257,7 +264,7 @@ function WithdrawalTable({ approval }) {
                         {w.kind === 'withdraw' && w.interest > 0 && <div className="muted small">security {inr(w.amount)} + interest {inr(w.interest)}</div>}
                       </td>
                       <td data-label="Status">
-                        <span className={`badge ${TONE[w.stage]}`}>{STAGE_LABEL[w.stage]}</span>
+                        <span className={`badge ${TONE[w.stage]}`} style={{ ...STAGE_STYLE[w.stage], fontSize: '0.82rem', padding: '3px 10px' }}>{STAGE_LABEL[w.stage]}</span>
                         {w.status === 'rejected' && <div className="muted small">{w.rejectReason}</div>}
                         {w.decidedByCode && <div className="muted small">approved/decided by {w.decidedByCode}</div>}
                         {w.stage === 'completed' && w.completedByCode && <div className="muted small">OTP verified · {w.completedByCode}</div>}
@@ -523,7 +530,7 @@ export function SecurityWithdraw() {
                         <td data-label="Request"><strong>{w.receiptNo}</strong></td><td data-label="Date">{dmy(w.requestedOn)}</td>
                         <td data-label="Type">{KIND_LABEL[w.kind]}{w.kind === 'adjust' && <div className="muted small">Loan {w.loanId}</div>}</td>
                         <td data-label="Amount" className="num">{inr(w.kind === 'withdraw' && w.interest > 0 ? w.total : w.amount)}{w.kind === 'withdraw' && w.interest > 0 && <div className="muted small">incl. interest {inr(w.interest)}</div>}</td>
-                        <td data-label="Status"><span className={`badge ${TONE[w.stage]}`}>{STAGE_LABEL[w.stage]}</span>{w.status === 'rejected' && <div className="muted small">{w.rejectReason}</div>}</td>
+                        <td data-label="Status"><span className={`badge ${TONE[w.stage]}`} style={{ ...STAGE_STYLE[w.stage], fontSize: '0.82rem', padding: '3px 10px' }}>{STAGE_LABEL[w.stage]}</span>{w.status === 'rejected' && <div className="muted small">{w.rejectReason}</div>}</td>
                       </tr>
                     ))}
                   </tbody>

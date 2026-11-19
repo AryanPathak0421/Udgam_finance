@@ -174,7 +174,7 @@ export const api = {
     reject: (id, reason) => request(`/loan-requisitions/${id}/reject`, { method: 'POST', body: { reason } }),
     productPreview: (data) => request('/loan-requisitions/product-preview', { method: 'POST', body: data }),
     unapprove: (id, reason) => request(`/loan-requisitions/${id}/unapprove`, { method: 'POST', body: { reason } }),
-    approveBatch: (batchId) => request(`/loan-requisitions/batch/${batchId}/approve`, { method: 'POST' }),
+    approveBatch: (batchId, approvalDate) => request(`/loan-requisitions/batch/${batchId}/approve`, { method: 'POST', body: approvalDate ? { approvalDate } : {} }),
     rejectBatch: (batchId, reason) => request(`/loan-requisitions/batch/${batchId}/reject`, { method: 'POST', body: { reason } }),
   },
   superAdmin: {
@@ -308,6 +308,7 @@ export const api = {
     staffOptions: (branch) => request(`/reports/staff-options${qs({ branch })}`),
     callDone: (data) => request('/reports/call-done', { method: 'POST', body: data }),
     npaPayment: (data) => request('/reports/npa-payment', { method: 'POST', body: data }),
+    npaWriteOffRevert: (data) => request('/reports/npa-write-off-revert', { method: 'POST', body: data }),
     npaWriteOff: (data) => request('/reports/npa-write-off', { method: 'POST', body: data }),
     writeOffPayment: (data) => request('/reports/write-off-payment', { method: 'POST', body: data }),
   },
@@ -382,6 +383,7 @@ export const api = {
   },
   loanPayments: {
     prepare: (id, params) => request(`/loan-payments/prepare/${id}${qs(params)}`),
+    sendOtp: (requisition) => request('/loan-payments/otp/send', { method: 'POST', body: { requisition } }),
     pay: (data) => request('/loan-payments', { method: 'POST', body: data }),
     payBatch: (data) => request('/loan-payments/batch', { method: 'POST', body: data }),
     list: (params) => request(`/loan-payments${qs(params)}`),
@@ -437,9 +439,9 @@ export const api = {
     sendOtp: (id) => request(`/group-leader-commission/${id}/send-otp`, { method: 'POST' }),
     verifyOtp: (id, otp) => request(`/group-leader-commission/${id}/verify-otp`, { method: 'POST', body: { otp } }),
     due: (params) => request(`/group-leader-commission/due${qs(params)}`),
-    sendDueOtp: (groupId) => request('/group-leader-commission/pay/send-otp', { method: 'POST', body: { groupId } }),
+    sendDueOtp: (groupId, months) => request('/group-leader-commission/pay/send-otp', { method: 'POST', body: { groupId, months } }),
     verifyDueOtp: (challengeId, otp) => request('/group-leader-commission/pay/verify-otp', { method: 'POST', body: { challengeId, otp } }),
-    payDue: (groupId, challengeId) => request('/group-leader-commission/pay', { method: 'POST', body: { groupId, challengeId } }),
+    payDue: (groupId, challengeId, noOtpReason, months) => request('/group-leader-commission/pay', { method: 'POST', body: { groupId, challengeId, noOtpReason, months } }),
   },
   groupTransfer: {
     employees: (params) => request(`/group-transfer/employees${qs(params)}`),

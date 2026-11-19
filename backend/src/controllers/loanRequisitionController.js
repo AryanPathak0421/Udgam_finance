@@ -24,7 +24,7 @@ import { sendSms } from '../services/sms.js';
 import { verhoeff } from './memberController.js';
 import { notifyApprovers } from '../services/notify.js';
 import { blockedCodes } from '../services/blockedStaff.js';
-import { defaultWorkDate, assertDayOpen } from '../services/dayOpen.js';
+import { defaultWorkDate, assertDayOpen, branchWorkingDate } from '../services/dayOpen.js';
 import { assertNotSundayOrHoliday } from '../services/holidays.js';
 
 const FULL_MOBILE_ROLES = ['super_admin', 'admin', 'accountant'];
@@ -817,6 +817,7 @@ const present = (r, user, { detail = false } = {}) => {
     requestedAmount: r.requestedAmountPaise ? rupees(r.requestedAmountPaise) : null,
     requestedSchemeName: r.requestedSchemeName || '',
     decidedAt: r.decidedAt || null,
+    approvalDate: r.approvalDate || r.decidedAt || null,
     decidedByCode: r.decidedByCode || '',
     rejectReason: r.rejectReason || '',
     disbursedAt: r.disbursedAt || null,
@@ -1487,6 +1488,25 @@ async function loadForDecision(req) {
  * Approves a pending requisition. The loan amount can be edited first (not for a product loan, whose amount is the
  * value of the goods): the EMI, charges and cash are worked out again with the scheme's rules.
  */
+/**
+ * The date an approval is dated. It follows the day the branch is working on (a branch whose day is the 18th approves on the 18th, even
+ * if the admin does it on the 19th); the admin may choose another date (a back date, never a future one, never before the loan date).
+ */
+async function approvalDateOf(req, r, b) {
+  const today = startOfToday();
+  const asked = asString(b.approvalDate);
+  if (asked) {
+    if (!isAdmin(req.user)) throw new HttpError(403, 'Only the admin can choose the approval date');
+    const d = parseDateOnly(asked);
+    if (!d) throw invalid({ approvalDate: 'Enter a valid date' });
+    if (d > today) throw invalid({ approvalDate: 'The approval date cannot be in the future' });
+    if (r.loanDate && d < parseDateOnly(new Date(r.loanDate).toISOString().slice(0, 10))) throw invalid({ approvalDate: 'The approval date cannot be before the loan date' });
+    return d;
+  }
+  const working = await branchWorkingDate(r.branch?._id || r.branch).catch(() => null);
+  return working && working <= today ? working : today;
+}
+
 async function applyApproval(req, r, b) {
   const kind = r.kind || 'personal';
   const has = (v) => v !== undefined && v !== null && String(v).trim() !== '';
@@ -1571,6 +1591,7 @@ async function applyApproval(req, r, b) {
   }
   r.status = 'approved';
   r.decidedAt = new Date();
+  r.approvalDate = await approvalDateOf(req, r, b);
   r.decidedBy = req.user._id;
   r.decidedByCode = req.user.employeeCode || '';
   r.updatedBy = req.user._id;
@@ -1658,6 +1679,7 @@ export async function unapproveRequisition(req, res) {
   if (reason.length < 3 || reason.length > 200) throw invalid({ reason: 'Enter why the approval is taken back (3–200 characters)' });
   r.status = 'pending';
   r.decidedAt = undefined;
+  r.approvalDate = undefined;
   r.decidedBy = undefined;
   r.decidedByCode = '';
   r.updatedBy = req.user._id;
@@ -1680,7 +1702,7 @@ export async function approveBatch(req, res) {
   for (const d of docs) {
     try {
       // eslint-disable-next-line no-await-in-loop
-      await applyApproval(req, d, {});
+      await applyApproval(req, d, { approvalDate: req.body?.approvalDate });
       results.push({ formId: d.formId, ok: true });
     } catch (err) {
       results.push({ formId: d.formId, ok: false, message: err.message });

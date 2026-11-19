@@ -277,11 +277,23 @@ function PayDialog({ id, onClose, onPaid }) {
   const totalCash = lines.reduce((s, l) => s + l.cash, 0);
   const setItem = (i, patch) => setItems((x) => x.map((it, j) => (j === i ? { ...it, ...patch } : it)));
 
+  // the OTP of the member (personal, business / MSME and product loans): sent to his registered mobile, verified before the payment
+  const [otpState, setOtpState] = useState({ challengeId: '', sentTo: '', otp: '', verified: false, devOtp: '', msg: '', err: '', busy: false });
+  async function sendOtp() {
+    setOtpState((o) => ({ ...o, busy: true, err: '', msg: '' }));
+    try { const x = await api.loanPayments.sendOtp(id); setOtpState((o) => ({ ...o, busy: false, challengeId: x.challengeId, sentTo: x.sentTo, devOtp: x.devOtp || '', verified: false, otp: '', msg: `OTP sent to ${x.sentTo}` })); } catch (err) { setOtpState((o) => ({ ...o, busy: false, err: err.errors?.otp || err.message })); }
+  }
+  async function verifyOtp() {
+    setOtpState((o) => ({ ...o, busy: true, err: '' }));
+    try { await api.members.verifyOtp(otpState.challengeId, otpState.otp.trim()); setOtpState((o) => ({ ...o, busy: false, verified: true, msg: 'Mobile verified' })); } catch (err) { setOtpState((o) => ({ ...o, busy: false, err: err.errors?.otp || err.message })); }
+  }
+
   async function pay() {
     setBusy(true);
     setErrors({});
     try {
       const r = await api.loanPayments.pay({
+        otpChallengeId: isGroup ? undefined : otpState.challengeId || undefined,
         requisition: id, paidOn, emiStartDate: emiStart, payMode, reference, bankAccount: payMode === 'bank' ? bankAccount : undefined,
         items: items.filter((it) => it.stockProduct).map((it) => ({ member: isGroup ? it.member : undefined, stockProduct: it.stockProduct, quantity: Number(it.quantity) || 1 })),
       });
@@ -379,8 +391,26 @@ function PayDialog({ id, onClose, onPaid }) {
             </table>
           </div>
           {errors.amount && <div className="field-error" role="alert">{errors.amount}</div>}
+          {!isGroup && (
+            <div className="panel" style={{ padding: 12, marginTop: 12 }}>
+              <strong>Member's OTP</strong>
+              <div className="muted small">An OTP goes to the registered mobile number of the member. The loan is paid only after it is verified.</div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 8 }}>
+                <button type="button" className="btn sm" disabled={otpState.busy || otpState.verified} onClick={sendOtp}>{otpState.challengeId ? 'Send the OTP again' : "Send OTP to the member's mobile"}</button>
+                {otpState.challengeId && !otpState.verified && (
+                  <>
+                    <input aria-label="OTP" inputMode="numeric" maxLength={6} placeholder="6-digit OTP" value={otpState.otp} onChange={(e) => setOtpState((o) => ({ ...o, otp: e.target.value.replace(/\D/g, '') }))} style={{ width: 130 }} />
+                    <button type="button" className="btn sm primary" disabled={otpState.busy || otpState.otp.length !== 6} onClick={verifyOtp}>Verify OTP</button>
+                  </>
+                )}
+                {otpState.verified && <span className="badge green">Mobile verified</span>}
+              </div>
+              {otpState.msg && !otpState.verified && <div className="small" style={{ marginTop: 6 }}>{otpState.msg}{otpState.devOtp ? ` [dev OTP ${otpState.devOtp}]` : ''}</div>}
+              {(otpState.err || errors.otp) && <div className="field-error" role="alert" style={{ marginTop: 6 }}>{otpState.err || errors.otp}</div>}
+            </div>
+          )}
           <div style={{ marginTop: 12 }}>
-            <button className="btn primary" disabled={busy || Boolean(errors.dates)} onClick={pay}>{busy ? 'Paying…' : `Pay ${isProduct && totalCash <= 0 ? '(hand over goods)' : inr(totalCash)} and generate receipt`}</button>
+            <button className="btn primary" disabled={busy || Boolean(errors.dates) || (!isGroup && !otpState.verified)} onClick={pay}>{busy ? 'Paying…' : `Pay ${isProduct && totalCash <= 0 ? '(hand over goods)' : inr(totalCash)} and generate receipt`}</button>
           </div>
         </>
       )}

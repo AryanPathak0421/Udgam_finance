@@ -92,7 +92,7 @@ COLS['personal-collection-sheet'] = asScreen(SHEET);
 COLS['msme-collection-sheet'] = asScreen(SHEET_MSME);
 COLS['group-collection-sheet'] = asScreen(SHEET_GROUP);
 COLS['collection-sheet'] = asScreen(SHEET_ALL);
-const KIND_LABEL = { death: 'Death settlement', auto: 'Auto settle', loan: 'Loan settlement', auto_npa: 'Auto write-off (3 years)' };
+const KIND_LABEL = { death: 'Death settlement', auto: 'Auto settle', loan: 'Loan settlement', auto_npa: 'Auto write-off (3 years)', writeoff: 'NPA write-off' };
 COLS['write-off'] = [
   ['Receipt', (r) => <strong>{r.receiptNo}</strong>], ['Date', (r) => dmy(r.date)], ['Kind', (r) => KIND_LABEL[r.kind] || r.kind], ['Loan ID', (r) => r.loanId], ['Borrower', (r) => <>{r.memberCode} {r.memberName}{r.group && <div className="muted small">{r.group}</div>}</>],
   ['Branch', (r) => r.branch], ['Outstanding', (r) => inr(r.outstanding), true], ['Received', (r) => inr(r.received), true], ['Written off', (r) => <strong>{inr(r.writtenOff)}</strong>, true], ['Remark', (r) => r.remark || '—'],
@@ -271,6 +271,25 @@ function ViewDialog({ row, onClose }) {
   );
 }
 
+/** A write-off is taken back (admin only): the loan is open again and the member is unblocked. */
+function WriteOffRevertDialog({ row, onClose, onDone }) {
+  const toast = useToast();
+  const [reason, setReason] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  async function go() {
+    setBusy(true); setError('');
+    try { await api.reports.npaWriteOffRevert({ settlement: row.key, reason }); toast.success('Write-off taken back'); onDone(); } catch (err) { setError(err.errors?.reason || err.message); setBusy(false); }
+  }
+  return (
+    <Modal open title="Take back the write-off" onClose={onClose} busy={busy}
+      footer={<><button className="btn" onClick={onClose} disabled={busy}>Cancel</button><button className="btn danger" onClick={go} disabled={busy}>{busy ? 'Saving…' : 'Take back'}</button></>}>
+      <p className="muted">{row.memberCode} {row.memberName} · loan {row.loanId} · {inr(row.writtenOff)} written off on {dmy(row.date)}. The loan is open again (NPA) and the member is unblocked.</p>
+      <FormField id="worevreason" label="Reason" required error={error}><input id="worevreason" value={reason} maxLength={200} onChange={(e) => setReason(e.target.value)} /></FormField>
+    </Modal>
+  );
+}
+
 /** The company gives up the balance of an NPA loan (admin only): the loan closes, the member is blocked, the balance stays on his record. */
 function WriteOffDialog({ row, onClose, onDone }) {
   const toast = useToast();
@@ -401,6 +420,7 @@ export function ReportPage({ name }) {
   const [viewing, setViewing] = useState(null);
   const [reverting, setReverting] = useState(null);
   const [writingOff, setWritingOff] = useState(null);
+  const [revertingWo, setRevertingWo] = useState(null);
   const [mode, setMode] = useState('');
   const [loanType, setLoanType] = useState('');
   const [weekday, setWeekday] = useState('');
@@ -526,7 +546,7 @@ export function ReportPage({ name }) {
             {data.truncated && <div className="notice">Showing the first {rows.length} of {data.total}. Narrow the dates or the branch to see the rest.</div>}
             <div className="table-wrap">
               <table className="data-table">
-                <thead><tr>{cols.map(([l, , n]) => <th key={l} className={n ? 'num' : ''}>{l}</th>)}{callOn && <th>Number</th>}{callOn && <th className="no-print">Call</th>}{!cfg.noCall && <th className="no-print">View</th>}{cfg.npaPay && <th className="no-print">NPA payment</th>}</tr></thead>
+                <thead><tr>{cols.map(([l, , n]) => <th key={l} className={n ? 'num' : ''}>{l}</th>)}{callOn && <th>Number</th>}{callOn && <th className="no-print">Call</th>}{!cfg.noCall && <th className="no-print">View</th>}{cfg.npaPay && <th className="no-print">NPA payment</th>}{name === 'write-off' && admin && <th className="no-print">Revert</th>}</tr></thead>
                 <tbody>
                   {cfg.group ? (
                     (() => {
@@ -588,6 +608,7 @@ export function ReportPage({ name }) {
                         {callOn && <td data-label="Number">{r.mobile || '—'}</td>}
                         {callOn && <td data-label="Call" className="no-print"><CallButton report={name} row={r} date={callDate} onDone={done} /></td>}
                         {!cfg.noCall && <td data-label="View" className="no-print"><button className="btn sm" onClick={() => setViewing(r)}>View</button></td>}
+                        {name === 'write-off' && admin && <td data-label="Revert" className="no-print">{r.kind === 'writeoff' ? <button className="btn sm danger-outline" onClick={() => setRevertingWo(r)}>Revert write-off</button> : '—'}</td>}
                         {cfg.npaPay && <td data-label="NPA payment" className="no-print"><div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}><button className="btn sm primary" onClick={() => setPaying(r)}>NPA payment</button>{admin && <button className="btn sm danger-outline" onClick={() => setWritingOff(r)}>Write off</button>}{admin && r.lastNpa && <button className="btn sm danger-outline" title={`Last: ${r.lastNpa.receiptNo} · ${inr(r.lastNpa.amount)} on ${dmy(r.lastNpa.date)}`} onClick={() => setReverting(r)}>Revert</button>}</div>{r.lastNpa && <div className="muted small">Last {inr(r.lastNpa.amount)} · {dmy(r.lastNpa.date)}{r.lastNpa.staff ? ` · ${r.lastNpa.staff}` : ''}</div>}</td>}
                       </tr>
                     ))
@@ -595,6 +616,7 @@ export function ReportPage({ name }) {
                 </tbody>
               </table>
             </div>
+            {revertingWo && <WriteOffRevertDialog row={revertingWo} onClose={() => setRevertingWo(null)} onDone={() => { setRevertingWo(null); load(); }} />}
             {writingOff && <WriteOffDialog row={writingOff} onClose={() => setWritingOff(null)} onDone={() => { setWritingOff(null); load(); }} />}
             {reverting && <RevertDialog row={reverting} onClose={() => setReverting(null)} onDone={() => { setReverting(null); load(); }} />}
             {viewing && <ViewDialog row={viewing} onClose={() => setViewing(null)} />}
