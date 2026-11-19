@@ -313,6 +313,7 @@ function RequisitionForm({ kind }) {
   const toast = useToast();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const adminUser = ['super_admin', 'admin'].includes(user?.role);
   const isAdmin = ADMINS.includes(user?.role);
 
   const [branches, setBranches] = useState([]);
@@ -653,8 +654,8 @@ function RequisitionForm({ kind }) {
                 {branches.map((x) => <option key={x.id} value={x.id}>{x.code} — {x.name}</option>)}
               </select>
             </FormField>
-            <FormField id="loanDate" label="Loan date" hint="Same-day requisition only (Date is locked to today)">
-              <input id="loanDate" type="date" value={form.loanDate || todayISO()} readOnly disabled style={{ background: '#f1f5f9', cursor: 'not-allowed', color: '#64748b' }} />
+            <FormField id="loanDate" label="Loan date" hint={adminUser ? 'The working day of the branch. As admin you can choose a back date.' : 'The working day of the branch'}>
+              <input id="loanDate" type="date" value={form.loanDate || todayISO()} max={todayISO()} onChange={(e) => setForm((f) => ({ ...f, loanDate: e.target.value }))} readOnly={!adminUser} disabled={!adminUser} style={adminUser ? undefined : { background: '#f1f5f9', cursor: 'not-allowed', color: '#64748b' }} />
             </FormField>
             {isGroup && (
               <EmployeeSelect

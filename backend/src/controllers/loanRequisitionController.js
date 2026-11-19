@@ -992,10 +992,10 @@ export function createRequisition(kind) {
       throw new HttpError(403, 'You can only use branches assigned to you');
     }
 
-    // Loan date: Point 23 enforces same-day requisition (locked to today) and blocks Sundays/Holidays
+    // Loan date: the working day of the branch (the admin may choose a back date); Sundays and holidays are blocked
     const today = startOfToday();
-    await assertNotSundayOrHoliday(today, branchId);
-    const loanDate = today;
+    const loanDate = await requisitionDateOf(req, branchId, b.loanDate);
+    await assertNotSundayOrHoliday(loanDate, branchId);
     await assertDayOpen(branchId, loanDate, req.user);
 
     // Who the loan is for
@@ -1496,6 +1496,23 @@ async function loadForDecision(req) {
  * The date an approval is dated. It follows the day the branch is working on (a branch whose day is the 18th approves on the 18th, even
  * if the admin does it on the 19th); the admin may choose another date (a back date, never a future one, never before the loan date).
  */
+/**
+ * The date of a requisition (the loan date): the day the branch is working on (it was always today's date, so a branch on the 18th got the 19th and was
+ * refused, and a back date was never kept). The admin may choose a back date (never a future one).
+ */
+async function requisitionDateOf(req, branchId, input) {
+  const today = startOfToday();
+  const asked = asString(input);
+  if (asked && isAdmin(req.user)) {
+    const d = parseDateOnly(asked);
+    if (!d) throw invalid({ loanDate: 'Enter a valid date' });
+    if (d > today) throw invalid({ loanDate: 'The loan date cannot be in the future' });
+    return d;
+  }
+  const working = await branchWorkingDate(branchId).catch(() => null);
+  return working && working <= today ? working : today;
+}
+
 async function approvalDateOf(req, r, b) {
   const today = startOfToday();
   const asked = asString(b.approvalDate);
@@ -1734,10 +1751,10 @@ export async function createGroupRequisition(req, res) {
   if (!mongoose.isValidObjectId(branchId)) throw invalid({ branch: 'Select a branch' });
   if (!isAdmin(req.user) && !(req.user.branches || []).some((x) => String(x) === branchId)) throw new HttpError(403, 'You can only use branches assigned to you');
 
-  // Point 23: Enforces same-day requisition (locked to today) and blocks Sundays/Holidays
+  // Loan date: the working day of the branch (the admin may choose a back date); Sundays and holidays are blocked
   const today = startOfToday();
-  await assertNotSundayOrHoliday(today, branchId);
-  const loanDate = today;
+  const loanDate = await requisitionDateOf(req, branchId, b.loanDate);
+  await assertNotSundayOrHoliday(loanDate, branchId);
   await assertDayOpen(branchId, loanDate, req.user);
 
   if (!mongoose.isValidObjectId(String(b.group || ''))) throw invalid({ group: 'Select the group' });
