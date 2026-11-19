@@ -1,13 +1,14 @@
 import { Router } from 'express';
 import { requireAuth, requireMenu, requireRole } from '../middleware/auth.js';
 import { asyncHandler as h } from '../utils/http.js';
-import { depositList, memberSavings, requestWithdrawal, withdrawalList, approveWithdrawal, rejectWithdrawal, sendWithdrawalOtp, verifyWithdrawalOtp } from '../controllers/savingsController.js';
+import { depositList, securityMembers, memberSavings, requestWithdrawal, withdrawalList, approveWithdrawal, rejectWithdrawal, sendWithdrawalOtp, verifyWithdrawalOtp } from '../controllers/savingsController.js';
 
 const router = Router();
 const REQUEST = ['super_admin', 'admin', 'branch_manager', 'accountant']; // who can ask for a withdrawal
 const READ = [...REQUEST, 'loan_officer', 'field_officer', 'collection_officer', 'viewer'];
 
 router.get('/savings/deposits', requireAuth, requireRole(...READ), h(depositList));
+router.get('/savings/members', requireAuth, requireRole(...READ), h(securityMembers));
 router.get('/savings/members/:id', requireAuth, requireRole(...READ), h(memberSavings));
 router.get('/savings/withdrawals', requireAuth, requireRole(...READ), h(withdrawalList));
 router.post('/savings/withdrawals', requireAuth, requireRole(...REQUEST), h(requestWithdrawal));

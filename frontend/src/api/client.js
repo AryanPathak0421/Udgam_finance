@@ -352,6 +352,7 @@ export const api = {
   savings: {
     deposits: (params) => request(`/savings/deposits${qs(params)}`),
     member: (id) => request(`/savings/members/${id}`),
+    members: (params) => request(`/savings/members${qs(params)}`),
     withdrawals: (params) => request(`/savings/withdrawals${qs(params)}`),
     request: (data) => request('/savings/withdrawals', { method: 'POST', body: data }),
     approve: (id) => request(`/savings/withdrawals/${id}/approve`, { method: 'POST' }),

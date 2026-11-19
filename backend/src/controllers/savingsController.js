@@ -68,6 +68,34 @@ async function depositRows(req, { memberId } = {}) {
   return loans.map((l) => depositRow(l, branches.get(String(l.branch))));
 }
 
+/** The members that have a security amount (the Security Withdrawal screen lists them, the search narrows the list): what they deposited and what is left. */
+export async function securityMembers(req, res) {
+  const { page, limit, skip } = parsePaging(req.query, { defaultLimit: 25 });
+  const [r] = await LoanPayment.aggregate([
+    ...depositStages(req),
+    { $group: { _id: '$lines.member', code: { $first: '$lines.code' }, name: { $first: '$lines.name' }, branch: { $first: '$branch' }, deposited: { $sum: '$lines.securityPaise' }, loans: { $sum: 1 } } },
+    { $sort: { code: 1 } },
+    { $facet: { items: [{ $skip: skip }, { $limit: limit }], total: [{ $count: 'n' }] } },
+  ]);
+  const rows = r?.items || [];
+  const total = r?.total?.[0]?.n || 0;
+  const ids = rows.map((x) => x._id).filter(Boolean);
+  const wd = ids.length
+    ? await SecurityWithdrawal.aggregate([{ $match: { member: { $in: ids }, status: { $in: ['pending', 'approved'] } } }, { $group: { _id: { m: '$member', s: '$status' }, t: { $sum: '$amountPaise' } } }])
+    : [];
+  const sum = (m, s) => wd.find((x) => String(x._id.m) === String(m) && x._id.s === s)?.t || 0;
+  const branches = await branchesOf(rows.map((x) => ({ branch: x.branch })));
+  res.json({
+    items: rows.map((x) => {
+      const approved = sum(x._id, 'approved');
+      const pending = sum(x._id, 'pending');
+      const b = branches.get(String(x.branch));
+      return { id: x._id, code: x.code, name: x.name, branch: b ? { id: b._id, code: b.code, name: b.name } : null, loans: x.loans, deposited: money(x.deposited), withdrawn: money(approved), pending: money(pending), balance: money(Math.max(x.deposited - approved - pending, 0)) };
+    }),
+    total, page, limit, totalPages: Math.max(Math.ceil(total / limit), 1),
+  });
+}
+
 /** Security Deposit List: branch wise, from - to date. */
 export async function depositList(req, res) {
   const { page, limit, skip } = parsePaging(req.query, { defaultLimit: 25 });

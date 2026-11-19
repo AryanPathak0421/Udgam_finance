@@ -325,6 +325,8 @@ export function SecurityWithdraw() {
   const [search, setSearch] = useState('');
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
+  const [pageNo, setPageNo] = useState(1);
+  const [pages, setPages] = useState({ total: 0, totalPages: 1 });
   const [member, setMember] = useState(null); // savings of the chosen member
   const [error, setError] = useState('');
   const [kind, setKind] = useState('adjust');
@@ -333,18 +335,17 @@ export function SecurityWithdraw() {
   const [busy, setBusy] = useState(false);
   const q = useDebounce(search);
 
+  useEffect(() => { setPageNo(1); }, [q]);
+  // the members that have a security amount are listed at once (the search narrows the list by code, name or loan)
   useEffect(() => {
-    if (member || q.trim().length < 2) {
-      setResults([]);
-      return undefined;
-    }
+    if (member) return undefined;
     let live = true;
     setSearching(true);
-    api.members.list({ q: q.trim(), limit: 10 }).then((r) => live && setResults(r.items)).catch(() => live && setResults([])).finally(() => live && setSearching(false));
+    api.savings.members({ q: q.trim() || undefined, page: pageNo, limit: 25 }).then((r) => { if (live) { setResults(r.items); setPages({ total: r.total, totalPages: r.totalPages }); } }).catch(() => live && setResults([])).finally(() => live && setSearching(false));
     return () => {
       live = false;
     };
-  }, [q, member]);
+  }, [q, member, pageNo]);
 
   async function open(id) {
     setError('');
@@ -393,24 +394,27 @@ export function SecurityWithdraw() {
             <input type="search" className="toolbar-search" placeholder="Search by member code, name or mobile" value={search} onChange={(e) => setSearch(e.target.value)} autoFocus aria-label="Search member" />
           </div>
           {error && <ErrorState message={error} />}
-          {q.trim().length < 2 ? <EmptyState title="Search a member" description="Type the member code (for example MEM000001), name or mobile." /> : searching && !results.length ? <Spinner label="Searching…" /> : results.length === 0 ? (
+          {searching && !results.length ? <Spinner label="Loading…" /> : results.length === 0 ? (
             <EmptyState title="No member found" description="Try the member code." />
           ) : (
             <div className="table-wrap">
               <table className="data-table">
-                <thead><tr><th>Member code</th><th>Name</th><th>Branch</th><th>Mobile</th><th className="actions-col">Actions</th></tr></thead>
+                <thead><tr><th>Member code</th><th>Name</th><th>Branch</th><th className="num">Security deposited</th><th className="num">Withdrawn / waiting</th><th className="num">Balance</th><th className="actions-col">Actions</th></tr></thead>
                 <tbody>
                   {results.map((m) => (
                     <tr key={m.id}>
                       <td data-label="Code"><strong>{m.code}</strong></td>
                       <td data-label="Name">{m.name}</td>
                       <td data-label="Branch">{m.branch?.name || '—'}</td>
-                      <td data-label="Mobile">{m.mobile}</td>
+                      <td data-label="Security deposited" className="num">{inr(m.deposited)}</td>
+                      <td data-label="Withdrawn / waiting" className="num">{inr((m.withdrawn || 0) + (m.pending || 0))}</td>
+                      <td data-label="Balance" className="num"><strong>{inr(m.balance)}</strong></td>
                       <td data-label="Actions" className="actions-col"><button className="btn sm primary" onClick={() => open(m.id)}>Open</button></td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              <Pagination page={pageNo} totalPages={pages.totalPages} total={pages.total} limit={25} onPage={setPageNo} />
             </div>
           )}
         </div>
