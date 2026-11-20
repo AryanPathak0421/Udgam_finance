@@ -9,6 +9,7 @@ import { SecurityWithdrawal } from '../models/SecurityWithdrawal.js';
 import { ProductPayment } from '../models/ProductPayment.js';
 import { ProductSaleOrder } from '../modules/employee/employeeAppModel.js';
 import { CashEntry, ENTRY_CATEGORIES, ENTRY_MODES } from '../models/CashEntry.js';
+import { GroupLeaderCommission } from '../models/GroupLeaderCommission.js';
 import { CashbookPhoto } from '../models/CashbookPhoto.js';
 import { Branch } from '../models/Branch.js';
 import { Ledger } from '../models/Ledger.js';
@@ -622,6 +623,14 @@ export async function deleteEntry(req, res) {
   await e.save();
   // a branch to branch transfer is two entries: both go
   if (e.transferId) await CashEntry.updateMany({ transferId: e.transferId, isDeleted: false }, { $set: { isDeleted: true } });
+  // a group leader commission that was paid goes back to "due" when its cashbook entry is removed (what was paid is not paid any more)
+  if (e.category === 'leader_commission' && (e.commissionIds || []).length) {
+    const back = await GroupLeaderCommission.updateMany(
+      { _id: { $in: e.commissionIds }, status: 'deposited' },
+      [{ $set: { status: 'pending', amountPaise: { $ifNull: ['$originalAmountPaise', '$amountPaise'] } } }, { $unset: ['depositedAt', 'depositedBy', 'depositedToMobile', 'originalAmountPaise'] }],
+    );
+    if (back.modifiedCount) await audit(req, { action: 'groupLeaderCommission.reopened', entity: 'GroupLeaderCommission', entityId: e.commissionIds[0], after: { entries: back.modifiedCount, reason: 'cashbook entry removed' } });
+  }
   await audit(req, { action: 'cashbook.entryDeleted', entity: 'CashEntry', entityId: e._id, after: { side: e.side, category: e.category, amount: e.amountPaise / 100 } });
   res.json({ message: 'Entry removed' });
 }

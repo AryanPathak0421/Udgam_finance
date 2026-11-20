@@ -28,6 +28,7 @@ const cashEntrySchema = new mongoose.Schema(
     ledger: { type: mongoose.Schema.Types.ObjectId, ref: 'Ledger' }, // an entry made for a ledger of the Ledger master (category is then 'ledger')
     bankAccount: { type: mongoose.Schema.Types.ObjectId, ref: 'BankAccount' }, // Account detail: the bank account of a bank transfer
     remark: { type: String, trim: true },
+    commissionIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'GroupLeaderCommission' }], // a group leader commission that was paid: removing the entry makes it due again
     bill: { type: String, select: false }, // the bill / slip of a voucher or bank entry (optional): a PDF or an image as a data URL
     billName: String,
     hasBill: { type: Boolean, default: false },

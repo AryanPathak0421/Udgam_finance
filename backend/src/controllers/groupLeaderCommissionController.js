@@ -17,10 +17,10 @@ import { defaultWorkDate, assertDayOpen } from '../services/dayOpen.js';
  * The commission that is paid goes to the Cashbook of the branch of the group: a payment entry "Group leader commission" dated like every other entry
  * made by hand (the admin: today; the others: the working day of their branch).
  */
-async function commissionCashEntry(req, branchId, amountPaise, remark) {
+async function commissionCashEntry(req, branchId, amountPaise, remark, commissionIds = []) {
   const date = await defaultWorkDate(branchId, req.user);
   await assertDayOpen(branchId, date, req.user);
-  return CashEntry.create({ branch: branchId, date, side: 'payment', category: 'leader_commission', amountPaise, mode: 'cash', remark: String(remark).slice(0, 200), enteredByCode: req.user.employeeCode || '', createdBy: req.user._id });
+  return CashEntry.create({ branch: branchId, date, side: 'payment', category: 'leader_commission', amountPaise, mode: 'cash', commissionIds, remark: String(remark).slice(0, 200), enteredByCode: req.user.employeeCode || '', createdBy: req.user._id });
 }
 
 const OTP_TTL_MS = 5 * 60 * 1000;
@@ -218,7 +218,7 @@ export async function verifyOtp(req, res) {
   e.otpExpiresAt = undefined;
   e.otpAttempts = 0;
   e.otpMobile = undefined;
-  await commissionCashEntry(req, e.branch?._id || e.branch, e.amountPaise, `Group leader commission ${e.group?.code || ''} ${e.group?.leaderName || ''} (${e.month})`);
+  await commissionCashEntry(req, e.branch?._id || e.branch, e.amountPaise, `Group leader commission ${e.group?.code || ''} ${e.group?.leaderName || ''} (${e.month})`, [e._id]);
   await e.save();
   await audit(req, {
     action: 'groupLeaderCommission.deposited',
@@ -332,7 +332,7 @@ export async function payDue(req, res) {
     if (!ch) throw new HttpError(422, 'Verify the OTP of the group leader first', { otp: 'Verify the OTP first' });
   }
   // the cashbook entry first (a day that is closed refuses it); it is taken back when the commission was paid by someone else meanwhile
-  const cash = await commissionCashEntry(req, group.branch, total, `Group leader commission ${group.code} ${group.leaderName || ''} (${entries.map((e) => e.month).join(', ')})`);
+  const cash = await commissionCashEntry(req, group.branch, total, `Group leader commission ${group.code} ${group.leaderName || ''} (${entries.map((e) => e.month).join(', ')})`, entries.map((e) => e._id));
   let claimed = 0;
   for (const { entry, payPaise } of pays) {
     // eslint-disable-next-line no-await-in-loop
