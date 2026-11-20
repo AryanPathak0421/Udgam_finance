@@ -21,6 +21,34 @@ import { LoanRequisition } from '../../models/LoanRequisition.js';
 import { LoanScheme } from '../../models/LoanScheme.js';
 import { calculateLoan, MODES as CALC_MODES } from '../../services/loanCalculator.js';
 import { defaultWorkDate } from '../../services/dayOpen.js';
+import { evaluateLoan } from '../../controllers/loanCalculatorController.js';
+
+/**
+ * What the software stores with a requisition besides the amount: the EMI, the processing fee, the insurance fee, the security and the cash that is left.
+ * The requisition of the staff app did not store them, so a loan made from it was paid with no processing fee, no insurance and no security: they were
+ * not collected and did not reach the Cashbook.
+ */
+async function loanFieldsOf(scheme, amountRupees, ratePct, term, mode) {
+  if (!scheme?._id) return {};
+  const ev = await evaluateLoan({ schemeId: String(scheme._id), amount: String(amountRupees), rate: String(ratePct), mode, term });
+  const c = ev.charges;
+  const processing = c ? Math.round(c.processingFee * 100) : 0;
+  const insurance = c ? Math.round(c.cost * 100) : 0;
+  const security = c ? Math.round(c.securityAmount * 100) : 0;
+  return {
+    schemeCode: scheme.code,
+    calculationType: ev.input.calculationType,
+    emiType: ev.input.emiType,
+    installmentPaise: Math.round(ev.summary.installmentAmount * 100),
+    totalInterestPaise: Math.round(ev.summary.totalInterest * 100),
+    totalPayablePaise: Math.round(ev.summary.totalPayable * 100),
+    processingFeePaise: processing,
+    insuranceFeePaise: insurance,
+    securityAmountPaise: security,
+    cashPaise: Math.round(amountRupees * 100) - processing - insurance - security,
+    securityType: c?.securityType || 'none',
+  };
+}
 
 /**
  * The installment of a loan as the software works it out: the scheme's own method (flat / reducing), the number of periods per year of the
@@ -2874,6 +2902,7 @@ export async function createLoanRequisition(req, res) {
       totalAmountPaise: totalAmount * 100,
       requestedAmountPaise: totalAmount * 100,
       installmentPaise: installment * 100,
+      ...(await loanFieldsOf(schemeRef, amountPerMember, rate, term, mode)),
       mode,
       term,
       annualRateBp: rate * 100,
@@ -3027,6 +3056,7 @@ export async function createLoanRequisition(req, res) {
     totalAmountPaise: amount * 100,
     requestedAmountPaise: amount * 100,
     installmentPaise: installment * 100,
+    ...(await loanFieldsOf(schemeRef, amount, rate, term, mode)),
     mode,
     term,
     annualRateBp: rate * 100,

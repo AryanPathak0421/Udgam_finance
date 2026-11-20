@@ -1553,7 +1553,9 @@ async function applyApproval(req, r, b) {
   if (!Number.isFinite(target) || target < 100) throw invalid({ amount: 'Enter a valid loan amount' });
   if (!Number.isInteger(term) || term < 1) throw invalid({ term: 'Enter the number of installments' });
   const schemeChanged = schemeId !== String(r.scheme);
-  const changed = target !== r.amountPaise || schemeChanged || mode !== r.mode || term !== r.term || Math.round(Number(rateStr) * 100) !== r.annualRateBp;
+  // (a requisition that came without its charges, the staff app made them so, is worked out as well: otherwise the loan is paid with no processing fee, insurance or security)
+  const noCharges = r.cashPaise === undefined || r.cashPaise === null;
+  const changed = noCharges || target !== r.amountPaise || schemeChanged || mode !== r.mode || term !== r.term || Math.round(Number(rateStr) * 100) !== r.annualRateBp;
 
   if (changed) {
     if (kind === 'product' && target !== r.amountPaise) throw invalid({ amount: 'The amount of a product loan is the value of the goods and cannot be edited' });
