@@ -100,7 +100,9 @@ const modeOf = (r, off) => (r.mode === 'daily' && off ? { ...MODES.daily, next: 
 
 function emiDates(r, paidOn, startInput, rule, off) {
   const mode = modeOf(r, off);
-  const defaultStart = firstValid(mode.next(paidOn, 1), rule);
+  // A weekly group's first installment is the next collection day after the payment (a loan paid on a Friday for a Thursday group starts on the coming
+  // Thursday, not on the one after it); the other modes start one repayment period after the payment.
+  const defaultStart = rule?.type === 'weekday' ? firstValid(addDaysTo(paidOn, 1), rule) : firstValid(mode.next(paidOn, 1), rule);
   let start = defaultStart;
   if (startInput) {
     start = parseDateOnly(asString(startInput));
