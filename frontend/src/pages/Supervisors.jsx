@@ -17,16 +17,16 @@ function CheckList({ items, value, onChange, label, empty, render }) {
   }, [items, q, label]);
   const toggle = (id) => { const n = new Set(value); if (n.has(id)) n.delete(id); else n.add(id); onChange(n); };
   return (
-    <div style={{ border: '1px solid var(--border-color, #e2e8f0)', borderRadius: 8, padding: 8 }}>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
-        <input type="search" placeholder="Search…" value={q} onChange={(e) => setQ(e.target.value)} style={{ flex: 1 }} />
+    <div className="cl">
+      <div className="cl-head">
+        <input type="search" placeholder="Search…" value={q} onChange={(e) => setQ(e.target.value)} />
         <span className="muted small">{value.size} selected</span>
         {shown.length > 0 && <button type="button" className="btn sm" onClick={() => onChange(new Set([...value, ...shown.map((i) => idOf(i))]))}>All shown</button>}
         {value.size > 0 && <button type="button" className="btn sm" onClick={() => onChange(new Set())}>Clear</button>}
       </div>
-      <div style={{ maxHeight: 200, overflowY: 'auto' }}>
+      <div className="cl-list">
         {shown.length === 0 ? <div className="muted small" style={{ padding: 6 }}>{empty}</div> : shown.map((i) => (
-          <label key={idOf(i)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 2px', cursor: 'pointer', fontSize: '0.85rem' }}>
+          <label key={idOf(i)} className="cl-row">
             <input type="checkbox" checked={value.has(idOf(i))} onChange={() => toggle(idOf(i))} />
             <span>{render ? render(i) : label(i)}</span>
           </label>
@@ -62,14 +62,14 @@ export default function Supervisors() {
   const load = useCallback(async () => {
     setError('');
     try {
-      const [e, o] = await Promise.all([api.hr.employees({ status: 'active' }), api.hr.options()]);
+      const [e, b] = await Promise.all([api.hr.employees({ status: 'active' }), api.hr.branchOptions()]);
       setEmployees(e.items || []);
-      setOptions(o);
+      setOptions(b);
     } catch (err) { setError(err.message || 'Could not load'); }
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  const branches = useMemo(() => options?.branches || [], [options]);
+  const branches = useMemo(() => options?.items || [], [options]);
   const isSup = (e) => (e.supervisedBranches || []).length > 0 || /supervisor/i.test(e.designation?.name || '');
   const supervisors = useMemo(() => (employees || []).filter(isSup), [employees]);
   const shownSupervisors = useMemo(() => {
