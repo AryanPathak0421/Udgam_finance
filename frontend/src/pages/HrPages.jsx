@@ -140,7 +140,7 @@ const YesNo = ({ id, label, value, onChange, error, hint, className }) => (
  * OTP check of a mobile number or an email typed in the registration form, before the employee is saved: Send OTP, type the code, Verify.
  * The challenge of the verified value goes with the form (it marks the value verified when the employee is saved). Changing the value takes the check back.
  */
-function OtpVerify({ channel, value, valid, verifiedBefore, onChallenge }) {
+function OtpVerify({ channel, value, valid, verifiedBefore, onChallenge, name }) {
   const [sent, setSent] = useState(null); // { challengeId, devOtp }
   const [otp, setOtp] = useState('');
   const [verified, setVerified] = useState('');
@@ -154,7 +154,7 @@ function OtpVerify({ channel, value, valid, verifiedBefore, onChallenge }) {
   if (!valid) return null;
   async function send() {
     setBusy(true); setMsg('');
-    try { const r = await api.hr.sendNewEmployeeOtp({ channel, value: norm }); setSent({ challengeId: r.challengeId, devOtp: r.devOtp }); setOtp(''); setMsg(`OTP sent to ${r.sentTo}`); } catch (err) { setMsg(err.errors?.mobile || err.errors?.email || err.message); } finally { setBusy(false); }
+    try { const r = await api.hr.sendNewEmployeeOtp({ channel, value: norm, name }); setSent({ challengeId: r.challengeId, devOtp: r.devOtp }); setOtp(''); setMsg(`OTP sent to ${r.sentTo}`); } catch (err) { setMsg(err.errors?.mobile || err.errors?.email || err.message); } finally { setBusy(false); }
   }
   async function verify() {
     setBusy(true); setMsg('');
@@ -272,7 +272,7 @@ function EmployeeForm({ item, onClose, onSaved }) {
         <FormField id="enname" label="Name" required error={errors.name}><input id="enname" value={f.name} maxLength={80} onChange={set('name')} /></FormField>
         <FormField id="enmail" label="Email" error={errors.email}><input id="enmail" value={f.email} onChange={set('email')} /><OtpVerify channel="email" value={f.email} valid={/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(f.email.trim())} verifiedBefore={item?.emailVerified ? String(item.email || '').toLowerCase() : ''} onChallenge={(v) => setF((x) => ({ ...x, emailChallengeId: v }))} /></FormField>
         <FormField id="enbranch" label="Branch" required error={errors.branch}><select id="enbranch" value={f.branch} onChange={set('branch')}><option value="">Select</option>{branches.map((b) => <option key={b.id} value={b.id}>{b.code} — {b.name}</option>)}</select></FormField>
-        <FormField id="enmob" label="Phone no." error={errors.mobile}><input id="enmob" inputMode="numeric" value={f.mobile} onChange={digits('mobile', 10)} /><OtpVerify channel="mobile" value={f.mobile} valid={/^[6-9]\d{9}$/.test(f.mobile)} verifiedBefore={item?.mobileVerified && item?.mobile && !String(item.mobile).startsWith('X') ? item.mobile : ''} onChallenge={(v) => setF((x) => ({ ...x, mobileChallengeId: v }))} /></FormField>
+        <FormField id="enmob" label="Phone no." error={errors.mobile}><input id="enmob" inputMode="numeric" value={f.mobile} onChange={digits('mobile', 10)} /><OtpVerify channel="mobile" name={f.name} value={f.mobile} valid={/^[6-9]\d{9}$/.test(f.mobile)} verifiedBefore={item?.mobileVerified && item?.mobile && !String(item.mobile).startsWith('X') ? item.mobile : ''} onChallenge={(v) => setF((x) => ({ ...x, mobileChallengeId: v }))} /></FormField>
         <FormField id="endep" label="Department" error={errors.department}><select id="endep" value={f.department} onChange={(e) => { setF((x) => ({ ...x, department: e.target.value, designation: '' })); }}><option value="">None</option>{opts.departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></FormField>
         <FormField id="endes" label="Designation" error={errors.designation}><select id="endes" value={f.designation} onChange={set('designation')}><option value="">None</option>{desigs.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></FormField>
         <FormField id="enjoin" label="Date of joining" error={errors.joiningDate}><input id="enjoin" type="date" value={f.joiningDate} onChange={set('joiningDate')} /></FormField>

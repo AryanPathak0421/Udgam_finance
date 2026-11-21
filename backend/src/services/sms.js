@@ -11,7 +11,7 @@ export const DLT_TEMPLATES = {
   MOBILE_OTP: {
     id: '1707175068319936045',
     name: 'Mobile number verification otp',
-    format: (p) => `Dear customer your OTP is ${p.otp || ''} for mobile number verification. UDGAM URBAN and GRAMIN MICROFINANCE`,
+    format: (p) => `Dear ${p.name || 'customer'} your OTP is ${p.otp || ''} for mobile number verification. UDGAM URBAN and GRAMIN MICROFINANCE`,
   },
 
   // 2. Loan Approval (Hindi)

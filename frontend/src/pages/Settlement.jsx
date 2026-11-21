@@ -1,4 +1,5 @@
 import BankAccountSelect from '../components/BankAccountSelect.jsx';
+import CompanyQrModal from '../components/CompanyQrModal.jsx';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -381,6 +382,7 @@ function LoanSettleForm({ loanId, member, canSettle, onDone }) {
   const [form, setForm] = useState({ settledOn: todayISO(), amount: '', payMode: 'cash', bankAccount: '', reference: '', remark: '' });
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
+  const [qrOpen, setQrOpen] = useState(false);
   useEffect(() => {
     if (d) setForm((f) => ({ ...f, amount: String(d.state.outstanding) }));
   }, [d?.state.outstanding]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -427,6 +429,11 @@ function LoanSettleForm({ loanId, member, canSettle, onDone }) {
               </select>
             </FormField>
             <BankAccountSelect id="sbank" mode={form.payMode} value={form.bankAccount} onChange={(v) => setForm((f) => ({ ...f, bankAccount: v }))} error={errors.bankAccount} />
+            {form.payMode === 'upi' && (
+              <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+                <button type="button" className="btn" disabled={!(amount > 0)} onClick={() => setQrOpen(true)}>Company QR Code ({inr(amount)})</button>
+              </div>
+            )}
             <FormField id="sref" label="Reference no." hint="Optional">
               <input id="sref" value={form.reference} maxLength={60} onChange={set('reference')} />
             </FormField>
@@ -435,6 +442,14 @@ function LoanSettleForm({ loanId, member, canSettle, onDone }) {
             </FormField>
           </div>
           <button className="btn primary" disabled={busy} onClick={settle}>{busy ? 'Settling…' : `Settle loan — receive ${inr(amount)}`}</button>
+          <CompanyQrModal
+            open={qrOpen}
+            onClose={() => setQrOpen(false)}
+            amount={amount}
+            loanId={loanId}
+            memberName={member || 'Loan settlement'}
+            onPaid={(paymentId) => { if (paymentId) setForm((f) => ({ ...f, reference: paymentId })); }}
+          />
         </div>
       )}
     </>

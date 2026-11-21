@@ -359,7 +359,7 @@ export async function forgotMpinSendOtp(req, res) {
   const challenge = await issueOtp('supervisor_mpin_reset', emp.mobile);
   let smsSent = false;
   try {
-    await sendSms(emp.mobile, `Your Udgam Supervisor mPIN reset OTP is ${challenge.otp}. Valid for 5 minutes.`);
+    await sendSms({ to: emp.mobile, type: 'password', name: emp.name, otp: challenge.otp, text: `Your Udgam Supervisor mPIN reset OTP is ${challenge.otp}. Valid for 5 minutes.` });
     smsSent = true;
   } catch (err) {
     console.warn('SMS send failed:', err.message);

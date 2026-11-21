@@ -24,6 +24,8 @@ import { defaultWorkDate } from '../../services/dayOpen.js';
 import { evaluateLoan } from '../../controllers/loanCalculatorController.js';
 import { reverseGeocode } from '../../services/geocode.js';
 import { createPaymentLink, fetchPaymentLink, razorpayConfigured, razorpayTestMode } from '../../services/razorpay.js';
+import { OnlineCollection } from '../../models/OnlineCollection.js';
+import { loadLoan, receive } from '../../controllers/emiController.js';
 
 /**
  * What the software stores with a requisition besides the amount: the EMI, the processing fee, the insurance fee, the security and the cash that is left.
@@ -349,6 +351,14 @@ export async function lookupEmployee(req, res) {
   const emp = await findEmployee(identifier);
   if (!emp) throw new HttpError(404, 'Employee record not found in system. Please contact Admin/HR to register you first.');
 
+  // a mobile number that more than one employee account has cannot say whose mPIN is being made (it would be made for the first of them): the Employee Code is asked
+  const mobileDigits = String(identifier).replace(/D/g, '');
+  if (mobileDigits.length >= 10 && !/^[A-Za-z]/.test(String(identifier).trim())) {
+    const last10 = mobileDigits.slice(-10);
+    const sameMobile = await Employee.countDocuments({ isDeleted: { $ne: true }, $or: [{ mobile: last10 }, { mobile: `+91${last10}` }, { mobile: `91${last10}` }] });
+    if (sameMobile > 1) throw new HttpError(409, 'More than one employee account has this mobile number. Please use your Employee Code to create the mPIN.');
+  }
+
   const user = await User.findOne({
     $or: [
       { employeeCode: emp.employeeCode },
@@ -488,7 +498,7 @@ export async function forgotMpinSendOtp(req, res) {
   if (!emp.mobile) throw new HttpError(400, 'No registered mobile found for this employee to send OTP');
 
   const { otp, challengeId } = await issueOtp(`emp_mpin_${emp.employeeCode}`, { ttlSec: 300 });
-  await sendSms(emp.mobile, `Your Udgam Employee App verification OTP is ${otp}. Valid for 5 minutes.`);
+  await sendSms({ to: emp.mobile, type: 'password', name: emp.name, otp, text: `Your Udgam Employee App verification OTP is ${otp}. Valid for 5 minutes.` });
   res.json({ challengeId, maskedMobile: emp.mobile.slice(0, 2) + 'XXXXXX' + emp.mobile.slice(-2) });
 }
 
@@ -3712,6 +3722,12 @@ export async function getEmiGroups(req, res) {
   res.json({ mode, date: dateStr, weekday: targetDayName, groups });
 }
 
+/** One word for the pay modes of a member of the day: cash, upi, ... or mixed (more than one), empty when there is none. */
+function modeOfSet(set) {
+  const modes = [...(set || [])].filter((m) => m && m !== 'security');
+  return modes.length === 1 ? modes[0] : modes.length > 1 ? 'mixed' : '';
+}
+
 export async function getGroupEmiMembers(req, res) {
   const groupCode = cleanStr(req.params.groupCode);
   const dateStr = cleanStr(req.query.date) || todayDateString();
@@ -3795,12 +3811,17 @@ export async function getGroupEmiMembers(req, res) {
   const allPendingCollections = allLoanIds.length ? await AppEmiCollection.find({
     loanPayment: { $in: allLoanIds },
     status: 'pending',
-  }).select('loanPayment memberCode amountPaise receiptNo').lean() : [];
+  }).select('loanPayment memberCode amountPaise receiptNo payMode').lean() : [];
 
   const pendingByKey = new Map();
+  const pendingModeByKey = new Map(); // the pay modes of the collections waiting for approval
+  const todayModeByKey = new Map(); // the pay modes of the EMIs made today
   for (const pc of allPendingCollections) {
     const k = `${String(pc.loanPayment)}_${String(pc.memberCode || '').trim().toUpperCase()}`;
     pendingByKey.set(k, (pendingByKey.get(k) || 0) + (pc.amountPaise || 0));
+    const pm = pendingModeByKey.get(k) || new Set();
+    if (pc.payMode) pm.add(pc.payMode);
+    pendingModeByKey.set(k, pm);
   }
 
   const paymentsByKey = new Map();
@@ -3810,6 +3831,9 @@ export async function getGroupEmiMembers(req, res) {
     cur.totalPaise += (p.amountPaise || 0);
     if (p.paidOn >= startDay && p.paidOn <= endDay) {
       cur.todayPaise += (p.amountPaise || 0);
+      const tm = todayModeByKey.get(k) || new Set();
+      if (p.payMode) tm.add(p.payMode);
+      todayModeByKey.set(k, tm);
     }
     paymentsByKey.set(k, cur);
   }
@@ -3890,6 +3914,8 @@ export async function getGroupEmiMembers(req, res) {
         isFullyPaid: isFullyPaidToday,
         isPendingApproval: pendingPaise > 0,
         pendingApprovalAmount: pendingPaise / 100,
+        todayPayMode: modeOfSet(todayModeByKey.get(`${String(l._id)}_${String(line.code || '').trim().toUpperCase()}`)),
+        pendingPayMode: modeOfSet(pendingModeByKey.get(`${String(l._id)}_${String(line.code || '').trim().toUpperCase()}`)),
         balanceAmount: Math.max(0, totalLoanPaise - totalPaidPaise) / 100,
       });
     }
@@ -6761,3 +6787,122 @@ export async function listDeathRequests(req, res) {
 
 
 
+
+// -----------------------------------------------------------------------------
+// ONLINE EMI QR (Razorpay): the staff picks the members, one QR for their total, the EMIs are made when it is paid
+// -----------------------------------------------------------------------------
+
+const onlineAnswer = (d) => ({
+  status: d.status,
+  paid: d.status !== 'created',
+  done: d.status === 'done',
+  amount: d.amountPaise / 100,
+  paymentId: d.paymentId || '',
+  items: (d.items || []).map((i) => ({ memberCode: i.memberCode, memberName: i.memberName, amount: i.amountPaise / 100, status: i.status, receiptNo: i.receiptNo || '', note: i.note || '' })),
+});
+
+/** The QR of the members' EMIs: each one is checked here (the loan, the member, not waiting for approval, not more than what is left), the QR is for their total. */
+export async function createOnlineEmiQr(req, res) {
+  if (!razorpayConfigured()) throw new HttpError(503, 'Online payment is not available right now');
+  const list = Array.isArray(req.body?.items) ? req.body.items : [];
+  if (!list.length) throw new HttpError(400, 'Select at least one member to collect EMI');
+  const dateStr = cleanStr(req.body?.date) || todayDateString();
+  const paidOn = new Date(dateStr);
+  if (Number.isNaN(paidOn.getTime())) throw new HttpError(422, 'Choose a valid date');
+  await assertNotSundayOrHoliday(paidOn);
+  const staffCode = req.user?.employeeCode || '';
+  const today = startOfToday();
+  const items = [];
+  const seen = new Set();
+  let total = 0;
+  for (const it of list) {
+    const amountPaise = Math.round(Number(it.amount) * 100);
+    if (!Number.isFinite(amountPaise) || amountPaise < 100) throw new HttpError(422, 'Every member needs an amount of ₹1 or more');
+    let p = null;
+    if (it.loanPaymentId && mongoose.isValidObjectId(String(it.loanPaymentId))) p = await LoanPayment.findById(it.loanPaymentId);
+    else if (it.loanId) p = await LoanPayment.findOne({ loanId: it.loanId });
+    if (!p) throw new HttpError(404, 'Loan not found');
+    const line = (p.lines || []).find((l) => (it.memberCode && l.code === it.memberCode) || (it.memberId && String(l.member) === String(it.memberId)));
+    if (!line) throw new HttpError(404, 'Borrower not found in the loan');
+    const key = `${p._id}_${String(line.code || '').toUpperCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (await AppEmiCollection.exists({ loanPayment: p._id, memberCode: line.code, status: 'pending' })) {
+      throw new HttpError(409, `The EMI of ${line.name} (${line.code}) is already waiting for approval`);
+    }
+    // eslint-disable-next-line no-await-in-loop
+    const st = await borrowerState(p, line, today);
+    if (st.settled || !st.left.length) throw new HttpError(422, `${line.name} (${line.code}) has nothing left to pay`);
+    if (amountPaise > st.totals.outstanding) throw new HttpError(422, `${line.name}: the amount is more than what is left to pay (₹${st.totals.outstanding / 100})`);
+    items.push({ loanPayment: p._id, loanId: p.loanId, memberCode: line.code, memberName: line.name, amountPaise });
+    total += amountPaise;
+  }
+  if (!items.length) throw new HttpError(400, 'Select at least one member to collect EMI');
+  const link = await createPaymentLink({
+    amountPaise: total,
+    description: `EMI of ${items.length} member${items.length === 1 ? '' : 's'}`,
+    referenceId: `EMI${Date.now()}`,
+    notes: { by: staffCode, members: String(items.length) },
+  });
+  await OnlineCollection.create({ linkId: link.id, shortUrl: link.short_url, amountPaise: total, date: paidOn, collectedByCode: staffCode, collectedBy: req.user?._id, items });
+  res.json({
+    linkId: link.id,
+    shortUrl: link.short_url,
+    qrImageUrl: `https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(link.short_url)}`,
+    amount: total / 100,
+    members: items.map((i) => ({ memberCode: i.memberCode, memberName: i.memberName, amount: i.amountPaise / 100 })),
+    testMode: razorpayTestMode(),
+  });
+}
+
+/** Is the QR paid? When it is, the EMI of every member is made (once) as an online payment of the chosen day, and the result is told member by member. */
+export async function onlineEmiQrStatus(req, res) {
+  const doc = await OnlineCollection.findOne({ linkId: cleanStr(req.params.linkId) });
+  if (!doc) throw new HttpError(404, 'This QR was not found');
+  if (doc.status !== 'created') return res.json(onlineAnswer(doc));
+  const link = await fetchPaymentLink(doc.linkId);
+  if (link.status !== 'paid') return res.json({ status: link.status === 'created' ? 'created' : link.status, paid: false, done: false, amount: doc.amountPaise / 100, items: [] });
+  const pay = (link.payments || []).find((x) => x.status === 'captured') || (link.payments || [])[0];
+  const paymentId = pay?.payment_id;
+  if (!paymentId || (link.amount_paid || link.amount) !== doc.amountPaise) throw new HttpError(400, 'The payment does not match this QR');
+  // the one request that moves it from created to processing makes the EMIs (another one only reads the result)
+  const claimed = await OnlineCollection.findOneAndUpdate({ _id: doc._id, status: 'created' }, { $set: { status: 'processing', paymentId } }, { new: true });
+  if (!claimed) return res.json(onlineAnswer(await OnlineCollection.findById(doc._id)));
+
+  const admin = await User.findOne({ role: 'super_admin', isActive: true }).select('_id employeeCode name role branches').lean();
+  const sysReq = { user: { ...admin, role: 'super_admin', branches: [], employeeCode: admin?.employeeCode || '' }, ip: req.ip, headers: req.headers, method: 'POST', originalUrl: req.originalUrl };
+  for (const it of claimed.items) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const p = await loadLoan(sysReq, String(it.loanPayment));
+      const line = p.lines.find((l) => l.code === it.memberCode);
+      // eslint-disable-next-line no-await-in-loop
+      const emi = await receive(sysReq, p, line, { amountPaise: it.amountPaise, paidOn: claimed.date, payMode: 'upi', reference: paymentId, employeeCode: claimed.collectedByCode || '' });
+      it.status = 'posted';
+      it.receiptNo = emi.receiptNo;
+      it.note = 'Paid online (Razorpay)';
+    } catch (err) {
+      // the money has come: it waits for the branch to approve it
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const p = await LoanPayment.findById(it.loanPayment).select('loanId branch group').lean();
+        // eslint-disable-next-line no-await-in-loop
+        const col = await AppEmiCollection.create({
+          loanPayment: it.loanPayment, loanId: it.loanId, branch: p?.branch, memberCode: it.memberCode, memberName: it.memberName,
+          group: p?.group?.code ? `${p.group.code} — ${p.group.name}` : '', amountPaise: it.amountPaise, collectedOn: claimed.date, type: 'regular',
+          payMode: 'upi', reference: paymentId, collectedBy: claimed.collectedBy, collectedByCode: claimed.collectedByCode || '', status: 'pending',
+        });
+        it.status = 'pending';
+        it.receiptNo = col.receiptNo || '';
+        it.note = `Paid online; waiting for the approval: ${String(err.message).slice(0, 100)}`;
+      } catch (err2) {
+        it.status = 'failed';
+        it.note = `Paid online but not recorded: ${String(err2.message).slice(0, 100)}`;
+      }
+    }
+  }
+  claimed.status = 'done';
+  await claimed.save();
+  await audit({ ...req, user: sysReq.user }, { action: 'employeeApp.onlineEmiQr', entity: 'OnlineCollection', entityId: claimed._id, after: { by: claimed.collectedByCode, amount: claimed.amountPaise / 100, paymentId, members: claimed.items.length } });
+  res.json(onlineAnswer(claimed));
+}

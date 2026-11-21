@@ -13,7 +13,7 @@ import { EmployeeSelect } from './NewBorrower.jsx';
 import { todayIso } from '../utils/format.js';
 import { staffLabel } from '../utils/staffLabel.js';
 
-const MODE_LABEL = { cash: 'Cash', bank: 'Bank', upi: 'UPI', cheque: 'Cheque' };
+const MODE_LABEL = { cash: 'Cash', bank: 'Bank', upi: 'Online (UPI)', cheque: 'Cheque' };
 const inr = (n) => (n === null || n === undefined || Number.isNaN(n) ? '—' : `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const dmy = (s) => (s ? new Date(`${String(s).slice(0, 10)}T00:00:00`).toLocaleDateString('en-IN') : '—');
 const today = () => todayIso();
@@ -699,7 +699,7 @@ export function LoanLedger() {
                         <tr key={s.no}>
                           <td data-label="No.">{s.no}</td><td data-label="Due date">{dmy(s.dueDate)}</td><td data-label="EMI" className="num">{inr(s.amount)}</td><td data-label="Paid" className="num">{inr(s.paid)}</td><td data-label="Balance" className="num">{inr(s.remaining)}</td>
                           <td data-label="Status"><span className={`badge ${STATUS[s.status] || 'grey'}`}>{s.partial ? 'Part paid' : cap(s.status)}</span>{s.overdueDays > 0 && <span className="muted small"> {s.overdueDays}d late</span>}</td>
-                          <td data-label="Paid on">{s.paidOn ? `${dmy(s.paidOn)} · ${s.receiptNo}` : '—'}</td>
+                          <td data-label="Paid on">{s.paidOn ? `${dmy(s.paidOn)} · ${s.receiptNo}${MODE_LABEL[(data.receipts || []).find((r) => r.receiptNo === s.receiptNo)?.payMode] ? ` · ${MODE_LABEL[(data.receipts || []).find((r) => r.receiptNo === s.receiptNo)?.payMode]} paid` : ''}` : '—'}</td>
                         </tr>
                       ))}
                     </tbody>

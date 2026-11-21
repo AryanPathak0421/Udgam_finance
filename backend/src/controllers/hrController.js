@@ -289,7 +289,7 @@ export async function sendEmployeeOtp(req, res) {
   const { challenge, otp } = await issueOtp({ user: req.user, purpose: channel === 'mobile' ? 'employee_mobile' : 'employee_email', subject: `${e._id}:${to}`, sentTo: to });
   let dev = false;
   if (channel === 'mobile') {
-    const sms = await sendSms({ to, text: `Udgam Microfinance: OTP ${otp} to verify your mobile number. Valid for 5 minutes. Do not share this OTP.` });
+    const sms = await sendSms({ to, name: e.name, text: `Udgam Microfinance: OTP ${otp} to verify your mobile number. Valid for 5 minutes. Do not share this OTP.` });
     dev = Boolean(sms.dev);
   } else {
     const sent = await sendMail({
@@ -320,7 +320,7 @@ export async function sendNewEmployeeOtp(req, res) {
   const { challenge, otp } = await issueOtp({ user: req.user, purpose: channel === 'mobile' ? 'employee_mobile' : 'employee_email', subject: `new:${to}`, sentTo: to });
   let dev = false;
   if (channel === 'mobile') {
-    const sms = await sendSms({ to, text: `Udgam Microfinance: OTP ${otp} to verify your mobile number. Valid for 5 minutes. Do not share this OTP.` });
+    const sms = await sendSms({ to, name: asString(req.body?.name).trim() || 'Employee', text: `Udgam Microfinance: OTP ${otp} to verify your mobile number. Valid for 5 minutes. Do not share this OTP.` });
     dev = Boolean(sms.dev);
   } else {
     const sent = await sendMail({

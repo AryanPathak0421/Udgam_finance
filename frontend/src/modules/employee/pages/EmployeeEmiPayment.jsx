@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../../../api/client.js';
 import { useEmployeeApp } from '../EmployeeAppContext.jsx';
 import Icon from '../../../components/Icon.jsx';
-import RazorpayQrStatus from '../../../components/RazorpayQrStatus.jsx';
+import OnlineEmiQrModal from '../components/OnlineEmiQrModal.jsx';
 
 const LOAN_TYPES = [
   {
@@ -50,6 +50,8 @@ const MODES = [
   { id: 'daily', label: 'Daily' },
 ];
 
+const PAY_MODE_LABEL = { cash: 'Cash', upi: 'Online', bank: 'Bank', cheque: 'Cheque', mixed: 'Cash + Online' };
+
 export default function EmployeeEmiPayment() {
   const { t } = useEmployeeApp();
   const [loanType, setLoanType] = useState('group');
@@ -77,7 +79,7 @@ export default function EmployeeEmiPayment() {
   const [message, setMessage] = useState({ text: '', type: '' });
 
   // Dynamic QR Code Modal
-  const [qrModal, setQrModal] = useState(null);
+  const [onlineQr, setOnlineQr] = useState(null);
   const [qrLoading, setQrLoading] = useState(false);
 
   const getLoanKey = (m) => `${m.loanPaymentId || ''}_${m.memberCode || ''}`;
@@ -276,23 +278,43 @@ export default function EmployeeEmiPayment() {
     })
     .reduce((sum, [, v]) => sum + (Number(v.amount) || 0), 0);
 
-  // Open Dynamic Company QR Modal
+  // The members that are ticked and can be collected: what is saved (cash) or paid by the QR (online)
+  const selectedItems = () => Object.entries(collectionMap)
+    .filter(([k, v]) => {
+      if (!v?.selected || !(Number(v.amount) > 0)) return false;
+      const m = groupMembers.find((gm) => getLoanKey(gm) === k) || individualLoans.find((il) => getLoanKey(il) === k);
+      const isPaidToday = m ? Boolean(m.isAdvancePaid || m.alreadyPaidToday || ((m.todayPaidAmount || 0) >= (m.emiAmount || 0))) : false;
+      const isPending = m ? Boolean(m.isPendingApproval) : false;
+      return !isPaidToday && !isPending && !(m?.isAdvancePaid);
+    })
+    .map(([, v]) => ({ loanPaymentId: v.loanPaymentId, memberCode: v.memberCode, memberId: v.memberId, amount: Number(v.amount), payMode }));
+
+  // One QR for the total of the ticked members: when it is paid the EMIs are saved as online payments, by themselves
   const handleOpenQr = async () => {
-    const amount = totalSelectedCollection > 0 ? totalSelectedCollection : 500;
+    const items = selectedItems();
+    if (!items.length) {
+      setMessage({ text: 'Tick the members who pay online first (already paid or approval pending members cannot be selected)', type: 'error' });
+      return;
+    }
     setQrLoading(true);
+    setMessage({ text: '', type: '' });
     try {
-      const res = await api.employeeApp.companyQr({
-        amount,
-        loanId: activeGroup?.groupCode || (loanType === 'group' ? 'GROUP-EMI' : 'LOAN-EMI'),
-        memberName: activeGroup?.groupName || `${loanType.toUpperCase()} Collection`,
-      });
-      setQrModal(res);
-      setPayMode('upi');
+      const res = await api.employeeApp.onlineEmiQr({ items: items.map(({ loanPaymentId, memberCode, memberId, amount }) => ({ loanPaymentId, memberCode, memberId, amount })), date });
+      setOnlineQr(res);
     } catch (err) {
-      console.error('Failed to load company QR', err);
-      setMessage({ text: 'Unable to load company UPI QR code', type: 'error' });
+      setMessage({ text: err.message || 'Unable to make the QR code', type: 'error' });
     } finally {
       setQrLoading(false);
+    }
+  };
+
+  // The online payment is done: the list shows the members as paid
+  const refreshAfterOnline = () => {
+    if (loanType === 'group') {
+      fetchGroups(true);
+      if (activeGroup) openGroup(activeGroup);
+    } else {
+      fetchIndividualLoans();
     }
   };
 
@@ -305,26 +327,15 @@ export default function EmployeeEmiPayment() {
       setMessage({ text: 'EMI collections and Loan Requisitions are blocked on Sundays (Weekly Off).', type: 'error' });
       return;
     }
-    const itemsToPay = Object.entries(collectionMap)
-      .filter(([k, v]) => {
-        if (!v?.selected || !(Number(v.amount) > 0)) return false;
-        const m = groupMembers.find((gm) => getLoanKey(gm) === k) || individualLoans.find((il) => getLoanKey(il) === k);
-        const isPaidToday = m ? Boolean(m.isAdvancePaid || m.alreadyPaidToday || ((m.todayPaidAmount || 0) >= (m.emiAmount || 0))) : false;
-        const isPending = m ? Boolean(m.isPendingApproval) : false;
-        return !isPaidToday && !isPending && !(m?.isAdvancePaid);
-      })
-      .map(([, v]) => ({
-        loanPaymentId: v.loanPaymentId,
-        memberCode: v.memberCode,
-        memberId: v.memberId,
-        amount: Number(v.amount),
-        payMode,
-      }));
+    const itemsToPay = selectedItems();
 
     if (!itemsToPay.length) {
       setMessage({ text: 'Please select at least one member with amount to collect (already paid or approval pending members cannot be selected)', type: 'error' });
       return;
     }
+
+    // online: the QR is made for these members, the EMIs are saved when it is paid (nothing is saved as paid before)
+    if (payMode === 'upi') { await handleOpenQr(); return; }
 
     setSubmitting(true);
     setMessage({ text: '', type: '' });
@@ -882,11 +893,11 @@ export default function EmployeeEmiPayment() {
                               </span>
                             ) : isPending ? (
                               <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#c2410c', background: '#ffedd5', padding: '2px 8px', borderRadius: 6 }}>
-                                ⏳ Approval Pending ₹{m.pendingApprovalAmount || m.emiAmount}
+                                ✓ {PAY_MODE_LABEL[m.pendingPayMode] ? `${PAY_MODE_LABEL[m.pendingPayMode]} ` : ''}Paid ₹{m.pendingApprovalAmount || m.emiAmount} · approval pending
                               </span>
                             ) : isCollectedToday ? (
                               <span className="emp-badge emp-badge-success" style={{ fontSize: '0.72rem' }}>
-                                ✓ Paid
+                                ✓ {PAY_MODE_LABEL[m.todayPayMode] ? `${PAY_MODE_LABEL[m.todayPayMode]} ` : ''}Paid
                               </span>
                             ) : m.dueAmount <= 0 ? (
                               <span className="emp-badge emp-badge-secondary" style={{ fontSize: '0.72rem' }}>
@@ -956,7 +967,7 @@ export default function EmployeeEmiPayment() {
                         style={{ fontSize: '0.8rem', padding: '4px 8px', borderRadius: 6, border: '1px solid var(--emp-border)' }}
                       >
                         <option value="cash">Cash</option>
-                        <option value="upi">UPI / QR Code</option>
+                        <option value="upi">Online (QR Code)</option>
                       </select>
                       {payMode === 'upi' && (
                         <button
@@ -986,7 +997,7 @@ export default function EmployeeEmiPayment() {
                   onClick={handleSaveCollection}
                   disabled={submitting || totalSelectedCollection <= 0}
                 >
-                  {submitting ? 'Saving Collections...' : '✓ Done / Save Group EMI'}
+                  {submitting ? 'Saving Collections...' : payMode === 'upi' ? '▦ Make QR for the ticked members' : '✓ Done / Save Group EMI'}
                 </button>
               </div>
             </div>
@@ -1100,7 +1111,7 @@ export default function EmployeeEmiPayment() {
                               </span>
                             ) : isPending ? (
                               <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#c2410c', background: '#ffedd5', padding: '2px 8px', borderRadius: 6 }}>
-                                ⏳ Approval Pending ₹{item.pendingApprovalAmount || item.emiAmount}
+                                ✓ Paid ₹{item.pendingApprovalAmount || item.emiAmount} · approval pending
                               </span>
                             ) : isCollectedToday ? (
                               <span style={{ background: '#16a34a', color: '#fff', padding: '2px 8px', borderRadius: 6, fontSize: '0.72rem', fontWeight: 800 }}>
@@ -1170,7 +1181,7 @@ export default function EmployeeEmiPayment() {
                         style={{ fontSize: '0.8rem', padding: '4px 8px', borderRadius: 6, border: '1px solid var(--emp-border)' }}
                       >
                         <option value="cash">Cash</option>
-                        <option value="upi">UPI / QR Code</option>
+                        <option value="upi">Online (QR Code)</option>
                       </select>
                       {payMode === 'upi' && (
                         <button
@@ -1200,7 +1211,7 @@ export default function EmployeeEmiPayment() {
                   onClick={handleSaveCollection}
                   disabled={submitting || totalSelectedCollection <= 0 || isSunday}
                 >
-                  {submitting ? 'Saving Collections...' : isSunday ? '⚠️ Blocked on Sundays' : '✓ Done / Save Collection'}
+                  {submitting ? 'Saving Collections...' : isSunday ? '⚠️ Blocked on Sundays' : payMode === 'upi' ? '▦ Make QR for the ticked members' : '✓ Done / Save Collection'}
                 </button>
               </div>
             </div>
@@ -1208,44 +1219,13 @@ export default function EmployeeEmiPayment() {
         </div>
       )}
 
-      {/* Dynamic Company UPI QR Code Modal */}
-      {qrModal && (
-        <div className="emp-modal-overlay" onClick={() => setQrModal(null)}>
-          <div className="emp-modal-sheet" onClick={(e) => e.stopPropagation()} style={{ textAlign: 'center' }}>
-            <h3 style={{ fontSize: '1.15rem', fontWeight: 800, margin: '0 0 6px 0', color: 'var(--emp-text)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-              <Icon name="qrcode" size={20} style={{ color: 'var(--emp-primary)' }} />
-              <span>Scan & Pay via Company UPI</span>
-            </h3>
-            <p style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', margin: '0 0 14px 0' }}>
-              Borrower pays directly to <strong>{qrModal.companyName}</strong> bank account.
-            </p>
-
-            <div style={{ display: 'inline-block', padding: 12, background: '#fff', borderRadius: 12, border: '2px solid var(--emp-border)', margin: '0 auto 12px auto' }}>
-              <img src={qrModal.qrImageUrl} alt="Company UPI QR" style={{ width: 220, height: 220, display: 'block' }} />
-            </div>
-
-            <div style={{ fontSize: '1.35rem', fontWeight: 800, color: '#059669', marginBottom: 4 }}>
-              ₹{Number(qrModal.amount).toLocaleString('en-IN')}
-            </div>
-            <div style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', marginBottom: 16 }}>
-              {qrModal.razorpay ? <RazorpayQrStatus razorpay={qrModal.razorpay} check={api.employeeApp.companyQrStatus} /> : <>UPI ID: <strong>{qrModal.upiId}</strong></>}
-            </div>
-
-            <div style={{ background: '#fef3c7', padding: '10px 14px', borderRadius: 8, fontSize: '0.78rem', color: '#92400e', marginBottom: 16, textAlign: 'left', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Icon name="shieldcheck" size={16} />
-              <span><strong>Supported Apps:</strong> PhonePe, Google Pay, Paytm, BHIM, or any bank UPI app.</span>
-            </div>
-
-            <button
-              type="button"
-              className="emp-btn-primary"
-              style={{ width: '100%', padding: '12px', fontSize: '0.95rem' }}
-              onClick={() => setQrModal(null)}
-            >
-              Done Scanning
-            </button>
-          </div>
-        </div>
+      {/* One Razorpay QR for the ticked members: the EMIs are saved when it is paid */}
+      {onlineQr && (
+        <OnlineEmiQrModal
+          qr={onlineQr}
+          onClose={() => setOnlineQr(null)}
+          onDone={refreshAfterOnline}
+        />
       )}
     </div>
   );

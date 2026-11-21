@@ -44,6 +44,8 @@ import {
   recoverNpaLoan,
   getCompanyQr,
   reverseGeocodeAddress,
+  createOnlineEmiQr,
+  onlineEmiQrStatus,
   getCompanyQrStatus,
   getBorrowerSavings,
   requestSavingsWithdrawal,
@@ -150,6 +152,8 @@ router.post('/npa/recover', requireAuth, h(recoverNpaLoan));
 // Dynamic Company UPI QR Code
 router.get('/company-qr', requireAuth, h(getCompanyQr));
 router.get('/company-qr/status/:linkId', requireAuth, h(getCompanyQrStatus));
+router.post('/emi/online-qr', requireAuth, h(createOnlineEmiQr));
+router.get('/emi/online-qr/:linkId', requireAuth, h(onlineEmiQrStatus));
 
 // 16. Borrower Savings & Withdrawal
 router.get('/savings/:query', requireAuth, h(getBorrowerSavings));
