@@ -43,6 +43,8 @@ import {
   getNpaLoans,
   recoverNpaLoan,
   getCompanyQr,
+  reverseGeocodeAddress,
+  getCompanyQrStatus,
   getBorrowerSavings,
   requestSavingsWithdrawal,
   getEmployeeReports,
@@ -147,6 +149,7 @@ router.post('/npa/recover', requireAuth, h(recoverNpaLoan));
 
 // Dynamic Company UPI QR Code
 router.get('/company-qr', requireAuth, h(getCompanyQr));
+router.get('/company-qr/status/:linkId', requireAuth, h(getCompanyQrStatus));
 
 // 16. Borrower Savings & Withdrawal
 router.get('/savings/:query', requireAuth, h(getBorrowerSavings));
@@ -158,6 +161,7 @@ router.get('/reports', requireAuth, h(getEmployeeReports));
 // 18 & 20. Attendance (First Meeting & History)
 router.get('/attendance/timing', requireAuth, h(getAttendanceTiming));
 router.post('/attendance/meeting', requireAuth, h(markFirstMeetingAttendance));
+router.get('/geocode', requireAuth, h(reverseGeocodeAddress));
 router.get('/attendance/history', requireAuth, h(getAttendanceHistory));
 
 // 19. Salary Slips

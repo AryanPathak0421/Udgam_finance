@@ -22,6 +22,8 @@ import { LoanScheme } from '../../models/LoanScheme.js';
 import { calculateLoan, MODES as CALC_MODES } from '../../services/loanCalculator.js';
 import { defaultWorkDate } from '../../services/dayOpen.js';
 import { evaluateLoan } from '../../controllers/loanCalculatorController.js';
+import { reverseGeocode } from '../../services/geocode.js';
+import { createPaymentLink, fetchPaymentLink, razorpayConfigured, razorpayTestMode } from '../../services/razorpay.js';
 
 /**
  * What the software stores with a requisition besides the amount: the EMI, the processing fee, the insurance fee, the security and the cash that is left.
@@ -4690,6 +4692,24 @@ export async function getCompanyQr(req, res) {
   const upiString = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(companyName)}&am=${amount}&cu=INR&tn=${encodeURIComponent(`Loan ${loanId} EMI - ${memberName}`)}`;
   const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(upiString)}`;
 
+  // Razorpay: the QR is a payment link of exactly this amount (it works with any UPI app); the status is asked back with /company-qr/status/:linkId
+  let razorpay = null;
+  let qrImage = qrImageUrl;
+  if (razorpayConfigured() && Number(amount) >= 1) {
+    try {
+      const link = await createPaymentLink({
+        amountPaise: Math.round(Number(amount) * 100),
+        description: `EMI ${loanId || ''} ${memberName || ''}`.trim(),
+        referenceId: `QR${Date.now()}`,
+        notes: { loanId: String(loanId || ''), member: String(memberName || ''), by: req.user?.employeeCode || '' },
+      });
+      razorpay = { linkId: link.id, shortUrl: link.short_url, testMode: razorpayTestMode() };
+      qrImage = `https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(link.short_url)}`;
+    } catch (err) {
+      console.warn('[company-qr] Razorpay link failed, the plain UPI QR is shown:', err.message);
+    }
+  }
+
   res.json({
     companyName,
     upiId,
@@ -4697,9 +4717,19 @@ export async function getCompanyQr(req, res) {
     loanId,
     memberName,
     upiString,
-    qrImageUrl,
+    qrImageUrl: qrImage,
+    razorpay,
   });
 }
+
+/** Has the Razorpay payment of a QR been made? (asked again and again by the screen that shows the QR) */
+export async function getCompanyQrStatus(req, res) {
+  const link = await fetchPaymentLink(String(req.params.linkId || ''));
+  const paid = link.status === 'paid';
+  const pay = (link.payments || []).find((x) => x.status === 'captured') || (link.payments || [])[0];
+  res.json({ status: link.status, paid, amount: (link.amount_paid || link.amount || 0) / 100, paymentId: paid ? pay?.payment_id || '' : '' });
+}
+
 
 // -----------------------------------------------------------------------------
 // 19. BORROWER SAVING AMOUNT & WITHDRAWAL REQUEST (POINT 25: UNLOCKED CLOSED LOAN SECURITY)
@@ -5147,9 +5177,20 @@ export async function getAttendanceTiming(req, res) {
   });
 }
 
+/** The address (Google Maps) of the place the employee is at: shown in the attendance screen. */
+export async function reverseGeocodeAddress(req, res) {
+  res.json({ address: await reverseGeocode(req.query.lat, req.query.lng) });
+}
+
 export async function markFirstMeetingAttendance(req, res) {
   const code = req.user?.employeeCode;
-  const { photo, location } = req.body || {};
+  const { photo } = req.body || {};
+  // the address is read from the coordinates by Google Maps on the server (what the phone sent is not trusted)
+  const location = req.body?.location ? { ...req.body.location } : req.body?.location;
+  if (location && Number.isFinite(Number(location.lat)) && Number.isFinite(Number(location.lng))) {
+    const address = await reverseGeocode(location.lat, location.lng);
+    if (address) location.address = address;
+  }
   if (!photo) throw new HttpError(400, 'Meeting photo upload is required');
 
   const emp = await Employee.findOne({
@@ -5209,6 +5250,7 @@ export async function markFirstMeetingAttendance(req, res) {
       source: 'app',
       lat: location?.lat,
       lng: location?.lng,
+      address: location?.address,
       firstActivity: new Date(),
       lastActivity: new Date(),
       remark: 'First meeting marked with photo in app',

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../../../api/client.js';
 import { useEmployeeApp } from '../EmployeeAppContext.jsx';
 import Icon from '../../../components/Icon.jsx';
+import RazorpayQrStatus from '../../../components/RazorpayQrStatus.jsx';
 
 const LOAN_TYPES = [
   {
@@ -1227,7 +1228,7 @@ export default function EmployeeEmiPayment() {
               ₹{Number(qrModal.amount).toLocaleString('en-IN')}
             </div>
             <div style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)', marginBottom: 16 }}>
-              UPI ID: <strong>{qrModal.upiId}</strong>
+              {qrModal.razorpay ? <RazorpayQrStatus razorpay={qrModal.razorpay} check={api.employeeApp.companyQrStatus} /> : <>UPI ID: <strong>{qrModal.upiId}</strong></>}
             </div>
 
             <div style={{ background: '#fef3c7', padding: '10px 14px', borderRadius: 8, fontSize: '0.78rem', color: '#92400e', marginBottom: 16, textAlign: 'left', display: 'flex', alignItems: 'center', gap: 8 }}>

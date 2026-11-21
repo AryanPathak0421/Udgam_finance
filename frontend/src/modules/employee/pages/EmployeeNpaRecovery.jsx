@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../../../api/client.js';
 import { useEmployeeApp } from '../EmployeeAppContext.jsx';
 import Icon from '../../../components/Icon.jsx';
+import RazorpayQrStatus from '../../../components/RazorpayQrStatus.jsx';
 
 export default function EmployeeNpaRecovery() {
   const { t } = useEmployeeApp();
@@ -623,7 +624,7 @@ export default function EmployeeNpaRecovery() {
                                 ₹{Number(qrModal.amount).toLocaleString('en-IN')}
                               </div>
                               <div style={{ fontSize: '0.72rem', color: '#166534' }}>
-                                UPI ID: <strong>{qrModal.upiId}</strong>
+                                {qrModal.razorpay ? <RazorpayQrStatus razorpay={qrModal.razorpay} check={api.employeeApp.companyQrStatus} /> : <>UPI ID: <strong>{qrModal.upiId}</strong></>}
                               </div>
                             </div>
                           ) : (

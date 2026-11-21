@@ -15,6 +15,13 @@ import { HttpError, startOfToday } from '../../utils/http.js';
 import { audit } from '../../utils/audit.js';
 import { CivilCheck } from '../../models/CivilCheck.js';
 import { civilFeePaise } from '../../models/AppSetting.js';
+import { User } from '../../models/User.js';
+import { AppEmiCollection } from '../../models/AppEmiCollection.js';
+import { OnlineEmiPayment } from '../../models/OnlineEmiPayment.js';
+import { borrowerState, loadLoan, receive } from '../../controllers/emiController.js';
+import { branchWorkingDate } from '../../services/dayOpen.js';
+import { toMinor } from '../../utils/money.js';
+import { createOrder, createPaymentLink, fetchPaymentLink, fetchPayment, capturePayment, signatureValid, razorpayConfigured, razorpayKeyId, razorpayTestMode } from '../../services/razorpay.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-key-udgam-2026';
 const COOKIE_NAME = process.env.COOKIE_NAME || 'udgam_token';
@@ -909,7 +916,26 @@ export async function getEmiPayDetails(req, res) {
   const nextAmt = nextDue ? (nextDue.amountPaise / 100).toFixed(2) : '1000.00';
   const upiUrl = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(payeeName)}&am=${nextAmt}&cu=INR&tn=${encodeURIComponent(`EMI-${member.code}`)}`;
 
+  // the loans of the member that still have something to pay (what is due now, what is left): the online payment is made against one of them
+  const rows = await memberEmiLoans(member);
+  const activeLoans = rows.map(({ p, st }) => ({
+    loanPaymentId: p._id,
+    loanId: p.loanId || p.receiptNo,
+    schemeName: p.schemeName,
+    installmentPaise: p.schedule?.[0]?.installmentPaise || 0,
+    duePaise: st.totals.due,
+    dueCount: st.due.length,
+    outstandingPaise: st.totals.outstanding,
+    nextDueDate: st.left[0]?.dueDate || null,
+    nextAmountPaise: st.left[0]?.remainingPaise || 0,
+  }));
+  const first = rows.map(({ p, st }) => ({ p, row: st.left[0] })).filter((x) => x.row).sort((a, b) => new Date(a.row.dueDate) - new Date(b.row.dueDate))[0];
+  const nextEmi = first ? { loanId: first.p.loanId || first.p.receiptNo, dueDate: first.row.dueDate, amountPaise: first.row.remainingPaise } : null;
+
   res.json({
+    activeLoans,
+    nextEmi,
+    online: { enabled: razorpayConfigured(), testMode: razorpayTestMode() },
     nextDue,
     paymentOptions: {
       upiId,
@@ -930,6 +956,153 @@ export async function getEmiPayDetails(req, res) {
       },
     },
   });
+}
+
+// The loans of a member that are open (not settled, something left to pay), with the state of the member on each.
+async function memberEmiLoans(member) {
+  const today = startOfToday();
+  const loans = await LoanPayment.find({ status: 'paid', $or: [{ 'lines.member': member._id }, { 'lines.code': member.code }] });
+  const out = [];
+  for (const p of loans) {
+    const line = p.lines.find((l) => String(l.member) === String(member._id) || l.code === member.code);
+    if (!line) continue;
+    // eslint-disable-next-line no-await-in-loop
+    const st = await borrowerState(p, line, today);
+    if (st.settled || !st.left.length) continue;
+    out.push({ p, line, st });
+  }
+  return out;
+}
+
+/** The member pays his EMI online: the order is made here, the member pays it in the Razorpay checkout of the app. */
+export async function createOnlineEmiOrder(req, res) {
+  const member = req.member;
+  if (!razorpayConfigured()) throw new HttpError(503, 'Online payment is not available right now');
+  const rows = await memberEmiLoans(member);
+  const row = rows.find((x) => String(x.p._id) === String(req.body?.loanPaymentId));
+  if (!row) throw new HttpError(404, 'This loan was not found, or nothing is left to pay on it');
+  const { p, st } = row;
+  const ask = req.body?.amount;
+  // no amount: what is due now, else the next installment
+  const amountPaise = ask === undefined || ask === null || String(ask).trim() === '' ? (st.totals.due > 0 ? st.totals.due : st.left[0].remainingPaise) : toMinor(String(ask));
+  if (amountPaise === null || amountPaise < 100) throw new HttpError(422, 'Enter the amount (₹1 or more, up to 2 decimals)');
+  if (amountPaise > st.totals.outstanding) throw new HttpError(422, `The amount is more than what is left to pay (₹${st.totals.outstanding / 100})`);
+  const order = await createOrder({ amountPaise, receipt: `EMI${Date.now()}`, notes: { memberCode: member.code, loanId: p.loanId || '' } });
+  await OnlineEmiPayment.create({ member: member._id, memberCode: member.code, loanPayment: p._id, loanId: p.loanId, amountPaise, orderId: order.id });
+  const company = await Company.findOne({ singleton: 'company' }).select('name').lean();
+  res.json({
+    orderId: order.id,
+    amountPaise,
+    currency: 'INR',
+    keyId: razorpayKeyId(),
+    name: company?.name || 'Udgam Microfinance',
+    description: `EMI of loan ${p.loanId || p.receiptNo}`,
+    prefill: { name: member.name, contact: member.mobile },
+  });
+}
+
+/**
+ * Razorpay sends the member back with the payment id and a signature. The signature is checked, the payment is asked from Razorpay (paid, and for this
+ * order and amount), and then the EMI is made like any other EMI (UPI) at once. When it cannot be posted at once (a holiday, ...) the money is kept as a
+ * collection that waits in the EMI collection approval of the branch: it is never lost.
+ */
+export async function verifyOnlineEmiPayment(req, res) {
+  const member = req.member;
+  const b = req.body || {};
+  const orderId = cleanStr(b.razorpay_order_id);
+  const paymentId = cleanStr(b.razorpay_payment_id);
+  const doc = await OnlineEmiPayment.findOne({ orderId, member: member._id });
+  if (!doc) throw new HttpError(404, 'This payment was not found');
+  const answer = (d) => ({ status: d.status, receiptNo: d.receiptNo || '', amount: d.amountPaise / 100, note: d.note || '' });
+  if (doc.status === 'posted' || doc.status === 'received') return res.json(answer(doc));
+  if (!signatureValid(orderId, paymentId, cleanStr(b.razorpay_signature))) {
+    await OnlineEmiPayment.updateOne({ _id: doc._id, status: 'created' }, { $set: { status: 'failed', note: 'The payment signature did not match' } });
+    throw new HttpError(400, 'The payment could not be verified');
+  }
+  let pay = await fetchPayment(paymentId);
+  if (pay.order_id !== doc.orderId || pay.amount !== doc.amountPaise) throw new HttpError(400, 'The payment does not match this order');
+  if (pay.status === 'authorized') pay = await capturePayment(paymentId, doc.amountPaise);
+  if (pay.status !== 'captured') throw new HttpError(402, 'The payment is not completed yet. If the money was deducted it will be updated shortly.');
+
+  // the one request that moves it from created to received makes the EMI (a second request for the same payment only reads the result)
+  const claimed = await OnlineEmiPayment.findOneAndUpdate({ _id: doc._id, status: 'created' }, { $set: { paymentId, status: 'received' } }, { new: true });
+  if (!claimed) return res.json(answer(await OnlineEmiPayment.findById(doc._id)));
+
+  await postClaimed(req, member, claimed, paymentId);
+  res.json(answer(claimed));
+}
+
+/** The claimed online payment becomes the EMI (or, when that cannot be done at once, a collection that waits for the branch approval). */
+async function postClaimed(req, member, claimed, paymentId) {
+  let auditReq = req;
+  try {
+    const admin = await User.findOne({ role: 'super_admin', isActive: true }).select('_id employeeCode name role branches').lean();
+    const sysReq = { user: { ...admin, role: 'super_admin', branches: [], employeeCode: admin?.employeeCode || '' }, ip: req.ip, headers: req.headers, method: 'POST', originalUrl: req.originalUrl };
+    auditReq = { ...req, user: sysReq.user };
+    const p = await loadLoan(sysReq, String(claimed.loanPayment));
+    const line = p.lines.find((l) => String(l.member) === String(member._id) || l.code === member.code);
+    const today = startOfToday();
+    const work = await branchWorkingDate(p.branch?._id || p.branch).catch(() => null);
+    const paidOn = work && work <= today ? work : today;
+    const emi = await receive(sysReq, p, line, { amountPaise: claimed.amountPaise, paidOn, payMode: 'upi', reference: paymentId, employeeCode: '' });
+    claimed.status = 'posted';
+    claimed.receiptNo = emi.receiptNo;
+    claimed.note = 'Paid online (Razorpay)';
+    await claimed.save();
+  } catch (err) {
+    // the money has come: it waits for the branch to approve it
+    const p = await LoanPayment.findById(claimed.loanPayment).select('loanId branch group').lean();
+    const col = await AppEmiCollection.create({
+      loanPayment: claimed.loanPayment, loanId: claimed.loanId, branch: p?.branch, memberCode: member.code, memberName: member.name, group: p?.group?.code ? `${p.group.code} — ${p.group.name}` : '',
+      amountPaise: claimed.amountPaise, collectedOn: startOfToday(), payMode: 'upi', reference: paymentId, collectedByCode: 'ONLINE', status: 'pending',
+    });
+    claimed.status = 'received';
+    claimed.receiptNo = col.receiptNo || '';
+    claimed.note = `Paid online (Razorpay); waiting for the branch approval: ${String(err.message).slice(0, 120)}`;
+    await claimed.save();
+  }
+  await audit(auditReq, { action: 'memberApp.onlineEmi', entity: 'OnlineEmiPayment', entityId: claimed._id, after: { memberCode: member.code, loanId: claimed.loanId, amount: claimed.amountPaise / 100, paymentId, status: claimed.status } });
+}
+
+/** The same payment as a QR: a Razorpay payment link of the amount, shown as a QR that any UPI app pays (the member app asks its status below). */
+export async function createOnlineEmiLink(req, res) {
+  const member = req.member;
+  if (!razorpayConfigured()) throw new HttpError(503, 'Online payment is not available right now');
+  const rows = await memberEmiLoans(member);
+  const row = rows.find((x) => String(x.p._id) === String(req.body?.loanPaymentId));
+  if (!row) throw new HttpError(404, 'This loan was not found, or nothing is left to pay on it');
+  const { p, st } = row;
+  const ask = req.body?.amount;
+  const amountPaise = ask === undefined || ask === null || String(ask).trim() === '' ? (st.totals.due > 0 ? st.totals.due : st.left[0].remainingPaise) : toMinor(String(ask));
+  if (amountPaise === null || amountPaise < 100) throw new HttpError(422, 'Enter the amount (₹1 or more, up to 2 decimals)');
+  if (amountPaise > st.totals.outstanding) throw new HttpError(422, `The amount is more than what is left to pay (₹${st.totals.outstanding / 100})`);
+  const link = await createPaymentLink({
+    amountPaise,
+    description: `EMI of loan ${p.loanId || p.receiptNo}`,
+    referenceId: `EMI${Date.now()}`,
+    notes: { memberCode: member.code, loanId: p.loanId || '' },
+    name: member.name,
+  });
+  await OnlineEmiPayment.create({ member: member._id, memberCode: member.code, loanPayment: p._id, loanId: p.loanId, amountPaise, orderId: link.id });
+  res.json({ linkId: link.id, shortUrl: link.short_url, qrImageUrl: `https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(link.short_url)}`, amountPaise, testMode: razorpayTestMode() });
+}
+
+/** Is the QR paid? When it is, the EMI is made (once) and the receipt is told. */
+export async function onlineEmiLinkStatus(req, res) {
+  const member = req.member;
+  const doc = await OnlineEmiPayment.findOne({ orderId: cleanStr(req.params.linkId), member: member._id });
+  if (!doc) throw new HttpError(404, 'This payment was not found');
+  const answer = (d) => ({ status: d.status, paid: d.status === 'posted' || d.status === 'received', receiptNo: d.receiptNo || '', amount: d.amountPaise / 100, note: d.note || '' });
+  if (doc.status !== 'created') return res.json(answer(doc));
+  const link = await fetchPaymentLink(doc.orderId);
+  if (link.status !== 'paid') return res.json({ status: link.status === 'created' ? 'created' : link.status, paid: false, amount: doc.amountPaise / 100 });
+  const pay = (link.payments || []).find((x) => x.status === 'captured') || (link.payments || [])[0];
+  const paymentId = pay?.payment_id;
+  if (!paymentId || (link.amount_paid || link.amount) !== doc.amountPaise) throw new HttpError(400, 'The payment does not match this QR');
+  const claimed = await OnlineEmiPayment.findOneAndUpdate({ _id: doc._id, status: 'created' }, { $set: { paymentId, status: 'received' } }, { new: true });
+  if (!claimed) return res.json(answer(await OnlineEmiPayment.findById(doc._id)));
+  await postClaimed(req, member, claimed, paymentId);
+  res.json(answer(claimed));
 }
 
 // Submit payment transaction proof / reference number

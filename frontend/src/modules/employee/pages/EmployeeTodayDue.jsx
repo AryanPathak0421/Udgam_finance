@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../../../api/client.js';
 import { useEmployeeApp } from '../EmployeeAppContext.jsx';
 import Icon from '../../../components/Icon.jsx';
+import RazorpayQrStatus from '../../../components/RazorpayQrStatus.jsx';
 
 const DUE_CATEGORIES = [
   { id: 'all', label: 'All Dues' },
@@ -38,6 +39,18 @@ export default function EmployeeTodayDue() {
 
   // Barcode / QR Modal
   const [barcodeModal, setBarcodeModal] = useState(null);
+  const [rzQr, setRzQr] = useState(null); // the Razorpay QR of the due amount of the open modal
+
+  useEffect(() => {
+    setRzQr(null);
+    if (!barcodeModal) return;
+    let off = false;
+    api.employeeApp.companyQr({ amount: barcodeModal.dueAmount, loanId: barcodeModal.loanId, memberName: barcodeModal.memberName })
+      .then((r) => { if (!off) setRzQr(r); })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => { off = true; };
+  }, [barcodeModal]);
 
   // Sunday and Holiday lock (Point 23)
   const isSunday = new Date().getDay() === 0;
@@ -546,12 +559,12 @@ export default function EmployeeTodayDue() {
             {/* Real UPI / Razorpay Barcode & QR Code (Point 5 fix) */}
             <div style={{ background: '#fff', padding: '14px 10px', borderRadius: 12, border: '1.5px dashed var(--emp-primary)', marginBottom: 14 }}>
               <img
-                src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`upi://pay?pa=udgamfinance@upi&pn=Udgam%20Finance&am=${barcodeModal.dueAmount}&cu=INR&tn=${encodeURIComponent(`EMI ${barcodeModal.loanId}`)}`)}`}
+                src={rzQr?.qrImageUrl || `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`upi://pay?pa=udgamfinance@upi&pn=Udgam%20Finance&am=${barcodeModal.dueAmount}&cu=INR&tn=${encodeURIComponent(`EMI ${barcodeModal.loanId}`)}`)}`}
                 alt="Payment Barcode QR"
                 style={{ width: 160, height: 160, display: 'block', margin: '0 auto 8px', borderRadius: 8 }}
               />
               <div style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--emp-primary)' }}>
-                UPI ID: udgamfinance@upi
+                {rzQr?.razorpay ? <RazorpayQrStatus razorpay={rzQr.razorpay} check={api.employeeApp.companyQrStatus} /> : 'UPI ID: udgamfinance@upi'}
               </div>
               <div style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
                 Scan with GPay / PhonePe / Paytm / BHIM to pay

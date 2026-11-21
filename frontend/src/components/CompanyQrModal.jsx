@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import Modal from './ui/Modal.jsx';
 import { Spinner } from './ui/Feedback.jsx';
 import { api } from '../api/client.js';
+import RazorpayQrStatus from './RazorpayQrStatus.jsx';
 
 export default function CompanyQrModal({ open, onClose, amount, loanId, memberName, branch }) {
   const [data, setData] = useState(null);
@@ -75,8 +76,7 @@ export default function CompanyQrModal({ open, onClose, amount, loanId, memberNa
             ₹{Number(data.amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
           <div style={{ fontSize: '0.82rem', color: 'var(--text-muted, #64748b)', marginBottom: 12 }}>
-            UPI ID: <strong style={{ color: 'var(--text-color, #111)' }}>{data.upiId}</strong>
-            {data.bankName && <span> · Bank: <strong>{data.bankName}</strong></span>}
+            {data.razorpay ? <RazorpayQrStatus razorpay={data.razorpay} check={api.emi.companyQrStatus} /> : <>UPI ID: <strong style={{ color: 'var(--text-color, #111)' }}>{data.upiId}</strong>{data.bankName && <span> · Bank: <strong>{data.bankName}</strong></span>}</>}
           </div>
 
           <div

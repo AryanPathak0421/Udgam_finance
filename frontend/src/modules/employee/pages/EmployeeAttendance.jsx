@@ -105,12 +105,12 @@ export default function EmployeeAttendance() {
       setLocLoading(true);
       navigator.geolocation.getCurrentPosition(
         (pos) => {
-          setLocation({
-            lat: pos.coords.latitude,
-            lng: pos.coords.longitude,
-            address: `GPS (${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)})`,
-          });
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          setLocation({ lat, lng, address: `GPS (${lat.toFixed(4)}, ${lng.toFixed(4)})` });
           setLocLoading(false);
+          // the address of the place (Google Maps)
+          api.employeeApp.geocode({ lat, lng }).then((r) => { if (r?.address) setLocation({ lat, lng, address: r.address }); }).catch(() => {});
         },
         () => {
           setLocLoading(false);

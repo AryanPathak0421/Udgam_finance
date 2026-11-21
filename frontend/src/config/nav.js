@@ -236,6 +236,7 @@ export const NAV_SECTIONS = [
           { label: 'Department Master', path: '/hr/departments', icon: 'folder', roles: ALL_ADMIN },
           { label: 'Designation Master', path: '/hr/designations', icon: 'rank', roles: ALL_ADMIN },
           { label: 'Employee Registration', path: '/hr/employees', icon: 'userplus', roles: ALL_ADMIN },
+          { label: 'Supervisors', path: '/hr/supervisors', icon: 'users', roles: ALL_ADMIN },
           { label: 'Supervisor Assign', path: '/hr/supervisor-assign', icon: 'users', roles: ALL_ADMIN },
           { label: 'Set Salary', path: '/hr/set-salary', icon: 'cash', roles: ALL_ADMIN },
           { label: 'Attendance', path: '/hr/attendance', icon: 'calendar' },

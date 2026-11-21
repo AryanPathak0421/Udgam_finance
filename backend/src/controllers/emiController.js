@@ -652,6 +652,8 @@ export async function cancelEmiPayment(req, res) {
   res.json({ message: 'EMI payment cancelled' });
 }
 
+import { createPaymentLink, fetchPaymentLink, razorpayConfigured, razorpayTestMode } from '../services/razorpay.js';
+
 export async function getCompanyQr(req, res) {
   const { amount = 0, loanId = '', memberName = '', branch = '' } = req.query;
   const company = await Company.findOne().lean();
@@ -667,6 +669,24 @@ export async function getCompanyQr(req, res) {
   const upiString = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(companyName)}&am=${amount}&cu=INR&tn=${encodeURIComponent(`Loan ${loanId} EMI - ${memberName}`.trim())}`;
   const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(upiString)}`;
 
+  // Razorpay: the QR is a payment link of exactly this amount (it works with any UPI app); the status is asked back with /company-qr/status/:linkId
+  let razorpay = null;
+  let qrImage = qrImageUrl;
+  if (razorpayConfigured() && Number(amount) >= 1) {
+    try {
+      const link = await createPaymentLink({
+        amountPaise: Math.round(Number(amount) * 100),
+        description: `EMI ${loanId || ''} ${memberName || ''}`.trim(),
+        referenceId: `QR${Date.now()}`,
+        notes: { loanId: String(loanId || ''), member: String(memberName || ''), by: req.user?.employeeCode || '' },
+      });
+      razorpay = { linkId: link.id, shortUrl: link.short_url, testMode: razorpayTestMode() };
+      qrImage = `https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(link.short_url)}`;
+    } catch (err) {
+      console.warn('[company-qr] Razorpay link failed, the plain UPI QR is shown:', err.message);
+    }
+  }
+
   res.json({
     companyName,
     upiId,
@@ -676,6 +696,16 @@ export async function getCompanyQr(req, res) {
     bankName: bank?.bankName || '',
     accountNumber: bank?.accountNumber || '',
     upiString,
-    qrImageUrl,
+    qrImageUrl: qrImage,
+    razorpay,
   });
 }
+
+/** Has the Razorpay payment of a QR been made? (asked again and again by the screen that shows the QR) */
+export async function getCompanyQrStatus(req, res) {
+  const link = await fetchPaymentLink(String(req.params.linkId || ''));
+  const paid = link.status === 'paid';
+  const pay = (link.payments || []).find((x) => x.status === 'captured') || (link.payments || [])[0];
+  res.json({ status: link.status, paid, amount: (link.amount_paid || link.amount || 0) / 100, paymentId: paid ? pay?.payment_id || '' : '' });
+}
+

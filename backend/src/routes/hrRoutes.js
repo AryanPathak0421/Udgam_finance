@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler as h } from '../utils/http.js';
 import {
-  departments, designations, listEmployees, getEmployee, employeePincode, pendingVerification, supervisorAssign, supervisorTransfer, supervisorBranchTransfer, listSupervisorVisits, createSupervisorVisit, sendEmployeeOtp, verifyEmployeeOtp, verifyEmployeeDocuments, saveSalarySetup, employeeStaffOptions, createEmployee, updateEmployee, setEmployeeStatus, syncFromUsers, hrOptions,
+  departments, designations, listEmployees, getEmployee, employeePincode, pendingVerification, supervisorAssign, supervisorBranches, supervisorTransfer, supervisorBranchTransfer, listSupervisorVisits, createSupervisorVisit, sendEmployeeOtp, verifyEmployeeOtp, verifyEmployeeDocuments, saveSalarySetup, employeeStaffOptions, createEmployee, updateEmployee, setEmployeeStatus, syncFromUsers, hrOptions,
   hrBranchOptions, sendNewEmployeeOtp, verifyNewEmployeeOtp, attendanceDay, markAttendance, setAttendanceLocation, setAttendanceTime, bulkAttendanceSettings, punchAttendance, autoAttendance, generateSalary, listSalary, adjustSalary, sendSalary, paySalary, branchWiseSalary, monthWiseSalary, mySalarySlips,
 } from '../controllers/hrController.js';
 
@@ -32,6 +32,7 @@ router.put('/hr/employees/:id/attendance-time', requireAuth, requireRole(...HR),
 router.post('/hr/attendance/punch', requireAuth, h(punchAttendance));
 router.post('/app/attendance/punch', requireAuth, h(punchAttendance));
 router.post('/hr/supervisor-assign', requireAuth, requireRole(...ADMIN), h(supervisorAssign));
+router.post('/hr/supervisor-branches', requireAuth, requireRole(...ADMIN), h(supervisorBranches));
 router.post('/hr/supervisor-transfer', requireAuth, requireRole(...ADMIN), h(supervisorTransfer));
 router.post('/hr/supervisor-branch-transfer', requireAuth, requireRole(...ADMIN), h(supervisorBranchTransfer));
 router.get('/hr/supervisor-visits', requireAuth, requireRole(...HR), h(listSupervisorVisits));

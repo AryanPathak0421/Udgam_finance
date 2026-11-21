@@ -43,6 +43,7 @@ import SmsGatewaySettings from './pages/SmsGatewaySettings.jsx';
 import { RoomRent, Tasks, Complaints, Requirements, LeaveApply, LeaveApproval, Resignations, PromotionTransfer, Letters, EmployeeList } from './pages/HrExtraPages.jsx';
 import { DepartmentMaster, DesignationMaster, EmployeeRegistration, SetSalary, Attendance, SalaryGenerate, SalaryPayment, BranchSalary } from './pages/HrPages.jsx';
 import SupervisorAssign from './pages/SupervisorAssign.jsx';
+import Supervisors from './pages/Supervisors.jsx';
 import DayClose from './pages/DayClose.jsx';
 import DayCloseApproval from './pages/DayCloseApproval.jsx';
 import { TrialBalance, BankBook, DayBook, ProductBranchDue } from './pages/AccountReports.jsx';
@@ -93,6 +94,7 @@ const PAGES = {
   '/hr/designations': DesignationMaster,
   '/hr/employees': EmployeeRegistration,
   '/hr/supervisor-assign': SupervisorAssign,
+  '/hr/supervisors': Supervisors,
   '/hr/set-salary': SetSalary,
   '/hr/attendance': Attendance,
   '/hr/salary': SalaryGenerate,

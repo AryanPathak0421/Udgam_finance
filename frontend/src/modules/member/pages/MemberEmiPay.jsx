@@ -3,6 +3,18 @@ import { Link } from 'react-router-dom';
 import { api } from '../../../api/client.js';
 import Icon from '../../../components/Icon.jsx';
 
+// The Razorpay checkout (UPI, card, net banking) is loaded when the member starts to pay.
+function loadRazorpay() {
+  if (window.Razorpay) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const s = document.createElement('script');
+    s.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    s.onload = () => resolve(true);
+    s.onerror = () => resolve(false);
+    document.body.appendChild(s);
+  });
+}
+
 export default function MemberEmiPay() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -19,6 +31,54 @@ export default function MemberEmiPay() {
   const [payDate, setPayDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [remarks, setRemarks] = useState('');
 
+  // Online payment (Razorpay)
+  const [onlineLoan, setOnlineLoan] = useState('');
+  const [onlineAmount, setOnlineAmount] = useState('');
+  const [paying, setPaying] = useState(false);
+  const [qr, setQr] = useState(null); // the Razorpay QR of the amount: { linkId, shortUrl, qrImageUrl, amountPaise, paid, receiptNo }
+
+  // the QR is asked every few seconds until it is paid (the server makes the EMI when it is)
+  useEffect(() => {
+    if (!qr?.linkId || qr.paid) return undefined;
+    let stop = false;
+    let timer;
+    const tick = async () => {
+      try {
+        const r = await api.memberApp.onlineEmiLinkStatus(qr.linkId);
+        if (stop) return;
+        if (r.paid) {
+          setQr((q) => (q ? { ...q, paid: true, receiptNo: r.receiptNo, note: r.note } : q));
+          setSuccessMsg(`₹${r.amount} paid. ${r.receiptNo ? `Receipt ${r.receiptNo}.` : ''}`);
+          loadDetails();
+          return;
+        }
+        if (r.status === 'expired' || r.status === 'cancelled') { setQr(null); setError('The QR expired. Make it again.'); return; }
+      } catch { /* try again */ }
+      timer = setTimeout(tick, 4000);
+    };
+    timer = setTimeout(tick, 3000);
+    return () => { stop = true; clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [qr?.linkId, qr?.paid]);
+
+  async function handleShowQr() {
+    setError('');
+    setSuccessMsg('');
+    if (!chosenLoan) { setError('Choose the loan'); return; }
+    const amt = onlineAmount === '' ? suggested : Number(onlineAmount);
+    if (!amt || amt < 1) { setError('Enter the amount (₹1 or more)'); return; }
+    if (amt * 100 > chosenLoan.outstandingPaise) { setError(`The amount is more than what is left to pay (₹${chosenLoan.outstandingPaise / 100})`); return; }
+    setPaying(true);
+    try {
+      const l = await api.memberApp.onlineEmiLink({ loanPaymentId: chosenLoan.loanPaymentId, amount: String(amt) });
+      setQr({ ...l, paid: false });
+    } catch (err) {
+      setError(err.message || 'Could not make the QR');
+    } finally {
+      setPaying(false);
+    }
+  }
+
   useEffect(() => {
     loadDetails();
   }, []);
@@ -30,6 +90,7 @@ export default function MemberEmiPay() {
       const res = await api.memberApp.emiPayDetails();
       setData(res);
       if (res.activeLoans && res.activeLoans.length > 0) {
+        setOnlineLoan((cur) => cur || String(res.activeLoans[0].loanPaymentId));
         setSelectedLoanId(res.activeLoans[0].loanId);
         const nextAmt = res.nextEmi ? (res.nextEmi.amountPaise / 100).toString() : (res.activeLoans[0].installmentPaise / 100).toString();
         setAmountRupees(nextAmt);
@@ -46,6 +107,53 @@ export default function MemberEmiPay() {
       navigator.clipboard.writeText(text);
       setCopiedField(field);
       setTimeout(() => setCopiedField(''), 2000);
+    }
+  }
+
+  const chosenLoan = (data?.activeLoans || []).find((l) => String(l.loanPaymentId) === String(onlineLoan));
+  const suggested = chosenLoan ? ((chosenLoan.duePaise > 0 ? chosenLoan.duePaise : chosenLoan.nextAmountPaise) / 100) : 0;
+
+  async function handlePayOnline() {
+    setError('');
+    setSuccessMsg('');
+    if (!chosenLoan) { setError('Choose the loan'); return; }
+    const amt = onlineAmount === '' ? suggested : Number(onlineAmount);
+    if (!amt || amt < 1) { setError('Enter the amount (₹1 or more)'); return; }
+    if (amt * 100 > chosenLoan.outstandingPaise) { setError(`The amount is more than what is left to pay (₹${chosenLoan.outstandingPaise / 100})`); return; }
+    setPaying(true);
+    try {
+      const ok = await loadRazorpay();
+      if (!ok) throw new Error('The payment window could not be loaded. Check the internet and try again.');
+      const order = await api.memberApp.onlineEmiOrder({ loanPaymentId: chosenLoan.loanPaymentId, amount: String(amt) });
+      await new Promise((resolve) => {
+        const rz = new window.Razorpay({
+          key: order.keyId,
+          amount: order.amountPaise,
+          currency: order.currency,
+          name: order.name,
+          description: order.description,
+          order_id: order.orderId,
+          prefill: order.prefill,
+          theme: { color: '#0f766e' },
+          handler: async (r) => {
+            try {
+              const done = await api.memberApp.onlineEmiVerify({ razorpay_order_id: r.razorpay_order_id, razorpay_payment_id: r.razorpay_payment_id, razorpay_signature: r.razorpay_signature });
+              setSuccessMsg(done.status === 'posted' ? `₹${done.amount} paid. Receipt ${done.receiptNo}.` : `₹${done.amount} received. Your branch will confirm it shortly.`);
+              await loadDetails();
+            } catch (err) {
+              setError(err.message || 'The payment could not be confirmed. If the money was deducted, it will be updated shortly.');
+            }
+            resolve();
+          },
+          modal: { ondismiss: () => resolve() },
+        });
+        rz.on('payment.failed', (f) => { setError(f?.error?.description || 'The payment failed'); });
+        rz.open();
+      });
+    } catch (err) {
+      setError(err.message || 'Could not start the payment');
+    } finally {
+      setPaying(false);
     }
   }
 
@@ -161,6 +269,44 @@ export default function MemberEmiPay() {
               Autofill Due
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Online payment (Razorpay): UPI, card, net banking */}
+      {data?.online?.enabled && (data?.activeLoans || []).length > 0 && (
+        <div className="mem-card" style={{ padding: 14, borderLeft: '4px solid #0f766e' }}>
+          <div style={{ fontSize: '0.92rem', fontWeight: 800, marginBottom: 2 }}>Pay online</div>
+          <div style={{ fontSize: '0.76rem', color: 'var(--mem-text-muted)', marginBottom: 10 }}>
+            UPI, debit / credit card or net banking. The EMI is recorded as soon as the payment is done.{data.online.testMode ? ' (Test mode: no real money)' : ''}
+          </div>
+          {(data.activeLoans || []).length > 1 && (
+            <select className="mem-input" value={onlineLoan} onChange={(e) => { setOnlineLoan(e.target.value); setOnlineAmount(''); }} style={{ marginBottom: 8 }}>
+              {data.activeLoans.map((l) => (
+                <option key={l.loanPaymentId} value={l.loanPaymentId}>{l.loanId}{l.duePaise > 0 ? ` — due ₹${l.duePaise / 100}` : ''}</option>
+              ))}
+            </select>
+          )}
+          {chosenLoan && (
+            <div style={{ fontSize: '0.78rem', color: 'var(--mem-text-muted)', marginBottom: 8 }}>
+              Loan {chosenLoan.loanId} · EMI ₹{(chosenLoan.installmentPaise || 0) / 100} · due now <strong>₹{(chosenLoan.duePaise || 0) / 100}</strong>{chosenLoan.dueCount ? ` (${chosenLoan.dueCount} installment${chosenLoan.dueCount === 1 ? '' : 's'})` : ''} · left to pay ₹{(chosenLoan.outstandingPaise || 0) / 100}
+            </div>
+          )}
+          <label style={{ fontSize: '0.74rem', fontWeight: 700 }} htmlFor="onlineAmount">Amount (₹)</label>
+          <input id="onlineAmount" className="mem-input" inputMode="decimal" value={onlineAmount === '' ? String(suggested || '') : onlineAmount} onChange={(e) => setOnlineAmount(e.target.value.replace(/[^0-9.]/g, ''))} style={{ marginBottom: 10 }} />
+          <button type="button" className="mem-btn" disabled={paying || !chosenLoan} onClick={handlePayOnline}>{paying ? 'Opening payment…' : `Pay ₹${onlineAmount === '' ? suggested : onlineAmount} online`}</button>
+          <button type="button" className="mem-btn secondary" style={{ marginTop: 8 }} disabled={paying || !chosenLoan} onClick={handleShowQr}>Show QR to pay with any UPI app</button>
+          {qr && (
+            <div style={{ textAlign: 'center', marginTop: 12 }}>
+              <div style={{ display: 'inline-block', padding: 10, background: '#fff', borderRadius: 12, border: '2px dashed var(--mem-primary)' }}>
+                <img src={qr.qrImageUrl} alt="Payment QR" style={{ width: 200, height: 200, display: 'block' }} />
+              </div>
+              <div style={{ fontWeight: 800, marginTop: 6 }}>₹{(qr.amountPaise || 0) / 100}</div>
+              <div style={{ fontSize: '0.78rem', marginTop: 4, fontWeight: 700, color: qr.paid ? '#166534' : 'var(--mem-text-muted)' }}>
+                {qr.paid ? `✓ Payment received${qr.receiptNo ? ` — receipt ${qr.receiptNo}` : ''}` : 'Waiting for the payment…'}
+              </div>
+              {!qr.paid && qr.shortUrl && <a href={qr.shortUrl} target="_blank" rel="noreferrer" style={{ fontSize: '0.74rem' }}>Open payment page</a>}
+            </div>
+          )}
         </div>
       )}
 

@@ -550,6 +550,30 @@ export async function supervisorBranchTransfer(req, res) {
   res.json({ moved: toMove.length });
 }
 
+/**
+ * Makes an employee a supervisor (or changes the branches of a supervisor): the branches under them are set. The team (the employees who report to them) is
+ * assigned with supervisorAssign. An employee who has a supervisor over them is a field employee, not a supervisor: that has to be removed first.
+ */
+export async function supervisorBranches(req, res) {
+  const b = req.body || {};
+  if (!mongoose.isValidObjectId(asString(b.supervisorId))) throw invalid({ supervisorId: 'Select the employee' });
+  const e = await Employee.findOne({ _id: b.supervisorId, isDeleted: false });
+  if (!e) throw new HttpError(404, 'Employee not found');
+  if (e.status !== 'active' || e.isBlocked) throw new HttpError(422, 'Only a working employee can be a supervisor');
+  const ids = [...new Set((Array.isArray(b.branchIds) ? b.branchIds : []).map(String).filter((x) => mongoose.isValidObjectId(x)))];
+  if (b.create === true && !ids.length) throw invalid({ branchIds: 'Select at least one branch for the supervisor' });
+  if (ids.length) {
+    const found = await Branch.find({ _id: { $in: ids } }).select('_id').lean();
+    if (found.length !== ids.length) throw invalid({ branchIds: 'Select the branches from the list' });
+  }
+  if (b.create === true && e.supervisor && String(e.supervisor) !== String(e._id)) throw new HttpError(422, 'This employee reports to a supervisor, so they work as a field employee. Remove their supervisor first (Supervisor Assign), then make them a supervisor.');
+  const before = (e.supervisedBranches || []).length;
+  e.supervisedBranches = ids;
+  await e.save();
+  await audit(req, { action: b.create === true ? 'supervisor.create' : 'supervisor.branches', entity: 'Employee', entityId: e._id, after: { supervisor: e.employeeCode, branches: ids.length, before } });
+  res.json({ success: true, message: b.create === true ? `${e.name} (${e.employeeCode}) is a supervisor now` : 'The branches of the supervisor are saved' });
+}
+
 /** Assigns or updates the supervisor for selected employees. */
 export async function supervisorAssign(req, res) {
   const b = req.body || {};
@@ -996,7 +1020,7 @@ export async function attendanceDay(req, res) {
     const auto = !a && date < today && eff?.status === 'absent' && eff.source === 'auto';
     const rule = eff?.source === 'rule';
     return { id: e._id, employeeCode: e.employeeCode, name: e.name, branch: e.branch?.code || '', branchName: e.branch?.name || '', designation: e.designation?.name || '', status: rule || auto ? 'absent' : a?.status || '', source: rule ? 'rule' : auto ? 'auto' : a?.source || '', reason: rule ? eff.reason : auto ? 'No attendance: absent by itself' : '', firstActivity: a?.firstActivity || null, lastActivity: a?.lastActivity || null, remark: a?.remark || '', hasLogin: Boolean(e.user),
-      locations: locationsOf(e), distanceM: a?.distanceM ?? null,
+      locations: locationsOf(e), distanceM: a?.distanceM ?? null, address: a?.address || '', markLat: a?.lat ?? null, markLng: a?.lng ?? null,
       time: e.attendanceTime?.from ? {
         from: e.attendanceTime.from,
         to: e.attendanceTime.to,
@@ -1166,6 +1190,8 @@ const metresBetween = (a, b, c, d) => {
   return 2 * R * Math.asin(Math.sqrt(h));
 };
 
+import { reverseGeocode } from '../services/geocode.js';
+
 /** An employee marks their own attendance (the app): it passes only from the latitude and longitude set for them. */
 export async function punchAttendance(req, res) {
   const e = await Employee.findOne({ user: req.user._id, isDeleted: false });
@@ -1211,8 +1237,9 @@ export async function punchAttendance(req, res) {
   const now = new Date();
   const existing = await Attendance.findOne({ employee: e._id, date });
   if (existing && existing.source === 'manual') return res.json({ status: existing.status, already: true, distanceM: distance });
-  await Attendance.updateOne({ employee: e._id, date }, { $set: { status: 'present', source: 'app', lastActivity: now, lat, lng, distanceM: distance }, $setOnInsert: { firstActivity: now } }, { upsert: true });
-  res.json({ status: 'present', already: false, distanceM: distance });
+  const address = await reverseGeocode(lat, lng);
+  await Attendance.updateOne({ employee: e._id, date }, { $set: { status: 'present', source: 'app', lastActivity: now, lat, lng, distanceM: distance, ...(address ? { address } : {}) }, $setOnInsert: { firstActivity: now } }, { upsert: true });
+  res.json({ status: 'present', already: false, distanceM: distance, address });
 }
 
 /** Marks attendance by hand for a date. Marking replaces what was there (auto or manual). */

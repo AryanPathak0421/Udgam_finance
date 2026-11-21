@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { api } from '../../../api/client.js';
+import RazorpayQrStatus from '../../../components/RazorpayQrStatus.jsx';
 import { useEmployeeApp } from '../EmployeeAppContext.jsx';
 import Icon from '../../../components/Icon.jsx';
 
@@ -498,18 +499,18 @@ export default function EmployeeProductSale() {
                 <div style={{ padding: '30px', color: 'var(--emp-text-muted)', fontSize: '0.85rem' }}>
                   Generating official Company QR Code...
                 </div>
-              ) : qrData?.qrCode ? (
+              ) : qrData?.qrImageUrl ? (
                 <div>
                   <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--emp-text)', marginBottom: 8 }}>
                     {qrData.companyName || 'UDGAM URBAN & GRAMIN MICROFINANCE'}
                   </div>
                   <img
-                    src={qrData.qrCode}
+                    src={qrData.qrImageUrl}
                     alt="Company Payment QR"
                     style={{ width: 190, height: 190, borderRadius: 10, border: '2px solid #059669', padding: 4 }}
                   />
                   <div style={{ fontSize: '0.74rem', color: 'var(--emp-text-muted)', marginTop: 6 }}>
-                    UPI ID: <strong style={{ color: 'var(--emp-text)' }}>{qrData.upiId || 'company@upi'}</strong>
+                    {qrData.razorpay ? <RazorpayQrStatus razorpay={qrData.razorpay} check={api.employeeApp.companyQrStatus} /> : <>UPI ID: <strong style={{ color: 'var(--emp-text)' }}>{qrData.upiId || 'company@upi'}</strong></>}
                   </div>
                   <div style={{ fontSize: '0.7rem', color: '#059669', fontWeight: 700, marginTop: 2 }}>
                     ✓ Scan with GPay, PhonePe, Paytm, or BHIM

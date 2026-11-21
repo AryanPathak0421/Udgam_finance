@@ -165,6 +165,7 @@ const attendanceSchema = new mongoose.Schema(
     lat: Number, // the place the attendance was marked from (app) and how far it was from the attendance location
     lng: Number,
     distanceM: Number,
+    address: String, // the address of the place (Google Maps)
     firstActivity: Date,
     lastActivity: Date,
     remark: String,

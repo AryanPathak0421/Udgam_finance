@@ -18,6 +18,10 @@ import {
   getMemberLoanNoc,
   getEmiPayDetails,
   submitEmiPaymentProof,
+  createOnlineEmiOrder,
+  verifyOnlineEmiPayment,
+  createOnlineEmiLink,
+  onlineEmiLinkStatus,
   listMemberRequisitions,
   applyMemberLoan,
   listMemberComplaints,
@@ -107,6 +111,10 @@ router.get('/loans/:id/noc', requireMemberAuth, h(getMemberLoanNoc));
 // 4. EMI Pay
 router.get('/emi-pay/details', requireMemberAuth, h(getEmiPayDetails));
 router.post('/emi-pay/submit-proof', requireMemberAuth, h(submitEmiPaymentProof));
+router.post('/emi-pay/online/order', requireMemberAuth, h(createOnlineEmiOrder));
+router.post('/emi-pay/online/verify', requireMemberAuth, h(verifyOnlineEmiPayment));
+router.post('/emi-pay/online/link', requireMemberAuth, h(createOnlineEmiLink));
+router.get('/emi-pay/online/link/:linkId', requireMemberAuth, h(onlineEmiLinkStatus));
 
 // 5. Loan Requisitions & Approval Notifications
 router.get('/requisitions', requireMemberAuth, h(listMemberRequisitions));
