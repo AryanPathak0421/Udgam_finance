@@ -100,8 +100,7 @@ function appUrl() {
   return (process.env.APP_URL || first || 'http://localhost:5173').replace(/\/$/, '');
 }
 
-// Always answers the same way, so the endpoint cannot be used to discover which
-// emails are registered.
+// A registered, active email gets the reset link; any other email gets "not registered" and no mail is sent.
 export async function forgotPassword(req, res) {
   const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
   if (!EMAIL_RE.test(email)) {
@@ -113,9 +112,10 @@ export async function forgotPassword(req, res) {
     console.error('forgot-password: SMTP_HOST / SMTP_USER / SMTP_PASS are not set on the server, no reset email can be sent');
     throw new HttpError(422, 'The password reset email is not set up on the server yet. Please ask the admin to reset your password.');
   }
-  const generic = { message: 'If this email is registered, a password reset link has been sent to it.' };
+  const generic = { message: 'A password reset link has been sent to your email.' };
   const user = await User.findOne({ email });
-  if (!user || !user.isActive) return res.json(generic);
+  // an email that is not registered (or is switched off) gets no mail: the screen says so
+  if (!user || !user.isActive) throw new HttpError(404, 'This email is not registered. Enter the email your account was created with.', { email: 'This email is not registered' });
 
   const token = crypto.randomBytes(32).toString('hex');
   user.resetTokenHash = sha256(token);
