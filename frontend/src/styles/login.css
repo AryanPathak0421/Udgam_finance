@@ -100,3 +100,41 @@ a.auth-submit.as-link { display: block; text-align: center; text-decoration: non
 .auth-icon-circle { width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; background: #e5f2f1; color: var(--primary); margin-bottom: 14px; }
 .auth-icon-circle.ok { background: #dcf4e3; color: #166534; }
 .auth-card .auth-sub + .auth-sub { margin-top: -10px; }
+
+/* ---- Form side: the card and the apps section stay inside the screen, and scroll as a whole on a short one ---- */
+.auth-form-side { align-items: flex-start; overflow-y: auto; }
+.auth-form-wrap { margin: auto; max-width: 440px; }
+.auth-card .auth-sub { margin-bottom: 8px; }
+.auth-card input:focus-visible,
+.eye:focus-visible,
+.auth-submit:focus-visible,
+.auth-link:focus-visible { outline: 2px solid #107870; outline-offset: 2px; }
+.auth-card .alert { margin: 14px 0 0; }
+
+/* ---- Mobile apps (under the sign-in card) ---- */
+.auth-apps { margin-top: 18px; padding: 18px 20px 6px; background: rgba(255, 255, 255, 0.7); border: 1px solid #dfe5f3; border-radius: 16px; }
+.auth-apps h2 { margin: 0 0 4px; font-size: 15px; color: #0f2a2a; }
+.auth-apps > p { margin: 0 0 12px; font-size: 12.5px; line-height: 1.45; color: var(--muted); }
+.auth-apps ul { list-style: none; margin: 0; padding: 0; }
+.app-row { display: flex; align-items: center; gap: 12px; padding: 11px 0; border-top: 1px solid #e6eaf4; }
+.app-row img { border-radius: 10px; flex-shrink: 0; background: #fff; }
+.app-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.app-text strong { font-size: 14px; color: #0f2a2a; }
+.app-text span { font-size: 12px; color: var(--muted); line-height: 1.35; }
+.app-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.app-btn {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 64px; padding: 7px 12px;
+  border: 1px solid #107870; border-radius: 8px; background: #fff; color: #107870;
+  font-size: 12.5px; font-weight: 700; text-decoration: none; white-space: nowrap; cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.app-btn:hover { background: #e8f4f3; }
+.app-btn.primary { background: #107870; color: #fff; }
+.app-btn.primary:hover { background: #0b5d57; }
+.app-btn:focus-visible { outline: 2px solid #107870; outline-offset: 2px; }
+@media (max-width: 480px) {
+  .auth-form-side { padding: 20px 14px; }
+  .app-row { flex-wrap: wrap; }
+  .app-actions { width: 100%; }
+  .app-btn { flex: 1; }
+}

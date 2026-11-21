@@ -23,9 +23,9 @@ async function apkIsThere(url) {
   }
 }
 
-function AppDownloadButton({ app }) {
+function AppRow({ app }) {
   const [busy, setBusy] = useState(false);
-  async function onClick(e) {
+  async function onDownload(e) {
     e.preventDefault();
     setBusy(true);
     const there = await apkIsThere(app.apk);
@@ -42,18 +42,17 @@ function AppDownloadButton({ app }) {
     }
   }
   return (
-    <a
-      href={app.apk}
-      onClick={onClick}
-      style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', border: '1px solid #d7e6e4', borderRadius: 10, background: '#f4faf9', textDecoration: 'none', color: '#0f172a' }}
-    >
-      <img src={app.icon} alt="" width={36} height={36} style={{ borderRadius: 8, flexShrink: 0 }} />
-      <span style={{ flex: 1, minWidth: 0 }}>
-        <span style={{ display: 'block', fontWeight: 700, fontSize: '0.88rem' }}>{app.name}</span>
-        <span style={{ display: 'block', fontSize: '0.72rem', color: '#64748b' }}>{app.sub}</span>
-      </span>
-      <span style={{ background: '#107870', color: '#fff', fontWeight: 700, fontSize: '0.78rem', padding: '7px 12px', borderRadius: 8, whiteSpace: 'nowrap' }}>{busy ? 'Please wait…' : 'Download'}</span>
-    </a>
+    <li className="app-row">
+      <img src={app.icon} alt="" width={40} height={40} />
+      <div className="app-text">
+        <strong>{app.name}</strong>
+        <span>{app.sub}</span>
+      </div>
+      <div className="app-actions">
+        <a className="app-btn primary" href={app.apk} onClick={onDownload}>{busy ? 'Please wait…' : 'Download'}</a>
+        <Link className="app-btn" to={app.href}>Open</Link>
+      </div>
+    </li>
   );
 }
 
@@ -81,61 +80,6 @@ export default function Login() {
   return (
     <AuthShell>
       <form className="auth-card" onSubmit={onSubmit} noValidate>
-        {/* Switch to Employee Mobile App Banner */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 12,
-          background: 'linear-gradient(135deg, #f0fdfa, #f8fafc)',
-          border: '1px solid #99f6e4',
-          borderRadius: 12,
-          padding: '12px 16px',
-          marginBottom: 20
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{
-              width: 36,
-              height: 36,
-              borderRadius: 8,
-              background: '#e6f4f2',
-              color: '#107870',
-              display: 'grid',
-              placeItems: 'center'
-            }}>
-              <Icon name="phone" size={18} />
-            </div>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: '0.92rem', color: '#0f2a2a' }}>
-                Field & Employee App
-              </div>
-              <div style={{ fontSize: '0.78rem', color: '#5a6b70', marginTop: 1 }}>
-                Quick login via mPIN / Mobile
-              </div>
-            </div>
-          </div>
-          <Link
-            to="/employee/login"
-            style={{
-              padding: '8px 14px',
-              background: '#107870',
-              color: '#ffffff',
-              borderRadius: 8,
-              fontWeight: 600,
-              fontSize: '0.82rem',
-              textDecoration: 'none',
-              whiteSpace: 'nowrap',
-              boxShadow: '0 2px 6px rgba(16,120,112,0.25)',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6
-            }}
-          >
-            <span>Open App</span>
-            <Icon name="arrowright" size={14} />
-          </Link>
-        </div>
-
         <h1>Welcome back</h1>
         <p className="auth-sub">Sign in to continue to the admin panel</p>
 
@@ -196,16 +140,15 @@ export default function Login() {
           <Icon name="shield" size={14} /> Secure, encrypted session
         </div>
 
-        <div style={{ marginTop: 20, borderTop: '1px solid #eef0f4', paddingTop: 14 }}>
-          <div style={{ textAlign: 'center', fontWeight: 700, fontSize: '0.9rem', color: '#0f172a', marginBottom: 4 }}>Download our apps</div>
-          <div style={{ textAlign: 'center', fontSize: '0.74rem', color: '#64748b', marginBottom: 10 }}>
-            Downloads the app. If the file is not ready, the app opens: tap <strong>Install</strong> (or <strong>Add to Home screen</strong>).
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {APPS.map((app) => <AppDownloadButton key={app.href} app={app} />)}
-          </div>
-        </div>
       </form>
+
+      <section className="auth-apps" aria-labelledby="apps-title">
+        <h2 id="apps-title">Mobile apps</h2>
+        <p>Download the app for your phone, or open it in the browser and tap <strong>Install</strong> / <strong>Add to Home screen</strong>.</p>
+        <ul>
+          {APPS.map((app) => <AppRow key={app.href} app={app} />)}
+        </ul>
+      </section>
     </AuthShell>
   );
 }
