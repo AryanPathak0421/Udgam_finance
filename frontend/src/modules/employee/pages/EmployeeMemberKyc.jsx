@@ -584,7 +584,7 @@ export default function EmployeeMemberKyc() {
                 KYC Documents &amp; Verification
               </h3>
               <span style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)' }}>
-                Approve, reject, or re-upload documents (Same as Software)
+                A rejected document can be uploaded again; an approved one is locked
               </span>
             </div>
 
@@ -713,7 +713,8 @@ export default function EmployeeMemberKyc() {
                         </div>
                       )}
 
-                      {/* Action buttons: Approve KYC Doc, Reject KYC Doc, & Upload / Re-Upload */}
+                      {/* Upload / Re-upload (not for an approved document) */}
+                      {!isApproved && (
                       <div style={{ display: 'flex', gap: 8, marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--emp-border)', flexWrap: 'wrap' }}>
                         <input
                           type="file"
@@ -722,28 +723,6 @@ export default function EmployeeMemberKyc() {
                           style={{ display: 'none' }}
                           onChange={(e) => handleReupload(docFieldKey, e.target.files?.[0])}
                         />
-
-                        {/* Approve Document Button (Software Matching) */}
-                        {!isApproved && doc.image && (
-                          <button
-                            type="button"
-                            className="emp-btn-primary"
-                            style={{
-                              padding: '6px 12px',
-                              fontSize: '0.78rem',
-                              background: '#16a34a',
-                              borderColor: '#16a34a',
-                              color: '#fff',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: 6,
-                            }}
-                            onClick={() => handleApproveDoc(doc)}
-                            disabled={loading}
-                          >
-                            <Icon name="checkcircle" size={13} /> Approve Doc
-                          </button>
-                        )}
 
                         {/* Upload / Re-Upload Button */}
                         <button
@@ -770,30 +749,8 @@ export default function EmployeeMemberKyc() {
                             ? 'Upload Missing Doc'
                             : 'Update / Replace Doc'}
                         </button>
-
-                        {/* Reject Document Button */}
-                        {!isRejected && (
-                          <button
-                            type="button"
-                            className="emp-btn-secondary"
-                            style={{
-                              padding: '6px 12px',
-                              fontSize: '0.78rem',
-                              color: '#dc2626',
-                              borderColor: '#fca5a5',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: 6,
-                            }}
-                            onClick={() => {
-                              setRejectingDoc(doc);
-                              setRejectReason('');
-                            }}
-                          >
-                            <Icon name="cross" size={12} /> Reject Doc
-                          </button>
-                        )}
                       </div>
+                      )}
                     </div>
                   );
                 })}
