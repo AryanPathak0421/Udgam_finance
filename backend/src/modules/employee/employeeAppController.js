@@ -25,6 +25,7 @@ import { evaluateLoan } from '../../controllers/loanCalculatorController.js';
 import { reverseGeocode } from '../../services/geocode.js';
 import { createPaymentLink, fetchPaymentLink, razorpayConfigured, razorpayTestMode } from '../../services/razorpay.js';
 import { OnlineCollection } from '../../models/OnlineCollection.js';
+import { assertMobileFree } from '../../services/memberMobile.js';
 import { loadLoan, receive } from '../../controllers/emiController.js';
 
 /**
@@ -1766,6 +1767,8 @@ export async function sendMemberPhoneChangeOtp(req, res) {
   if (currentNumber && currentNumber === newMobile && verifiedAt) {
     throw new HttpError(400, 'This mobile number is already verified. Enter a different number to change it.');
   }
+  // one mobile number, one member: a new number must be nobody's; the number the member has is verified only when no other member has verified it
+  if (targetType === 'member') await assertMobileFree(newMobile, m._id, { verifiedOnly: Boolean(currentNumber && currentNumber === newMobile) });
 
   const { otp, challengeId } = await issueOtp(`phone_change_${m._id}_${targetType}_${newMobile}`, { ttlSec: 300 });
   try {
@@ -1809,6 +1812,7 @@ export async function verifyMemberPhoneChange(req, res) {
   }
 
   const oldMobile = targetType === 'member' ? (m.mobile || '') : (m.guarantor?.mobile || '');
+  if (targetType === 'member') await assertMobileFree(cleanPhone, m._id, { verifiedOnly: Boolean(oldMobile && oldMobile === cleanPhone) });
 
   // the OTP was sent to the number the member already has: it is verified now (nothing changes, so no approval is needed)
   if (oldMobile && oldMobile === cleanPhone) {

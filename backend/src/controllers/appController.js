@@ -11,6 +11,7 @@ import { ProductSaleOrder } from '../modules/employee/employeeAppModel.js';
 import { StockProduct } from '../models/StockProduct.js';
 import { blockedCodes } from '../services/blockedStaff.js';
 import { PhoneUpdateRequest } from '../models/PhoneUpdateRequest.js';
+import { assertMobileFree } from '../services/memberMobile.js';
 import { asString, HttpError } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
 import { branchFilter, showMobile } from './groupController.js';
@@ -1021,6 +1022,7 @@ export async function approvePhoneUpdate(req, res) {
 
   const member = await Member.findById(reqDoc.member);
   if (!member) throw new HttpError(404, 'Member record not found');
+  if (reqDoc.targetType === 'member') await assertMobileFree(reqDoc.newNumber, member._id);
 
   const historyEntry = {
     targetType: reqDoc.targetType,
