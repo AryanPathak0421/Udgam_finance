@@ -200,12 +200,12 @@ export default function EmployeeMemberKyc() {
     setPhoneBusy(true);
     setPhoneError('');
     try {
-      await api.employeeApp.verifyPhoneChange(member.id || member._id || member.code, {
+      const done = await api.employeeApp.verifyPhoneChange(member.id || member._id || member.code, {
         newMobile: cleanNum,
         otp: otpClean,
         challengeId: phoneChallengeId,
       });
-      setSuccessMsg(`Mobile number successfully updated to +91 ${cleanNum}!`);
+      setSuccessMsg(done?.verified ? `Mobile number +91 ${cleanNum} verified successfully!` : `Mobile number successfully updated to +91 ${cleanNum}!`);
       setShowPhoneModal(false);
       setPhoneStep(1);
       setNewMobile('');

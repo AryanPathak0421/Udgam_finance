@@ -1762,8 +1762,10 @@ export async function sendMemberPhoneChangeOtp(req, res) {
   if (!m) throw new HttpError(404, 'Member not found');
 
   const currentNumber = targetType === 'member' ? m.mobile : m.guarantor?.mobile;
-  if (currentNumber && currentNumber === newMobile) {
-    throw new HttpError(400, 'New mobile number cannot be the same as the current number');
+  // the same number is sent an OTP to verify it (when it is not verified yet); a number that is verified already needs no OTP
+  const verifiedAt = targetType === 'member' ? m.mobileVerifiedAt : m.guarantor?.mobileVerifiedAt;
+  if (currentNumber && currentNumber === newMobile && verifiedAt) {
+    throw new HttpError(400, 'This mobile number is already verified. Enter a different number to change it.');
   }
 
   const { otp, challengeId } = await issueOtp(`phone_change_${m._id}_${targetType}_${newMobile}`, { ttlSec: 300 });
@@ -1808,6 +1810,15 @@ export async function verifyMemberPhoneChange(req, res) {
   }
 
   const oldMobile = targetType === 'member' ? (m.mobile || '') : (m.guarantor?.mobile || '');
+
+  // the OTP was sent to the number the member already has: it is verified now (nothing changes, so no approval is needed)
+  if (oldMobile && oldMobile === cleanPhone) {
+    if (targetType === 'member') m.mobileVerifiedAt = new Date();
+    else if (m.guarantor) { m.guarantor.mobileVerifiedAt = new Date(); m.markModified('guarantor'); }
+    await m.save();
+    await audit(req, { action: 'member.mobileVerified', entity: 'Member', entityId: m._id, after: { memberCode: m.code, targetType, mobile: cleanPhone } });
+    return res.json({ success: true, verified: true, mobile: cleanPhone, message: 'Mobile number verified successfully.' });
+  }
 
   // Item 24: Submit to Admin KYC section for approval
   let reqDoc = await PhoneUpdateRequest.findOne({ member: m._id, status: 'pending' });
