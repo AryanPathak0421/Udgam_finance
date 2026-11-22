@@ -101,7 +101,7 @@ import { AppUser } from '../../models/AppUser.js';
 import { CenterSurvey } from '../../models/CenterSurvey.js';
 import { PhoneUpdateRequest } from '../../models/PhoneUpdateRequest.js';
 import { generateCode } from '../../services/codeSequence.js';
-import { issueOtp, takeVerified, consumeChallenge } from '../../services/otpChallenges.js';
+import { issueOtp, takeVerified, consumeChallenge, demoOtpAllowed } from '../../services/otpChallenges.js';
 import { sendSms } from '../../services/sms.js';
 import { sendMail, mailConfigured } from '../../services/mailer.js';
 import { elBalance } from '../../services/earnedLeave.js';
@@ -1200,9 +1200,8 @@ export async function sendMemberOtp(req, res) {
   res.json({
     challengeId,
     mobile,
-    demoOtp: otp,
-    devOtp: otp,
-    message: `OTP sent to mobile. Demo/Testing OTP is ${otp} (or universal 123456)`,
+    ...(demoOtpAllowed() ? { devOtp: otp } : {}),
+    message: 'OTP sent to the mobile number',
   });
 }
 
@@ -1211,8 +1210,8 @@ export async function verifyMemberOtp(req, res) {
   const cleanMobile = cleanStr(mobile).replace(/\D/g, '').slice(-10);
   const otpStr = String(otp || '').trim();
 
-  // Point 4: Allow testing demo OTPs (123456 or 000000) or actual issued OTP
-  const isDemo = otpStr === '123456' || otpStr === '000000';
+  // the test codes (123456 / 000000) work only outside production
+  const isDemo = demoOtpAllowed() && (otpStr === '123456' || otpStr === '000000');
   if (!isDemo) {
     const challenge = await consumeChallenge(challengeId, otpStr);
     if (!challenge || challenge.key !== `mem_reg_${cleanMobile}`) {
@@ -1783,7 +1782,7 @@ export async function sendMemberPhoneChangeOtp(req, res) {
   res.json({
     challengeId,
     newMobile,
-    devOtp: otp,
+    ...(demoOtpAllowed() ? { devOtp: otp } : {}),
     message: 'OTP sent to mobile number',
   });
 }
@@ -1801,7 +1800,7 @@ export async function verifyMemberPhoneChange(req, res) {
   if (!m) throw new HttpError(404, 'Member not found');
 
   const otpStr = String(otp || '').trim();
-  const isDemo = otpStr === '123456' || otpStr === '000000';
+  const isDemo = demoOtpAllowed() && (otpStr === '123456' || otpStr === '000000');
   if (!isDemo) {
     const challenge = await consumeChallenge(challengeId || `phone_change_${m._id}_${targetType}_${cleanPhone}`, otpStr);
     if (!challenge) {
@@ -1878,14 +1877,14 @@ export async function sendGuarantorOtp(req, res) {
 
   const text = `Your OTP for Udgam Finance Guarantor verification is ${otp}. Valid for 10 minutes.`;
   await sendSms(mobile, text).catch(() => {});
-  res.json({ success: true, challengeId, devOtp: otp, message: 'OTP sent to guarantor mobile' });
+  res.json({ success: true, challengeId, ...(demoOtpAllowed() ? { devOtp: otp } : {}), message: 'OTP sent to guarantor mobile' });
 }
 
 export async function verifyGuarantorOtp(req, res) {
   const { mobile, otp, challengeId } = req.body || {};
   const cached = otpCache.get(challengeId);
   if (!cached || cached.mobile !== mobile || cached.otp !== otp || Date.now() > cached.expiresAt) {
-    if (otp !== '123456') throw new HttpError(400, 'Invalid or expired OTP');
+    if (!(demoOtpAllowed() && otp === '123456')) throw new HttpError(400, 'Invalid or expired OTP');
   }
   otpCache.delete(challengeId);
   res.json({ success: true, verified: true, message: 'Guarantor phone verified successfully' });

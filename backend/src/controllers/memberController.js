@@ -13,7 +13,7 @@ import { asString, createValidator, escapeRegex, parseDateOnly, parsePaging, Htt
 import { audit } from '../utils/audit.js';
 import { User } from '../models/User.js';
 import { lookupPincode, lookupIfsc } from '../services/lookup.js';
-import { takeVerified } from '../services/otpChallenges.js';
+import { takeVerified, demoOtpAllowed } from '../services/otpChallenges.js';
 import { checkPanFormat, verifyPan, verifyBankAccount } from '../services/kycVerify.js';
 import { AuditLog } from '../models/AuditLog.js';
 import { Group } from '../models/Group.js';
@@ -357,7 +357,7 @@ async function verifyOtpWith(req, res, allowTestCodes) {
   if (ch.expiresAt.getTime() < Date.now()) throw new HttpError(410, 'The OTP has expired. Please send a new OTP.');
   if (ch.attempts >= OTP_MAX_ATTEMPTS) throw new HttpError(429, 'Too many wrong attempts. Please send a new OTP.');
 
-  const isDemo = allowTestCodes && (otp === '123456' || otp === '000000');
+  const isDemo = demoOtpAllowed() && allowTestCodes && (otp === '123456' || otp === '000000');
   if (!isDemo) {
     const given = Buffer.from(hashOtp(ch._id, otp), 'hex');
     const stored = Buffer.from(ch.hash, 'hex');
@@ -437,7 +437,7 @@ export async function requestPhoneUpdate(req, res) {
     throw new HttpError(422, 'Enter a valid 10-digit mobile number');
   }
   const cleanOtp = asString(otp).trim();
-  const isDemo = cleanOtp === '123456' || cleanOtp === '000000';
+  const isDemo = demoOtpAllowed() && (cleanOtp === '123456' || cleanOtp === '000000');
 
   const member = await Member.findById(memberId);
   if (!member || member.isDeleted) throw new HttpError(404, 'Member not found');

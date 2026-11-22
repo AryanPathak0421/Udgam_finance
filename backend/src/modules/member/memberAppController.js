@@ -15,6 +15,8 @@ import { HttpError, startOfToday } from '../../utils/http.js';
 import { audit } from '../../utils/audit.js';
 import { CivilCheck } from '../../models/CivilCheck.js';
 import { civilFeePaise } from '../../models/AppSetting.js';
+import { issueOtp, consumeChallenge, demoOtpAllowed } from '../../services/otpChallenges.js';
+import { sendSms } from '../../services/sms.js';
 import { User } from '../../models/User.js';
 import { AppEmiCollection } from '../../models/AppEmiCollection.js';
 import { OnlineEmiPayment } from '../../models/OnlineEmiPayment.js';
@@ -234,13 +236,14 @@ export async function sendLoginOtp(req, res) {
   if (!mem.mobile) throw new HttpError(400, 'No mobile number registered for this member');
   if (!mem.isActive || mem.isBlocked) throw new HttpError(403, 'Account is inactive or blocked');
 
-  // Simulated OTP for rapid testing and production verification
-  const simulatedOtp = '123456';
+  const { otp, challengeId } = await issueOtp(`member_login_${mem._id}`, { ttlSec: 300 });
+  await sendSms({ to: mem.mobile, text: `Your Udgam Member App login OTP is ${otp}. Valid for 5 minutes.` }).catch((err) => console.warn('[member login otp] SMS failed:', err.message));
   res.json({
     status: 'ok',
     message: `OTP sent successfully to registered mobile ${maskPhone(mem.mobile)}`,
     maskedMobile: maskPhone(mem.mobile),
-    simulatedOtp,
+    challengeId,
+    ...(demoOtpAllowed() ? { devOtp: otp } : {}),
   });
 }
 
@@ -254,8 +257,9 @@ export async function verifyLoginOtp(req, res) {
   if (!mem) throw new HttpError(404, 'Member not found');
   if (!mem.isActive || mem.isBlocked) throw new HttpError(403, 'Account is inactive or blocked');
 
-  // Validate 6 digit OTP (accept '123456' or valid numeric code)
-  if (otp.length < 4) throw new HttpError(400, 'Invalid OTP entered');
+  // only the OTP that was sent to this member's mobile opens the login
+  const ch = await consumeChallenge(cleanStr(req.body?.challengeId), otp);
+  if (!ch || ch.key !== `member_login_${mem._id}`) throw new HttpError(400, 'Invalid or expired OTP. Please send a new OTP.');
 
   const token = createToken(mem);
   setAuthCookies(res, token);
@@ -281,11 +285,14 @@ export async function forgotMemberMpinSendOtp(req, res) {
   if (!mem) throw new HttpError(404, 'Member not found');
   if (!mem.mobile) throw new HttpError(400, 'No mobile number registered with this member');
 
+  const { otp, challengeId } = await issueOtp(`member_mpin_reset_${mem._id}`, { ttlSec: 300 });
+  await sendSms({ to: mem.mobile, type: 'password', name: mem.name, otp, text: `Your Udgam Member App mPIN reset OTP is ${otp}. Valid for 5 minutes.` }).catch((err) => console.warn('[member mpin otp] SMS failed:', err.message));
   res.json({
     status: 'ok',
     message: `OTP sent successfully to registered mobile ${maskPhone(mem.mobile)}`,
     maskedMobile: maskPhone(mem.mobile),
-    simulatedOtp: '123456',
+    challengeId,
+    ...(demoOtpAllowed() ? { devOtp: otp } : {}),
   });
 }
 
@@ -299,6 +306,9 @@ export async function forgotMemberMpinVerify(req, res) {
   const mem = await findMember(id);
   if (!mem) throw new HttpError(404, 'Member not found');
   if (!otp || otp.length < 4) throw new HttpError(400, 'Invalid OTP entered');
+  // the mPIN is changed only with the OTP that was sent to this member's mobile
+  const ch = await consumeChallenge(cleanStr(req.body?.challengeId), otp);
+  if (!ch || ch.key !== `member_mpin_reset_${mem._id}`) throw new HttpError(400, 'Invalid or expired OTP. Please send a new OTP.');
 
   const mpinHash = await MemberMpin.hashMpin(newMpin);
   let record = await MemberMpin.findOne({ member: mem._id });

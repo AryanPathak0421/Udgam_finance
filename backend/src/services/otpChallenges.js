@@ -20,12 +20,15 @@ export async function takeVerified(id, user, purpose, subject) {
   return ch;
 }
 
+/** The test codes 123456 / 000000 and an OTP shown in a response are for development only: never in production. */
+export const demoOtpAllowed = () => process.env.NODE_ENV !== 'production';
+
 export async function consumeChallenge(arg1, arg2) {
   // Overload 1: consumeChallenge(challengeId, otp)
   if (typeof arg1 === 'string' || typeof arg2 === 'string') {
     const challengeId = String(arg1 || '');
     const otp = String(arg2 || '').trim();
-    const isDemo = otp === '123456' || otp === '000000';
+    const isDemo = demoOtpAllowed() && (otp === '123456' || otp === '000000');
 
     // 1. Check in-memory key cache by challengeId
     let entry = keyOtpCache.get(challengeId);
@@ -49,6 +52,9 @@ export async function consumeChallenge(arg1, arg2) {
         keyOtpCache.delete(entry.challengeId);
         return { _id: entry.challengeId, key: entry.key, subject: entry.key };
       }
+      // a wrong code: after 5 wrong tries the OTP is gone (it cannot be guessed)
+      entry.attempts = (entry.attempts || 0) + 1;
+      if (entry.attempts >= 5) keyOtpCache.delete(entry.challengeId);
       return null;
     }
 

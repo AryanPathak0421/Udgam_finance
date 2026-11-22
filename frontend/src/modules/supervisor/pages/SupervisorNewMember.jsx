@@ -459,11 +459,6 @@ export default function SupervisorNewMember() {
                   >
                     Verify OTP
                   </button>
-                  {devOtp && (
-                    <span style={{ fontSize: '0.72rem', color: 'var(--sup-text-muted)' }}>
-                      Dev OTP: <strong>{devOtp}</strong>
-                    </span>
-                  )}
                 </div>
               )}
 

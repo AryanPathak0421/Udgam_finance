@@ -245,9 +245,7 @@ function BorrowerOtpBox({ memberId, verified, onVerified, onReset }) {
     setBusy(true);
     setErr('');
     try {
-      const res = await api.loanRequisitions.borrowerOtp(memberId).catch(async () => {
-        return { sentTo: 'Registered Mobile', devOtp: '123456', challengeId: 'demo_' + Date.now() };
-      });
+      const res = await api.loanRequisitions.borrowerOtp(memberId);
       setChallenge(res);
       setOtp('');
     } catch (e) {
@@ -258,17 +256,16 @@ function BorrowerOtpBox({ memberId, verified, onVerified, onReset }) {
   };
 
   const verifyOtp = async () => {
-    if (otp !== '123456' && !/^\d{6}$/.test(otp)) {
-      setErr('Enter 6-digit OTP (or Demo: 123456)');
+    if (!/^\d{6}$/.test(otp)) {
+      setErr('Enter the 6-digit OTP');
       return;
     }
     setBusy(true);
     setErr('');
     try {
-      if (challenge?.challengeId && !challenge.challengeId.startsWith('demo_')) {
-        await api.members.verifyOtp(challenge.challengeId, otp).catch(() => {});
-      }
-      onVerified(challenge?.challengeId || 'verified');
+      if (!challenge?.challengeId) throw new Error('Send the OTP first');
+      await api.members.verifyOtp(challenge.challengeId, otp);
+      onVerified(challenge.challengeId);
     } catch (e) {
       setErr(e.message || 'OTP verification failed');
     } finally {
@@ -304,14 +301,6 @@ function BorrowerOtpBox({ memberId, verified, onVerified, onReset }) {
             />
             <button
               type="button"
-              className="emp-btn-secondary"
-              style={{ padding: '4px 8px', fontSize: '0.72rem' }}
-              onClick={() => setOtp('123456')}
-            >
-              Demo
-            </button>
-            <button
-              type="button"
               className="emp-btn-primary"
               style={{ padding: '6px 12px', fontSize: '0.75rem' }}
               disabled={busy}
@@ -324,7 +313,7 @@ function BorrowerOtpBox({ memberId, verified, onVerified, onReset }) {
       </div>
       {challenge && (
         <div style={{ fontSize: '0.72rem', color: 'var(--emp-text-muted)', marginTop: 2 }}>
-          OTP sent to {challenge.sentTo}{challenge.devOtp ? ` (Demo: ${challenge.devOtp})` : ''}
+          OTP sent to {challenge.sentTo}
         </div>
       )}
       {err && <div style={{ fontSize: '0.72rem', color: '#dc2626', marginTop: 2, fontWeight: 600 }}>{err}</div>}

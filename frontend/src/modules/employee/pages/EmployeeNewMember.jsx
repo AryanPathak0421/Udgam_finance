@@ -341,17 +341,10 @@ function MobileOtpVerify({ mobile, mobileValid, verified, onVerified, onReset })
         return;
       }
       const res = await api.employeeApp.sendMemberOtp(mobile.trim());
-      setChallengeId(res.challengeId || 'ch_' + Date.now());
-      setDevOtp(res.demoOtp || res.devOtp || '123456');
+      setChallengeId(res.challengeId || '');
       setOtp('');
     } catch (err) {
-      if (err.message && err.message.includes('already registered')) {
-        setError(err.message);
-      } else {
-        // In dev fallback allow testing demo otp
-        setChallengeId('ch_' + Date.now());
-        setDevOtp('123456');
-      }
+      setError(err.message || 'Could not send the OTP. Please try again.');
     } finally {
       setBusy(false);
     }
@@ -372,11 +365,7 @@ function MobileOtpVerify({ mobile, mobileValid, verified, onVerified, onReset })
       });
       onVerified(res.verifiedToken || 'verified_token');
     } catch (err) {
-      if (otp.trim() === '123456' || otp.trim() === '000000') {
-        onVerified('verified_demo_token');
-      } else {
-        setError(err.message || 'Invalid OTP');
-      }
+      setError(err.message || 'Invalid OTP');
     } finally {
       setBusy(false);
     }
@@ -422,29 +411,6 @@ function MobileOtpVerify({ mobile, mobileValid, verified, onVerified, onReset })
         </button>
       ) : (
         <div style={{ background: '#f8fafc', border: '1px solid var(--emp-border)', borderRadius: 8, padding: 10 }}>
-          <div
-            style={{
-              background: '#fef3c7',
-              color: '#92400e',
-              padding: '6px 10px',
-              borderRadius: 6,
-              fontSize: '0.78rem',
-              marginBottom: 8,
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-            }}
-          >
-            <span>Demo Mode — OTP: <strong>{devOtp || '123456'}</strong></span>
-            <button
-              type="button"
-              className="emp-btn-secondary"
-              style={{ padding: '2px 8px', fontSize: '0.72rem', background: '#fff', color: '#b45309', borderColor: '#f59e0b' }}
-              onClick={() => setOtp(devOtp || '123456')}
-            >
-              Fill 123456
-            </button>
-          </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <input
               type="text"

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import jwt from 'jsonwebtoken';
+import rateLimit from 'express-rate-limit';
 import { Member } from '../../models/Member.js';
 import { asyncHandler as h } from '../../utils/http.js';
 import {
@@ -91,10 +92,11 @@ router.post('/auth/logout', (req, res) => {
   res.clearCookie('udgam_member_token');
   res.json({ status: 'ok', message: 'Signed out successfully' });
 });
-router.post('/auth/login-otp/send', h(sendLoginOtp));
-router.post('/auth/login-otp/verify', h(verifyLoginOtp));
-router.post('/auth/forgot-mpin/send-otp', h(forgotMemberMpinSendOtp));
-router.post('/auth/forgot-mpin/reset', h(forgotMemberMpinVerify));
+const otpLimit = (limit) => rateLimit({ windowMs: 15 * 60 * 1000, limit, standardHeaders: true, legacyHeaders: false });
+router.post('/auth/login-otp/send', otpLimit(8), h(sendLoginOtp));
+router.post('/auth/login-otp/verify', otpLimit(20), h(verifyLoginOtp));
+router.post('/auth/forgot-mpin/send-otp', otpLimit(8), h(forgotMemberMpinSendOtp));
+router.post('/auth/forgot-mpin/reset', otpLimit(20), h(forgotMemberMpinVerify));
 
 // 2. Protected Member Core Routes
 router.get('/profile', requireMemberAuth, h(getMemberProfile));

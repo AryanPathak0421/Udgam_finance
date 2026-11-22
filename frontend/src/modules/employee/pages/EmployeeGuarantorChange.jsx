@@ -373,11 +373,6 @@ export default function EmployeeGuarantorChange() {
 
                     {showOtpField && !guarantorOtpVerified && (
                       <div style={{ marginTop: 6, background: '#f8fafc', padding: 8, borderRadius: 6, border: '1px solid var(--emp-border)' }}>
-                        {guarantorDevOtp && (
-                          <div style={{ fontSize: '0.72rem', color: '#b45309', marginBottom: 4 }}>
-                            Dev OTP: <strong>{guarantorDevOtp}</strong>
-                          </div>
-                        )}
                         <div style={{ display: 'flex', gap: 6 }}>
                           <input
                             type="text"

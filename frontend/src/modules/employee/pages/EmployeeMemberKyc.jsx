@@ -869,12 +869,6 @@ export default function EmployeeMemberKyc() {
               </div>
             )}
 
-            {phoneDevOtp && (
-              <div style={{ background: '#fef3c7', color: '#92400e', padding: '8px 12px', borderRadius: 6, fontSize: '0.82rem', marginBottom: 12, border: '1px dashed #f59e0b' }}>
-                Dev OTP: <strong>{phoneDevOtp}</strong>
-              </div>
-            )}
-
             {phoneStep === 1 ? (
               <form onSubmit={handleSendPhoneOtp} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <div>

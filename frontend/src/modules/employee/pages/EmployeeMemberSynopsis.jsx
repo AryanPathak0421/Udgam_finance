@@ -821,11 +821,6 @@ export default function EmployeeMemberSynopsis() {
                         {phoneSending ? '...' : phoneCountdown > 0 ? `(${phoneCountdown}s)` : phoneOtpSent ? 'Resend' : 'Send OTP'}
                       </button>
                     </div>
-                    {phoneDevOtp && (
-                      <div style={{ fontSize: '0.7rem', color: '#059669', marginTop: 2 }}>
-                        Dev OTP: <strong>{phoneDevOtp}</strong> (or use 123456)
-                      </div>
-                    )}
                   </div>
 
                   {phoneOtpSent && (
@@ -1079,9 +1074,6 @@ export function EmpCompleteDetailsModal({ member, options, onClose, onSaved }) {
                   <span style={{ color: '#16a34a', fontWeight: 700, fontSize: '0.8rem', display: 'flex', alignItems: 'center' }}>✓ Verified</span>
                 )}
               </div>
-              {devOtp && !otpVerified && (
-                <div style={{ fontSize: '0.7rem', color: '#059669', marginTop: 2 }}>Dev OTP: {devOtp} (or 123456)</div>
-              )}
               {otpSent && !otpVerified && (
                 <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
                   <input

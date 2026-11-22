@@ -305,7 +305,7 @@ export async function sendEmployeeOtp(req, res) {
     });
     dev = !sent;
   }
-  res.json({ challengeId: challenge._id, sentTo: to, expiresAt: challenge.expiresAt, ...(dev ? { devOtp: otp } : {}) });
+  res.json({ challengeId: challenge._id, sentTo: to, expiresAt: challenge.expiresAt, ...(dev && process.env.NODE_ENV !== 'production' ? { devOtp: otp } : {}) });
 }
 
 /**
@@ -336,7 +336,7 @@ export async function sendNewEmployeeOtp(req, res) {
     });
     dev = !sent;
   }
-  res.json({ challengeId: challenge._id, sentTo: to, expiresAt: challenge.expiresAt, ...(dev ? { devOtp: otp } : {}) });
+  res.json({ challengeId: challenge._id, sentTo: to, expiresAt: challenge.expiresAt, ...(dev && process.env.NODE_ENV !== 'production' ? { devOtp: otp } : {}) });
 }
 
 export async function verifyNewEmployeeOtp(req, res) {

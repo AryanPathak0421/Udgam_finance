@@ -14,6 +14,8 @@ export default function MemberLogin() {
   const [mpin, setMpin] = useState('');
   const [otp, setOtp] = useState('');
   const [otpSent, setOtpSent] = useState(false);
+  const [challengeId, setChallengeId] = useState('');
+  const [forgotChallenge, setForgotChallenge] = useState('');
   const [maskedMobile, setMaskedMobile] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -69,10 +71,9 @@ export default function MemberLogin() {
     try {
       const res = await api.memberApp.sendLoginOtp(id);
       setMaskedMobile(res.maskedMobile || id);
+      setChallengeId(res.challengeId || '');
+      setOtp('');
       setOtpSent(true);
-      if (res.simulatedOtp) {
-        setOtp(res.simulatedOtp);
-      }
     } catch (err) {
       setError(err.message || 'Failed to send OTP');
     } finally {
@@ -95,6 +96,7 @@ export default function MemberLogin() {
       const res = await api.memberApp.verifyLoginOtp({
         identifier: identifier.trim(),
         otp: otp.trim(),
+        challengeId,
       });
       login(res.user, res.token);
       navigate('/member', { replace: true });
@@ -114,7 +116,8 @@ export default function MemberLogin() {
     try {
       const r = await api.memberApp.forgotMpinSendOtp(forgotId.trim());
       setForgotMsg(r.message || 'OTP sent successfully');
-      if (r.simulatedOtp) setForgotOtp(r.simulatedOtp);
+      setForgotChallenge(r.challengeId || '');
+      setForgotOtp('');
       setStep(2);
     } catch (err) {
       setError(err.message || 'Failed to send OTP');
@@ -136,6 +139,7 @@ export default function MemberLogin() {
         identifier: forgotId.trim(),
         otp: forgotOtp.trim(),
         newMpin: newMpin.trim(),
+        challengeId: forgotChallenge,
       });
       setForgotMsg('mPIN reset successful! Please login with your new mPIN.');
       setTimeout(() => {
