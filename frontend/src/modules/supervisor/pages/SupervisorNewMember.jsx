@@ -72,6 +72,13 @@ export default function SupervisorNewMember() {
   const [success, setSuccess] = useState('');
   const [step, setStep] = useState(1); // 1: Personal & Branch, 2: Address & Bank, 3: KYC & Guarantor
 
+  // Live Verification States (CGPey)
+  const [aadhaarVerified, setAadhaarVerified] = useState(false);
+  const [panVerified, setPanVerified] = useState(false);
+  const [bankVerified, setBankVerified] = useState(false);
+  const [verifying, setVerifying] = useState({ pan: false, aadhaar: false, okycOtp: false, bank: false });
+  const [okycSession, setOkycSession] = useState({ open: false, sessionId: '', otp: '' });
+
   useEffect(() => {
     loadMetadata();
   }, []);
@@ -191,6 +198,128 @@ export default function SupervisorNewMember() {
       setBusy(false);
     }
   }
+
+  const handleVerifyPan = async () => {
+    const cleanPan = (form.pan || '').trim().toUpperCase();
+    if (!cleanPan || !/^[A-Z]{5}\d{4}[A-Z]$/.test(cleanPan)) {
+      setError('Enter a valid 10-character PAN (e.g. ABCDE1234F)');
+      return;
+    }
+    setVerifying((prev) => ({ ...prev, pan: true }));
+    setError('');
+    try {
+      const res = await api.verify.pan(cleanPan, true);
+      if (res.success || res.status === 'VERIFIED') {
+        setPanVerified(true);
+        if (res.data?.name && !form.name) {
+          setForm((prev) => ({ ...prev, name: res.data.name }));
+        }
+        setSuccess(`✓ PAN verified with CGPey: ${res.data?.name || cleanPan}`);
+      } else {
+        setError(res.message || 'PAN verification failed');
+      }
+    } catch (err) {
+      setError(err.message || 'PAN verification error');
+    } finally {
+      setVerifying((prev) => ({ ...prev, pan: false }));
+    }
+  };
+
+  const handleInitiateAadhaarOkyc = async () => {
+    const cleanAadhaar = (form.aadhaar || '').replace(/\D/g, '');
+    if (cleanAadhaar.length !== 12) {
+      setError('Enter a valid 12-digit Aadhaar number');
+      return;
+    }
+    setVerifying((prev) => ({ ...prev, aadhaar: true }));
+    setError('');
+    try {
+      const res = await api.verify.initiateOkyc(cleanAadhaar, true);
+      if (res.success || res.status === 'OTP_SENT') {
+        const sid = res.data?.sessionId || res.sessionId;
+        setOkycSession({ open: true, sessionId: sid, otp: '' });
+        setSuccess('Aadhaar OTP sent to UIDAI-linked mobile');
+      } else {
+        setError(res.message || 'Failed to initiate Aadhaar verification');
+      }
+    } catch (err) {
+      setError(err.message || 'Aadhaar initiation error');
+    } finally {
+      setVerifying((prev) => ({ ...prev, aadhaar: false }));
+    }
+  };
+
+  const handleVerifyAadhaarOtp = async () => {
+    if (!okycSession.otp || okycSession.otp.length < 6) {
+      setError('Enter 6-digit Aadhaar OTP');
+      return;
+    }
+    setVerifying((prev) => ({ ...prev, okycOtp: true }));
+    setError('');
+    try {
+      const res = await api.verify.verifyOkyc({
+        sessionId: okycSession.sessionId,
+        otp: okycSession.otp,
+        aadhaarNumber: form.aadhaar,
+      });
+      if (res.success || res.status === 'VERIFIED') {
+        setAadhaarVerified(true);
+        setOkycSession({ open: false, sessionId: '', otp: '' });
+        if (res.data?.name && !form.name) {
+          setForm((prev) => ({ ...prev, name: res.data.name }));
+        }
+        if (res.data?.address && !form.address) {
+          setForm((prev) => ({ ...prev, address: res.data.address }));
+        }
+        if (res.data?.dob && !form.dob) {
+          setForm((prev) => ({ ...prev, dob: res.data.dob }));
+        }
+        setSuccess(`✓ Aadhaar OKYC verified: ${res.data?.name || form.name}`);
+      } else {
+        setError(res.message || 'Aadhaar OTP verification failed');
+      }
+    } catch (err) {
+      setError(err.message || 'Aadhaar verification error');
+    } finally {
+      setVerifying((prev) => ({ ...prev, okycOtp: false }));
+    }
+  };
+
+  const handleVerifyBank = async () => {
+    const cleanIfsc = (form.ifsc || '').trim().toUpperCase();
+    const cleanAccount = (form.accountNumber || '').trim();
+    if (!cleanIfsc || cleanIfsc.length !== 11) {
+      setError('Enter a valid 11-character IFSC code');
+      return;
+    }
+    if (!cleanAccount || cleanAccount.length < 9) {
+      setError('Enter a valid Bank Account Number (9–18 digits)');
+      return;
+    }
+    setVerifying((prev) => ({ ...prev, bank: true }));
+    setError('');
+    try {
+      const res = await api.verify.bank({
+        accountNumber: cleanAccount,
+        ifsc: cleanIfsc,
+        name: form.name || undefined,
+      });
+      if (res.success || res.status === 'VERIFIED') {
+        setBankVerified(true);
+        const holder = res.data?.beneficiaryName || res.data?.accountHolderName || res.accountHolderName;
+        if (holder && !form.name) {
+          setForm((prev) => ({ ...prev, name: holder }));
+        }
+        setSuccess(`✓ Bank account verified: ${holder || 'Active Account'}`);
+      } else {
+        setError(res.message || 'Bank account verification failed');
+      }
+    } catch (err) {
+      setError(err.message || 'Bank verification error');
+    } finally {
+      setVerifying((prev) => ({ ...prev, bank: false }));
+    }
+  };
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -579,15 +708,46 @@ export default function SupervisorNewMember() {
             </div>
 
             <div className="sup-input-group">
-              <label className="sup-label">Account Number (9–18 Digits) *</label>
-              <input
-                type="tel"
-                maxLength={18}
-                className="sup-input"
-                placeholder="Bank Account Number"
-                value={form.accountNumber}
-                onChange={(e) => setForm({ ...form, accountNumber: e.target.value.replace(/\D/g, '').slice(0, 18) })}
-              />
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <label className="sup-label" style={{ margin: 0 }}>Account Number (9–18 Digits) *</label>
+                {bankVerified && (
+                  <span style={{ fontSize: '0.72rem', color: 'var(--sup-success)', fontWeight: 700 }}>
+                    ✓ Bank Verified
+                  </span>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <input
+                  type="tel"
+                  maxLength={18}
+                  className="sup-input"
+                  placeholder="Bank Account Number"
+                  value={form.accountNumber}
+                  onChange={(e) => {
+                    setBankVerified(false);
+                    setForm({ ...form, accountNumber: e.target.value.replace(/\D/g, '').slice(0, 18) });
+                  }}
+                  style={{ flex: 1, borderColor: bankVerified ? '#10b981' : undefined }}
+                />
+                {form.accountNumber.length >= 9 && form.ifsc.length === 11 && (
+                  <button
+                    type="button"
+                    className="sup-btn sm"
+                    style={{
+                      width: 'auto',
+                      padding: '4px 10px',
+                      fontSize: '0.72rem',
+                      background: bankVerified ? '#dcfce7' : undefined,
+                      color: bankVerified ? '#166534' : undefined,
+                      border: bankVerified ? '1px solid #86efac' : undefined,
+                    }}
+                    disabled={verifying.bank}
+                    onClick={handleVerifyBank}
+                  >
+                    {verifying.bank ? 'Verifying…' : bankVerified ? '✓ Verified' : 'Verify Bank'}
+                  </button>
+                )}
+              </div>
             </div>
 
             <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
@@ -620,27 +780,89 @@ export default function SupervisorNewMember() {
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <div className="sup-input-group">
-                <label className="sup-label">Aadhaar Number (12 Digits) *</label>
-                <input
-                  type="tel"
-                  maxLength={12}
-                  className="sup-input"
-                  placeholder="•••• •••• ••••"
-                  value={form.aadhaar}
-                  onChange={(e) => setForm({ ...form, aadhaar: e.target.value.replace(/\D/g, '').slice(0, 12) })}
-                />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <label className="sup-label" style={{ margin: 0 }}>Aadhaar (12 Digits) *</label>
+                  {aadhaarVerified && (
+                    <span style={{ fontSize: '0.7rem', color: 'var(--sup-success)', fontWeight: 700 }}>
+                      ✓ OKYC Verified
+                    </span>
+                  )}
+                </div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input
+                    type="tel"
+                    maxLength={12}
+                    className="sup-input"
+                    placeholder="•••• •••• ••••"
+                    value={form.aadhaar}
+                    onChange={(e) => {
+                      setAadhaarVerified(false);
+                      setForm({ ...form, aadhaar: e.target.value.replace(/\D/g, '').slice(0, 12) });
+                    }}
+                    style={{ flex: 1, borderColor: aadhaarVerified ? '#10b981' : undefined }}
+                  />
+                  <button
+                    type="button"
+                    className="sup-btn sm"
+                    style={{
+                      width: 'auto',
+                      padding: '4px 8px',
+                      fontSize: '0.72rem',
+                      whiteSpace: 'nowrap',
+                      background: aadhaarVerified ? '#dcfce7' : undefined,
+                      color: aadhaarVerified ? '#166534' : undefined,
+                      border: aadhaarVerified ? '1px solid #86efac' : undefined,
+                    }}
+                    disabled={verifying.aadhaar || form.aadhaar.length !== 12}
+                    onClick={handleInitiateAadhaarOkyc}
+                  >
+                    {verifying.aadhaar ? 'Sending…' : aadhaarVerified ? '✓ OKYC' : 'Verify OKYC'}
+                  </button>
+                </div>
               </div>
 
               <div className="sup-input-group">
-                <label className="sup-label">PAN Number (Optional)</label>
-                <input
-                  type="text"
-                  maxLength={10}
-                  className="sup-input"
-                  placeholder="ABCDE1234F"
-                  value={form.pan}
-                  onChange={(e) => setForm({ ...form, pan: e.target.value.toUpperCase() })}
-                />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <label className="sup-label" style={{ margin: 0 }}>PAN Number (Optional)</label>
+                  {panVerified && (
+                    <span style={{ fontSize: '0.7rem', color: 'var(--sup-success)', fontWeight: 700 }}>
+                      ✓ Verified
+                    </span>
+                  )}
+                </div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input
+                    type="text"
+                    maxLength={10}
+                    className="sup-input"
+                    placeholder="ABCDE1234F"
+                    value={form.pan}
+                    onChange={(e) => {
+                      setPanVerified(false);
+                      setForm({ ...form, pan: e.target.value.toUpperCase() });
+                    }}
+                    style={{ flex: 1, borderColor: panVerified ? '#10b981' : undefined }}
+                  />
+                  {form.pan.length === 10 && (
+                    <button
+                      type="button"
+                      className="sup-btn sm"
+                      style={{
+                        width: 'auto',
+                        padding: '4px 8px',
+                        fontSize: '0.72rem',
+                        whiteSpace: 'nowrap',
+                        background: panVerified ? '#dcfce7' : undefined,
+                        color: panVerified ? '#166534' : undefined,
+                        border: panVerified ? '1px solid #86efac' : undefined,
+                      }}
+                      disabled={verifying.pan}
+                      onClick={handleVerifyPan}
+                    >
+                      {verifying.pan ? '…' : panVerified ? '✓ Verified' : 'Verify'}
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -792,6 +1014,82 @@ export default function SupervisorNewMember() {
           </div>
         )}
       </form>
+
+      {/* Aadhaar OKYC OTP Modal */}
+      {okycSession.open && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.65)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: 16,
+          }}
+        >
+          <div
+            style={{
+              background: '#fff',
+              borderRadius: 14,
+              padding: '20px 18px',
+              maxWidth: 380,
+              width: '100%',
+              boxShadow: '0 20px 25px -5px rgba(0,0,0,0.2)',
+            }}
+          >
+            <h4 style={{ margin: '0 0 6px 0', fontSize: '1rem', fontWeight: 800, color: 'var(--sup-text)' }}>
+              Verify Aadhaar OTP (CGPey OKYC)
+            </h4>
+            <p style={{ fontSize: '0.82rem', color: '#64748b', margin: '0 0 14px 0' }}>
+              Enter the 6-digit OTP sent to the mobile linked with Aadhaar <strong>XXXX XXXX {form.aadhaar.slice(-4)}</strong>.
+            </p>
+            <input
+              type="text"
+              placeholder="Enter 6-digit OTP"
+              value={okycSession.otp}
+              onChange={(e) => setOkycSession((prev) => ({ ...prev, otp: e.target.value.replace(/\D/g, '').slice(0, 6) }))}
+              maxLength={6}
+              style={{
+                width: '100%',
+                fontSize: '1.25rem',
+                textAlign: 'center',
+                letterSpacing: '4px',
+                padding: '10px',
+                borderRadius: 8,
+                border: '1px solid #cbd5e1',
+                boxSizing: 'border-box',
+                outline: 'none',
+              }}
+              autoFocus
+            />
+            <span style={{ display: 'block', fontSize: '0.72rem', color: '#94a3b8', textAlign: 'center', marginTop: 4 }}>
+              (Dev bypass OTP: 123456)
+            </span>
+            <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
+              <button
+                type="button"
+                className="sup-btn secondary"
+                style={{ flex: 1, padding: 10, fontSize: '0.84rem' }}
+                onClick={() => setOkycSession({ open: false, sessionId: '', otp: '' })}
+                disabled={verifying.okycOtp}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="sup-btn primary"
+                style={{ flex: 1, padding: 10, fontSize: '0.84rem' }}
+                onClick={handleVerifyAadhaarOtp}
+                disabled={verifying.okycOtp || okycSession.otp.length < 6}
+              >
+                {verifying.okycOtp ? 'Verifying…' : 'Submit OTP'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -28,6 +28,16 @@ export default function SupervisorDeathRequest() {
   // 1 Death certificate
   const [deathCertificate, setDeathCertificate] = useState('');
 
+  // Claimant / Nominee state
+  const [claimantName, setClaimantName] = useState('');
+  const [claimantRelation, setClaimantRelation] = useState('Nominee');
+  const [claimantAadhaar, setClaimantAadhaar] = useState('');
+  const [claimantPan, setClaimantPan] = useState('');
+  const [claimantAadhaarVerified, setClaimantAadhaarVerified] = useState(false);
+  const [claimantPanVerified, setClaimantPanVerified] = useState(false);
+  const [verifyingClaimant, setVerifyingClaimant] = useState({ pan: false, aadhaar: false, okycOtp: false });
+  const [claimantOkycSession, setClaimantOkycSession] = useState({ open: false, sessionId: '', otp: '' });
+
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -47,6 +57,11 @@ export default function SupervisorDeathRequest() {
       if (res && res.member) {
         setSelectedMember(res.member);
         setGuarantorName(res.member.guarantor?.name || '');
+        if (res.member.nominee?.name) {
+          setClaimantName(res.member.nominee.name);
+          setClaimantRelation(res.member.nominee.relation || 'Nominee');
+          if (res.member.nominee.aadhaar) setClaimantAadhaar(res.member.nominee.aadhaar);
+        }
       } else {
         setError('No member found with this code or mobile number.');
       }
@@ -54,6 +69,85 @@ export default function SupervisorDeathRequest() {
       setError(err.message || 'Member search failed');
     } finally {
       setSearching(false);
+    }
+  };
+
+  const handleVerifyClaimantPan = async () => {
+    const cleanPan = (claimantPan || '').trim().toUpperCase();
+    if (!cleanPan || !/^[A-Z]{5}\d{4}[A-Z]$/.test(cleanPan)) {
+      setError('Enter a valid 10-character PAN');
+      return;
+    }
+    setVerifyingClaimant((prev) => ({ ...prev, pan: true }));
+    setError('');
+    try {
+      const res = await api.verify.pan(cleanPan, true);
+      if (res.success || res.status === 'VERIFIED') {
+        setClaimantPanVerified(true);
+        if (res.data?.name && !claimantName) {
+          setClaimantName(res.data.name);
+        }
+        setSuccess(`✓ Claimant PAN verified: ${res.data?.name || cleanPan}`);
+      } else {
+        setError(res.message || 'Claimant PAN verification failed');
+      }
+    } catch (err) {
+      setError(err.message || 'PAN verification error');
+    } finally {
+      setVerifyingClaimant((prev) => ({ ...prev, pan: false }));
+    }
+  };
+
+  const handleInitiateClaimantOkyc = async () => {
+    const cleanAadhaar = (claimantAadhaar || '').replace(/\D/g, '');
+    if (cleanAadhaar.length !== 12) {
+      setError('Enter a valid 12-digit Aadhaar number');
+      return;
+    }
+    setVerifyingClaimant((prev) => ({ ...prev, aadhaar: true }));
+    setError('');
+    try {
+      const res = await api.verify.initiateOkyc(cleanAadhaar, true);
+      if (res.success || res.status === 'OTP_SENT') {
+        const sid = res.data?.sessionId || res.sessionId;
+        setClaimantOkycSession({ open: true, sessionId: sid, otp: '' });
+      } else {
+        setError(res.message || 'Failed to initiate Aadhaar verification');
+      }
+    } catch (err) {
+      setError(err.message || 'Aadhaar initiation error');
+    } finally {
+      setVerifyingClaimant((prev) => ({ ...prev, aadhaar: false }));
+    }
+  };
+
+  const handleVerifyClaimantOtp = async () => {
+    if (!claimantOkycSession.otp || claimantOkycSession.otp.length < 6) {
+      setError('Enter 6-digit Aadhaar OTP');
+      return;
+    }
+    setVerifyingClaimant((prev) => ({ ...prev, okycOtp: true }));
+    setError('');
+    try {
+      const res = await api.verify.verifyOkyc({
+        sessionId: claimantOkycSession.sessionId,
+        otp: claimantOkycSession.otp,
+        aadhaarNumber: claimantAadhaar,
+      });
+      if (res.success || res.status === 'VERIFIED') {
+        setClaimantAadhaarVerified(true);
+        setClaimantOkycSession({ open: false, sessionId: '', otp: '' });
+        if (res.data?.name && !claimantName) {
+          setClaimantName(res.data.name);
+        }
+        setSuccess(`✓ Claimant Aadhaar verified: ${res.data?.name || claimantName}`);
+      } else {
+        setError(res.message || 'Aadhaar OTP verification failed');
+      }
+    } catch (err) {
+      setError(err.message || 'Aadhaar verification error');
+    } finally {
+      setVerifyingClaimant((prev) => ({ ...prev, okycOtp: false }));
     }
   };
 
@@ -95,6 +189,12 @@ export default function SupervisorDeathRequest() {
         deathPhotos,
         houseVisitPhoto,
         deathCertificate,
+        claimantName: claimantName.trim(),
+        claimantRelation: claimantRelation.trim(),
+        claimantAadhaar: claimantAadhaar.trim(),
+        claimantPan: claimantPan.trim().toUpperCase(),
+        claimantAadhaarVerified,
+        claimantPanVerified,
       });
 
       setSuccess(`Death Settlement Request submitted successfully! Receipt No: ${res.receiptNo}`);
@@ -102,6 +202,12 @@ export default function SupervisorDeathRequest() {
       setSelectedMember(null);
       setSearchQuery('');
       setDeathReason('');
+      setClaimantName('');
+      setClaimantRelation('Nominee');
+      setClaimantAadhaar('');
+      setClaimantPan('');
+      setClaimantAadhaarVerified(false);
+      setClaimantPanVerified(false);
       setDeathPhoto1('');
       setDeathPhoto2('');
       setDeathPhoto3('');
@@ -293,6 +399,130 @@ export default function SupervisorDeathRequest() {
                     />
                   </div>
                 )}
+
+                {/* Legal Heir / Claimant Verification Section */}
+                <div style={{ background: '#f8fafc', border: '1px solid var(--sup-border)', borderRadius: 10, padding: 12, marginBottom: 14 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <strong style={{ fontSize: '0.85rem', color: 'var(--sup-primary)' }}>
+                      Claimant / Nominee Verification (Legal Heir)
+                    </strong>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--sup-text-muted)' }}>
+                      KYC Compliance for Claim Payout
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                    <div>
+                      <label className="sup-label">Claimant Full Name *</label>
+                      <input
+                        type="text"
+                        className="sup-input"
+                        placeholder="Legal Heir Name"
+                        value={claimantName}
+                        onChange={(e) => setClaimantName(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="sup-label">Relationship with Deceased</label>
+                      <input
+                        type="text"
+                        className="sup-input"
+                        placeholder="e.g. Spouse / Son / Mother"
+                        value={claimantRelation}
+                        onChange={(e) => setClaimantRelation(e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                        <label className="sup-label" style={{ margin: 0 }}>Claimant Aadhaar</label>
+                        {claimantAadhaarVerified && (
+                          <span style={{ fontSize: '0.68rem', color: 'var(--sup-success)', fontWeight: 700 }}>
+                            ✓ OKYC Verified
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <input
+                          type="tel"
+                          maxLength={12}
+                          className="sup-input"
+                          placeholder="12-digit Aadhaar"
+                          value={claimantAadhaar}
+                          onChange={(e) => {
+                            setClaimantAadhaarVerified(false);
+                            setClaimantAadhaar(e.target.value.replace(/\D/g, '').slice(0, 12));
+                          }}
+                          style={{ flex: 1, borderColor: claimantAadhaarVerified ? '#10b981' : undefined }}
+                        />
+                        <button
+                          type="button"
+                          className="sup-btn sm"
+                          style={{
+                            width: 'auto',
+                            padding: '4px 8px',
+                            fontSize: '0.7rem',
+                            whiteSpace: 'nowrap',
+                            background: claimantAadhaarVerified ? '#dcfce7' : undefined,
+                            color: claimantAadhaarVerified ? '#166534' : undefined,
+                            border: claimantAadhaarVerified ? '1px solid #86efac' : undefined,
+                          }}
+                          disabled={verifyingClaimant.aadhaar || claimantAadhaar.length !== 12}
+                          onClick={handleInitiateClaimantOkyc}
+                        >
+                          {verifyingClaimant.aadhaar ? '…' : claimantAadhaarVerified ? '✓ OKYC' : 'Verify OKYC'}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                        <label className="sup-label" style={{ margin: 0 }}>Claimant PAN (Optional)</label>
+                        {claimantPanVerified && (
+                          <span style={{ fontSize: '0.68rem', color: 'var(--sup-success)', fontWeight: 700 }}>
+                            ✓ Verified
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <input
+                          type="text"
+                          maxLength={10}
+                          className="sup-input"
+                          placeholder="ABCDE1234F"
+                          value={claimantPan}
+                          onChange={(e) => {
+                            setClaimantPanVerified(false);
+                            setClaimantPan(e.target.value.toUpperCase());
+                          }}
+                          style={{ flex: 1, borderColor: claimantPanVerified ? '#10b981' : undefined }}
+                        />
+                        {claimantPan.length === 10 && (
+                          <button
+                            type="button"
+                            className="sup-btn sm"
+                            style={{
+                              width: 'auto',
+                              padding: '4px 8px',
+                              fontSize: '0.7rem',
+                              whiteSpace: 'nowrap',
+                              background: claimantPanVerified ? '#dcfce7' : undefined,
+                              color: claimantPanVerified ? '#166534' : undefined,
+                              border: claimantPanVerified ? '1px solid #86efac' : undefined,
+                            }}
+                            disabled={verifyingClaimant.pan}
+                            onClick={handleVerifyClaimantPan}
+                          >
+                            {verifyingClaimant.pan ? '…' : claimantPanVerified ? '✓ Verified' : 'Verify'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
 
                 {/* Death Date */}
                 <div className="sup-input-group">
@@ -561,6 +791,82 @@ export default function SupervisorDeathRequest() {
               );
             })
           )}
+        </div>
+      )}
+
+      {/* Claimant Aadhaar OKYC OTP Modal */}
+      {claimantOkycSession.open && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.65)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: 16,
+          }}
+        >
+          <div
+            style={{
+              background: '#fff',
+              borderRadius: 14,
+              padding: '20px 18px',
+              maxWidth: 380,
+              width: '100%',
+              boxShadow: '0 20px 25px -5px rgba(0,0,0,0.2)',
+            }}
+          >
+            <h4 style={{ margin: '0 0 6px 0', fontSize: '1rem', fontWeight: 800, color: 'var(--sup-text)' }}>
+              Verify Claimant Aadhaar OTP (CGPey OKYC)
+            </h4>
+            <p style={{ fontSize: '0.82rem', color: '#64748b', margin: '0 0 14px 0' }}>
+              Enter the 6-digit OTP sent to the mobile linked with Aadhaar <strong>XXXX XXXX {claimantAadhaar.slice(-4)}</strong>.
+            </p>
+            <input
+              type="text"
+              placeholder="Enter 6-digit OTP"
+              value={claimantOkycSession.otp}
+              onChange={(e) => setClaimantOkycSession((prev) => ({ ...prev, otp: e.target.value.replace(/\D/g, '').slice(0, 6) }))}
+              maxLength={6}
+              style={{
+                width: '100%',
+                fontSize: '1.25rem',
+                textAlign: 'center',
+                letterSpacing: '4px',
+                padding: '10px',
+                borderRadius: 8,
+                border: '1px solid #cbd5e1',
+                boxSizing: 'border-box',
+                outline: 'none',
+              }}
+              autoFocus
+            />
+            <span style={{ display: 'block', fontSize: '0.72rem', color: '#94a3b8', textAlign: 'center', marginTop: 4 }}>
+              (Dev bypass OTP: 123456)
+            </span>
+            <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
+              <button
+                type="button"
+                className="sup-btn secondary"
+                style={{ flex: 1, padding: 10, fontSize: '0.84rem' }}
+                onClick={() => setClaimantOkycSession({ open: false, sessionId: '', otp: '' })}
+                disabled={verifyingClaimant.okycOtp}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="sup-btn primary"
+                style={{ flex: 1, padding: 10, fontSize: '0.84rem' }}
+                onClick={handleVerifyClaimantOtp}
+                disabled={verifyingClaimant.okycOtp || claimantOkycSession.otp.length < 6}
+              >
+                {verifyingClaimant.okycOtp ? 'Verifying…' : 'Submit OTP'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -2424,6 +2424,12 @@ export async function submitSupervisorDeathRequest(req, res) {
     houseVisitPhoto,
     deathCertificate,
     guarantorName,
+    claimantName,
+    claimantRelation,
+    claimantAadhaar,
+    claimantPan,
+    claimantAadhaarVerified,
+    claimantPanVerified,
   } = req.body || {};
 
   if (!memberId) throw new HttpError(400, 'Member is required');
@@ -2454,6 +2460,12 @@ export async function submitSupervisorDeathRequest(req, res) {
     deathPhotos: cleanDeathPhotos,
     houseVisitPhoto,
     deathCertificate,
+    claimantName: cleanStr(claimantName),
+    claimantRelation: cleanStr(claimantRelation),
+    claimantAadhaar: cleanStr(claimantAadhaar),
+    claimantPan: cleanStr(claimantPan)?.toUpperCase(),
+    claimantAadhaarVerified: Boolean(claimantAadhaarVerified),
+    claimantPanVerified: Boolean(claimantPanVerified),
     branch: member.branch || emp.branch,
     employeeCode: emp.employeeCode || code || 'SUP',
     employeeName: emp.name || 'Supervisor',

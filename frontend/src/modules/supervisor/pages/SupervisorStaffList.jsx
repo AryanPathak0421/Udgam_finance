@@ -180,6 +180,14 @@ export default function SupervisorStaffList() {
                     <div style={{ fontSize: '0.75rem', color: 'var(--sup-primary)' }}>
                       {dossier.employee?.branch} • {dossier.employee?.mobile}
                     </div>
+                    <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+                      <span style={{ fontSize: '0.68rem', background: '#dcfce7', color: '#166534', padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>
+                        ✓ Aadhaar Verified
+                      </span>
+                      <span style={{ fontSize: '0.68rem', background: '#e0f2fe', color: '#0369a1', padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>
+                        ✓ PAN Verified
+                      </span>
+                    </div>
                   </div>
                 </div>
 
