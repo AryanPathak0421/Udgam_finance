@@ -9,7 +9,7 @@ async function request(path, { method = 'GET', body, headers = {}, retryCount = 
     if (path.startsWith('/member/') || path.startsWith('/member')) {
       token = localStorage.getItem('udgam_member_token');
     } else {
-      token = localStorage.getItem('udgam_token') || localStorage.getItem('token');
+      token = localStorage.getItem('udgam_token') || localStorage.getItem('token') || localStorage.getItem('udgam_member_token');
     }
   }
   const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
-import { requireAuth } from '../middleware/auth.js';
+import { requireStaffOrMemberAuth } from '../middleware/auth.js';
 import { asyncHandler as h } from '../utils/http.js';
 import {
   verifyPanController,
@@ -20,10 +20,10 @@ const limiter = rateLimit({
 });
 
 // Require authenticated staff or member session with rate limiting
-router.post('/verify/pan', requireAuth, limiter, h(verifyPanController));
-router.post('/verify/gst', requireAuth, limiter, h(verifyGstController));
-router.post('/verify/okyc/initiate', requireAuth, limiter, h(initiateOkycController));
-router.post('/verify/okyc/verify', requireAuth, limiter, h(verifyOkycController));
-router.post('/verify/bank', requireAuth, limiter, h(verifyBankController));
+router.post('/verify/pan', requireStaffOrMemberAuth, limiter, h(verifyPanController));
+router.post('/verify/gst', requireStaffOrMemberAuth, limiter, h(verifyGstController));
+router.post('/verify/okyc/initiate', requireStaffOrMemberAuth, limiter, h(initiateOkycController));
+router.post('/verify/okyc/verify', requireStaffOrMemberAuth, limiter, h(verifyOkycController));
+router.post('/verify/bank', requireStaffOrMemberAuth, limiter, h(verifyBankController));
 
 export default router;

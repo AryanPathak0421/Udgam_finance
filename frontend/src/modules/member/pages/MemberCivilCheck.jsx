@@ -17,6 +17,11 @@ export default function MemberCivilCheck() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
+  // Live PAN Verification State (CGPey)
+  const [panInput, setPanInput] = useState('');
+  const [panVerified, setPanVerified] = useState(false);
+  const [verifyingPan, setVerifyingPan] = useState(false);
+
   useEffect(() => {
     loadCivilCheck();
   }, []);
@@ -27,12 +32,37 @@ export default function MemberCivilCheck() {
     try {
       const res = await api.memberApp.civilCheck();
       setData(res);
+      if (res?.pan) setPanInput(res.pan);
+      if (res?.panVerified) setPanVerified(true);
     } catch (err) {
       setError(err.message || 'Failed to load civil check details');
     } finally {
       setLoading(false);
     }
   }
+
+  const handleVerifyPan = async () => {
+    const cleanPan = (panInput || '').trim().toUpperCase();
+    if (!cleanPan || !/^[A-Z]{5}\d{4}[A-Z]$/.test(cleanPan)) {
+      setError('Please enter a valid 10-character PAN');
+      return;
+    }
+    setVerifyingPan(true);
+    setError('');
+    try {
+      const res = await api.verify.pan(cleanPan, false);
+      if (res.success || res.status === 'VERIFIED') {
+        setPanVerified(true);
+        setSuccess(`✓ PAN verified: ${res.data?.name || cleanPan}`);
+      } else {
+        setError(res.message || 'PAN verification failed');
+      }
+    } catch (err) {
+      setError(err.message || 'PAN verification error');
+    } finally {
+      setVerifyingPan(false);
+    }
+  };
 
   async function handleRefreshScore() {
     setChecking(true);
@@ -213,6 +243,57 @@ export default function MemberCivilCheck() {
             <div style={{ fontSize: '0.76rem', color: '#047857', marginTop: 4, lineHeight: 1.4 }}>
               As configured by Admin, every credit bureau check incurs a fee of <strong>₹{fee}</strong> and is recorded in the official Cashbook.
             </div>
+          </div>
+        </div>
+
+        {/* PAN Bureau Match Verification */}
+        <div style={{ background: '#f8fafc', border: '1px solid var(--mem-border)', borderRadius: 10, padding: '10px 12px', margin: '14px 0 6px 0', textAlign: 'left' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+            <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--mem-text)' }}>
+              PAN Card (Bureau Identification)
+            </span>
+            {panVerified ? (
+              <span style={{ fontSize: '0.72rem', color: '#166534', fontWeight: 800 }}>
+                ✓ PAN Verified
+              </span>
+            ) : (
+              <span style={{ fontSize: '0.72rem', color: '#d97706', fontWeight: 600 }}>
+                Verification Recommended
+              </span>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <input
+              type="text"
+              maxLength={10}
+              className="mem-input"
+              placeholder="10-digit PAN (e.g. ABCDE1234F)"
+              value={panInput}
+              onChange={(e) => {
+                setPanVerified(false);
+                setPanInput(e.target.value.toUpperCase());
+              }}
+              style={{ flex: 1, borderColor: panVerified ? '#10b981' : undefined }}
+            />
+            {panInput.length === 10 && (
+              <button
+                type="button"
+                className="mem-btn sm"
+                style={{
+                  width: 'auto',
+                  padding: '6px 12px',
+                  fontSize: '0.72rem',
+                  whiteSpace: 'nowrap',
+                  background: panVerified ? '#dcfce7' : undefined,
+                  color: panVerified ? '#166534' : undefined,
+                  border: panVerified ? '1px solid #86efac' : undefined,
+                }}
+                disabled={verifyingPan}
+                onClick={handleVerifyPan}
+              >
+                {verifyingPan ? 'Verifying…' : panVerified ? '✓ Verified' : 'Verify PAN'}
+              </button>
+            )}
           </div>
         </div>
 

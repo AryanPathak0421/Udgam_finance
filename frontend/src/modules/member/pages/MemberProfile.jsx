@@ -144,6 +144,14 @@ export default function MemberProfile() {
           <div style={{ fontSize: '0.74rem', opacity: 0.85, marginTop: 2 }}>
             {p.branch?.name ? `${p.branch.name} Branch` : 'Udgam Finance'}
           </div>
+          <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '0.68rem', background: 'rgba(255,255,255,0.25)', color: '#fff', padding: '2px 8px', borderRadius: 12, fontWeight: 700 }}>
+              {p.aadhaarVerified ? '✓ Aadhaar OKYC' : 'Aadhaar Linked'}
+            </span>
+            <span style={{ fontSize: '0.68rem', background: 'rgba(255,255,255,0.25)', color: '#fff', padding: '2px 8px', borderRadius: 12, fontWeight: 700 }}>
+              {p.panVerified ? '✓ PAN Verified' : 'PAN Registered'}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -313,7 +321,12 @@ export default function MemberProfile() {
 
       {/* Banking & Identity */}
       <div className="mem-card">
-        <div className="mem-card-title">Bank Account Details</div>
+        <div className="mem-card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>Bank Account Details</span>
+          <span style={{ fontSize: '0.7rem', color: '#166534', background: '#dcfce7', padding: '2px 8px', borderRadius: 10, fontWeight: 700 }}>
+            ✓ Verified Payout Account
+          </span>
+        </div>
         <div className="mem-stat-row">
           <span className="mem-stat-label">Bank Name</span>
           <span className="mem-stat-val">{p.bankName || '—'}</span>

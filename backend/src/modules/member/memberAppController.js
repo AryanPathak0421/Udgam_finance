@@ -1170,7 +1170,7 @@ export async function listMemberRequisitions(req, res) {
 
 export async function applyMemberLoan(req, res) {
   const member = req.member;
-  const { loanType, requestedAmount, purpose, tenureMonths } = req.body;
+  const { loanType, requestedAmount, purpose, tenureMonths, gstNumber, businessName } = req.body;
 
   const amtNum = Number(requestedAmount);
   if (!amtNum || amtNum < 1000) {
@@ -1221,6 +1221,10 @@ export async function applyMemberLoan(req, res) {
       mobile: member.mobile,
       guarantorName: member.guarantor?.name || '',
     },
+    business: {
+      gstNumber: cleanStr(gstNumber)?.toUpperCase() || '',
+      businessName: cleanStr(businessName) || '',
+    },
     civilScore: score,
     civilCheck: {
       score,
@@ -1231,7 +1235,7 @@ export async function applyMemberLoan(req, res) {
     schemeName: 'Member Portal Application',
     appliedAmountPaise: requestedAmountPaise,
     status: 'pending',
-    remark: `Customer requisition from Member App. Purpose: ${cleanStr(purpose)}. Preferred tenure: ${tenureMonths || 12} months. Civil check fee ₹${fee} applied.`,
+    remark: `Customer requisition from Member App. Purpose: ${cleanStr(purpose)}${gstNumber ? `. GSTIN: ${gstNumber} (${businessName || ''})` : ''}. Preferred tenure: ${tenureMonths || 12} months. Civil check fee ₹${fee} applied.`,
   });
 
   await audit(req, {
@@ -1568,6 +1572,10 @@ export async function getMemberKycReport(req, res) {
       overallStatus: overall,
       aadhaarNumber: member.aadhaar ? `••••••••${member.aadhaar.slice(-4)}` : 'Not Provided',
       panNumber: member.pan ? `••••${member.pan.slice(-4)}` : 'Not Provided',
+      rawAadhaar: member.aadhaar || '',
+      rawPan: member.pan || '',
+      aadhaarVerified: Boolean(member.aadhaarVerified),
+      panVerified: Boolean(member.panVerified),
       documents: docList,
     },
   });

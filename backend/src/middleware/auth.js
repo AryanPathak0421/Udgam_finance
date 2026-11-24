@@ -63,6 +63,46 @@ export async function requireAuth(req, res, next) {
 export const requireRole = (...roles) => (req, res, next) =>
   roles.includes(req.user.role) ? next() : res.status(403).json({ message: 'Forbidden' });
 
+// Authenticate either Staff/Admin or Member
+export async function requireStaffOrMemberAuth(req, res, next) {
+  const authHeader = req.headers.authorization || '';
+  const bearer = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
+  const token = bearer || req.cookies?.token || req.cookies?.udgam_token || req.cookies?.udgam_member_token;
+  if (!token) return res.status(401).json({ message: 'Not authenticated' });
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    if (decoded && (decoded.role === 'member' || decoded.memberId || decoded.memberCode)) {
+      const MemberModel = mongoose.models.Member || mongoose.model('Member');
+      if (MemberModel) {
+        const member = await MemberModel.findOne({
+          $or: [
+            ...(decoded.memberId ? [{ _id: decoded.memberId }] : []),
+            ...(decoded.id ? [{ _id: decoded.id }] : []),
+            ...(decoded.memberCode ? [{ code: decoded.memberCode }] : []),
+          ],
+          isDeleted: false,
+        });
+        if (member) {
+          req.member = member;
+          req.user = {
+            role: 'member',
+            _id: member._id,
+            id: member._id,
+            name: member.name,
+            mobile: member.mobile,
+            branch: member.branch,
+          };
+          return next();
+        }
+      }
+    }
+  } catch {}
+
+  // Fallback to standard staff auth
+  return requireAuth(req, res, next);
+}
+
 // Menu Permission on the API: admin roles always pass; everyone else needs the action (view / add / edit / delete)
 // ticked for the menu in their rank.
 export const requireMenu = (menu, action) => (req, res, next) => {

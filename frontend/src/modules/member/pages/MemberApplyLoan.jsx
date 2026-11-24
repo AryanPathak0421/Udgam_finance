@@ -8,6 +8,10 @@ export default function MemberApplyLoan() {
   const [requestedAmount, setRequestedAmount] = useState('25000');
   const [purpose, setPurpose] = useState('');
   const [tenureMonths, setTenureMonths] = useState('12');
+  const [gstNumber, setGstNumber] = useState('');
+  const [businessName, setBusinessName] = useState('');
+  const [gstVerified, setGstVerified] = useState(false);
+  const [verifyingGst, setVerifyingGst] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -35,6 +39,32 @@ export default function MemberApplyLoan() {
     }
   }
 
+  const handleVerifyGst = async () => {
+    const cleanGst = (gstNumber || '').trim().toUpperCase();
+    if (!cleanGst || cleanGst.length !== 15) {
+      setError('Please enter a valid 15-character GSTIN');
+      return;
+    }
+    setVerifyingGst(true);
+    setError('');
+    try {
+      const res = await api.verify.gst(cleanGst);
+      if (res.success || res.status === 'ACTIVE' || res.status === 'VERIFIED') {
+        setGstVerified(true);
+        if (res.data?.businessName && !businessName) {
+          setBusinessName(res.data.businessName);
+        }
+        setSuccess(`✓ GST Verified: ${res.data?.businessName || cleanGst}`);
+      } else {
+        setError(res.message || 'GSTIN verification failed or inactive');
+      }
+    } catch (err) {
+      setError(err.message || 'GST verification error');
+    } finally {
+      setVerifyingGst(false);
+    }
+  };
+
   async function handleSubmit(e) {
     e.preventDefault();
     setError('');
@@ -57,10 +87,15 @@ export default function MemberApplyLoan() {
         requestedAmount: amt,
         purpose: purpose.trim(),
         tenureMonths: Number(tenureMonths),
+        gstNumber: loanType === 'business' ? gstNumber.trim().toUpperCase() : undefined,
+        businessName: loanType === 'business' ? businessName.trim() : undefined,
       });
 
       setSuccess(res.message || 'Loan request submitted successfully! Awaiting branch approval.');
       setPurpose('');
+      setGstNumber('');
+      setBusinessName('');
+      setGstVerified(false);
       await loadPastRequisitions();
     } catch (err) {
       setError(err.message || 'Failed to submit loan request');
@@ -177,6 +212,66 @@ export default function MemberApplyLoan() {
               <option value="product">Product / Asset Purchase Loan</option>
             </select>
           </div>
+
+          {/* Business GSTIN Verification Block */}
+          {loanType === 'business' && (
+            <div style={{ background: '#f8fafc', border: '1px solid var(--mem-border)', borderRadius: 10, padding: 12, marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <label className="mem-label" style={{ margin: 0, fontWeight: 700, color: 'var(--mem-text)' }}>
+                  Business GSTIN (Fast-Track Approval)
+                </label>
+                {gstVerified && (
+                  <span style={{ fontSize: '0.72rem', color: '#166534', fontWeight: 800 }}>
+                    ✓ GST Active
+                  </span>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+                <input
+                  type="text"
+                  maxLength={15}
+                  className="mem-input"
+                  placeholder="15-digit GSTIN (e.g. 27ABCDE1234F1Z5)"
+                  value={gstNumber}
+                  onChange={(e) => {
+                    setGstVerified(false);
+                    setGstNumber(e.target.value.toUpperCase());
+                  }}
+                  style={{ flex: 1, borderColor: gstVerified ? '#10b981' : undefined }}
+                />
+                <button
+                  type="button"
+                  className="mem-btn sm"
+                  style={{
+                    width: 'auto',
+                    padding: '6px 12px',
+                    fontSize: '0.75rem',
+                    whiteSpace: 'nowrap',
+                    background: gstVerified ? '#dcfce7' : undefined,
+                    color: gstVerified ? '#166534' : undefined,
+                    border: gstVerified ? '1px solid #86efac' : undefined,
+                  }}
+                  disabled={verifyingGst || gstNumber.length !== 15}
+                  onClick={handleVerifyGst}
+                >
+                  {verifyingGst ? 'Verifying…' : gstVerified ? '✓ Verified' : 'Verify GST'}
+                </button>
+              </div>
+
+              {businessName && (
+                <div style={{ marginTop: 8 }}>
+                  <label className="mem-label" style={{ fontSize: '0.74rem' }}>Registered Trade / Business Name</label>
+                  <input
+                    type="text"
+                    className="mem-input"
+                    value={businessName}
+                    onChange={(e) => setBusinessName(e.target.value)}
+                    placeholder="Business Name"
+                  />
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Amount input + Quick Presets */}
           <div className="mem-input-group">
