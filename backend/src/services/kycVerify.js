@@ -8,7 +8,9 @@
  * To switch on: set KYC_PROVIDER and the provider's credentials, then implement the matching
  * branch in verifyPan / verifyBankAccount below. No provider code is guessed here.
  */
-export const kycProviderConfigured = () => Boolean(process.env.KYC_PROVIDER);
+import { isCgpayConfigured, verifyPanWithCgpay } from './cgpayService.js';
+
+export const kycProviderConfigured = () => Boolean(process.env.KYC_PROVIDER) || isCgpayConfigured();
 
 // PAN: a 4th character of P means an individual; the 5th is the first letter of the surname.
 export function checkPanFormat(pan, name) {
@@ -25,10 +27,24 @@ export function checkPanFormat(pan, name) {
 }
 
 /** Returns { status: 'verified' | 'mismatch' | 'unavailable', holderName? }. */
-export async function verifyPan() {
+export async function verifyPan(pan, name) {
   if (!kycProviderConfigured()) return { status: 'unavailable' };
-  return { status: 'unavailable' };
+  try {
+    const res = await verifyPanWithCgpay(pan);
+    if (res?.success || res?.status === 'VERIFIED') {
+      return {
+        status: 'verified',
+        holderName: res?.data?.name || '',
+        data: res?.data,
+      };
+    }
+    return { status: 'mismatch', message: res?.message };
+  } catch (err) {
+    console.error('verifyPan error:', err.message);
+    return { status: 'unavailable', message: err.message };
+  }
 }
+
 
 /** Returns { status: 'verified' | 'mismatch' | 'unavailable', holderName? }. */
 export async function verifyBankAccount() {

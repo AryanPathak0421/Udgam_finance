@@ -40,10 +40,28 @@ export function checkGstin(gstin, { pan } = {}) {
   return { ok: true, stateCode: m[1], pan: m[2] };
 }
 
-export const gstProviderConfigured = () => Boolean(process.env.GST_PROVIDER);
+import { isCgpayConfigured, verifyGstWithCgpay } from './cgpayService.js';
 
-/** Registered name / status from the GST network. Returns { status: 'verified' | 'not_found' | 'unavailable' }. */
-export async function verifyGstin() {
+export const gstProviderConfigured = () => Boolean(process.env.GST_PROVIDER) || isCgpayConfigured();
+
+/** Registered name / status from the GST network. Returns { status: 'verified' | 'not_found' | 'unavailable', data? }. */
+export async function verifyGstin(gstin) {
   if (!gstProviderConfigured()) return { status: 'unavailable' };
-  return { status: 'unavailable' };
+  try {
+    const res = await verifyGstWithCgpay(gstin);
+    if (res?.success || res?.status === 'VERIFIED') {
+      return {
+        status: 'verified',
+        businessName: res?.data?.businessName || res?.data?.legalName || '',
+        tradeName: res?.data?.tradeName || '',
+        gstStatus: res?.data?.status || 'Active',
+        data: res?.data,
+      };
+    }
+    return { status: 'not_found', message: res?.message };
+  } catch (err) {
+    console.error('verifyGstin error:', err.message);
+    return { status: 'unavailable', message: err.message };
+  }
 }
+

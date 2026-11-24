@@ -240,6 +240,88 @@ export function BorrowerForm({ branches, options, onCancel, onSaved, member = nu
   const pendingDistrict = useRef('');
   const [saving, setSaving] = useState(false);
   const [accountTaken, setAccountTaken] = useState(''); // set when the account number belongs to another member already
+  const [aadhaarVerified, setAadhaarVerified] = useState(Boolean(member?.aadhaar));
+  const [panVerified, setPanVerified] = useState(Boolean(member?.pan && member?.panVerifiedAt));
+  const [verifying, setVerifying] = useState({ pan: false, aadhaar: false, okycOtp: false });
+  const [okycSession, setOkycSession] = useState({ open: false, sessionId: '', otp: '' });
+
+  const handleVerifyPan = async () => {
+    if (!form.pan || !/^[A-Z]{5}\d{4}[A-Z]$/.test(form.pan)) {
+      toast.error('Enter a valid 10-character PAN');
+      return;
+    }
+    setVerifying((prev) => ({ ...prev, pan: true }));
+    try {
+      const res = await api.verify.pan(form.pan, !isEdit);
+      if (res.success || res.status === 'VERIFIED') {
+        setPanVerified(true);
+        if (res.data?.name && !form.name) {
+          setForm((prev) => ({ ...prev, name: res.data.name }));
+        }
+        toast.success(res.message || 'PAN verified successfully with CGPey');
+      } else {
+        toast.error(res.message || 'PAN verification failed');
+      }
+    } catch (err) {
+      toast.error(err.message || 'PAN verification error');
+    } finally {
+      setVerifying((prev) => ({ ...prev, pan: false }));
+    }
+  };
+
+  const handleInitiateAadhaarOkyc = async () => {
+    if (!form.aadhaar || form.aadhaar.length !== 12) {
+      toast.error('Enter a valid 12-digit Aadhaar number');
+      return;
+    }
+    setVerifying((prev) => ({ ...prev, aadhaar: true }));
+    try {
+      const res = await api.verify.initiateOkyc(form.aadhaar, !isEdit);
+      if (res.success || res.status === 'OTP_SENT') {
+        const sid = res.data?.sessionId || res.sessionId;
+        setOkycSession({ open: true, sessionId: sid, otp: '' });
+        toast.success(res.message || 'Aadhaar OTP sent successfully');
+      } else {
+        toast.error(res.message || 'Failed to initiate Aadhaar verification');
+      }
+    } catch (err) {
+      toast.error(err.message || 'Aadhaar initiation error');
+    } finally {
+      setVerifying((prev) => ({ ...prev, aadhaar: false }));
+    }
+  };
+
+  const handleVerifyAadhaarOtp = async () => {
+    if (!okycSession.otp || okycSession.otp.length < 6) {
+      toast.error('Enter the 6-digit Aadhaar OTP');
+      return;
+    }
+    setVerifying((prev) => ({ ...prev, okycOtp: true }));
+    try {
+      const res = await api.verify.verifyOkyc({
+        sessionId: okycSession.sessionId,
+        otp: okycSession.otp,
+        aadhaarNumber: form.aadhaar,
+      });
+      if (res.success || res.status === 'VERIFIED') {
+        setAadhaarVerified(true);
+        setOkycSession({ open: false, sessionId: '', otp: '' });
+        if (res.data?.name && !form.name) {
+          setForm((prev) => ({ ...prev, name: res.data.name }));
+        }
+        if (res.data?.address && !form.address) {
+          setForm((prev) => ({ ...prev, address: res.data.address }));
+        }
+        toast.success('Aadhaar successfully verified with CGPey OKYC');
+      } else {
+        toast.error(res.message || 'Aadhaar OTP verification failed');
+      }
+    } catch (err) {
+      toast.error(err.message || 'Aadhaar verification error');
+    } finally {
+      setVerifying((prev) => ({ ...prev, okycOtp: false }));
+    }
+  };
 
   // asks the server, when the account number has been typed, whether another member already has it
   async function checkAccount() {
@@ -526,12 +608,39 @@ export function BorrowerForm({ branches, options, onCancel, onSaved, member = nu
       <div className="panel" style={{ padding: 18, marginBottom: 14 }}>
         <h3 className="section-title">KYC &amp; bank</h3>
         <div className="form-grid">
-          <FormField id="aadhaar" label="Aadhaar number" required error={errors.aadhaar}>
-            <input id="aadhaar" value={form.aadhaar} onChange={setDigits('aadhaar', 12)} inputMode="numeric" maxLength={12} />
+          <FormField id="aadhaar" label="Aadhaar number" required error={errors.aadhaar}
+            hint={aadhaarVerified ? '✓ Verified via CGPey Aadhaar OKYC' : '12 digits. Verify with OTP.'}>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <input id="aadhaar" value={form.aadhaar} onChange={(e) => { setAadhaarVerified(false); setDigits('aadhaar', 12)(e); }} inputMode="numeric" maxLength={12} style={{ flex: 1 }} />
+              {form.aadhaar.length === 12 && (
+                <button
+                  type="button"
+                  className={`btn sm ${aadhaarVerified ? 'success' : 'secondary'}`}
+                  onClick={handleInitiateAadhaarOkyc}
+                  disabled={verifying.aadhaar}
+                  style={{ whiteSpace: 'nowrap' }}
+                >
+                  {verifying.aadhaar ? 'Sending…' : aadhaarVerified ? '✓ Verified' : 'Verify OKYC'}
+                </button>
+              )}
+            </div>
           </FormField>
           <FormField id="pan" label="PAN number" error={errors.pan}
-            hint={form.pan && panValid && form.pan[3] === 'P' ? '✓ PAN format is valid' : 'Optional. Format: ABCDE1234F (individual PAN)'}>
-            <input id="pan" value={form.pan} onChange={setUpper('pan', 10)} maxLength={10} />
+            hint={panVerified ? '✓ Verified with CGPey PAN Service' : form.pan && panValid && form.pan[3] === 'P' ? '✓ Format valid. Click verify.' : 'Optional. Format: ABCDE1234F'}>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <input id="pan" value={form.pan} onChange={(e) => { setPanVerified(false); setUpper('pan', 10)(e); }} maxLength={10} style={{ flex: 1 }} />
+              {form.pan.length === 10 && panValid && (
+                <button
+                  type="button"
+                  className={`btn sm ${panVerified ? 'success' : 'secondary'}`}
+                  onClick={handleVerifyPan}
+                  disabled={verifying.pan}
+                  style={{ whiteSpace: 'nowrap' }}
+                >
+                  {verifying.pan ? 'Checking…' : panVerified ? '✓ Verified' : 'Verify PAN'}
+                </button>
+              )}
+            </div>
           </FormField>
           <FormField id="voterId" label="Voter ID number" error={errors.voterId} hint="Optional. Format: ABC1234567">
             <input id="voterId" value={form.voterId} onChange={setUpper('voterId', 20)} maxLength={20} />
@@ -579,6 +688,48 @@ export function BorrowerForm({ branches, options, onCancel, onSaved, member = nu
         <button type="button" className="btn" onClick={onCancel} disabled={saving}>Cancel</button>
         <button type="submit" className="btn primary" disabled={saving}>{saving ? 'Saving…' : isEdit ? 'Save changes' : 'Save borrower'}</button>
       </div>
+
+      {okycSession.open && (
+        <Modal title="Verify Aadhaar OTP (CGPey OKYC)" onClose={() => setOkycSession({ open: false, sessionId: '', otp: '' })}>
+          <div style={{ padding: '8px 0' }}>
+            <p style={{ fontSize: '0.9rem', color: '#475569', marginBottom: 12 }}>
+              Enter the 6-digit OTP sent to the mobile number registered with Aadhaar <strong>XXXX XXXX {form.aadhaar.slice(-4)}</strong>.
+            </p>
+            <div style={{ marginBottom: 16 }}>
+              <input
+                type="text"
+                placeholder="Enter 6-digit OTP"
+                value={okycSession.otp}
+                onChange={(e) => setOkycSession((prev) => ({ ...prev, otp: e.target.value.replace(/\D/g, '').slice(0, 6) }))}
+                maxLength={6}
+                style={{ width: '100%', fontSize: '1.25rem', textAlign: 'center', letterSpacing: '4px', padding: '10px' }}
+                autoFocus
+              />
+              <span className="muted small" style={{ display: 'block', marginTop: 4, textAlign: 'center' }}>
+                (In test/dev mode, bypass OTP is 123456)
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                className="btn secondary"
+                onClick={() => setOkycSession({ open: false, sessionId: '', otp: '' })}
+                disabled={verifying.okycOtp}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn primary"
+                onClick={handleVerifyAadhaarOtp}
+                disabled={verifying.okycOtp || okycSession.otp.length < 6}
+              >
+                {verifying.okycOtp ? 'Verifying…' : 'Submit & Verify'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </form>
   );
 }

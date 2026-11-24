@@ -436,7 +436,14 @@ function RequisitionForm({ kind }) {
       return undefined;
     }
     let live = true;
-    api.loanRequisitions.gst(biz.gstNumber, picked?.id).then((r) => live && setGstInfo(r)).catch(() => live && setGstInfo(null));
+    api.loanRequisitions.gst(biz.gstNumber, picked?.id).then((r) => {
+      if (live) {
+        setGstInfo(r);
+        if (r?.ok && r?.businessName && !biz.businessName) {
+          setBiz((b) => ({ ...b, businessName: r.businessName }));
+        }
+      }
+    }).catch(() => live && setGstInfo(null));
     return () => {
       live = false;
     };
@@ -929,7 +936,7 @@ function RequisitionForm({ kind }) {
                 </FormField>
               )}
               <FormField id="gstNumber" label="GST number" required error={errors['business.gstNumber'] || (gstInfo && gstInfo.ok === false ? gstInfo.message : '')}
-                hint={gstInfo?.ok ? `✓ Valid GST number — state code ${gstInfo.stateCode}${gstInfo.panMatched ? ', PAN matches the borrower' : ''}${gstInfo.registryChecked ? ', registration confirmed' : ''}` : 'Required: 15 characters, e.g. 27ABCPD1234F1ZC'}>
+                hint={gstInfo?.ok ? `✓ Valid GST number (${gstInfo.gstStatus || 'Active'})${gstInfo.businessName ? ` — ${gstInfo.businessName}` : ''}${gstInfo.panMatched ? ', PAN matches the borrower' : ''}` : 'Required: 15 characters, e.g. 27ABCPD1234F1ZC'}>
                 <input id="gstNumber" value={biz.gstNumber} onChange={(e) => { setBiz((x) => ({ ...x, gstNumber: e.target.value.toUpperCase().slice(0, 15) })); setErrors((er) => ({ ...er, 'business.gstNumber': undefined })); }} maxLength={15} />
               </FormField>
               {[0, 1, 2].map((i) => (

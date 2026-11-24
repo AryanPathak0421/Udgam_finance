@@ -742,6 +742,13 @@ export const api = {
     reuploadKycDoc: (data) => request('/member/kyc/reupload', { method: 'POST', body: data }),
     branchContact: () => request('/member/branch-contact'),
   },
+  verify: {
+    pan: (pan, checkDuplicate = false) => request('/verify/pan', { method: 'POST', body: { pan, checkDuplicate } }),
+    gst: (gstNumber) => request('/verify/gst', { method: 'POST', body: { gstNumber } }),
+    initiateOkyc: (aadhaarNumber, checkDuplicate = false) => request('/verify/okyc/initiate', { method: 'POST', body: { aadhaarNumber, checkDuplicate } }),
+    verifyOkyc: (data) => request('/verify/okyc/verify', { method: 'POST', body: data }),
+    bank: (ifscCode) => request('/verify/bank', { method: 'POST', body: { ifscCode } }),
+  },
 };
 
 

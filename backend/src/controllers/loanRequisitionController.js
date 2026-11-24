@@ -1381,7 +1381,16 @@ export async function gstCheck(req, res) {
   const c = checkGstin(gstin, { pan });
   if (!c.ok) return res.json({ ok: false, message: c.message });
   const v = await verifyGstin(gstin);
-  res.json({ ok: true, stateCode: c.stateCode, pan: c.pan, panMatched: Boolean(pan), registryChecked: v.status === 'verified' });
+  res.json({
+    ok: true,
+    stateCode: c.stateCode,
+    pan: c.pan,
+    panMatched: Boolean(pan),
+    registryChecked: v.status === 'verified',
+    businessName: v.businessName || '',
+    tradeName: v.tradeName || '',
+    gstStatus: v.gstStatus || 'Active',
+  });
 }
 
 export async function getRequisition(req, res) {
