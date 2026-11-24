@@ -25,6 +25,8 @@ export default function EmployeeCivilCheck() {
 
   // Results & status
   const [checking, setChecking] = useState(false);
+  const [panVerified, setPanVerified] = useState(false);
+  const [verifyingPan, setVerifyingPan] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -58,6 +60,32 @@ export default function EmployeeCivilCheck() {
       setError(err.message || 'Member lookup failed');
     } finally {
       setSearchingMember(false);
+    }
+  };
+
+  // Live PAN Verification with CGPey
+  const handleVerifyPan = async () => {
+    const cleanPan = (pan || '').trim().toUpperCase();
+    if (!cleanPan || !/^[A-Z]{5}\d{4}[A-Z]$/.test(cleanPan)) {
+      return setError('Please enter a valid 10-character PAN');
+    }
+    setVerifyingPan(true);
+    setError('');
+    try {
+      const res = await api.verify.pan(cleanPan);
+      if (res.success || res.status === 'VERIFIED') {
+        setPanVerified(true);
+        if (res.data?.name && !name) {
+          setName(res.data.name);
+        }
+        setSuccess(`✓ PAN verified: ${res.data?.name || cleanPan}`);
+      } else {
+        setError(res.message || 'PAN verification failed');
+      }
+    } catch (err) {
+      setError(err.message || 'PAN verification error');
+    } finally {
+      setVerifyingPan(false);
     }
   };
 
@@ -269,19 +297,44 @@ export default function EmployeeCivilCheck() {
               />
             </div>
             <div>
-              <label style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>
-                PAN Number {mode === 'existing' && selectedMember && <span style={{ fontSize: '0.75rem', color: '#64748b' }}>(Locked)</span>}
-              </label>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <label style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--emp-text)', margin: 0 }}>
+                  PAN Number {mode === 'existing' && selectedMember && <span style={{ fontSize: '0.75rem', color: '#64748b' }}>(Locked)</span>}
+                </label>
+                {mode === 'new' && pan.length === 10 && /^[A-Z]{5}\d{4}[A-Z]$/.test(pan) && (
+                  <button
+                    type="button"
+                    onClick={handleVerifyPan}
+                    disabled={verifyingPan}
+                    style={{
+                      fontSize: '0.72rem',
+                      fontWeight: 700,
+                      padding: '2px 8px',
+                      borderRadius: 6,
+                      border: 'none',
+                      background: panVerified ? '#ecfdf5' : '#e0f2fe',
+                      color: panVerified ? '#047857' : '#0284c7',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {verifyingPan ? 'Checking…' : panVerified ? '✓ Verified' : 'Verify PAN'}
+                  </button>
+                )}
+              </div>
               <input
                 type="text"
                 maxLength={10}
                 readOnly={mode === 'existing' && Boolean(selectedMember)}
                 value={pan}
-                onChange={(e) => setPan(e.target.value.toUpperCase())}
+                onChange={(e) => {
+                  setPanVerified(false);
+                  setPan(e.target.value.toUpperCase());
+                }}
                 placeholder="ABCDE1234F"
                 className="emp-input"
                 style={{ width: '100%', ...(mode === 'existing' && selectedMember ? { background: '#f1f5f9', color: '#334155', cursor: 'not-allowed' } : {}) }}
               />
+              {panVerified && <span style={{ fontSize: '0.7rem', color: '#047857', display: 'block', marginTop: 2 }}>✓ Verified with CGPey PAN Service</span>}
             </div>
           </div>
 

@@ -63,6 +63,8 @@ export default function EmployeeGuarantorNominee() {
   const [gAadhaarBackPhoto, setGAadhaarBackPhoto] = useState('');
   const [gPanPhoto, setGPanPhoto] = useState('');
   const [gJointPhoto, setGJointPhoto] = useState('');
+  const [gPanVerified, setGPanVerified] = useState(false);
+  const [verifyingGPan, setVerifyingGPan] = useState(false);
 
   // Guarantor OTP verification
   const [gOtpVerified, setGOtpVerified] = useState(false);
@@ -203,6 +205,32 @@ export default function EmployeeGuarantorNominee() {
       setOtpError(err.message || 'Invalid OTP');
     } finally {
       setVerifyingOtp(false);
+    }
+  };
+
+  const handleVerifyGPan = async () => {
+    const cleanPan = (gPan || '').trim().toUpperCase();
+    if (!cleanPan || !/^[A-Z]{5}\d{4}[A-Z]$/.test(cleanPan)) {
+      setError('Enter a valid 10-character PAN for Guarantor');
+      return;
+    }
+    setVerifyingGPan(true);
+    setError('');
+    try {
+      const res = await api.verify.pan(cleanPan);
+      if (res.success || res.status === 'VERIFIED') {
+        setGPanVerified(true);
+        if (res.data?.name && !gName) {
+          setGName(res.data.name);
+        }
+        setSuccess(`✓ Guarantor PAN verified: ${res.data?.name || cleanPan}`);
+      } else {
+        setError(res.message || 'Guarantor PAN verification failed');
+      }
+    } catch (err) {
+      setError(err.message || 'PAN verification error');
+    } finally {
+      setVerifyingGPan(false);
     }
   };
 
@@ -542,17 +570,49 @@ export default function EmployeeGuarantorNominee() {
 
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
                     <div>
-                      <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: 4 }}>
-                        PAN Number (Optional)
-                      </label>
-                      <input
-                        type="text"
-                        className="emp-input"
-                        placeholder="ABCDE1234F"
-                        value={gPan}
-                        onChange={(e) => setGPan(e.target.value.toUpperCase())}
-                        maxLength={10}
-                      />
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                        <label style={{ fontSize: '0.78rem', fontWeight: 600, margin: 0 }}>
+                          PAN Number (Optional)
+                        </label>
+                        {gPanVerified && (
+                          <span style={{ fontSize: '0.7rem', color: '#10b981', fontWeight: 700 }}>
+                            ✓ Verified
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <input
+                          type="text"
+                          className="emp-input"
+                          placeholder="ABCDE1234F"
+                          value={gPan}
+                          onChange={(e) => {
+                            setGPan(e.target.value.toUpperCase());
+                            setGPanVerified(false);
+                          }}
+                          maxLength={10}
+                          style={{ flex: 1, borderColor: gPanVerified ? '#10b981' : undefined }}
+                        />
+                        <button
+                          type="button"
+                          onClick={handleVerifyGPan}
+                          disabled={verifyingGPan || !gPan || gPan.length !== 10}
+                          className="emp-btn-secondary"
+                          style={{
+                            padding: '0 10px',
+                            fontSize: '0.75rem',
+                            whiteSpace: 'nowrap',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            background: gPanVerified ? '#dcfce7' : undefined,
+                            color: gPanVerified ? '#166534' : undefined,
+                            borderColor: gPanVerified ? '#86efac' : undefined
+                          }}
+                        >
+                          {verifyingGPan ? '...' : gPanVerified ? '✓ Verified' : 'Verify'}
+                        </button>
+                      </div>
                     </div>
                     <div>
                       <label style={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', marginBottom: 4 }}>

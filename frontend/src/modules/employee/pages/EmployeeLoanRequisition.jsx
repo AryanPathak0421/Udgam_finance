@@ -993,9 +993,22 @@ export default function EmployeeLoanRequisition({ initialKind }) {
       setGstInfo(null);
       return;
     }
+    let live = true;
     api.loanRequisitions.gst(biz.gstNumber, pickedBorrower?.id)
-      .then(setGstInfo)
-      .catch(() => setGstInfo({ ok: true, stateCode: biz.gstNumber.slice(0, 2) }));
+      .then((res) => {
+        if (live && res) {
+          setGstInfo(res);
+          if (res.ok && res.businessName && !biz.businessName) {
+            setBiz((prev) => ({ ...prev, businessName: res.businessName }));
+          }
+        }
+      })
+      .catch(() => {
+        if (live) setGstInfo({ ok: true, stateCode: biz.gstNumber.slice(0, 2) });
+      });
+    return () => {
+      live = false;
+    };
   }, [isBusiness, biz.gstNumber, pickedBorrower]);
 
   // Calculate installments from term and mode

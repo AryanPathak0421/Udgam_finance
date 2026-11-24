@@ -474,6 +474,10 @@ export default function EmployeeNewMember() {
   const [accountTaken, setAccountTaken] = useState('');
   const [aadhaarTaken, setAadhaarTaken] = useState('');
   const [panTaken, setPanTaken] = useState('');
+  const [aadhaarVerified, setAadhaarVerified] = useState(false);
+  const [panVerified, setPanVerified] = useState(false);
+  const [verifying, setVerifying] = useState({ pan: false, aadhaar: false, okycOtp: false });
+  const [okycSession, setOkycSession] = useState({ open: false, sessionId: '', otp: '' });
   const [submitting, setSubmitting] = useState(false);
   const [globalError, setGlobalError] = useState('');
   const [registrationSuccess, setRegistrationSuccess] = useState(null);
@@ -714,6 +718,83 @@ export default function EmployeeNewMember() {
       }
     } catch {
       // ignore prospect fetch error
+    }
+  };
+
+  const handleVerifyPan = async () => {
+    const cleanPan = (form.pan || '').trim().toUpperCase();
+    if (!cleanPan || !/^[A-Z]{5}\d{4}[A-Z]$/.test(cleanPan)) {
+      setGlobalError('Enter a valid 10-character PAN (e.g. ABCDE1234F)');
+      return;
+    }
+    setVerifying((prev) => ({ ...prev, pan: true }));
+    try {
+      const res = await api.verify.pan(cleanPan, true);
+      if (res.success || res.status === 'VERIFIED') {
+        setPanVerified(true);
+        if (res.data?.name && !form.name) {
+          setForm((prev) => ({ ...prev, name: res.data.name }));
+        }
+      } else {
+        setGlobalError(res.message || 'PAN verification failed');
+      }
+    } catch (err) {
+      setGlobalError(err.message || 'PAN verification error');
+    } finally {
+      setVerifying((prev) => ({ ...prev, pan: false }));
+    }
+  };
+
+  const handleInitiateAadhaarOkyc = async () => {
+    const cleanAadhaar = (form.aadhaar || '').replace(/\D/g, '');
+    if (cleanAadhaar.length !== 12) {
+      setGlobalError('Enter a valid 12-digit Aadhaar number');
+      return;
+    }
+    setVerifying((prev) => ({ ...prev, aadhaar: true }));
+    try {
+      const res = await api.verify.initiateOkyc(cleanAadhaar, true);
+      if (res.success || res.status === 'OTP_SENT') {
+        const sid = res.data?.sessionId || res.sessionId;
+        setOkycSession({ open: true, sessionId: sid, otp: '' });
+      } else {
+        setGlobalError(res.message || 'Failed to initiate Aadhaar verification');
+      }
+    } catch (err) {
+      setGlobalError(err.message || 'Aadhaar initiation error');
+    } finally {
+      setVerifying((prev) => ({ ...prev, aadhaar: false }));
+    }
+  };
+
+  const handleVerifyAadhaarOtp = async () => {
+    if (!okycSession.otp || okycSession.otp.length < 6) {
+      setGlobalError('Enter 6-digit Aadhaar OTP');
+      return;
+    }
+    setVerifying((prev) => ({ ...prev, okycOtp: true }));
+    try {
+      const res = await api.verify.verifyOkyc({
+        sessionId: okycSession.sessionId,
+        otp: okycSession.otp,
+        aadhaarNumber: form.aadhaar,
+      });
+      if (res.success || res.status === 'VERIFIED') {
+        setAadhaarVerified(true);
+        setOkycSession({ open: false, sessionId: '', otp: '' });
+        if (res.data?.name && !form.name) {
+          setForm((prev) => ({ ...prev, name: res.data.name }));
+        }
+        if (res.data?.address && !form.address) {
+          setForm((prev) => ({ ...prev, address: res.data.address }));
+        }
+      } else {
+        setGlobalError(res.message || 'Aadhaar OTP verification failed');
+      }
+    } catch (err) {
+      setGlobalError(err.message || 'Aadhaar verification error');
+    } finally {
+      setVerifying((prev) => ({ ...prev, okycOtp: false }));
     }
   };
 
@@ -1509,9 +1590,30 @@ export default function EmployeeNewMember() {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
                   {/* Aadhaar */}
                   <div>
-                    <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>
-                      Aadhaar Number <span style={{ color: '#ef4444' }}>*</span>
-                    </label>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                      <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text)', margin: 0 }}>
+                        Aadhaar Number <span style={{ color: '#ef4444' }}>*</span>
+                      </label>
+                      {form.aadhaar.length === 12 && (
+                        <button
+                          type="button"
+                          onClick={handleInitiateAadhaarOkyc}
+                          disabled={verifying.aadhaar}
+                          style={{
+                            fontSize: '0.72rem',
+                            fontWeight: 700,
+                            padding: '2px 8px',
+                            borderRadius: 6,
+                            border: 'none',
+                            background: aadhaarVerified ? '#ecfdf5' : '#e0f2fe',
+                            color: aadhaarVerified ? '#047857' : '#0284c7',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {verifying.aadhaar ? 'Sending OTP…' : aadhaarVerified ? '✓ OKYC Verified' : 'Verify OKYC'}
+                        </button>
+                      )}
+                    </div>
                     <input
                       className="emp-input"
                       placeholder="12-digit Aadhaar"
@@ -1519,26 +1621,53 @@ export default function EmployeeNewMember() {
                       maxLength={12}
                       value={form.aadhaar}
                       onChange={(e) => {
+                        setAadhaarVerified(false);
                         setAadhaarTaken('');
                         setDigits('aadhaar', 12)(e);
                       }}
                       onBlur={checkAadhaar}
                       style={{ borderColor: errors.aadhaar || aadhaarTaken ? '#ef4444' : undefined }}
                     />
-                    {(errors.aadhaar || aadhaarTaken) && <span style={{ fontSize: '0.72rem', color: '#ef4444' }}>{errors.aadhaar || aadhaarTaken}</span>}
+                    {(errors.aadhaar || aadhaarTaken) ? (
+                      <span style={{ fontSize: '0.72rem', color: '#ef4444' }}>{errors.aadhaar || aadhaarTaken}</span>
+                    ) : aadhaarVerified ? (
+                      <span style={{ fontSize: '0.7rem', color: '#047857' }}>✓ Verified via CGPey Aadhaar OKYC</span>
+                    ) : null}
                   </div>
 
                   {/* PAN */}
                   <div>
-                    <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text)', display: 'block', marginBottom: 4 }}>
-                      PAN Number <span style={{ color: '#64748b', fontWeight: 400 }}>(Optional)</span>
-                    </label>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                      <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--emp-text)', margin: 0 }}>
+                        PAN Number <span style={{ color: '#64748b', fontWeight: 400 }}>(Optional)</span>
+                      </label>
+                      {form.pan.length === 10 && panValid && (
+                        <button
+                          type="button"
+                          onClick={handleVerifyPan}
+                          disabled={verifying.pan}
+                          style={{
+                            fontSize: '0.72rem',
+                            fontWeight: 700,
+                            padding: '2px 8px',
+                            borderRadius: 6,
+                            border: 'none',
+                            background: panVerified ? '#ecfdf5' : '#e0f2fe',
+                            color: panVerified ? '#047857' : '#0284c7',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {verifying.pan ? 'Checking…' : panVerified ? '✓ Verified' : 'Verify PAN'}
+                        </button>
+                      )}
+                    </div>
                     <input
                       className="emp-input"
                       placeholder="ABCDE1234F"
                       maxLength={10}
                       value={form.pan}
                       onChange={(e) => {
+                        setPanVerified(false);
                         setPanTaken('');
                         setUpper('pan', 10)(e);
                         const val = e.target.value.toUpperCase();
@@ -1551,6 +1680,8 @@ export default function EmployeeNewMember() {
                     />
                     {errors.pan || panTaken ? (
                       <span style={{ fontSize: '0.72rem', color: '#ef4444' }}>{errors.pan || panTaken}</span>
+                    ) : panVerified ? (
+                      <span style={{ fontSize: '0.7rem', color: '#047857' }}>✓ Verified with CGPey PAN Service</span>
                     ) : form.pan && panValid && form.pan[3] === 'P' ? (
                       <span style={{ fontSize: '0.7rem', color: '#047857' }}>✓ Valid individual PAN</span>
                     ) : (
@@ -2050,6 +2181,82 @@ export default function EmployeeNewMember() {
                 onClick={() => setSelectedMember(null)}
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Aadhaar OKYC OTP Modal */}
+      {okycSession.open && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.65)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: 16,
+          }}
+        >
+          <div
+            style={{
+              background: '#fff',
+              borderRadius: 14,
+              padding: '20px 18px',
+              maxWidth: 380,
+              width: '100%',
+              boxShadow: '0 20px 25px -5px rgba(0,0,0,0.2)',
+            }}
+          >
+            <h4 style={{ margin: '0 0 6px 0', fontSize: '1rem', fontWeight: 800, color: 'var(--emp-text)' }}>
+              Verify Aadhaar OTP (CGPey OKYC)
+            </h4>
+            <p style={{ fontSize: '0.82rem', color: '#64748b', margin: '0 0 14px 0' }}>
+              Enter the 6-digit OTP sent to the mobile linked with Aadhaar <strong>XXXX XXXX {form.aadhaar.slice(-4)}</strong>.
+            </p>
+            <input
+              type="text"
+              placeholder="Enter 6-digit OTP"
+              value={okycSession.otp}
+              onChange={(e) => setOkycSession((prev) => ({ ...prev, otp: e.target.value.replace(/\D/g, '').slice(0, 6) }))}
+              maxLength={6}
+              style={{
+                width: '100%',
+                fontSize: '1.25rem',
+                textAlign: 'center',
+                letterSpacing: '4px',
+                padding: '10px',
+                borderRadius: 8,
+                border: '1px solid #cbd5e1',
+                boxSizing: 'border-box',
+                outline: 'none',
+              }}
+              autoFocus
+            />
+            <span style={{ display: 'block', fontSize: '0.72rem', color: '#94a3b8', textAlign: 'center', marginTop: 4 }}>
+              (Dev bypass OTP: 123456)
+            </span>
+            <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
+              <button
+                type="button"
+                className="emp-btn-secondary"
+                style={{ flex: 1, padding: 10, fontSize: '0.84rem' }}
+                onClick={() => setOkycSession({ open: false, sessionId: '', otp: '' })}
+                disabled={verifying.okycOtp}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="emp-btn-primary"
+                style={{ flex: 1, padding: 10, fontSize: '0.84rem' }}
+                onClick={handleVerifyAadhaarOtp}
+                disabled={verifying.okycOtp || okycSession.otp.length < 6}
+              >
+                {verifying.okycOtp ? 'Verifying…' : 'Submit OTP'}
               </button>
             </div>
           </div>

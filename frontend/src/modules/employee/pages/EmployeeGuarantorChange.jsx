@@ -48,6 +48,8 @@ export default function EmployeeGuarantorChange() {
   const [mobile, setMobile] = useState('');
   const [aadhaar, setAadhaar] = useState('');
   const [pan, setPan] = useState('');
+  const [panVerified, setPanVerified] = useState(false);
+  const [verifyingPan, setVerifyingPan] = useState(false);
   const [address, setAddress] = useState('');
   const [reason, setReason] = useState('');
   const [sameAsGuarantor, setSameAsGuarantor] = useState(false);
@@ -122,6 +124,32 @@ export default function EmployeeGuarantorChange() {
       setOtpError(err.message || 'Invalid OTP');
     } finally {
       setVerifyingOtp(false);
+    }
+  };
+
+  const handleVerifyPan = async () => {
+    const cleanPan = (pan || '').trim().toUpperCase();
+    if (!cleanPan || !/^[A-Z]{5}\d{4}[A-Z]$/.test(cleanPan)) {
+      setError('Enter a valid 10-character PAN');
+      return;
+    }
+    setVerifyingPan(true);
+    setError('');
+    try {
+      const res = await api.verify.pan(cleanPan);
+      if (res.success || res.status === 'VERIFIED') {
+        setPanVerified(true);
+        if (res.data?.name && !name) {
+          setName(res.data.name);
+        }
+        setSuccess(`✓ Guarantor PAN verified: ${res.data?.name || cleanPan}`);
+      } else {
+        setError(res.message || 'PAN verification failed');
+      }
+    } catch (err) {
+      setError(err.message || 'PAN verification error');
+    } finally {
+      setVerifyingPan(false);
     }
   };
 
@@ -414,17 +442,49 @@ export default function EmployeeGuarantorChange() {
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
                   <div>
-                    <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
-                      PAN Card (Optional)
-                    </label>
-                    <input
-                      type="text"
-                      className="emp-input"
-                      placeholder="e.g. ABCDE1234F"
-                      maxLength={10}
-                      value={pan}
-                      onChange={(e) => setPan(e.target.value.toUpperCase())}
-                    />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                      <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--emp-text-muted)', margin: 0 }}>
+                        PAN Card (Optional)
+                      </label>
+                      {panVerified && (
+                        <span style={{ fontSize: '0.7rem', color: '#10b981', fontWeight: 700 }}>
+                          ✓ Verified
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <input
+                        type="text"
+                        className="emp-input"
+                        placeholder="e.g. ABCDE1234F"
+                        maxLength={10}
+                        value={pan}
+                        onChange={(e) => {
+                          setPan(e.target.value.toUpperCase());
+                          setPanVerified(false);
+                        }}
+                        style={{ flex: 1, borderColor: panVerified ? '#10b981' : undefined }}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleVerifyPan}
+                        disabled={verifyingPan || !pan || pan.length !== 10}
+                        className="emp-btn-secondary"
+                        style={{
+                          padding: '0 10px',
+                          fontSize: '0.75rem',
+                          whiteSpace: 'nowrap',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          background: panVerified ? '#dcfce7' : undefined,
+                          color: panVerified ? '#166534' : undefined,
+                          borderColor: panVerified ? '#86efac' : undefined
+                        }}
+                      >
+                        {verifyingPan ? '...' : panVerified ? '✓ Verified' : 'Verify'}
+                      </button>
+                    </div>
                   </div>
                   <div>
                     <label style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--emp-text-muted)', display: 'block', marginBottom: 4 }}>
