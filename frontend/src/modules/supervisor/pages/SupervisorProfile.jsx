@@ -86,10 +86,10 @@ export default function SupervisorProfile() {
     }
   }
 
-  function handleLogout() {
+  async function handleLogout() {
     if (window.confirm('Are you sure you want to log out from Supervisor Portal?')) {
-      logout();
-      navigate('/supervisor/login', { replace: true });
+      await logout();
+      window.location.href = '/supervisor/login';
     }
   }
 

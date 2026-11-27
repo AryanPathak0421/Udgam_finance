@@ -85,9 +85,9 @@ export default function EmployeeProfile() {
         <button
           type="button"
           className="emp-btn-primary"
-          onClick={() => {
-            logout();
-            window.location.href = '#/employee/login';
+          onClick={async () => {
+            await logout();
+            window.location.href = '/employee/login';
           }}
           style={{ maxWidth: 220, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
         >
@@ -134,12 +134,26 @@ export default function EmployeeProfile() {
           <span style={{ fontSize: '0.78rem', color: 'var(--emp-text-muted)' }}>({data.ratings?.length || 0} reviews)</span>
         </div>
 
-        <div style={{ marginTop: 12, display: 'flex', gap: 8, justifyContent: 'center' }}>
+        <div style={{ marginTop: 12, display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
           <button className="emp-btn sm secondary" onClick={() => setRateModal(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Icon name="rank" size={14} />
             <span>Rate Staff</span>
           </button>
-          <button className="emp-btn sm secondary" onClick={logout} style={{ color: 'var(--emp-danger)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <a href="/login" className="emp-btn sm secondary" style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Icon name="desktop" size={14} />
+            <span>Core Software</span>
+          </a>
+          <button
+            type="button"
+            className="emp-btn sm secondary"
+            onClick={async () => {
+              if (window.confirm('Are you sure you want to log out from Staff App?')) {
+                await logout();
+                window.location.href = '/employee/login';
+              }
+            }}
+            style={{ color: 'var(--emp-danger)', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          >
             <Icon name="logout" size={14} />
             <span>{t('logout')}</span>
           </button>

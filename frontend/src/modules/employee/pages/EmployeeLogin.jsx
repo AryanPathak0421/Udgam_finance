@@ -41,7 +41,7 @@ export default function EmployeeLogin() {
     setError('');
     try {
       const r = await api.employeeApp.login({ identifier: identifier.trim(), mpin: mpin.trim() });
-      login(r.user, r.token);
+      login(r.user);
       navigate('/employee');
     } catch (err) {
       setError(err.message || 'Login failed');

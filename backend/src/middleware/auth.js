@@ -2,12 +2,20 @@ import jwt from 'jsonwebtoken';
 import mongoose from 'mongoose';
 import { User } from '../models/User.js';
 import { assertNotRejected } from '../services/dayOpen.js';
+import { readAuthToken } from '../utils/authCookies.js';
+
+// Which staff session to read. The app the request comes from goes first, so an admin session in the same
+// browser does not answer the employee or supervisor app (and the other way round).
+function staffSurfaceOrder(req) {
+  const app = (req.originalUrl || req.url || '').split('?')[0].split('/')[2];
+  if (app === 'employee' || app === 'employee-app') return ['employee', 'supervisor', 'admin'];
+  if (app === 'supervisor' || app === 'supervisor-app') return ['supervisor', 'employee', 'admin'];
+  return ['admin', 'employee', 'supervisor'];
+}
 
 export async function requireAuth(req, res, next) {
   try {
-    const authHeader = req.headers.authorization || '';
-    const bearer = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
-    const token = bearer || req.cookies?.token || req.cookies?.udgam_token;
+    const token = readAuthToken(req, staffSurfaceOrder(req));
     if (!token) return res.status(401).json({ message: 'Not authenticated' });
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const userId = decoded.id || decoded.userId;
@@ -65,9 +73,7 @@ export const requireRole = (...roles) => (req, res, next) =>
 
 // Authenticate either Staff/Admin or Member
 export async function requireStaffOrMemberAuth(req, res, next) {
-  const authHeader = req.headers.authorization || '';
-  const bearer = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
-  const token = bearer || req.cookies?.token || req.cookies?.udgam_token || req.cookies?.udgam_member_token;
+  const token = readAuthToken(req, ['admin', 'employee', 'supervisor', 'member']);
   if (!token) return res.status(401).json({ message: 'Not authenticated' });
 
   try {

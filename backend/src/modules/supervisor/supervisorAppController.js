@@ -30,8 +30,7 @@ import { toMinor } from '../../utils/money.js';
 import { asString, parseDateOnly, HttpError, startOfToday, todayDateString } from '../../utils/http.js';
 import { audit } from '../../utils/audit.js';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-key-udgam-2026';
-const COOKIE_NAME = process.env.COOKIE_NAME || 'udgam_token';
+const JWT_SECRET = process.env.JWT_SECRET;
 
 const cleanStr = (s) => String(s || '').trim();
 
@@ -311,18 +310,9 @@ export async function loginWithMpin(req, res) {
     { expiresIn: '30d' }
   );
 
-  const cookieOptions = {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-    maxAge: 30 * 24 * 60 * 60 * 1000,
-  };
-
-  res.cookie('token', token, cookieOptions);
-  res.cookie(COOKIE_NAME, token, cookieOptions);
+  setAuthCookie(res, 'supervisor', token, { app: true });
 
   res.json({
-    token,
     user: {
       id: activeUser._id,
       employeeId: emp._id,

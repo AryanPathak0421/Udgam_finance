@@ -23,10 +23,11 @@ import { OnlineEmiPayment } from '../../models/OnlineEmiPayment.js';
 import { borrowerState, loadLoan, receive } from '../../controllers/emiController.js';
 import { branchWorkingDate } from '../../services/dayOpen.js';
 import { toMinor } from '../../utils/money.js';
+import { notReady } from '../../controllers/loanRequisitionController.js';
+import { setAuthCookie } from '../../utils/authCookies.js';
 import { createOrder, createPaymentLink, fetchPaymentLink, fetchPayment, capturePayment, signatureValid, razorpayConfigured, razorpayKeyId, razorpayTestMode } from '../../services/razorpay.js';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-key-udgam-2026';
-const COOKIE_NAME = process.env.COOKIE_NAME || 'udgam_token';
+const JWT_SECRET = process.env.JWT_SECRET;
 
 const cleanStr = (s) => String(s || '').trim();
 
@@ -99,13 +100,7 @@ function createToken(member) {
 }
 
 function setAuthCookies(res, token) {
-  const cookieOptions = {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-    maxAge: 30 * 24 * 60 * 60 * 1000,
-  };
-  res.cookie('udgam_member_token', token, cookieOptions);
+  setAuthCookie(res, 'member', token, { app: true });
 }
 
 // -----------------------------------------------------------------------------
@@ -178,7 +173,6 @@ export async function registerMemberMpin(req, res) {
   res.json({
     status: 'ok',
     message: 'Secret mPIN created successfully! You are now logged in.',
-    token,
     user: {
       id: mem._id,
       memberId: mem._id,
@@ -215,7 +209,6 @@ export async function loginWithMpin(req, res) {
   setAuthCookies(res, token);
 
   res.json({
-    token,
     user: {
       id: mem._id,
       memberId: mem._id,
@@ -265,7 +258,6 @@ export async function verifyLoginOtp(req, res) {
   setAuthCookies(res, token);
 
   res.json({
-    token,
     user: {
       id: mem._id,
       memberId: mem._id,
@@ -1170,6 +1162,11 @@ export async function listMemberRequisitions(req, res) {
 
 export async function applyMemberLoan(req, res) {
   const member = req.member;
+  // The same rules as the staff requisition: details, guarantor, nominee and KYC documents must be complete.
+  const notReadyReasons = notReady(member);
+  if (notReadyReasons.length) {
+    throw new HttpError(409, `Your loan request cannot be sent yet. Please visit your branch to complete: ${notReadyReasons.join('; ')}`);
+  }
   const { loanType, requestedAmount, purpose, tenureMonths, gstNumber, businessName } = req.body;
 
   const amtNum = Number(requestedAmount);

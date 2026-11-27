@@ -112,9 +112,10 @@ import { isEmployeeSupervisor } from '../supervisor/supervisorAppController.js';
 import { asString, parseDateOnly, HttpError, startOfToday, todayDateString } from '../../utils/http.js';
 import { audit } from '../../utils/audit.js';
 import { missingDetails } from '../../utils/memberDetails.js';
+import { notReady } from '../../controllers/loanRequisitionController.js';
+import { setAuthCookie } from '../../utils/authCookies.js';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-key-udgam-2026';
-const COOKIE_NAME = process.env.COOKIE_NAME || 'udgam_token';
+const JWT_SECRET = process.env.JWT_SECRET;
 
 const cleanStr = (s) => String(s || '').trim();
 
@@ -467,18 +468,9 @@ export async function loginWithMpin(req, res) {
     { expiresIn: '30d' }
   );
 
-  const cookieOptions = {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-    maxAge: 30 * 24 * 60 * 60 * 1000,
-  };
-
-  res.cookie('token', token, cookieOptions);
-  res.cookie(COOKIE_NAME, token, cookieOptions);
+  setAuthCookie(res, 'employee', token, { app: true });
 
   res.json({
-    token,
     user: {
       id: user._id,
       employeeId: emp._id,
@@ -2888,6 +2880,9 @@ export async function createLoanRequisition(req, res) {
     }).select('+photo +memberPhoto +signaturePhoto +aadhaarPhoto +aadhaarBackPhoto');
 
     if (!chosenMembers.length) throw new HttpError(400, 'No members selected for group requisition');
+    // Every member of the loan must be ready: the same rules as the staff web requisition (details, guarantor, nominee, KYC documents).
+    const notReadyGroup = chosenMembers.flatMap((mm) => notReady(mm).map((why) => `${mm.code}: ${why}`));
+    if (notReadyGroup.length) throw new HttpError(409, `These members are not ready for a loan: ${notReadyGroup.join(' | ')}`);
 
     // Auto-derive Scheme parameters
     let rate = Number(b.annualRate || b.rate) || 24;
@@ -2966,6 +2961,12 @@ export async function createLoanRequisition(req, res) {
   // Point 10: Strictly block requisition for blocked members
   if (memberDoc.isBlocked) {
     throw new HttpError(400, `Member ${borrowerCode} is blocked. Blocked members cannot apply for loans.`);
+  }
+
+  // The same rules as the staff web requisition: details, guarantor, nominee and KYC documents must be complete.
+  const notReadyReasons = notReady(memberDoc);
+  if (notReadyReasons.length) {
+    throw new HttpError(409, `${borrowerCode} is not ready for a loan: ${notReadyReasons.join('; ')}`, { member: notReadyReasons[0] });
   }
 
   // Point 6: Verify Member KYC is approved/valid before allowing Requisition

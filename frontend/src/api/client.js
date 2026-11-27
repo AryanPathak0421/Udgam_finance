@@ -3,16 +3,16 @@
 // Only set VITE_API_BASE_URL to call an API on another domain directly.
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 
+// Sessions live only in the httpOnly cookie the server sets at sign-in. The page never reads or stores a token,
+// so a script injected into the page cannot take it. Token entries left by earlier releases are removed here.
+const LEGACY_TOKEN_KEYS = ['token', 'udgam_token', 'udgam_core_token', 'udgam_emp_token', 'udgam_sup_token', 'udgam_member_token'];
+try {
+  if (typeof localStorage !== 'undefined') LEGACY_TOKEN_KEYS.forEach((k) => localStorage.removeItem(k));
+} catch {
+  // storage blocked: nothing to clean
+}
+
 async function request(path, { method = 'GET', body, headers = {}, retryCount = 0 } = {}) {
-  let token = null;
-  if (typeof localStorage !== 'undefined') {
-    if (path.startsWith('/member/') || path.startsWith('/member')) {
-      token = localStorage.getItem('udgam_member_token');
-    } else {
-      token = localStorage.getItem('udgam_token') || localStorage.getItem('token') || localStorage.getItem('udgam_member_token');
-    }
-  }
-  const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
 
   let res;
   try {
@@ -21,7 +21,6 @@ async function request(path, { method = 'GET', body, headers = {}, retryCount = 
       credentials: 'include',
       headers: {
         ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-        ...authHeaders,
         ...headers,
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -569,6 +568,7 @@ export const api = {
     lookup: (identifier) => request('/employee/auth/lookup', { method: 'POST', body: { identifier } }),
     createMpin: (data) => request('/employee/auth/create-mpin', { method: 'POST', body: data }),
     login: (data) => request('/employee/auth/login', { method: 'POST', body: data }),
+    logout: () => request('/employee/auth/logout', { method: 'POST' }).catch(() => ({})),
     forgotMpinSendOtp: (identifier) => request('/employee/auth/forgot-mpin/send-otp', { method: 'POST', body: { identifier } }),
     forgotMpinVerify: (data) => request('/employee/auth/forgot-mpin/verify', { method: 'POST', body: data }),
     profile: () => request('/employee/profile'),
@@ -652,6 +652,7 @@ export const api = {
     lookup: (identifier) => request('/supervisor/auth/lookup', { method: 'POST', body: { identifier } }),
     createMpin: (data) => request('/supervisor/auth/create-mpin', { method: 'POST', body: data }),
     login: (data) => request('/supervisor/auth/login', { method: 'POST', body: data }),
+    logout: () => request('/supervisor/auth/logout', { method: 'POST' }).catch(() => ({})),
     forgotMpinSendOtp: (identifier) => request('/supervisor/auth/forgot-mpin/send-otp', { method: 'POST', body: { identifier } }),
     forgotMpinVerify: (data) => request('/supervisor/auth/forgot-mpin/reset', { method: 'POST', body: data }),
     profile: () => request('/supervisor/profile'),

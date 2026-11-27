@@ -10,7 +10,7 @@ const RESEND_GAP_MS = 30 * 1000;
 // In-memory cache for string-keyed challenges used by mobile app flows (e.g. phone_change, mem_reg, emp_mpin)
 const keyOtpCache = new Map();
 
-export const hashOtp = (id, otp) => crypto.createHmac('sha256', process.env.JWT_SECRET || 'dev').update(`${id}:${otp}`).digest('hex');
+export const hashOtp = (id, otp) => crypto.createHmac('sha256', process.env.JWT_SECRET).update(`${id}:${otp}`).digest('hex');
 
 /** A verified, unused challenge for exactly this value, requested by this user and still fresh. */
 export async function takeVerified(id, user, purpose, subject) {

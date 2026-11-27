@@ -120,16 +120,20 @@ export function SupervisorAppProvider({ children }) {
   const toggleTheme = () => setTheme((t) => (t === 'light' ? 'dark' : 'light'));
   const t = (key) => TRANSLATIONS[lang]?.[key] || TRANSLATIONS.en[key] || key;
 
-  const login = (userData, token) => {
+  const login = (userData) => {
     setSupUser(userData);
     localStorage.setItem('udgam_sup_user', JSON.stringify(userData));
-    if (token) localStorage.setItem('udgam_token', token);
   };
 
-  const logout = () => {
+  const logout = async () => {
     setSupUser(null);
     localStorage.removeItem('udgam_sup_user');
-    localStorage.removeItem('udgam_token');
+    try {
+      await api.supervisorApp.logout();
+    } catch {}
+    try {
+      await api.logout();
+    } catch {}
   };
 
   return (
