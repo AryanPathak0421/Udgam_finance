@@ -47,7 +47,7 @@ export default function MemberLogin() {
     setBusy(true);
     try {
       const res = await api.memberApp.login({ identifier: id, mpin });
-      login(res.user, res.token);
+      login(res.user);
       navigate('/member', { replace: true });
     } catch (err) {
       setError(err.message || 'Login failed. Please verify credentials.');
@@ -98,7 +98,7 @@ export default function MemberLogin() {
         otp: otp.trim(),
         challengeId,
       });
-      login(res.user, res.token);
+      login(res.user);
       navigate('/member', { replace: true });
     } catch (err) {
       setError(err.message || 'OTP verification failed');

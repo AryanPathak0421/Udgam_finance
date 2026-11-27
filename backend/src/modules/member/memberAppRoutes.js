@@ -35,15 +35,14 @@ import {
   getMemberCivilCheck,
   runMemberCivilCheck,
 } from './memberAppController.js';
+import { readAuthToken, clearAuthCookie } from '../../utils/authCookies.js';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-key-udgam-2026';
+const JWT_SECRET = process.env.JWT_SECRET;
 
 // Member authentication middleware
 export async function requireMemberAuth(req, res, next) {
   try {
-    const authHeader = req.headers.authorization || '';
-    const bearer = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
-    const token = bearer || req.cookies?.udgam_member_token;
+    const token = readAuthToken(req, ['member']);
 
     if (!token) return res.status(401).json({ message: 'Member not signed in' });
 
@@ -89,7 +88,7 @@ router.post('/auth/lookup', h(lookupMember));
 router.post('/auth/register', h(registerMemberMpin));
 router.post('/auth/login', h(loginWithMpin));
 router.post('/auth/logout', (req, res) => {
-  res.clearCookie('udgam_member_token');
+  clearAuthCookie(res, 'member');
   res.json({ status: 'ok', message: 'Signed out successfully' });
 });
 const otpLimit = (limit) => rateLimit({ windowMs: 15 * 60 * 1000, limit, standardHeaders: true, legacyHeaders: false });

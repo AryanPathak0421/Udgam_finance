@@ -17,6 +17,12 @@ import { CashEntry } from './models/CashEntry.js';
 import { ensureSupervisorSeed } from './services/seedSupervisorHelper.js';
 import { ensureMemberSeed } from './services/seedMemberHelper.js';
 
+// Every session token is signed with JWT_SECRET. Without it the API must not start (there is no fallback secret).
+if (!process.env.JWT_SECRET) {
+  console.error('JWT_SECRET is not set. Set it in backend/.env and start again.');
+  process.exit(1);
+}
+
 const port = process.env.PORT || 5000;
 
 // One-time data fix, idempotent: the "Prime loan" type was replaced by "MSME loan".

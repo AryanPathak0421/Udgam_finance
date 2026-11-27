@@ -8,25 +8,49 @@
       (function() {
         var isSupervisor = window.location.pathname.startsWith('/supervisor');
         var isMember = window.location.pathname.startsWith('/member');
+        var isEmployee = window.location.pathname.startsWith('/employee');
+
+        var manifestHref = '/manifest-software.webmanifest';
+        var appTitle = 'Udgam Finance';
+        var themeColor = '#107870';
+        var iconHref = '/logo.png';
+
+        if (isSupervisor) {
+          manifestHref = '/manifest-supervisor.webmanifest';
+          appTitle = 'Udgam Supervisor';
+          themeColor = '#0f766e';
+          iconHref = '/icon-supervisor-192.png';
+        } else if (isMember) {
+          manifestHref = '/manifest-member.webmanifest';
+          appTitle = 'Udgam Member';
+          themeColor = '#059669';
+          iconHref = '/icon-member-192.png';
+        } else if (isEmployee) {
+          manifestHref = '/manifest.webmanifest';
+          appTitle = 'Udgam Staff';
+          themeColor = '#107870';
+          iconHref = '/icon-192.png';
+        }
+
         var link = document.createElement('link');
         link.id = 'app-manifest-link';
         link.rel = 'manifest';
-        link.href = isSupervisor ? '/manifest-supervisor.webmanifest' : (isMember ? '/manifest-member.webmanifest' : '/manifest.webmanifest');
+        link.href = manifestHref;
         document.head.appendChild(link);
 
         var appleIcon = document.createElement('link');
         appleIcon.rel = 'apple-touch-icon';
-        appleIcon.href = isSupervisor ? '/icon-supervisor-192.png' : (isMember ? '/icon-member-192.png' : '/icon-192.png');
+        appleIcon.href = iconHref;
         document.head.appendChild(appleIcon);
 
         var metaTheme = document.createElement('meta');
         metaTheme.name = 'theme-color';
-        metaTheme.content = isSupervisor ? '#0f766e' : (isMember ? '#059669' : '#107870');
+        metaTheme.content = themeColor;
         document.head.appendChild(metaTheme);
 
         var metaTitle = document.createElement('meta');
         metaTitle.name = 'apple-mobile-web-app-title';
-        metaTitle.content = isSupervisor ? 'Udgam Supervisor' : (isMember ? 'Udgam Member' : 'Udgam Staff');
+        metaTitle.content = appTitle;
         document.head.appendChild(metaTitle);
       })();
 

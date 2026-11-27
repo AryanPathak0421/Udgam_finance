@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireAuth } from '../../middleware/auth.js';
 import { asyncHandler as h } from '../../utils/http.js';
+import { logout } from '../../controllers/authController.js';
 import {
   lookupEmployee,
   createMpin,
@@ -88,6 +89,7 @@ const router = Router();
 router.post('/auth/lookup', h(lookupEmployee));
 router.post('/auth/create-mpin', h(createMpin));
 router.post('/auth/login', h(loginWithMpin));
+router.post('/auth/logout', logout);
 router.post('/auth/forgot-mpin/send-otp', h(forgotMpinSendOtp));
 router.post('/auth/forgot-mpin/verify', h(forgotMpinVerifyAndReset));
 router.post('/calculator/public', h(calculateLoanEmi));

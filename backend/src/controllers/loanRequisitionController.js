@@ -477,14 +477,13 @@ export function notReady(m) {
   // a member registered in the app is not a member until the admin approves the joining
   if (m.joiningApproval?.status === 'pending') out.push('The joining of this member (registered in the app) is waiting for approval (App Section → Member Joining Approval)');
   if (m.joiningApproval?.status === 'rejected') out.push('The joining of this member was rejected');
-  // a member imported from the old system has to complete the details that were missing (mobile verified with an OTP, bank, photos ...)
-  // (a legacyImport member is exempt from these checks: the old system never had the details, guarantor, nominee or KYC photos)
-  const todo = m.legacyImport ? [] : missingDetails(m);
+  // Every member needs the details, a guarantor and a nominee before a loan, old-system (legacy) members too.
+  // missingDetails() lists what an imported member still lacks (it is empty for every other member). The nominee is checked below.
+  const todo = missingDetails(m).filter((d) => d.key !== 'nominee');
   if (todo.length) out.push(`Complete the member's missing details first (Member Details → Borrower Synopsis → Complete details): ${todo.map((d) => d.label).join(', ')}`);
-  if (m.legacyImport && !m.guarantor?.name) { /* not recorded in the old system */ }
-  else if (!m.guarantor?.name) out.push('Add the guarantor first (Member Details → Guarantor & Nominee)');
+  if (!m.guarantor?.name) out.push('Add the guarantor first (Member Details → Guarantor & Nominee)');
   else if (m.guarantor.deceasedOn) out.push('The guarantor has died. Change the guarantor first (Member Details → Guarantor & Nominee) before a new loan requisition');
-  if (!m.legacyImport && !m.nominee?.name) out.push('Add the nominee first (Member Details → Guarantor & Nominee)');
+  if (!m.nominee?.name) out.push('Add the nominee first (Member Details → Guarantor & Nominee)');
 
   // Point 13.1: Explicit names of missing or unverified KYC documents
   // (the documents of a legacyImport member are still listed on the forms, but they do not hold back a loan)
@@ -499,9 +498,10 @@ export function notReady(m) {
 
 /** The pre-requisition verification status of a member: all six checks (details, contact, KYC and bank, guarantor, nominee, documents). */
 export function preRequisitionStatus(m) {
-  const todo = m.legacyImport ? [] : missingDetails(m);
-  const noGuarantor = !m.guarantor?.name && !m.legacyImport;
-  const noNominee = !m.nominee?.name && !m.legacyImport;
+  // the same rule as notReady(): every member needs the details, a guarantor and a nominee (old-system members too)
+  const todo = missingDetails(m).filter((d) => d.key !== 'nominee');
+  const noGuarantor = !m.guarantor?.name;
+  const noNominee = !m.nominee?.name;
   if (todo.length || noGuarantor || noNominee) return 'Details Incomplete';
   const docs = getUnverifiedKycDocs(m); // (an old-system member is not held back by them, but the status tells it)
   if (docs.some((d) => d.status === 'rejected')) return 'KYC Rejected / Re-upload Required';

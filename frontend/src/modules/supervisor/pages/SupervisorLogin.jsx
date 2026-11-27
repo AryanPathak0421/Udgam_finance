@@ -44,7 +44,7 @@ export default function SupervisorLogin() {
     setBusy(true);
     try {
       const res = await api.supervisorApp.login({ identifier: id, mpin });
-      login(res.user, res.token);
+      login(res.user);
       navigate('/supervisor', { replace: true });
     } catch (err) {
       setError(err.message || 'Login failed. Please check credentials.');

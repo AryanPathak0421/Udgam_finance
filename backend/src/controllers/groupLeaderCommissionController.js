@@ -113,7 +113,7 @@ export async function generate(req, res) {
 // ---- OTP deposit ---------------------------------------------------------------------------
 
 const otpHash = (entryId, otp) =>
-  crypto.createHmac('sha256', process.env.JWT_SECRET || 'dev').update(`${entryId}:${otp}`).digest('hex');
+  crypto.createHmac('sha256', process.env.JWT_SECRET).update(`${entryId}:${otp}`).digest('hex');
 
 async function loadEntry(req, { withOtp = false } = {}) {
   if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Commission entry not found');

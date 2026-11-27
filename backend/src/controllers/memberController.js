@@ -219,7 +219,7 @@ export function districts(req, res) {
 }
 
 // ---- OTP ----------------------------------------------------------------------------------------
-const hashOtp = (id, otp) => crypto.createHmac('sha256', process.env.JWT_SECRET || 'dev').update(`${id}:${otp}`).digest('hex');
+const hashOtp = (id, otp) => crypto.createHmac('sha256', process.env.JWT_SECRET).update(`${id}:${otp}`).digest('hex');
 
 /** Sends an OTP to verify a mobile number (to itself) or a PAN (to the member's mobile). */
 /** A mobile number can be registered to one member only. */

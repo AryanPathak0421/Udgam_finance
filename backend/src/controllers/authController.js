@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import { User } from '../models/User.js';
 import { sendMail, mailConfigured } from '../services/mailer.js';
 import { HttpError, createValidator } from '../utils/http.js';
+import { setAuthCookie, clearAllAuthCookies } from '../utils/authCookies.js';
 
 const MAX_ATTEMPTS = 5;
 const LOCK_MINUTES = 15;
@@ -10,20 +11,6 @@ const RESET_MINUTES = 60;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PASSWORD_RE = /^(?=.*[A-Za-z])(?=.*\d).{8,64}$/;
 
-// Frontend and API on different sites need COOKIE_SAMESITE=none, which browsers only
-// accept together with Secure. (Behind the Vercel /api proxy the default 'lax' works.)
-const sameSite = () => {
-  const v = (process.env.COOKIE_SAMESITE || 'lax').toLowerCase();
-  return ['lax', 'strict', 'none'].includes(v) ? v : 'lax';
-};
-const isSecure = () => process.env.NODE_ENV === 'production' || sameSite() === 'none';
-
-const cookieOptions = () => ({
-  httpOnly: true,
-  sameSite: sameSite(),
-  secure: isSecure(),
-  maxAge: 24 * 60 * 60 * 1000,
-});
 
 // Menu permissions come from the user's rank. Admin roles always have full access;
 // null means "use role defaults".
@@ -79,12 +66,12 @@ export async function login(req, res) {
   const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
     expiresIn: process.env.JWT_EXPIRES_IN || '1d',
   });
-  res.cookie('token', token, cookieOptions());
+  setAuthCookie(res, 'admin', token);
   res.json({ user: publicUser(user) });
 }
 
 export function logout(_req, res) {
-  res.clearCookie('token', { httpOnly: true, sameSite: sameSite(), secure: isSecure() });
+  clearAllAuthCookies(res);
   res.json({ message: 'Logged out' });
 }
 

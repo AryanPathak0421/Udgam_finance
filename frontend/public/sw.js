@@ -1,8 +1,10 @@
-// Udgam Microfinance - PWA Service Worker (Staff, Supervisor & Member)
-const CACHE_NAME = 'udgam-pwa-v5';
+// Udgam Microfinance - PWA Service Worker (Staff, Supervisor, Member & Software)
+const CACHE_NAME = 'udgam-pwa-v6';
 const PRECACHE_URLS = [
   '/',
   '/index.html',
+  '/manifest-software.webmanifest',
+  '/manifest-software.json',
   '/manifest.webmanifest',
   '/manifest.json',
   '/manifest-supervisor.webmanifest',

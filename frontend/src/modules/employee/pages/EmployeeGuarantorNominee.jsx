@@ -897,7 +897,7 @@ export default function EmployeeGuarantorNominee() {
                     </div>
                   ) : (
                     <div style={{ borderTop: '1px solid var(--emp-border)', paddingTop: 10, marginTop: 10 }}>
-                      <div style={{ fontSize: '0.8rem', fontWeight: 700, marginBottom: 8 }}>Nominee Photos (Optional):</div>
+                      <div style={{ fontSize: '0.8rem', fontWeight: 700, marginBottom: 8 }}>Nominee Photos (Mandatory):</div>
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 10 }}>
                         <div style={{ textAlign: 'center' }}>
                           <input type="file" accept="image/*" ref={nPhotoRef} style={{ display: 'none' }} onChange={(e) => handleFileUpload(e, setNPhoto)} />
