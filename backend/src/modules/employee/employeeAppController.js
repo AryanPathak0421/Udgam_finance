@@ -4553,9 +4553,16 @@ export async function getNpaLoans(req, res) {
       const dpd = firstUnpaidDueDate ? Math.max(0, Math.floor((today - new Date(firstUnpaidDueDate)) / (1000 * 60 * 60 * 24))) : 0;
 
       // NPA condition: more than 90 days past due (the screen says DPD > 90), or explicitly tagged NPA.
-      const isOverdueNpa = dpd > 90;
+      // Term rule: a loan is NPA one installment period after its last installment, while money is still overdue
+      // (50 weeks: from the 51st week; 7 days: from the 8th day). The period is the gap between the installments.
+      const schedDates = (l.schedule || []).map((s) => (s.dueDate ? new Date(s.dueDate).getTime() : null)).filter(Boolean);
+      const periodMs = schedDates.length > 1 && Math.abs(schedDates[1] - schedDates[0]) > 0 ? Math.abs(schedDates[1] - schedDates[0]) : 7 * 86400000;
+      const pastTerm = schedDates.length > 0 && overduePaise > 0 && today.getTime() >= Math.max(...schedDates) + periodMs;
+      const isOverdueNpa = dpd > 90 || pastTerm;
 
-      if (settledKeys.has(`${String(l._id)}_${line.code}`)) continue;
+      // A settled borrower stays out of the NPA list, except a personal loan: those are listed here with recovery.
+      const isPersonalLoan = String(l.loanType || l.kind || '').toLowerCase().includes('personal');
+      if (settledKeys.has(`${String(l._id)}_${line.code}`) && !isPersonalLoan) continue;
       if (isExplicitNpa || isOverdueNpa) {
         const rawKind = String(l.loanType || l.kind || '').toLowerCase();
         let normalizedKind = 'group';
@@ -4625,7 +4632,10 @@ export async function getNpaLoans(req, res) {
   }
 
   // Settlement loans are not NPA rows: they are returned on their own and shown in a separate, read-only list.
-  res.json({ items: npaList, settlements: settlementList });
+  // A settlement shown in the NPA list is not repeated in the settlement section.
+  const inNpaList = new Set(npaList.map((i) => `${String(i.loanPaymentId)}_${i.memberCode}`));
+  const settlementsOnly = settlementList.filter((s) => !inNpaList.has(`${String(s.loanPaymentId)}_${s.memberCode}`));
+  res.json({ items: npaList, settlements: settlementsOnly });
 }
 
 export async function recoverNpaLoan(req, res) {
