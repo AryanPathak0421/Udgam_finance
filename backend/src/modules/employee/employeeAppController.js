@@ -4502,6 +4502,13 @@ export async function getNpaLoans(req, res) {
   const npaList = [];
   const today = new Date();
 
+  // A borrower whose loan is under an active or pending settlement is listed once, as a Settlement row (added below).
+  const settlements = await LoanSettlement.find({
+    status: { $in: ['active', 'pending'] },
+    ...(bList.length ? { branch: { $in: bList } } : {}),
+  }).populate('branch', 'name code').lean();
+  const settledKeys = new Set(settlements.map((s) => `${String(s.loanPayment)}_${s.memberCode}`));
+
   // Item 25 Fix: MongoDB aggregation for payments prevents memory overload and massive JSON transfer latency
   const allLoanIds = loans.map((l) => l._id);
   const paymentsByKey = new Map();
@@ -4545,9 +4552,10 @@ export async function getNpaLoans(req, res) {
       }
       const dpd = firstUnpaidDueDate ? Math.max(0, Math.floor((today - new Date(firstUnpaidDueDate)) / (1000 * 60 * 60 * 24))) : 0;
 
-      // NPA condition: 90+ DPD, or loan term completed with unpaid balance, or 3+ overdue EMIs, or explicitly tagged NPA
-      const isOverdueNpa = dpd >= 60 || overdueSchedules.length >= 3 || (l.emiEndDate && new Date(l.emiEndDate) < today);
+      // NPA condition: more than 90 days past due (the screen says DPD > 90), or explicitly tagged NPA.
+      const isOverdueNpa = dpd > 90;
 
+      if (settledKeys.has(`${String(l._id)}_${line.code}`)) continue;
       if (isExplicitNpa || isOverdueNpa) {
         const rawKind = String(l.loanType || l.kind || '').toLowerCase();
         let normalizedKind = 'group';
@@ -4587,14 +4595,10 @@ export async function getNpaLoans(req, res) {
   }
 
   // Point 4: Include active / pending settlement loans in NPA list
-  const settlements = await LoanSettlement.find({
-    status: { $in: ['active', 'pending'] },
-    ...(branchId ? { branch: branchId } : {}),
-  }).populate('branch', 'name code').lean();
-
+  const settlementList = [];
   for (const s of settlements) {
     const balAmt = Math.max(0, (s.outstandingPaise - (s.amountPaise || 0)) / 100);
-    npaList.push({
+    settlementList.push({
       loanPaymentId: s.loanPayment || s._id,
       loanId: s.loanId || String(s._id),
       loanType: 'personal',
@@ -4620,7 +4624,8 @@ export async function getNpaLoans(req, res) {
     });
   }
 
-  res.json({ items: npaList });
+  // Settlement loans are not NPA rows: they are returned on their own and shown in a separate, read-only list.
+  res.json({ items: npaList, settlements: settlementList });
 }
 
 export async function recoverNpaLoan(req, res) {

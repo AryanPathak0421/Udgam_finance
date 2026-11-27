@@ -7,6 +7,7 @@ import RazorpayQrStatus from '../../../components/RazorpayQrStatus.jsx';
 export default function EmployeeNpaRecovery() {
   const { t, empUser } = useEmployeeApp();
   const [npaLoans, setNpaLoans] = useState([]);
+  const [settlements, setSettlements] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [message, setMessage] = useState({ text: '', type: '' });
@@ -40,6 +41,7 @@ export default function EmployeeNpaRecovery() {
     try {
       const res = await api.employeeApp.npaLoans();
       setNpaLoans(res.items || []);
+      setSettlements(res.settlements || []);
     } catch (err) {
       setError(err.message || 'Failed to fetch NPA loans list');
     } finally {
@@ -153,6 +155,7 @@ export default function EmployeeNpaRecovery() {
   });
 
   // Filter NPA loans by dropdowns, search, category, and Point 15 Loan Kind
+  const settlementsInBranch = settlements.filter(inBranch);
   const filteredNpa = scopedNpa.filter((item) => {
     // Point 15 Loan Kind Filter: Group / Personal / Business / MSME / Product
     if (loanKindFilter !== 'all') {
@@ -222,7 +225,7 @@ export default function EmployeeNpaRecovery() {
               <span>NPA Recovery Management</span>
             </h2>
             <p style={{ fontSize: '0.8rem', color: 'var(--emp-text-muted)', margin: '4px 0 0 0' }}>
-              Overdue defaulted & settlement loans (DPD &gt; 90). Fast lookup & online recovery collection.
+              Overdue defaulted loans (DPD &gt; 90). Settlement loans are listed below. Fast lookup & online recovery collection.
             </p>
           </div>
           <span className="emp-badge emp-badge-danger" style={{ fontWeight: 800 }}>
@@ -687,6 +690,23 @@ export default function EmployeeNpaRecovery() {
               </div>
             );
           })}
+        </div>
+      )}
+      {settlementsInBranch.length > 0 && (
+        <div className="emp-card" style={{ marginTop: 14 }}>
+          <div style={{ fontWeight: 800, fontSize: '0.95rem', marginBottom: 8 }}>Settlement loans ({settlementsInBranch.length})</div>
+          {settlementsInBranch.map((s, idx) => (
+            <div key={`${s.settlementReceiptNo || s.loanId || 's'}-${idx}`} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '8px 0', borderTop: '1px solid var(--emp-border)', fontSize: '0.82rem' }}>
+              <div>
+                <strong>{s.memberName}</strong> · {s.memberCode}
+                <div style={{ color: 'var(--emp-text-muted)', fontSize: '0.72rem' }}>{s.branchName} · Receipt {s.settlementReceiptNo || '—'}</div>
+              </div>
+              <div style={{ textAlign: 'right', fontWeight: 700 }}>
+                ₹{Number(s.totalBalance || 0).toLocaleString('en-IN')}
+                <div style={{ color: 'var(--emp-text-muted)', fontSize: '0.7rem', fontWeight: 400 }}>balance</div>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
