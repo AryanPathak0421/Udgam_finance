@@ -20,6 +20,61 @@ export const REQUIRED_DETAILS = [
 ];
 const PHOTO_KEYS = new Set(['memberPhoto', 'signaturePhoto', 'aadhaarPhoto']);
 
+// What a member must have before any loan requisition (group, personal, business / MSME, product), for every member.
+const REQUISITION_TEXT = [
+  ['name', 'Member name'], ['husbandName', 'Husband name'], ['dob', 'Date of birth'], ['gender', 'Gender'],
+  ['occupation', 'Occupation'], ['education', 'Education'], ['address', 'Address'], ['area', 'Area (post office)'],
+  ['pincode', 'Pincode'], ['state', 'State'], ['district', 'District'], ['aadhaar', 'Aadhaar number'],
+  ['bankName', 'Bank name'], ['ifsc', 'IFSC code'], ['accountNumber', 'Account number'],
+];
+const REQUISITION_PHOTOS = [
+  ['memberPhoto', 'Member photo'], ['signaturePhoto', 'Signature photo'], ['aadhaarPhoto', 'Aadhaar front photo'],
+  ['aadhaarBackPhoto', 'Aadhaar back photo'], ['passbookPhoto', 'Bank passbook photo'],
+];
+
+/**
+ * The details and photos a member still lacks for a loan requisition: PAN or Voter ID (number and photo), the mobile number
+ * verified with an OTP, the personal details, the bank details and the photos. Empty when the member is complete.
+ * The member's photos are read from kycKeys (they are not loaded with the member).
+ */
+export function requisitionGaps(m) {
+  if (!m) return ['Member details'];
+  const out = [];
+  const keys = m.kycKeys || [];
+  for (const [k, label] of REQUISITION_TEXT) if (!String(m[k] ?? '').trim()) out.push(label);
+  if (!m.mobile || !m.mobileVerifiedAt) out.push('Mobile number verified with OTP');
+  for (const [k, label] of REQUISITION_PHOTOS) if (!m[k] && !keys.includes(k)) out.push(label);
+  if (!m.pan && !m.voterId) out.push('PAN number or Voter ID number');
+  const idPhoto = m.panPhoto || keys.includes('panPhoto') || m.voterPhoto || keys.includes('voterPhoto');
+  if (!idPhoto) out.push('PAN or Voter ID photo');
+  return out;
+}
+
+/**
+ * What the guarantor and the nominee still lack for a loan requisition, for every member. The guarantor needs name, Aadhaar number,
+ * photo, signature, Aadhaar front and back, and the joint photo with the member. The nominee needs the same, except the joint photo.
+ * A nominee who is the guarantor (sameAsGuarantor) copies the guarantor's details, so only the guarantor is checked for him.
+ * A party with no name is left to the "add first" messages.
+ */
+export function partyGaps(m) {
+  const out = [];
+  const keys = m?.kycKeys || [];
+  for (const [kind, label] of [['guarantor', 'Guarantor'], ['nominee', 'Nominee']]) {
+    const p = m?.[kind];
+    if (!p?.name) continue;
+    if (kind === 'guarantor' && p.deceasedOn) continue; // a deceased guarantor is changed first (its own message)
+    if (kind === 'nominee' && p.sameAsGuarantor) continue;
+    const missing = [];
+    if (!String(p.aadhaar ?? '').trim()) missing.push('Aadhaar number');
+    for (const [k, l] of [['photo', 'Photo'], ['signature', 'Signature'], ['aadhaarPhoto', 'Aadhaar front photo'], ['aadhaarBackPhoto', 'Aadhaar back photo']]) {
+      if (!p[k] && !keys.includes(`${kind}.${k}`)) missing.push(l);
+    }
+    if (kind === 'guarantor' && !p.jointPhoto && !keys.includes('guarantor.jointPhoto')) missing.push('Joint photo with the member');
+    if (missing.length) out.push(`${label}: ${missing.join(', ')}`);
+  }
+  return out;
+}
+
 /** What a guarantor of a migrated member still lacks (empty when he is complete, deceased or there is none: a change of guarantor is for the admin). */
 export function guarantorGaps(m) {
   const g = m?.guarantor;

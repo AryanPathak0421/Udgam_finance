@@ -10,7 +10,7 @@ import { generateCode } from '../services/codeSequence.js';
 import { MODES, calculateLoan } from '../services/loanCalculator.js';
 import { evaluateLoan } from './loanCalculatorController.js';
 import { borrowerState } from './emiController.js';
-import { missingDetails } from '../utils/memberDetails.js';
+import { missingDetails, requisitionGaps, partyGaps } from '../utils/memberDetails.js';
 import { branchFilter, isAdmin, maskMobile } from './groupController.js';
 import { asString, escapeRegex, parseDateOnly, parsePaging, HttpError, startOfToday } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
@@ -471,7 +471,7 @@ export async function groups(req, res) {
 }
 
 // What a member needs before a loan can be asked for.
-const MEMBER_PICK = 'code name isBlocked joiningApproval kycKeys kycDocs nominee.name nominee.sameAsGuarantor guarantor.name guarantor.relation guarantor.mobile guarantor.aadhaar guarantor.photo guarantor.signature guarantor.aadhaarPhoto guarantor.aadhaarBackPhoto guarantor.jointPhoto guarantor.deceasedOn guarantor.pan guarantor.voterId voterId writeOff legacyImport pan mobile mobileVerifiedAt husbandName occupation education address pincode district aadhaar bankName ifsc accountNumber';
+const MEMBER_PICK = 'code name isBlocked joiningApproval kycKeys kycDocs nominee.name nominee.sameAsGuarantor guarantor.name guarantor.relation guarantor.mobile guarantor.aadhaar guarantor.photo guarantor.signature guarantor.aadhaarPhoto guarantor.aadhaarBackPhoto guarantor.jointPhoto guarantor.deceasedOn guarantor.pan guarantor.voterId voterId writeOff legacyImport pan mobile mobileVerifiedAt husbandName occupation education address pincode district state area dob gender aadhaar bankName ifsc accountNumber';
 export function notReady(m) {
   const out = [];
   // a member registered in the app is not a member until the admin approves the joining
@@ -479,15 +479,18 @@ export function notReady(m) {
   if (m.joiningApproval?.status === 'rejected') out.push('The joining of this member was rejected');
   // Every member needs the details, a guarantor and a nominee before a loan, old-system (legacy) members too.
   // missingDetails() lists what an imported member still lacks (it is empty for every other member). The nominee is checked below.
-  const todo = missingDetails(m).filter((d) => d.key !== 'nominee');
-  if (todo.length) out.push(`Complete the member's missing details first (Member Details → Borrower Synopsis → Complete details): ${todo.map((d) => d.label).join(', ')}`);
+  // Every member needs the details, bank, photos and PAN / Voter ID before a loan (see requisitionGaps()).
+  const gaps = requisitionGaps(m);
+  if (gaps.length) out.push(`Complete the member's details first (Member Details → Borrower Synopsis → Complete details): ${gaps.join(', ')}`);
+  const partyTodo = partyGaps(m);
+  if (partyTodo.length) out.push(`Complete the guarantor and nominee details (Member Details → Guarantor & Nominee): ${partyTodo.join('; ')}`);
   if (!m.guarantor?.name) out.push('Add the guarantor first (Member Details → Guarantor & Nominee)');
   else if (m.guarantor.deceasedOn) out.push('The guarantor has died. Change the guarantor first (Member Details → Guarantor & Nominee) before a new loan requisition');
   if (!m.nominee?.name) out.push('Add the nominee first (Member Details → Guarantor & Nominee)');
 
   // Point 13.1: Explicit names of missing or unverified KYC documents
   // (the documents of a legacyImport member are still listed on the forms, but they do not hold back a loan)
-  const unverified = m.legacyImport ? [] : getUnverifiedKycDocs(m);
+  const unverified = getUnverifiedKycDocs(m);
   if (unverified.length > 0) {
     const names = unverified.map((u) => `${u.label} (${u.status === 'rejected' ? 'Rejected, upload again' : u.status === 'missing' ? 'Not uploaded' : 'Under review'})`);
     out.push(`KYC Documents Unverified: ${names.join(', ')}. Must be approved under KYC Review.`);
@@ -499,7 +502,7 @@ export function notReady(m) {
 /** The pre-requisition verification status of a member: all six checks (details, contact, KYC and bank, guarantor, nominee, documents). */
 export function preRequisitionStatus(m) {
   // the same rule as notReady(): every member needs the details, a guarantor and a nominee (old-system members too)
-  const todo = missingDetails(m).filter((d) => d.key !== 'nominee');
+  const todo = [...requisitionGaps(m), ...partyGaps(m)];
   const noGuarantor = !m.guarantor?.name;
   const noNominee = !m.nominee?.name;
   if (todo.length || noGuarantor || noNominee) return 'Details Incomplete';
