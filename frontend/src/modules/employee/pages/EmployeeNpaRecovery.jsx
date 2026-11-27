@@ -214,241 +214,8 @@ export default function EmployeeNpaRecovery() {
     );
   });
 
-  return (
-    <div className="emp-page-container">
-      {/* Header Card */}
-      <div className="emp-card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <h2 style={{ fontSize: '1.2rem', fontWeight: 800, margin: 0, color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Icon name="alert" size={20} style={{ color: 'var(--emp-danger)' }} />
-              <span>NPA Recovery Management</span>
-            </h2>
-            <p style={{ fontSize: '0.8rem', color: 'var(--emp-text-muted)', margin: '4px 0 0 0' }}>
-              Overdue defaulted loans (DPD &gt; 90). Settlement loans are listed below. Fast lookup & online recovery collection.
-            </p>
-          </div>
-          <span className="emp-badge emp-badge-danger" style={{ fontWeight: 800 }}>
-            {scopedNpa.length} Total NPA
-          </span>
-        </div>
-
-        {/* Dropdown Filters (Point 4) */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8, marginTop: 12, padding: '10px 12px', background: '#f8fafc', borderRadius: 8, border: '1px solid var(--emp-border)' }}>
-          <div>
-            <label style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--emp-text-muted)' }}>Branch</label>
-            {branchOptions.length > 1 ? (
-              <select
-                className="emp-select"
-                value={selectedBranch}
-                onChange={(e) => setSelectedBranch(e.target.value)}
-                style={{ fontSize: '0.8rem', padding: '6px 8px', width: '100%' }}
-              >
-                <option value="all">All branches</option>
-                {branchOptions.map((b) => (
-                  <option key={b.id} value={b.id}>{b.name}</option>
-                ))}
-              </select>
-            ) : (
-              <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--emp-primary)', padding: '6px 8px', background: '#fff', borderRadius: 6, border: '1px solid var(--emp-border)' }}>
-                {branchOptions[0]?.name || 'My Branch'}
-              </div>
-            )}
-          </div>
-          <div>
-            <label style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--emp-text-muted)' }}>Center</label>
-            <select
-              className="emp-select"
-              value={selectedCenter}
-              onChange={(e) => setSelectedCenter(e.target.value)}
-              style={{ fontSize: '0.8rem', padding: '6px 8px', width: '100%' }}
-            >
-              <option value="all">All Centers</option>
-              {Array.from(centerMap.entries()).map(([val, label]) => (
-                <option key={val} value={val}>{label}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--emp-text-muted)' }}>Staff</label>
-            <select
-              className="emp-select"
-              value={selectedStaff}
-              onChange={(e) => setSelectedStaff(e.target.value)}
-              style={{ fontSize: '0.8rem', padding: '6px 8px', width: '100%' }}
-            >
-              <option value="all">All Staff</option>
-              {Array.from(staffMap.entries()).map(([code, label]) => (
-                <option key={code} value={code}>{label}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {/* Point 15: Loan Kind Selector Tabs (Group / Personal / Business / MSME / Product) */}
-        <div style={{ marginTop: 12 }}>
-          <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--emp-text-muted)', textTransform: 'uppercase', marginBottom: 6 }}>
-            Select Category / Loan Kind (Point 15):
-          </div>
-          <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}>
-            {[
-              { id: 'all', label: 'All Dues' },
-              { id: 'group', label: 'Group Loan' },
-              { id: 'personal', label: 'Personal Loan' },
-              { id: 'business', label: 'Business Loan' },
-              { id: 'msme', label: 'MSME Loan' },
-              { id: 'product', label: 'Product Loan' },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                className={loanKindFilter === tab.id ? 'emp-btn-primary' : 'emp-btn-secondary'}
-                style={{
-                  padding: '6px 14px',
-                  fontSize: '0.8rem',
-                  borderRadius: 20,
-                  whiteSpace: 'nowrap',
-                  width: 'auto',
-                }}
-                onClick={() => {
-                  setLoanKindFilter(tab.id);
-                  if (tab.id !== 'group') setSelectedGroup('all');
-                }}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Point 15: Group selector when Group is selected */}
-          {loanKindFilter === 'group' && (
-            <div style={{ marginTop: 10, padding: '10px 12px', background: '#e0f2fe', borderRadius: 8, border: '1px solid #7dd3fc' }}>
-              <label style={{ fontSize: '0.74rem', fontWeight: 700, color: '#0369a1', display: 'block', marginBottom: 4 }}>
-                Select Group to view Group Members (Point 15):
-              </label>
-              <select
-                className="emp-select"
-                value={selectedGroup}
-                onChange={(e) => setSelectedGroup(e.target.value)}
-                style={{ fontSize: '0.82rem', padding: '6px 10px', width: '100%', background: '#fff' }}
-              >
-                <option value="all">All Groups in Branch</option>
-                {centerOptions.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          {loanKindFilter !== 'all' && loanKindFilter !== 'group' && (
-            <div style={{ marginTop: 8, fontSize: '0.75rem', color: '#059669', background: '#ecfdf5', padding: '6px 12px', borderRadius: 6, fontWeight: 600 }}>
-              Showing whole branch loans for {loanKindFilter.toUpperCase()} category
-            </div>
-          )}
-        </div>
-
-        {/* Search Option Bar */}
-        <div style={{ marginTop: 12 }}>
-          <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-            <span style={{ position: 'absolute', left: 12, color: 'var(--emp-text-muted)' }}>
-              <Icon name="search" size={16} />
-            </span>
-            <input
-              type="text"
-              className="emp-input"
-              placeholder="Search by borrower name, code, loan A/c, or phone..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              style={{ paddingLeft: 38, width: '100%', fontSize: '0.88rem' }}
-            />
-            {searchQuery && (
-              <button
-                type="button"
-                onClick={() => setSearchQuery('')}
-                style={{
-                  position: 'absolute',
-                  right: 12,
-                  background: 'none',
-                  border: 'none',
-                  color: 'var(--emp-text-muted)',
-                  cursor: 'pointer',
-                  fontWeight: 800,
-                }}
-              >
-                ✕
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Category Filter Chips */}
-        <div style={{ display: 'flex', gap: 6, marginTop: 10, overflowX: 'auto', paddingBottom: 2 }}>
-          {[
-            { id: 'all', label: `All (${scopedNpa.length})` },
-            { id: 'sub-standard', label: `Sub-Standard (${scopedNpa.filter((x) => (x.npaCategory || '').toLowerCase() === 'sub-standard').length})` },
-            { id: 'doubtful', label: `Doubtful (${scopedNpa.filter((x) => (x.npaCategory || '').toLowerCase() === 'doubtful').length})` },
-            { id: 'loss', label: `Loss (${scopedNpa.filter((x) => (x.npaCategory || '').toLowerCase() === 'loss').length})` },
-          ].map((cat) => (
-            <button
-              key={cat.id}
-              type="button"
-              onClick={() => setCategoryFilter(cat.id)}
-              style={{
-                padding: '4px 10px',
-                borderRadius: 20,
-                fontSize: '0.74rem',
-                fontWeight: 700,
-                border: categoryFilter === cat.id ? '2px solid #b91c1c' : '1px solid var(--emp-border)',
-                background: categoryFilter === cat.id ? '#fee2e2' : 'var(--emp-card-bg)',
-                color: categoryFilter === cat.id ? '#991b1b' : 'var(--emp-text)',
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {cat.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {message.text && (
-        <div
-          style={{
-            padding: '12px 14px',
-            borderRadius: 8,
-            fontSize: '0.85rem',
-            marginBottom: 12,
-            background: message.type === 'success' ? '#dcfce7' : '#fee2e2',
-            color: message.type === 'success' ? '#166534' : '#991b1b',
-            fontWeight: 700,
-          }}
-        >
-          {message.text}
-        </div>
-      )}
-
-      {/* NPA List */}
-      {loading ? (
-        <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--emp-text-muted)' }}>
-          Loading NPA loans...
-        </div>
-      ) : error ? (
-        <div style={{ background: '#fee2e2', color: '#991b1b', padding: '12px', borderRadius: 8, fontSize: '0.85rem' }}>
-          {error}
-        </div>
-      ) : filteredNpa.length === 0 ? (
-        <div className="emp-card" style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--emp-text-muted)' }}>
-          <div style={{ color: 'var(--emp-success)', marginBottom: 8 }}><Icon name="shieldcheck" size={40} /></div>
-          <div style={{ fontWeight: 700, fontSize: '1rem', color: '#059669' }}>
-            {scopedNpa.length === 0 ? 'Zero NPA in your portfolio!' : 'No NPA loans match your search'}
-          </div>
-          <div style={{ fontSize: '0.8rem', marginTop: 4 }}>
-            {searchQuery ? 'Try clearing the search query or category filter.' : 'All loan dues and repayments are currently on track.'}
-          </div>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {filteredNpa.map((item) => {
+  // One NPA card (a loan, or a settlement loan): the same card and recovery panel for both.
+  const renderNpaCard = (item) => {
             const isCardActive = activeNpa?.loanId === item.loanId;
             return (
               <div
@@ -689,24 +456,249 @@ export default function EmployeeNpaRecovery() {
                 )}
               </div>
             );
-          })}
+  };
+
+  return (
+    <div className="emp-page-container">
+      {/* Header Card */}
+      <div className="emp-card">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h2 style={{ fontSize: '1.2rem', fontWeight: 800, margin: 0, color: 'var(--emp-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Icon name="alert" size={20} style={{ color: 'var(--emp-danger)' }} />
+              <span>NPA Recovery Management</span>
+            </h2>
+            <p style={{ fontSize: '0.8rem', color: 'var(--emp-text-muted)', margin: '4px 0 0 0' }}>
+              Overdue defaulted loans (DPD &gt; 90). Settlement loans are listed below. Fast lookup & online recovery collection.
+            </p>
+          </div>
+          <span className="emp-badge emp-badge-danger" style={{ fontWeight: 800 }}>
+            {scopedNpa.length} Total NPA
+          </span>
+        </div>
+
+        {/* Dropdown Filters (Point 4) */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8, marginTop: 12, padding: '10px 12px', background: '#f8fafc', borderRadius: 8, border: '1px solid var(--emp-border)' }}>
+          <div>
+            <label style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--emp-text-muted)' }}>Branch</label>
+            {branchOptions.length > 1 ? (
+              <select
+                className="emp-select"
+                value={selectedBranch}
+                onChange={(e) => setSelectedBranch(e.target.value)}
+                style={{ fontSize: '0.8rem', padding: '6px 8px', width: '100%' }}
+              >
+                <option value="all">All branches</option>
+                {branchOptions.map((b) => (
+                  <option key={b.id} value={b.id}>{b.name}</option>
+                ))}
+              </select>
+            ) : (
+              <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--emp-primary)', padding: '6px 8px', background: '#fff', borderRadius: 6, border: '1px solid var(--emp-border)' }}>
+                {branchOptions[0]?.name || 'My Branch'}
+              </div>
+            )}
+          </div>
+          <div>
+            <label style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--emp-text-muted)' }}>Center</label>
+            <select
+              className="emp-select"
+              value={selectedCenter}
+              onChange={(e) => setSelectedCenter(e.target.value)}
+              style={{ fontSize: '0.8rem', padding: '6px 8px', width: '100%' }}
+            >
+              <option value="all">All Centers</option>
+              {Array.from(centerMap.entries()).map(([val, label]) => (
+                <option key={val} value={val}>{label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--emp-text-muted)' }}>Staff</label>
+            <select
+              className="emp-select"
+              value={selectedStaff}
+              onChange={(e) => setSelectedStaff(e.target.value)}
+              style={{ fontSize: '0.8rem', padding: '6px 8px', width: '100%' }}
+            >
+              <option value="all">All Staff</option>
+              {Array.from(staffMap.entries()).map(([code, label]) => (
+                <option key={code} value={code}>{label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Point 15: Loan Kind Selector Tabs (Group / Personal / Business / MSME / Product) */}
+        <div style={{ marginTop: 12 }}>
+          <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--emp-text-muted)', textTransform: 'uppercase', marginBottom: 6 }}>
+            Select Category / Loan Kind (Point 15):
+          </div>
+          <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}>
+            {[
+              { id: 'all', label: 'All Dues' },
+              { id: 'group', label: 'Group Loan' },
+              { id: 'personal', label: 'Personal Loan' },
+              { id: 'business', label: 'Business Loan' },
+              { id: 'msme', label: 'MSME Loan' },
+              { id: 'product', label: 'Product Loan' },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                className={loanKindFilter === tab.id ? 'emp-btn-primary' : 'emp-btn-secondary'}
+                style={{
+                  padding: '6px 14px',
+                  fontSize: '0.8rem',
+                  borderRadius: 20,
+                  whiteSpace: 'nowrap',
+                  width: 'auto',
+                }}
+                onClick={() => {
+                  setLoanKindFilter(tab.id);
+                  if (tab.id !== 'group') setSelectedGroup('all');
+                }}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Point 15: Group selector when Group is selected */}
+          {loanKindFilter === 'group' && (
+            <div style={{ marginTop: 10, padding: '10px 12px', background: '#e0f2fe', borderRadius: 8, border: '1px solid #7dd3fc' }}>
+              <label style={{ fontSize: '0.74rem', fontWeight: 700, color: '#0369a1', display: 'block', marginBottom: 4 }}>
+                Select Group to view Group Members (Point 15):
+              </label>
+              <select
+                className="emp-select"
+                value={selectedGroup}
+                onChange={(e) => setSelectedGroup(e.target.value)}
+                style={{ fontSize: '0.82rem', padding: '6px 10px', width: '100%', background: '#fff' }}
+              >
+                <option value="all">All Groups in Branch</option>
+                {centerOptions.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {loanKindFilter !== 'all' && loanKindFilter !== 'group' && (
+            <div style={{ marginTop: 8, fontSize: '0.75rem', color: '#059669', background: '#ecfdf5', padding: '6px 12px', borderRadius: 6, fontWeight: 600 }}>
+              Showing whole branch loans for {loanKindFilter.toUpperCase()} category
+            </div>
+          )}
+        </div>
+
+        {/* Search Option Bar */}
+        <div style={{ marginTop: 12 }}>
+          <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+            <span style={{ position: 'absolute', left: 12, color: 'var(--emp-text-muted)' }}>
+              <Icon name="search" size={16} />
+            </span>
+            <input
+              type="text"
+              className="emp-input"
+              placeholder="Search by borrower name, code, loan A/c, or phone..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{ paddingLeft: 38, width: '100%', fontSize: '0.88rem' }}
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                style={{
+                  position: 'absolute',
+                  right: 12,
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--emp-text-muted)',
+                  cursor: 'pointer',
+                  fontWeight: 800,
+                }}
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Category Filter Chips */}
+        <div style={{ display: 'flex', gap: 6, marginTop: 10, overflowX: 'auto', paddingBottom: 2 }}>
+          {[
+            { id: 'all', label: `All (${scopedNpa.length})` },
+            { id: 'sub-standard', label: `Sub-Standard (${scopedNpa.filter((x) => (x.npaCategory || '').toLowerCase() === 'sub-standard').length})` },
+            { id: 'doubtful', label: `Doubtful (${scopedNpa.filter((x) => (x.npaCategory || '').toLowerCase() === 'doubtful').length})` },
+            { id: 'loss', label: `Loss (${scopedNpa.filter((x) => (x.npaCategory || '').toLowerCase() === 'loss').length})` },
+          ].map((cat) => (
+            <button
+              key={cat.id}
+              type="button"
+              onClick={() => setCategoryFilter(cat.id)}
+              style={{
+                padding: '4px 10px',
+                borderRadius: 20,
+                fontSize: '0.74rem',
+                fontWeight: 700,
+                border: categoryFilter === cat.id ? '2px solid #b91c1c' : '1px solid var(--emp-border)',
+                background: categoryFilter === cat.id ? '#fee2e2' : 'var(--emp-card-bg)',
+                color: categoryFilter === cat.id ? '#991b1b' : 'var(--emp-text)',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {cat.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {message.text && (
+        <div
+          style={{
+            padding: '12px 14px',
+            borderRadius: 8,
+            fontSize: '0.85rem',
+            marginBottom: 12,
+            background: message.type === 'success' ? '#dcfce7' : '#fee2e2',
+            color: message.type === 'success' ? '#166534' : '#991b1b',
+            fontWeight: 700,
+          }}
+        >
+          {message.text}
         </div>
       )}
-      {settlementsInBranch.length > 0 && (
-        <div className="emp-card" style={{ marginTop: 14 }}>
-          <div style={{ fontWeight: 800, fontSize: '0.95rem', marginBottom: 8 }}>Settlement loans ({settlementsInBranch.length})</div>
-          {settlementsInBranch.map((s, idx) => (
-            <div key={`${s.settlementReceiptNo || s.loanId || 's'}-${idx}`} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '8px 0', borderTop: '1px solid var(--emp-border)', fontSize: '0.82rem' }}>
-              <div>
-                <strong>{s.memberName}</strong> · {s.memberCode}
-                <div style={{ color: 'var(--emp-text-muted)', fontSize: '0.72rem' }}>{s.branchName} · Receipt {s.settlementReceiptNo || '—'}</div>
-              </div>
-              <div style={{ textAlign: 'right', fontWeight: 700 }}>
-                ₹{Number(s.totalBalance || 0).toLocaleString('en-IN')}
-                <div style={{ color: 'var(--emp-text-muted)', fontSize: '0.7rem', fontWeight: 400 }}>balance</div>
-              </div>
-            </div>
-          ))}
+
+      {/* NPA List */}
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--emp-text-muted)' }}>
+          Loading NPA loans...
+        </div>
+      ) : error ? (
+        <div style={{ background: '#fee2e2', color: '#991b1b', padding: '12px', borderRadius: 8, fontSize: '0.85rem' }}>
+          {error}
+        </div>
+      ) : filteredNpa.length === 0 && settlementsInBranch.length === 0 ? (
+        <div className="emp-card" style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--emp-text-muted)' }}>
+          <div style={{ color: 'var(--emp-success)', marginBottom: 8 }}><Icon name="shieldcheck" size={40} /></div>
+          <div style={{ fontWeight: 700, fontSize: '1rem', color: '#059669' }}>
+            {scopedNpa.length === 0 ? 'Zero NPA in your portfolio!' : 'No NPA loans match your search'}
+          </div>
+          <div style={{ fontSize: '0.8rem', marginTop: 4 }}>
+            {searchQuery ? 'Try clearing the search query or category filter.' : 'All loan dues and repayments are currently on track.'}
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {filteredNpa.map(renderNpaCard)}
+          {settlementsInBranch.length > 0 && (
+            <>
+              <div style={{ fontWeight: 800, fontSize: '0.95rem', margin: '10px 0 2px' }}>Settlement loans ({settlementsInBranch.length})</div>
+              {settlementsInBranch.map(renderNpaCard)}
+            </>
+          )}
         </div>
       )}
     </div>

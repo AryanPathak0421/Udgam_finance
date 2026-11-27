@@ -4418,6 +4418,9 @@ export async function advancePayment(req, res) {
 // -----------------------------------------------------------------------------
 // 17. NPA RECOVERY (NPA MEMBERS & OVERDUE RECOVERY)
 // -----------------------------------------------------------------------------
+// Loans that are not shown in the NPA list (decided by the management): the loan IDs are listed here.
+const NPA_EXCLUDED_LOANS = ['UDGAMPL00299', 'UDGRP2777'];
+
 export async function getNpaLoans(req, res) {
   const { emp, code: staffCode, branchId, branchIds } = await getEmployeeContext(req);
   const codeRegex = staffCode ? new RegExp(`^${staffCode}$`, 'i') : null;
@@ -4525,6 +4528,7 @@ export async function getNpaLoans(req, res) {
   }
 
   for (const l of loans) {
+    if (NPA_EXCLUDED_LOANS.includes(l.loanId)) continue;
     for (const line of (l.lines || [])) {
       const totalPaidPaise = paymentsByKey.get(`${String(l._id)}_${line.code}`) || 0;
       const totalLoanPaise = line.amountPaise || l.totalAmountPaise || 0;
