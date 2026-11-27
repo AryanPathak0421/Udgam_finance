@@ -618,8 +618,11 @@ export async function createMember(req, res) {
   d.aadhaarPhoto = readImage(b.aadhaarPhoto, 'aadhaarPhoto', 'Aadhaar front photo', v, { required: true });
   d.aadhaarBackPhoto = readImage(b.aadhaarBackPhoto, 'aadhaarBackPhoto', 'Aadhaar back photo', v, { required: true });
   d.signaturePhoto = readImage(b.signaturePhoto, 'signaturePhoto', 'Signature photo', v, { required: true });
-  d.panPhoto = readImage(b.panPhoto, 'panPhoto', 'PAN photo', v, { required: Boolean(d.pan) });
-  d.voterPhoto = readImage(b.voterPhoto, 'voterPhoto', 'Voter photo', v, { required: false });
+  // PAN and Voter ID are both mandatory for a new borrower, and so are their photos.
+  if (!d.pan) v.add('pan', 'PAN number is required');
+  if (!d.voterId) v.add('voterId', 'Voter ID number is required');
+  d.panPhoto = readImage(b.panPhoto, 'panPhoto', 'PAN photo', v, { required: true });
+  d.voterPhoto = readImage(b.voterPhoto, 'voterPhoto', 'Voter photo', v, { required: true });
   d.passbookPhoto = readImage(b.passbookPhoto || b.bankPassbookPhoto, 'passbookPhoto', 'Bank passbook photo', v, { required: false });
   v.throwIfAny();
 

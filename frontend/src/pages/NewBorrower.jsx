@@ -462,6 +462,9 @@ export function BorrowerForm({ branches, options, onCancel, onSaved, member = nu
     else if (pinInfo?.status === 'invalid') found.pincode = 'This pincode does not exist';
     if (form.dob && ageNow !== null && ageNow < 18) found.dob = 'Borrower must be at least 18 years old';
     if (!/^\d{12}$/.test(form.aadhaar)) found.aadhaar = 'Enter the 12-digit Aadhaar number';
+    if (!isEdit && !form.pan) found.pan = 'PAN number is required';
+    if (!isEdit && !form.voterId) found.voterId = 'Voter ID number is required';
+    if (!isEdit && !form.voterPhoto) found.voterPhoto = 'Voter ID photo is required';
     if (form.pan) {
       if (!panValid) found.pan = 'Enter a valid PAN (e.g. ABCDE1234F)';
       else if (form.pan[3] !== 'P') found.pan = 'A borrower PAN must be an individual PAN (4th letter P)';
@@ -625,8 +628,8 @@ export function BorrowerForm({ branches, options, onCancel, onSaved, member = nu
               )}
             </div>
           </FormField>
-          <FormField id="pan" label="PAN number" error={errors.pan}
-            hint={panVerified ? '✓ Verified with CGPey PAN Service' : form.pan && panValid && form.pan[3] === 'P' ? '✓ Format valid. Click verify.' : 'Optional. Format: ABCDE1234F'}>
+          <FormField id="pan" label="PAN number" required={!isEdit} error={errors.pan}
+            hint={panVerified ? '✓ Verified with CGPey PAN Service' : form.pan && panValid && form.pan[3] === 'P' ? '✓ Format valid. Click verify.' : 'Required. Format: ABCDE1234F'}>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               <input id="pan" value={form.pan} onChange={(e) => { setPanVerified(false); setUpper('pan', 10)(e); }} maxLength={10} style={{ flex: 1 }} />
               {form.pan.length === 10 && panValid && (
@@ -642,7 +645,7 @@ export function BorrowerForm({ branches, options, onCancel, onSaved, member = nu
               )}
             </div>
           </FormField>
-          <FormField id="voterId" label="Voter ID number" error={errors.voterId} hint="Optional. Format: ABC1234567">
+          <FormField id="voterId" label="Voter ID number" required={!isEdit} error={errors.voterId} hint="Required. Format: ABC1234567">
             <input id="voterId" value={form.voterId} onChange={setUpper('voterId', 20)} maxLength={20} />
           </FormField>
           <FormField id="bankName" label="Bank name" required error={errors.bankName}>
@@ -678,9 +681,8 @@ export function BorrowerForm({ branches, options, onCancel, onSaved, member = nu
           <PhotoField id="signaturePhoto" label="Signature photo" required value={form.signaturePhoto} error={errors.signaturePhoto} onChange={setPhoto('signaturePhoto')} />
           <PhotoField id="aadhaarPhoto" label="Aadhaar front photo" required value={form.aadhaarPhoto} error={errors.aadhaarPhoto} onChange={setPhoto('aadhaarPhoto')} />
           <PhotoField id="aadhaarBackPhoto" label="Aadhaar back photo" required={!isEdit} value={form.aadhaarBackPhoto} error={errors.aadhaarBackPhoto} onChange={setPhoto('aadhaarBackPhoto')} />
-          <PhotoField id="panPhoto" label="PAN card photo" required={Boolean(form.pan)} value={form.panPhoto} error={errors.panPhoto} onChange={setPhoto('panPhoto')} />
-          <PhotoField id="voterPhoto" label="Voter ID photo (optional)" value={form.voterPhoto} error={errors.voterPhoto} onChange={setPhoto('voterPhoto')} />
-          <PhotoField id="passbookPhoto" label="Bank passbook / statement photo (optional)" value={form.passbookPhoto} error={errors.passbookPhoto} onChange={setPhoto('passbookPhoto')} />
+          <PhotoField id="panPhoto" label="PAN card photo" required={!isEdit || Boolean(form.pan)} value={form.panPhoto} error={errors.panPhoto} onChange={setPhoto('panPhoto')} />
+          <PhotoField id="voterPhoto" label="Voter ID photo" required={!isEdit} value={form.voterPhoto} error={errors.voterPhoto} onChange={setPhoto('voterPhoto')} />
         </div>
       </div>
 
