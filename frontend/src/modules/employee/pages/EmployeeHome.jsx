@@ -322,13 +322,6 @@ export default function EmployeeHome() {
         Financial & Field Operations
       </h4>
       <div className="emp-actions-grid">
-        <div className="emp-action-tile" onClick={() => navigate('/employee/guarantor-nominee')}>
-          <div className="tile-icon" style={{ color: 'var(--emp-primary)' }}>
-            <Icon name="shieldcheck" size={22} />
-          </div>
-          <div className="tile-title">Guarantor &amp; Nominee</div>
-        </div>
-
         <div className="emp-action-tile" onClick={() => navigate('/employee/emi-payment')}>
           <div className="tile-icon" style={{ color: 'var(--emp-primary)' }}>
             <Icon name="rupee" size={22} />
@@ -362,6 +355,13 @@ export default function EmployeeHome() {
             <Icon name="userplus" size={22} />
           </div>
           <div className="tile-title">{t('new_member')}</div>
+        </div>
+
+        <div className="emp-action-tile" onClick={() => navigate('/employee/guarantor-nominee')}>
+          <div className="tile-icon" style={{ color: 'var(--emp-primary)' }}>
+            <Icon name="shieldcheck" size={22} />
+          </div>
+          <div className="tile-title">Guarantor &amp; Nominee</div>
         </div>
 
         <div className="emp-action-tile" onClick={() => navigate('/employee/kyc')}>

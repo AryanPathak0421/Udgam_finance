@@ -1373,7 +1373,8 @@ export async function getStaffRecentMembers(req, res) {
   const { emp, code, branchId } = await getEmployeeContext(req);
   const codeRegex = code ? new RegExp(`^${code}$`, 'i') : null;
   const rawBranchIds = [branchId, emp?.branch, req.user?.branch, ...(req.user?.branches || [])].filter(Boolean);
-  const branchIds = [...new Set(rawBranchIds.map((b) => String(b?.id || b?._id || b)))];
+  // An ObjectId's .id is its raw bytes, not the hex id: use _id (a populated branch) or the value itself.
+  const branchIds = [...new Set(rawBranchIds.map((b) => String(b?._id ?? b)))];
 
   const query = { isDeleted: { $ne: true } };
   // Item 24 Fix: Strictly isolate members by the employee's branch so other branches NEVER show up
