@@ -182,7 +182,7 @@ const stageOf = (w) => {
 const presentWithdrawal = (w, info) => ({
   ...(info ? { info } : {}),
   id: w._id, receiptNo: w.receiptNo, memberCode: w.memberCode, memberName: w.memberName, branch: w.branch?._id ? { id: w.branch._id, code: w.branch.code, name: w.branch.name } : null,
-  stage: stageOf(w), otpVerifiedAt: w.otpVerifiedAt || null, completedByCode: w.completedByCode || '',
+  stage: stageOf(w), otpVerifiedAt: w.otpVerifiedAt || null, completedByCode: w.completedByCode || '', withoutOtp: Boolean(w.withoutOtp),
   kind: w.kind, amount: money(w.amountPaise), interest: money(w.interestPaise || 0), total: money(w.amountPaise + (w.interestPaise || 0)), loanId: w.loanId || '', payMode: w.payMode || '', reference: w.reference || '', remark: w.remark || '', status: w.status, rejectReason: w.rejectReason || '',
   requestedOn: iso(w.createdAt), requestedByCode: w.requestedByCode || '', decidedAt: w.decidedAt || null, decidedByCode: w.decidedByCode || '', emiReceiptNo: w.emiReceiptNo || '',
 });
@@ -479,6 +479,30 @@ export async function verifyWithdrawalOtp(req, res) {
   await w.populate(POPULATE);
   await audit(req, { action: 'securityWithdrawal.complete', entity: 'SecurityWithdrawal', entityId: w._id, after: { receiptNo: w.receiptNo, member: w.memberCode, kind: w.kind, amount: w.amountPaise / 100, emiReceipt: w.emiReceiptNo } });
   res.json({ withdrawal: presentWithdrawal(w) });
+}
+
+/**
+ * Completes an approved withdrawal without the member's OTP. Admins only (the same rule as the commission paid without OTP): the
+ * request is done at once, and the remark is kept in the audit trail. Nothing is done twice: the update applies only while the
+ * request still waits for its OTP.
+ */
+export async function completeWithoutOtp(req, res) {
+  if (!['super_admin', 'admin'].includes(req.user.role)) throw new HttpError(403, 'Only the admin can complete a withdrawal without the OTP');
+  const w = await loadRequest(req);
+  openForOtp(w);
+  const m = await Member.findById(w.member).select('isBlocked');
+  if (m?.isBlocked) throw new HttpError(409, 'This member is blocked. Unblock the member first.');
+  const reason = asString(req.body?.reason).slice(0, 200) || 'completed by the admin without OTP';
+  const done = await SecurityWithdrawal.updateOne(
+    { _id: w._id, status: 'approved', otpRequired: true, otpVerifiedAt: { $exists: false } },
+    { $set: { otpVerifiedAt: new Date(), completedByCode: req.user.employeeCode || '', withoutOtp: true, withoutOtpReason: reason } },
+  );
+  if (!done.modifiedCount) throw new HttpError(409, 'This request was just completed by someone else. Reload and check.');
+  // an OTP that was sent earlier can no longer be used
+  if (w.otpChallenge) await OtpChallenge.updateOne({ _id: w.otpChallenge, consumedAt: { $exists: false } }, { $set: { consumedAt: new Date() } });
+  const fresh = await SecurityWithdrawal.findById(w._id).populate(POPULATE);
+  await audit(req, { action: 'securityWithdrawal.completeWithoutOtp', entity: 'SecurityWithdrawal', entityId: w._id, after: { receiptNo: w.receiptNo, member: w.memberCode, kind: w.kind, amount: w.amountPaise / 100, remark: reason } });
+  res.json({ withdrawal: presentWithdrawal(fresh) });
 }
 
 export async function rejectWithdrawal(req, res) {

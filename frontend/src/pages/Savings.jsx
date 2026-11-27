@@ -122,6 +122,8 @@ function WithdrawalTable({ approval }) {
   const toast = useToast();
   // the admin, or a rank that has Security Approval ticked in Menu Permission (e.g. a supervisor)
   const canApprove = canDo(user, '/savings/approval', 'view');
+  // completing without the member's OTP is for the admin only (as the commission paid without OTP)
+  const adminRole = ['super_admin', 'admin'].includes(user?.role);
   const { f, set, branches } = useFilters();
   const canDecide = approval && canApprove;
   const [status, setStatus] = useState('pending'); // pending | awaiting_otp | completed | rejected | '' (all)
@@ -133,6 +135,9 @@ function WithdrawalTable({ approval }) {
   const [rejecting, setRejecting] = useState(null);
   const [reason, setReason] = useState('');
   const [reasonError, setReasonError] = useState('');
+  const [noOtpFor, setNoOtpFor] = useState(null);
+  const [noOtpReason, setNoOtpReason] = useState('');
+  const [noOtpError, setNoOtpError] = useState('');
   const [busy, setBusy] = useState('');
   const [otpFor, setOtpFor] = useState(null);
   const [otpValue, setOtpValue] = useState('');
@@ -212,6 +217,22 @@ function WithdrawalTable({ approval }) {
     }
   }
 
+  function openNoOtp(w) { setNoOtpFor(w); setNoOtpReason(''); setNoOtpError(''); }
+  async function completeWithoutOtp() {
+    setBusy(noOtpFor.id);
+    setNoOtpError('');
+    try {
+      await api.savings.completeWithoutOtp(noOtpFor.id, noOtpReason.trim());
+      toast.success(`${noOtpFor.receiptNo} completed without the member's OTP`);
+      setNoOtpFor(null);
+      load();
+    } catch (err) {
+      setNoOtpError(err.errors?.reason || err.message);
+    } finally {
+      setBusy('');
+    }
+  }
+
   const tab = (key, label) => <button key={key} className={`btn sm${status === key ? ' primary' : ''}`} style={{ fontWeight: 700, ...(status !== key && key === 'pending' ? { borderColor: '#f59e0b', color: '#92400e' } : {}), ...(status !== key && key === 'awaiting_otp' ? { borderColor: '#3b82f6', color: '#1e3a8a' } : {}) }} onClick={() => setStatus(key)}>{label}{key === 'pending' && data ? ` (${data.pending})` : ''}{key === 'awaiting_otp' && data?.awaitingOtp ? ` (${data.awaitingOtp})` : ''}</button>;
   return (
     <>
@@ -267,7 +288,7 @@ function WithdrawalTable({ approval }) {
                         <span className={`badge ${TONE[w.stage]}`} style={{ ...STAGE_STYLE[w.stage], fontSize: '0.82rem', padding: '3px 10px' }}>{STAGE_LABEL[w.stage]}</span>
                         {w.status === 'rejected' && <div className="muted small">{w.rejectReason}</div>}
                         {w.decidedByCode && <div className="muted small">approved/decided by {w.decidedByCode}</div>}
-                        {w.stage === 'completed' && w.completedByCode && <div className="muted small">OTP verified · {w.completedByCode}</div>}
+                        {w.stage === 'completed' && w.completedByCode && <div className="muted small">{w.withoutOtp ? 'Completed without OTP' : 'OTP verified'} · {w.completedByCode}</div>}
                       </td>
                       <td data-label="Actions" className="actions-col">
                         {canDecide && w.status === 'pending' ? (
@@ -278,6 +299,7 @@ function WithdrawalTable({ approval }) {
                         ) : w.stage === 'awaiting_otp' && !approval && REQUESTERS.includes(user?.role) ? (
                           <div className="row-actions">
                             <button className="btn sm primary" onClick={() => openOtp(w)}>Verify OTP</button>
+                            {adminRole && <button className="btn sm" disabled={busy === w.id} onClick={() => openNoOtp(w)}>Without OTP</button>}
                             {canApprove && <button className="btn sm danger-outline" disabled={busy === w.id} onClick={() => { setRejecting(w); setReason(''); setReasonError(''); }}>Reject</button>}
                           </div>
                         ) : <span className="muted">{w.stage === 'pending' ? 'Waiting for admin' : w.stage === 'awaiting_otp' ? 'Waiting for the member\'s OTP' : '—'}</span>}
@@ -300,6 +322,15 @@ function WithdrawalTable({ approval }) {
           </FormField>
           <button type="button" className="link-btn" disabled={Boolean(busy)} onClick={resendOtp}>Send the OTP again</button>
           {otpNote && <div className="muted small" style={{ marginTop: 6 }}>{otpNote}</div>}
+        </Modal>
+      )}
+      {noOtpFor && (
+        <Modal open title={`Complete ${noOtpFor.receiptNo} without OTP?`} onClose={() => setNoOtpFor(null)} busy={Boolean(busy)}
+          footer={<><button className="btn" onClick={() => setNoOtpFor(null)}>Keep</button><button className="btn primary" onClick={completeWithoutOtp} disabled={Boolean(busy)}>Complete without OTP</button></>}>
+          <p style={{ marginTop: 0 }}>{noOtpFor.memberCode} {noOtpFor.memberName} · {KIND_LABEL[noOtpFor.kind]} · <strong>{inr(noOtpFor.total)}</strong>. The member's OTP is not asked: the request is completed at once, and the remark is kept in the audit trail.</p>
+          <FormField id="noOtpR" label="Remark (optional)" error={noOtpError}>
+            <input id="noOtpR" value={noOtpReason} maxLength={200} autoFocus onChange={(e) => { setNoOtpReason(e.target.value); setNoOtpError(''); }} />
+          </FormField>
         </Modal>
       )}
       {rejecting && (

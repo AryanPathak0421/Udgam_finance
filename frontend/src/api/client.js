@@ -359,6 +359,7 @@ export const api = {
     reject: (id, reason) => request(`/savings/withdrawals/${id}/reject`, { method: 'POST', body: { reason } }),
     sendOtp: (id) => request(`/savings/withdrawals/${id}/send-otp`, { method: 'POST' }),
     verifyOtp: (id, otp) => request(`/savings/withdrawals/${id}/verify-otp`, { method: 'POST', body: { otp } }),
+    completeWithoutOtp: (id, reason) => request(`/savings/withdrawals/${id}/complete-without-otp`, { method: 'POST', body: { reason } }),
   },
   settlements: {
     preview: (params) => request(`/settlements/preview${qs(params)}`),

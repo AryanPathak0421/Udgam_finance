@@ -36,6 +36,9 @@ const securityWithdrawalSchema = new mongoose.Schema(
     otpSentAt: Date,
     otpVerifiedAt: Date,
     completedByCode: String,
+    // completed by an admin without the member's OTP (like the group leader commission paid without OTP); the reason is kept
+    withoutOtp: { type: Boolean, default: false },
+    withoutOtpReason: String,
     emiReceiptNo: String, // adjust: the EMI receipt that was made when the OTP was verified
     requestedByCode: String,
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { requireAuth, requireMenu, requireRole } from '../middleware/auth.js';
 import { asyncHandler as h } from '../utils/http.js';
-import { depositList, securityMembers, memberSavings, requestWithdrawal, withdrawalList, approveWithdrawal, rejectWithdrawal, sendWithdrawalOtp, verifyWithdrawalOtp } from '../controllers/savingsController.js';
+import { depositList, securityMembers, memberSavings, requestWithdrawal, withdrawalList, approveWithdrawal, rejectWithdrawal, sendWithdrawalOtp, verifyWithdrawalOtp, completeWithoutOtp } from '../controllers/savingsController.js';
 
 const router = Router();
 const REQUEST = ['super_admin', 'admin', 'branch_manager', 'accountant']; // who can ask for a withdrawal
@@ -18,5 +18,7 @@ router.post('/savings/withdrawals/:id/approve', requireAuth, requireMenu(APPROVA
 router.post('/savings/withdrawals/:id/reject', requireAuth, requireMenu(APPROVAL, 'view'), h(rejectWithdrawal));
 router.post('/savings/withdrawals/:id/send-otp', requireAuth, requireRole(...REQUEST), h(sendWithdrawalOtp));
 router.post('/savings/withdrawals/:id/verify-otp', requireAuth, requireRole(...REQUEST), h(verifyWithdrawalOtp));
+// without the member's OTP: admins only (like the commission paid without OTP)
+router.post('/savings/withdrawals/:id/complete-without-otp', requireAuth, requireRole('super_admin', 'admin'), h(completeWithoutOtp));
 
 export default router;
