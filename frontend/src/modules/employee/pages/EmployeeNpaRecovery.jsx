@@ -5,7 +5,7 @@ import Icon from '../../../components/Icon.jsx';
 import RazorpayQrStatus from '../../../components/RazorpayQrStatus.jsx';
 
 export default function EmployeeNpaRecovery() {
-  const { t } = useEmployeeApp();
+  const { t, empUser } = useEmployeeApp();
   const [npaLoans, setNpaLoans] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -15,6 +15,7 @@ export default function EmployeeNpaRecovery() {
 
   // Point 4: Dropdown filters (Branch-wise, Center-wise, Staff-wise)
   const [selectedBranch, setSelectedBranch] = useState('all');
+  const [branchReady, setBranchReady] = useState(false);
   const [selectedCenter, setSelectedCenter] = useState('all');
   const [selectedStaff, setSelectedStaff] = useState('all');
 
@@ -120,10 +121,19 @@ export default function EmployeeNpaRecovery() {
   };
 
   // Filter options for dropdowns (Item 18 Fix: Center & Staff options mapped with label & code)
-  const branchOptions = Array.from(new Set(npaLoans.map((i) => i.branchName).filter(Boolean)));
+  // The branches of these loans. The page opens on the branch the employee works in; "All branches" shows every branch.
+  const branchOptions = [...new Map(npaLoans.filter((i) => i.branchId).map((i) => [i.branchId, i.branchName])).entries()].map(([id, name]) => ({ id, name }));
+  const inBranch = (item) => selectedBranch === 'all' || item.branchId === selectedBranch;
+  const scopedNpa = npaLoans.filter(inBranch);
+  const homeBranchId = empUser?.branch?.id ? String(empUser.branch.id) : '';
+  useEffect(() => {
+    if (branchReady || !npaLoans.length) return;
+    if (homeBranchId && npaLoans.some((i) => i.branchId === homeBranchId)) setSelectedBranch(homeBranchId);
+    setBranchReady(true);
+  }, [npaLoans, homeBranchId, branchReady]);
 
   const centerMap = new Map();
-  npaLoans.forEach((i) => {
+  scopedNpa.forEach((i) => {
     const val = i.groupCode || i.groupName;
     if (val && !centerMap.has(val)) {
       const label = i.groupCode && i.groupName && i.groupCode !== i.groupName
@@ -134,7 +144,7 @@ export default function EmployeeNpaRecovery() {
   });
 
   const staffMap = new Map();
-  npaLoans.forEach((i) => {
+  scopedNpa.forEach((i) => {
     const code = (i.staffCode || '').trim();
     if (code && !staffMap.has(code)) {
       const label = i.staffName && i.staffName !== code ? `${code} — ${i.staffName}` : code;
@@ -143,7 +153,7 @@ export default function EmployeeNpaRecovery() {
   });
 
   // Filter NPA loans by dropdowns, search, category, and Point 15 Loan Kind
-  const filteredNpa = npaLoans.filter((item) => {
+  const filteredNpa = scopedNpa.filter((item) => {
     // Point 15 Loan Kind Filter: Group / Personal / Business / MSME / Product
     if (loanKindFilter !== 'all') {
       const itemKind = (item.loanKind || item.loanType || (item.groupName ? 'group' : 'personal')).toLowerCase();
@@ -163,7 +173,7 @@ export default function EmployeeNpaRecovery() {
       }
     }
 
-    if (selectedBranch !== 'all' && item.branchName !== selectedBranch) return false;
+    if (!inBranch(item)) return false;
 
     // Item 18 Fix: Robust case-insensitive Center matching
     if (selectedCenter !== 'all') {
@@ -216,7 +226,7 @@ export default function EmployeeNpaRecovery() {
             </p>
           </div>
           <span className="emp-badge emp-badge-danger" style={{ fontWeight: 800 }}>
-            {npaLoans.length} Total NPA
+            {scopedNpa.length} Total NPA
           </span>
         </div>
 
@@ -231,14 +241,14 @@ export default function EmployeeNpaRecovery() {
                 onChange={(e) => setSelectedBranch(e.target.value)}
                 style={{ fontSize: '0.8rem', padding: '6px 8px', width: '100%' }}
               >
-                <option value="all">Assigned Branches</option>
+                <option value="all">All branches</option>
                 {branchOptions.map((b) => (
-                  <option key={b} value={b}>{b}</option>
+                  <option key={b.id} value={b.id}>{b.name}</option>
                 ))}
               </select>
             ) : (
               <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--emp-primary)', padding: '6px 8px', background: '#fff', borderRadius: 6, border: '1px solid var(--emp-border)' }}>
-                {branchOptions[0] || 'My Branch'}
+                {branchOptions[0]?.name || 'My Branch'}
               </div>
             )}
           </div>
@@ -371,10 +381,10 @@ export default function EmployeeNpaRecovery() {
         {/* Category Filter Chips */}
         <div style={{ display: 'flex', gap: 6, marginTop: 10, overflowX: 'auto', paddingBottom: 2 }}>
           {[
-            { id: 'all', label: `All (${npaLoans.length})` },
-            { id: 'sub-standard', label: `Sub-Standard (${npaLoans.filter((x) => (x.npaCategory || '').toLowerCase() === 'sub-standard').length})` },
-            { id: 'doubtful', label: `Doubtful (${npaLoans.filter((x) => (x.npaCategory || '').toLowerCase() === 'doubtful').length})` },
-            { id: 'loss', label: `Loss (${npaLoans.filter((x) => (x.npaCategory || '').toLowerCase() === 'loss').length})` },
+            { id: 'all', label: `All (${scopedNpa.length})` },
+            { id: 'sub-standard', label: `Sub-Standard (${scopedNpa.filter((x) => (x.npaCategory || '').toLowerCase() === 'sub-standard').length})` },
+            { id: 'doubtful', label: `Doubtful (${scopedNpa.filter((x) => (x.npaCategory || '').toLowerCase() === 'doubtful').length})` },
+            { id: 'loss', label: `Loss (${scopedNpa.filter((x) => (x.npaCategory || '').toLowerCase() === 'loss').length})` },
           ].map((cat) => (
             <button
               key={cat.id}
@@ -427,7 +437,7 @@ export default function EmployeeNpaRecovery() {
         <div className="emp-card" style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--emp-text-muted)' }}>
           <div style={{ color: 'var(--emp-success)', marginBottom: 8 }}><Icon name="shieldcheck" size={40} /></div>
           <div style={{ fontWeight: 700, fontSize: '1rem', color: '#059669' }}>
-            {npaLoans.length === 0 ? 'Zero NPA in your portfolio!' : 'No NPA loans match your search'}
+            {scopedNpa.length === 0 ? 'Zero NPA in your portfolio!' : 'No NPA loans match your search'}
           </div>
           <div style={{ fontSize: '0.8rem', marginTop: 4 }}>
             {searchQuery ? 'Try clearing the search query or category filter.' : 'All loan dues and repayments are currently on track.'}
